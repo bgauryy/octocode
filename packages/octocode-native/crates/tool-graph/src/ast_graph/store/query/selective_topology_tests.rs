@@ -337,7 +337,7 @@ fn a_snapshot_whose_lookup_disagrees_with_its_topology_is_rebuilt_not_reused() {
     );
     assert_eq!(out.class, ExitClass::Success, "{}", out.value);
     assert_ne!(
-        out.value["id"],
+        out.value["graph"],
         json!(id),
         "rebuilt, not reused: {}",
         out.value
@@ -354,7 +354,7 @@ fn a_snapshot_whose_lookup_disagrees_with_its_topology_is_rebuilt_not_reused() {
         &NeverCancel,
         None,
     );
-    assert_eq!(again.value["id"], out.value["id"], "{}", again.value);
+    assert_eq!(again.value["graph"], out.value["graph"], "{}", again.value);
 }
 
 /// Reseals `node`'s `LOOK` key as another record string that keeps the key

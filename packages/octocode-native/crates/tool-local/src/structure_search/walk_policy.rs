@@ -266,6 +266,14 @@ impl<'a> WalkLeft<'a> {
         unreadable: (u32, u32),
     ) -> Uncovered {
         let covered = |position: &u32| *position <= through;
+        // The path policy comes before the ignore rules: an ignored entry it
+        // denies is withheld (counted under its holding directory), never
+        // named as ignored.
+        let (ignored, denied): (Vec<String>, Vec<String>) =
+            ignored.into_iter().partition(|entry| {
+                let path = self.root.join(entry.trim_end_matches('/'));
+                self.admission.permits(&path, None) || !reports_withheld(&path)
+            });
         let behind_ignore = ignored
             .iter()
             .filter_map(|entry| entry.strip_suffix('/'))
@@ -273,6 +281,9 @@ impl<'a> WalkLeft<'a> {
             .map(str::to_owned)
             .collect::<Vec<_>>();
         let mut withheld = octocode_runtime_base::policy::discovery::Withheld::default();
+        for entry in &denied {
+            withheld.record(&self.root.join(entry.trim_end_matches('/')));
+        }
         for (_, path) in self
             .withheld
             .into_inner()

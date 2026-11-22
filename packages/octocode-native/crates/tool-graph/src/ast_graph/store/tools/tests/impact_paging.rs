@@ -48,7 +48,7 @@ fn impact_counts_summary_lists_and_pages_each_through_its_own_call() {
     let impact = call(
         &dir.0,
         ToolId::GraphQuery,
-        json!({"operation":"impact","path":"app","graph":built["id"],"target":"src/lib.rs#target","limit":7}),
+        json!({"operation":"impact","path":"app","graph":built["graph"],"target":"src/lib.rs#target","limit":7}),
     );
     let summary = &impact["summary"];
     assert_eq!(summary["testFunctions"], count, "{impact}");
@@ -97,7 +97,7 @@ fn impact_refuses_a_list_it_does_not_count() {
     );
     let row = octocode_runtime_base::contracts::validate_built_query(
         "graphQuery",
-        json!({"operation":"impact","path":"app","graph":built["id"],"target":"src/lib.rs","list":"cycleNodes"}),
+        json!({"operation":"impact","path":"app","graph":built["graph"],"target":"src/lib.rs","list":"cycleNodes"}),
     )
     .expect("input contract");
     let refused = execute(ToolId::GraphQuery, &row, &dir.0, &context()).expect("execute");
@@ -146,7 +146,7 @@ fn impact_since_emits_every_declared_list_channel() {
     let impact = call(
         &dir.0,
         ToolId::GraphQuery,
-        json!({"operation":"impact","path":"app","graph":built["id"],"since":"HEAD"}),
+        json!({"operation":"impact","path":"app","graph":built["graph"],"since":"HEAD"}),
     );
     for channel in super::super::super::impact::LISTS {
         let count = impact["summary"][channel].as_u64().unwrap_or(0);

@@ -42,13 +42,13 @@ octocode graphQuery '{"queries":[{"operation":"hubs","path":"src","kind":"file",
 octocode graphQuery '{"queries":[{"operation":"impact","path":"src","target":"src/config.ts"}]}'
 ```
 
-Set `path` to the build's scope. Omit `graph` to read the newest snapshot of that exact path, or pass the build's `id`. `octocode schema graphQuery --view query --select operation=<value>` lists the fields one operation takes.
+Set `path` to the build's scope. Omit `graph` to read the newest snapshot of that exact path, or pass the build receipt's `graph` value. `octocode schema graphQuery --view query --select operation=<value>` lists the fields one operation takes.
 
 | Question | `operation` | Required fields |
 |---|---|---|
 | Size, coverage, unlinked calls | `stats`, `unresolved`, `diagnostics`, `stale` | none |
 | Find a node | `find`, `candidates`, `node`, `symbols` | `target` (except `find`, `symbols`) |
-| Imports and importers | `deps`, `dependents` | `target` |
+| Imports and export consumers | `deps`, `dependents` | `target` |
 | Callers and callees | `callers`, `callees`, `walk` | `target` |
 | How A reaches B | `path` | `target`, `to` |
 | Most depended on | `hubs` | none. `rankBy`: `degree` (default) or `pageRank` |
@@ -60,6 +60,8 @@ Set `path` to the build's scope. Omit `graph` to read the newest snapshot of tha
 | Every occurrence behind an edge | `witnesses` | none |
 
 Narrowing: `kind` (`file`, `symbol` or `package`), `confidence` (see [Read the answer](#read-the-answer)), `edges` (`contains`, `imports`, `uses`, `calls`, `inherits`, `passes`), `direction` and `depth` for traversal, and `limit` (rows per page, default 50; `responseChars` can end a page first).
+
+The default inward `dependents` walk for a file includes imports and uses of its exports through re-exporting modules. Node rows identify these uses with `edge: "uses"` and `via: "reexport"`. The `files` and `modules` views count both kinds and offer an import-only call in `related`. Pass `edges: ["imports"]` to follow only imports.
 
 ## Read the answer
 

@@ -836,3 +836,33 @@ fn twin_records_state_their_text_once() {
         rows[4]
     );
 }
+
+/// A compact row never pairs one record's severity word with another's CVSS
+/// vectors: a lead record with vectors only, beside a twin with a word, states
+/// the word alone.
+#[test]
+fn a_row_never_pairs_a_twins_severity_with_the_leads_vectors() {
+    let vector = "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N";
+    let cve = row(
+        json_fixture(&format!(
+            r#"{{"id": "CVE-2024-1", "severity": [{{"type": "CVSS_V3", "score": "{vector}"}}]}}"#
+        )),
+        ArtifactType::Npm,
+        "a",
+    );
+    let ghsa = row(
+        json_fixture(
+            r#"{"id": "GHSA-aaaa-bbbb-cccc", "aliases": ["CVE-2024-1"],
+                "database_specific": {"severity": "HIGH"}}"#,
+        ),
+        ArtifactType::Npm,
+        "a",
+    );
+    for group in [[&cve, &ghsa], [&ghsa, &cve]] {
+        let brief = group_brief(&group);
+        assert_eq!(brief["severity"], "high", "{brief}");
+        assert!(brief.get("cvss").is_none(), "{brief}");
+    }
+    // Alone, the vectors are still stated.
+    assert_eq!(group_brief(&[&cve])["cvss"][0]["vector"], vector);
+}

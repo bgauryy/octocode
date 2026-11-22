@@ -17,6 +17,48 @@ fn bare_issue_number_keywords_offer_the_issue_links_read() {
     assert!(issue_links_read(&words).is_none());
 }
 
+#[test]
+fn a_capped_search_omits_unchanged_narrowing_and_keeps_its_page_walk() {
+    let boundary = "2026-04-01T08:00:00Z";
+    let read = |row: Value| {
+        let query =
+            HistorySearch::new(serde_json::from_value(row).expect("query")).expect("search");
+        let page = octocode_github::HistoryPage {
+            total_count: octocode_github::SEARCH_RESULT_CAP + 1,
+            incomplete_results: false,
+            items: vec![json!({
+                "number": 1, "title": "boundary result", "state": "closed",
+                "created_at": boundary,
+            })],
+            warnings: Vec::new(),
+            listed: false,
+            has_more: false,
+        };
+        let paging = super::shape::Paging::new(&page, 1, 1);
+        super::shape::shape(&query, page, &paging, String::new())
+    };
+    for operation in ["pullRequest", "issue"] {
+        let first = read(json!({
+            "operation": operation, "owner": "o", "repo": "r", "limit": 1,
+            "filters": {"state": "closed", "createdAt": {"to": "2026-04-02T00:00:00Z"}},
+        }));
+        let narrowed = first["calls"]["narrowScope"]["input"]["queries"][0].clone();
+        assert_eq!(narrowed["filters"]["createdAt"]["to"], boundary, "{first}");
+
+        let second = read(narrowed);
+        assert!(second["calls"].get("narrowScope").is_none(), "{second}");
+        assert_eq!(
+            second["calls"]["nextPage"]["tool"], "ghSearchHistory",
+            "{second}"
+        );
+        assert_eq!(
+            second["partialReasons"],
+            json!(["providerResultCap"]),
+            "{second}"
+        );
+    }
+}
+
 /// commits, pull requests and issues all take `since`/`until`).
 #[test]
 fn empty_searches_offer_a_broader_search() {

@@ -57,7 +57,7 @@ fn issues_name_the_manifest_above_a_subdirectory_snapshot() {
     // The notes, without what rows of a detector share (`shared`): a row's
     // evidence may name the manifest its entrypoints came from.
     let notes = |snapshot: &GraphOutput| {
-        let id = snapshot.value["id"].as_str().expect("id").to_owned();
+        let id = snapshot.value["graph"].as_str().expect("id").to_owned();
         let notes = ask(root, "issues", None, |o| {
             o.graph = Some(id);
             o.min_tier = Some(0);
@@ -137,7 +137,7 @@ fn a_snapshot_below_its_package_root_states_no_tier_90_dead_code_and_leads_to_th
             })
             .and_then(|row| row["tier"].as_u64())
     };
-    let src_id = src.value["id"].as_str().expect("id").to_owned();
+    let src_id = src.value["graph"].as_str().expect("id").to_owned();
 
     let listed = issues(&src_id, None);
     assert!(
@@ -176,7 +176,7 @@ fn a_snapshot_below_its_package_root_states_no_tier_90_dead_code_and_leads_to_th
     let path = call["input"]["queries"][0]["path"].as_str().expect("path");
     let app = ingest_root(root, &root.join(path), None, false);
     assert_eq!(app.class, ExitClass::Success, "{}", app.value);
-    let app_id = app.value["id"].as_str().expect("id").to_owned();
+    let app_id = app.value["graph"].as_str().expect("id").to_owned();
     let judged = issues(&app_id, Some(0));
     assert!(
         export_tier(&judged, "unusedAnywhere") >= Some(90),

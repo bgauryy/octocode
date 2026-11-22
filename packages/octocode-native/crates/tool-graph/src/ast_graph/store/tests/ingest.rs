@@ -25,7 +25,7 @@ fn ingest_redacts_secrets_before_the_snapshot_reaches_the_disk() {
     );
     let out = ingest_fixture(dir.0.as_path(), None);
     assert_eq!(out.class, ExitClass::Success, "{}", out.value);
-    let id = out.value["id"].as_str().expect("id");
+    let id = out.value["graph"].as_str().expect("id");
     let snapshot = dir.0.as_path().join(".octocode").join("graph").join(id);
     for file in [GRAPH_FILE, MANIFEST_FILE] {
         let bytes = std::fs::read(snapshot.join(file)).expect("snapshot file");
@@ -43,7 +43,7 @@ fn ingest_publishes_a_snapshot_under_the_workspace() {
     let dir = fixture();
     let out = ingest_fixture(dir.0.as_path(), None);
     assert_eq!(out.class, ExitClass::Success, "{}", out.value);
-    let id = out.value["id"].as_str().expect("id");
+    let id = out.value["graph"].as_str().expect("id");
     assert!(id.contains("-app-"), "{id}");
     let home = dir.0.as_path().join(".octocode").join("graph");
     assert_eq!(
@@ -500,7 +500,7 @@ fn the_walk_flags_widen_the_scan_and_are_part_of_the_snapshot_identity() {
         scanned(&plain) + 1,
         "{with_ignored}"
     );
-    assert_ne!(with_ignored["id"], plain["id"]);
+    assert_ne!(with_ignored["graph"], plain["graph"]);
     let hidden = build(WalkScope {
         ignore: IgnorePolicy {
             include_ignored: false,
@@ -531,7 +531,7 @@ fn the_walk_flags_widen_the_scan_and_are_part_of_the_snapshot_identity() {
     // Reuse answers the newest snapshot only: the same walk twice in a row.
     let first = build(ignored);
     let again = build(ignored);
-    assert_eq!(again["id"], first["id"], "same walk reuses: {again}");
+    assert_eq!(again["graph"], first["graph"], "same walk reuses: {again}");
 }
 
 /// A file a `parserGlobs` rule maps to a grammar, under an extension no

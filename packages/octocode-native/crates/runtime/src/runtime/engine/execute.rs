@@ -125,12 +125,6 @@ impl ToolRuntime {
                 return Err(error);
             }
         };
-        if id == ToolId::GhCloneRepo && input.get("cursor").is_some() {
-            return Err(RuntimeError::new(
-                ErrorCode::InvalidInput,
-                "ghCloneRepo does not retain saved responses; provide queries for a fresh checkout.",
-            ));
-        }
         let clasify = id.is_clasify();
         let access = page_replay_key("", &[], &[], admission.github_credential());
         let opened = if let Some(token) = input

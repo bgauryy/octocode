@@ -59,6 +59,45 @@ fn path_only_rows_state_only_a_proven_index_commit() {
     }
 }
 
+#[test]
+fn path_projection_distinguishes_unverified_paths_from_absent_paths() {
+    use super::super::lines::FileHits;
+
+    let query = serde_json::from_value(json!({
+        "owner": "o", "repo": "r", "ref": "release", "keywords": ["needle"], "fields": ["path"]
+    }))
+    .expect("query");
+    let mut rows = [
+        json!({ "path": "present.rs" }),
+        json!({ "path": "absent.rs" }),
+        json!({ "path": "unavailable.rs" }),
+    ];
+    let commit = "a".repeat(40);
+    let resolution = Resolution {
+        sha: Some(commit.clone()),
+        reference: Some("release".into()),
+        hits: [
+            FileHits::Unmatched,
+            FileHits::Missing,
+            FileHits::Unavailable,
+        ]
+        .into_iter()
+        .map(|hits| (commit.clone(), hits))
+        .collect(),
+        unlisted: Vec::new(),
+    };
+    let reads = shape_files(&mut rows, &query, &|_| false, Some(resolution));
+    let [present, absent, unverified] = &rows;
+    assert!(present.get("lineResolved").is_none(), "{present}");
+    assert!(present.get("matchCount").is_none(), "{present}");
+    assert_eq!(absent["atRef"], false, "{absent}");
+    assert!(unverified.get("atRef").is_none(), "{unverified}");
+    assert_eq!(unverified["lineResolved"], false, "{unverified}");
+    assert_eq!(reads.unverified_at_ref, 1);
+    assert!(reads.hits.is_empty());
+    assert!(rows.iter().all(|row| row["commitSha"] == commit));
+}
+
 /// Missing commit metadata cannot silently remove the requested source lines.
 /// Every unresolved row retains its own read, without an invented immutable ref.
 #[test]

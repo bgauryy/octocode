@@ -175,7 +175,7 @@ fn callers_state_the_call_sites_that_only_name_the_target() {
     assert!(
         out.value
             .to_string()
-            .contains("1 call site names the target but their receiver could not be resolved"),
+            .contains("1 call site names the target but could not be linked to it"),
         "{} {}",
         out.value,
         named.value
@@ -234,7 +234,7 @@ fn callers_with_rows_and_unresolved_sites_are_partial_with_the_count() {
     );
     assert!(
         partial.value["warnings"].to_string().contains(
-            "3 call sites name the target but their receiver could not be resolved; related lists them by name; text search may find more"
+            "3 call sites name the target but could not be linked to it; related lists them by name; text search may find more"
         ),
         "{}",
         partial.value
@@ -261,7 +261,7 @@ fn callers_with_rows_and_unresolved_sites_are_partial_with_the_count() {
         !complete
             .value
             .to_string()
-            .contains("receiver could not be resolved"),
+            .contains("could not be linked to it"),
         "{}",
         complete.value
     );

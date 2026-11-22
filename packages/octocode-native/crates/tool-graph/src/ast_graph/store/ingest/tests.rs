@@ -96,7 +96,10 @@ fn build_lock_free(home: &Path) -> bool {
 }
 
 fn id(output: &GraphOutput) -> String {
-    output.value["id"].as_str().expect("snapshot id").to_owned()
+    output.value["graph"]
+        .as_str()
+        .expect("snapshot id")
+        .to_owned()
 }
 
 #[test]
@@ -429,7 +432,7 @@ fn an_edit_during_the_build_publishes_what_was_read_and_marks_it_stale() {
     );
     let stale = &stale.expect("stale lead")["input"]["queries"][0];
     assert_eq!(stale["operation"], "stale", "{stale}");
-    assert_eq!(stale["graph"], built.value["id"], "{stale}");
+    assert_eq!(stale["graph"], built.value["graph"], "{stale}");
     assert_eq!(
         rebuild.expect("rebuild lead")["input"]["queries"][0]["path"],
         "a"
@@ -438,7 +441,7 @@ fn an_edit_during_the_build_publishes_what_was_read_and_marks_it_stale() {
     let rows = query(
         &QueryOptions {
             op: "stale".into(),
-            graph: built.value["id"].as_str().map(str::to_owned),
+            graph: built.value["graph"].as_str().map(str::to_owned),
             workspace: Some(root.clone()),
             ..QueryOptions::default()
         },

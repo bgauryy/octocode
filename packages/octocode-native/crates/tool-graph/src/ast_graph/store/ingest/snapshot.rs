@@ -261,7 +261,7 @@ fn pruned_warnings(pruned: &[super::super::snapshots::Pruned], keep: usize) -> V
 /// a fresh build and an unchanged scope's reuse answer alike.
 pub(super) fn receipt(id: &str, dir: &Path, manifest: &Value, started: Instant) -> Value {
     let mut receipt = json!({
-        "id": id,
+        "graph": id,
         "dir": dir.to_string_lossy(),
         "root": manifest["root"],
         "bytes": manifest["graph"]["bytes"],

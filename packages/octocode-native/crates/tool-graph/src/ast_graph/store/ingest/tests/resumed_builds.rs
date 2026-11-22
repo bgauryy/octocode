@@ -152,7 +152,7 @@ fn a_build_out_of_budget_pauses_with_a_resumable_answer() {
         "{}",
         paused.value
     );
-    assert!(paused.value.get("id").is_none() && paused.value.get("errorCode").is_none());
+    assert!(paused.value.get("graph").is_none() && paused.value.get("errorCode").is_none());
     let built = run(&root, "a", &NeverCancel);
     assert_eq!(built.class, ExitClass::Success, "{}", built.value);
 }

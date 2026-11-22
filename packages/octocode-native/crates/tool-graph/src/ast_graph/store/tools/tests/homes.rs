@@ -36,7 +36,7 @@ fn a_query_from_another_workspace_names_both_homes() {
         .join("graph");
     for row in [
         json_fixture(r#"{"operation": "stats", "path": "."}"#),
-        json!({"operation":"stats","path":".","graph":built["id"]}),
+        json!({"operation":"stats","path":".","graph":built["graph"]}),
     ] {
         let row = octocode_runtime_base::contracts::validate_built_query(
             ToolId::GraphQuery.as_str(),
@@ -289,9 +289,9 @@ fn a_file_path_offers_a_call_that_answers() {
         // A pinned graph of `ws` holds the file: its scope wins over the
         // nearer `ws/app`, and the pin stays.
         let whole = run(ToolId::GraphBuild, json_fixture(r#"{"path": "ws"}"#));
-        let pinned = json!({"operation":"stats","path":"ws/app/a.ts","graph":whole["id"]});
+        let pinned = json!({"operation":"stats","path":"ws/app/a.ts","graph":whole["graph"]});
         let lead = repair_of(&run(ToolId::GraphQuery, pinned), "ws");
-        assert_eq!(lead["input"]["queries"][0]["graph"], whole["id"], "{lead}");
+        assert_eq!(lead["input"]["queries"][0]["graph"], whole["graph"], "{lead}");
         answers(&lead);
     }
 }
@@ -331,7 +331,7 @@ fn a_snapshot_asked_at_another_path_names_its_own_scope() {
         ToolId::GraphBuild,
         json_fixture(r#"{"path": "app"}"#),
     );
-    let id = built["id"].as_str().expect("graph id");
+    let id = built["graph"].as_str().expect("graph id");
     call(
         &dir.0,
         ToolId::GraphBuild,

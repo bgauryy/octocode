@@ -18888,14 +18888,14 @@
             "errorCode": {
               "$ref": "#/$defs/ErrorCode"
             },
+            "graph": {
+              "type": "string"
+            },
             "hints": {
               "$ref": "#/$defs/RowHints"
             },
             "httpStatus": {
               "$ref": "#/$defs/_h29"
-            },
-            "id": {
-              "type": "string"
             },
             "isPartial": {
               "type": "boolean"
@@ -18959,7 +18959,7 @@
             }
           },
           "required": [
-            "id"
+            "graph"
           ],
           "type": "object"
         },
@@ -18992,14 +18992,14 @@
             "errorCode": {
               "$ref": "#/$defs/ErrorCode"
             },
+            "graph": {
+              "type": "string"
+            },
             "hints": {
               "$ref": "#/$defs/RowHints"
             },
             "httpStatus": {
               "$ref": "#/$defs/_h29"
-            },
-            "id": {
-              "type": "string"
             },
             "isPartial": {
               "type": "boolean"
@@ -19096,14 +19096,14 @@
             "errorCode": {
               "$ref": "#/$defs/ErrorCode"
             },
+            "graph": {
+              "type": "string"
+            },
             "hints": {
               "$ref": "#/$defs/RowHints"
             },
             "httpStatus": {
               "$ref": "#/$defs/_h29"
-            },
-            "id": {
-              "type": "string"
             },
             "isPartial": {
               "type": "boolean"
@@ -28522,7 +28522,7 @@
     "restart": "branch",
     "retry": "branch"
   },
-  "fingerprint": "61ba9e9e337cb05a0247d9cdc72c40cf687cfcfd2a2205dff78262cee473aa75",
+  "fingerprint": "064df0a90c78f7a3153e55a9fb33af65e8ac843681453fa8911cc49af4a08865",
   "limits": {
     "defaultReadContextLines": 0,
     "defaultResponseChars": 20000,
@@ -28971,7 +28971,7 @@
           "/rowPart"
         ],
         "required": [
-          "/data/id"
+          "/data/graph"
         ],
         "requiredEvidence": [
           "/data",

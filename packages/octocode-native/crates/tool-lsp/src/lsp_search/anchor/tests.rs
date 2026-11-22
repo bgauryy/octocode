@@ -211,6 +211,39 @@ fn only_a_moved_anchor_warns() {
     assert!(!warning.contains("alternatives"), "{warning}");
 }
 
+/// A `line` far from every spelling resolves to the file's one declaration;
+/// the other lines that spell the name may belong to another symbol of that
+/// name, so the row's warning names every one of them, not only the nearest
+/// on each side.
+#[test]
+fn a_far_line_resolving_to_the_declaration_warns_of_every_other_spelling() {
+    let source = format!(
+        "fn check() {{}}\n{}fn a() {{ check(); }}\n{}fn b() {{ check(); }}\n{}fn c() {{ check(); }}\n",
+        "// filler\n".repeat(30),
+        "// filler\n".repeat(30),
+        "// filler\n".repeat(30),
+    );
+    let calls: Vec<u32> = source
+        .lines()
+        .enumerate()
+        .filter(|(index, line)| *index > 0 && line.contains("check()"))
+        .map(|(index, _)| u32::try_from(index).expect("line") + 1)
+        .collect();
+    assert_eq!(calls.len(), 3);
+    let asked = 1 + 2 * DEFAULT_RADIUS as u32 + 1;
+    let anchor = resolve_anchor(
+        &line_query("check", asked),
+        "/w/a.rs",
+        "file:///w/a.rs",
+        Some(&source),
+    )
+    .expect("anchor");
+    let warning = anchor.warning.expect("a moved anchor warns");
+    for line in calls {
+        assert!(warning.contains(&line.to_string()), "{line}: {warning}");
+    }
+}
+
 /// A line past the end of the file names no line of it: the read is
 /// refused, stating the file's length and the lines that spell the name, so
 /// no identity is chosen by name alone.

@@ -19,7 +19,7 @@ fn builds_pages_and_freshness_are_workspace_scoped() {
     assert!(
         dir.0
             .join(".octocode/graph")
-            .join(built["id"].as_str().expect("id"))
+            .join(built["graph"].as_str().expect("id"))
             .is_dir(),
         "{built}"
     );
@@ -32,13 +32,13 @@ fn builds_pages_and_freshness_are_workspace_scoped() {
         ToolId::GraphBuild,
         json_fixture(r#"{"path": "app"}"#),
     );
-    assert_eq!(built["id"], again["id"], "{again}");
+    assert_eq!(built["graph"], again["graph"], "{again}");
     let rebuilt = call(
         &dir.0,
         ToolId::GraphBuild,
         json_fixture(r#"{"path": "app", "refresh": true}"#),
     );
-    assert_ne!(built["id"], rebuilt["id"], "{rebuilt}");
+    assert_ne!(built["graph"], rebuilt["graph"], "{rebuilt}");
     assert!(rebuilt.get("reused").is_none(), "{rebuilt}");
     for key in ["root", "counts", "linkage", "scan"] {
         assert!(!built[key].is_null(), "{key} missing: {built}");
@@ -54,7 +54,7 @@ fn builds_pages_and_freshness_are_workspace_scoped() {
     assert!(
         dir.0
             .join(".octocode/graph")
-            .join(rebuilt["id"].as_str().expect("id"))
+            .join(rebuilt["graph"].as_str().expect("id"))
             .is_dir(),
         "{rebuilt}"
     );
@@ -63,7 +63,7 @@ fn builds_pages_and_freshness_are_workspace_scoped() {
         ToolId::GraphQuery,
         built["related"][0]["input"]["queries"][0].clone(),
     );
-    assert_eq!(stats["graph"]["id"], built["id"]);
+    assert_eq!(stats["graph"]["id"], built["graph"]);
     let callers = call(
         &dir.0,
         ToolId::GraphQuery,
@@ -98,7 +98,7 @@ fn builds_pages_and_freshness_are_workspace_scoped() {
         let page = call(&dir.0, ToolId::GraphQuery, row);
         // The latest snapshot of the scope serves it; another scope's build
         // and the older snapshot do not take its place.
-        assert_eq!(page["graph"]["id"], rebuilt["id"]);
+        assert_eq!(page["graph"]["id"], rebuilt["graph"]);
         assert!(page.get("freshness").is_none(), "{page}");
         for item in page["rows"].as_array().expect("results") {
             assert!(keys.insert(item.to_string()), "duplicate row");
@@ -116,13 +116,13 @@ fn builds_pages_and_freshness_are_workspace_scoped() {
     let stale = call(
         &dir.0,
         ToolId::GraphQuery,
-        json!({"operation":"stats", "path":"app", "graph":built["id"]}),
+        json!({"operation":"stats", "path":"app", "graph":built["graph"]}),
     );
     assert_eq!(stale["freshness"]["fresh"], false);
     let wrong = call(
         &dir.0,
         ToolId::GraphQuery,
-        json!({"operation":"stats", "path":"other", "graph":built["id"]}),
+        json!({"operation":"stats", "path":"other", "graph":built["graph"]}),
     );
     assert_eq!(wrong["errorCode"], "invalidInput");
 }
@@ -152,7 +152,7 @@ fn simultaneous_builds_each_publish_a_complete_snapshot_under_retention() {
     let ids_of = |outputs: &[Value]| {
         outputs
             .iter()
-            .map(|out| out["id"].as_str().expect("id").to_owned())
+            .map(|out| out["graph"].as_str().expect("id").to_owned())
             .collect::<BTreeSet<_>>()
     };
     let outputs = simultaneous(json!({"keep": KEEP, "refresh": true}));
@@ -231,7 +231,7 @@ fn a_paused_build_resumes_through_expand_scan_without_refresh() {
     assert!(row.get("refresh").is_none(), "{data}");
     // The resumed call builds the scope.
     let built = call(&dir.0, ToolId::GraphBuild, row.clone());
-    assert!(built["id"].is_string(), "{built}");
+    assert!(built["graph"].is_string(), "{built}");
 }
 
 /// A build whose source files all sit behind ignore rules or the default
@@ -454,7 +454,7 @@ fn a_snapshot_of_another_analysis_version_leads_to_its_rebuild() {
         ToolId::GraphBuild,
         json_fixture(r#"{"path": "app"}"#),
     );
-    let id = built["id"].as_str().expect("id");
+    let id = built["graph"].as_str().expect("id");
     let snapshot = dir.0.join(".octocode/graph").join(id);
     let mut manifest = read_manifest(&snapshot).expect("manifest");
     manifest["analysisVersion"] = json!(crate::ast_graph::ANALYSIS_VERSION - 1);
@@ -491,7 +491,7 @@ fn a_snapshot_of_another_analysis_version_leads_to_its_rebuild() {
         ToolId::GraphBuild,
         lead["input"]["queries"][0].clone(),
     );
-    assert_ne!(rebuilt["id"], built["id"], "{rebuilt}");
+    assert_ne!(rebuilt["graph"], built["graph"], "{rebuilt}");
     let callers = call(
         &dir.0,
         ToolId::GraphQuery,
@@ -503,6 +503,6 @@ fn a_snapshot_of_another_analysis_version_leads_to_its_rebuild() {
             }"#,
         ),
     );
-    assert_eq!(callers["graph"]["id"], rebuilt["id"], "{callers}");
+    assert_eq!(callers["graph"]["id"], rebuilt["graph"], "{callers}");
     assert_eq!(callers["rows"][0]["id"], "app/a.ts#final", "{callers}");
 }

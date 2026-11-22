@@ -239,7 +239,7 @@ async fn execute_within(
         query,
         &items,
         &data.items,
-        commit,
+        commit.clone(),
         context,
         withholds,
     )
@@ -251,7 +251,7 @@ async fn execute_within(
     let capped = held < items.len();
     // The page reads the files of the rows its window holds; the rest is the
     // next part of the same page.
-    let (resolution, unshown) = match plan {
+    let (mut resolution, unshown) = match plan {
         Some(mut plan) => {
             let endpoint = provider.transport.endpoint();
             // A capped page is never shown whole: its rows have a part's room.
@@ -295,12 +295,17 @@ async fn execute_within(
     let more_pages = current < data.pages;
     let continues_page = within.is_some();
     let more = more_pages || continues_page;
+    if resolution.is_none() {
+        code_output::index_commits(&mut items, &data.items, query);
+        // A page without lines still says which of its rows the ref lacks.
+        resolution = code_output::verify_at_ref(
+            provider, query, &items, commit, context, security, withholds,
+        )
+        .await?;
+    }
     let resolved_sha = resolution
         .as_ref()
         .and_then(|resolution| resolution.sha.clone());
-    if resolution.is_none() {
-        code_output::index_commits(&mut items, &data.items, query);
-    }
     let reads = code_output::shape_files(&mut items, query, withholds, resolution);
     disclose_reads(&mut value, &reads, context);
     // Rows of identical evidence merge into one; the page counts files.

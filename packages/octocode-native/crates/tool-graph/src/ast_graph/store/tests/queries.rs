@@ -309,7 +309,7 @@ fn ambiguous_reference_pages_every_candidate() {
     write_under(&dir, "app/src", &files);
     let root = dir.0.as_path();
     let ingested = ingest_fixture(root, None);
-    let id = ingested.value["id"].as_str().expect("id").to_owned();
+    let id = ingested.value["graph"].as_str().expect("id").to_owned();
     let out = ask(root, "callers", Some("run"), |_| {});
     assert_eq!(
         out.class,

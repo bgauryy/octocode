@@ -50,6 +50,29 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError, sent
         && issues
             .iter()
             .all(|issue| issue.rule_id.starts_with("security."));
+    // A source anchor or a time bound needs a caller-supplied value. The
+    // diagnostic already names how to obtain or format it.
+    let needs_input = issues.iter().any(|issue| {
+        issue.rule_id == "schema.pattern"
+            && issue
+                .schema
+                .as_ref()
+                .and_then(|schema| schema["format"].as_str())
+                == Some("date-time")
+            || tool_name == "lspSearch"
+                && issue.rule_id == "schema.required"
+                && issue.path.get(2).is_some_and(|field| field == "line")
+                && issue
+                    .path
+                    .get(1)
+                    .and_then(|index| index.parse::<usize>().ok())
+                    .and_then(|index| sent["queries"].get(index))
+                    .is_some_and(|row| row["path"].is_string() || row["symbolName"].is_string())
+    });
+    let merged_state = issues
+        .iter()
+        .copied()
+        .find(|issue| issue.rule_id == "history.pull-request-state");
     let details = issues
         .into_iter()
         .map(|issue| {
@@ -90,8 +113,12 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError, sent
         .collect::<Vec<_>>();
     // A request field sent inside a row, or a refused value, has one repair,
     // stated whole: a fresh example beside it would point away from it.
-    let reference = if !misplaced.is_empty() || value_refused {
+    let reference = if !misplaced.is_empty() || value_refused || needs_input {
         Vec::new()
+    } else if let Some(issue) = merged_state {
+        merged_state_example(tool_name, sent, issue)
+            .into_iter()
+            .collect()
     } else {
         match renamed {
             None => call_reference(tool_name, sent_row(error, sent).as_ref()),
@@ -109,6 +136,23 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError, sent
         }
     };
     issues_error(details, reference)
+}
+
+/// Retain the explicit merged selection and drop the conflicting state.
+fn merged_state_example(tool: &str, sent: &Value, issue: &ValidationIssue) -> Option<String> {
+    let [queries, index, fields @ .., _] = issue.path.as_slice() else {
+        return None;
+    };
+    if queries != "queries" {
+        return None;
+    }
+    let mut row = sent[queries].get(index.parse::<usize>().ok()?)?.clone();
+    row.pointer_mut(&crate::json_pointer::of(fields))?
+        .as_object_mut()?
+        .shift_remove("state");
+    let request = serde_json::json!({ "queries": [row] });
+    super::validate(tool, request.clone()).ok()?;
+    Some(format!("{EXAMPLE}{request}"))
 }
 
 /// The first rejected row with each field its issues refuse by one declared

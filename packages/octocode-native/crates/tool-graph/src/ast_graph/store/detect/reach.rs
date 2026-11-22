@@ -115,7 +115,7 @@ pub(super) fn detect_reachability(c: &mut Ctx) {
                 title: if orphan {
                     "Orphan file: nothing imports it and it imports nothing".into()
                 } else {
-                    "Not reachable from any inferred entrypoint".into()
+                    "Not reachable from any selected entrypoint".into()
                 },
                 severity: 0.6,
                 confidence: entry_quality

@@ -54,7 +54,8 @@ fn npm_page(server: &wiremock::MockServer, page: u64) -> ArtifactSearchQuery {
 /// how many rows are reachable, with no next page.
 #[tokio::test]
 async fn a_repeated_npm_window_is_a_terminal_limit_with_the_reachable_count() {
-    let server = npm_window(100_000, 50).await;
+    let total = 100_000;
+    let server = npm_window(total, 50).await;
     let deadline = Instant::now() + std::time::Duration::from_secs(300);
     // Pages inside the reach are their own rows and continue.
     for page in [1, 2, 3] {
@@ -69,6 +70,7 @@ async fn a_repeated_npm_window_is_a_terminal_limit_with_the_reachable_count() {
         );
         assert!(data["next"]["nextPage"].is_object(), "{data}");
         assert!(data.get("terminalLimit").is_none(), "{data}");
+        assert_eq!(data["pagination"]["total"], total, "{data}");
     }
     // Past the reach, the window repeats from the first row.
     let data = execute(npm_page(&server, 4), call(deadline, true))
@@ -76,7 +78,7 @@ async fn a_repeated_npm_window_is_a_terminal_limit_with_the_reachable_count() {
         .expect("discovery succeeds");
     assert_eq!(data["artifacts"], json!([]), "{data}");
     assert_eq!(data["terminalLimit"], true, "{data}");
-    assert_eq!(data["pagination"]["total"], 60, "{data}");
+    assert_eq!(data["pagination"]["total"], total, "{data}");
     assert!(data["next"].get("nextPage").is_none(), "{data}");
     assert_eq!(
         data["partialReasons"],
@@ -84,9 +86,12 @@ async fn a_repeated_npm_window_is_a_terminal_limit_with_the_reachable_count() {
         "{data}"
     );
     let warning = data["warnings"][0].as_str().unwrap_or_default();
-    assert!(warning.contains("at most 60 of 100000"), "{data}");
+    assert!(
+        warning.contains(&format!("at most 60 of {total}")),
+        "{data}"
+    );
     // The boundary page: its probe is still honored, the page is not.
-    let server = npm_window(100_000, 59).await;
+    let server = npm_window(total, 59).await;
     let data = execute(npm_page(&server, 4), call(deadline, true))
         .await
         .expect("discovery succeeds");

@@ -339,4 +339,13 @@ pub(super) fn disclose_reads(
             )],
         );
     }
+    if reads.unverified_at_ref > 0 {
+        octocode_runtime_base::response::paging::push_warnings(
+            value,
+            [format!(
+                "{} indexed path(s) on this page could not be verified at the requested ref (`lineResolved:false`). Check those paths with ghStructure at the commit before relying on them.",
+                reads.unverified_at_ref
+            )],
+        );
+    }
 }

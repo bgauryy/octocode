@@ -162,7 +162,7 @@ pub(super) fn finish_checkpoint(
             error.code,
             format!(
                 "graph {} was published at {}, but its extraction checkpoint could not be settled: {}",
-                receipt["id"].as_str().unwrap_or_default(),
+                receipt["graph"].as_str().unwrap_or_default(),
                 receipt["dir"].as_str().unwrap_or_default(),
                 error.message
             ),

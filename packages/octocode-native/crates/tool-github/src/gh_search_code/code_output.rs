@@ -14,7 +14,9 @@ pub(super) use empty_scope::{
     empty_hints, empty_scope, owner_exists, path_mode_given_code, qualifier_keyword_hints,
     unsearched_ref,
 };
-pub(super) use hit_commits::{index_commits, line_commit, plan_lines, requested_ref, row_repo};
+pub(super) use hit_commits::{
+    index_commits, line_commit, plan_lines, requested_ref, row_repo, verify_at_ref,
+};
 pub(super) use index_ref::{disclose_index_ref, index_head};
 pub(super) use line_plan::{LinePlan, Resolution};
 
@@ -31,6 +33,8 @@ pub(super) struct PageReads {
     pub(super) panicked: usize,
     /// Required reads without an immutable index commit to verify against.
     pub(super) unanchored: usize,
+    /// Path-only candidates whose lookup could not confirm ref membership.
+    pub(super) unverified_at_ref: usize,
 }
 
 /// Whether source lines must be read before projecting the returned fields.
@@ -80,6 +84,8 @@ pub(super) fn shape_files(
     let mut oversized = 0;
     let mut panicked = 0;
     let mut unanchored = 0;
+    let mut unverified_at_ref = 0;
+    let reads_lines = reads_lines(query);
     // Each row's path is judged once; shaping never changes a path.
     let unread = items
         .iter()
@@ -92,7 +98,7 @@ pub(super) fn shape_files(
         if unread {
             withheld += 1;
             row.insert("lineResolved".into(), json!(false));
-        } else if resolution.is_none() && reads_lines(query) {
+        } else if resolution.is_none() && reads_lines {
             row.insert("lineResolved".into(), json!(false));
             if let Some(read) = hits_read(query, row, "") {
                 hit_reads.push(read);
@@ -120,7 +126,7 @@ pub(super) fn shape_files(
                     total,
                     redacted: shown_redacted,
                     ..
-                } => {
+                } if reads_lines => {
                     redacted += shown_redacted;
                     row.insert("matches".into(), Value::Array(numbered_matches(lines)));
                     // Only a listing with context needs to say which lines are hits.
@@ -151,8 +157,16 @@ pub(super) fn shape_files(
                     row.insert("atRef".into(), json!(false));
                 }
                 // The file is at the ref, and no line of it holds a keyword.
-                super::lines::FileHits::Unmatched if resolution.reference.is_some() => {
+                super::lines::FileHits::Unmatched
+                    if resolution.reference.is_some() && reads_lines =>
+                {
                     row.insert("matchCount".into(), json!(0));
+                }
+                super::lines::FileHits::Unavailable | super::lines::FileHits::Panicked
+                    if !reads_lines =>
+                {
+                    unverified_at_ref += 1;
+                    row.insert("lineResolved".into(), json!(false));
                 }
                 super::lines::FileHits::Unavailable
                 | super::lines::FileHits::Oversized
@@ -169,9 +183,10 @@ pub(super) fn shape_files(
                         unanchored += usize::from(sha.is_empty());
                     }
                 }
-                _ => {
+                _ if reads_lines => {
                     row.insert("lineResolved".into(), json!(false));
                 }
+                _ => {}
             }
         }
     }
@@ -182,6 +197,7 @@ pub(super) fn shape_files(
         oversized,
         panicked,
         unanchored,
+        unverified_at_ref,
     }
 }
 

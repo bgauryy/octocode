@@ -526,7 +526,7 @@ fn build(
             *scan = super::manifest::scan_disclosure(scan);
         }
     }
-    if let Some(id) = out.value["id"].as_str().map(str::to_owned) {
+    if let Some(id) = out.value["graph"].as_str().map(str::to_owned) {
         let leads = stats_lead(&id, &query.path)
             .into_iter()
             .chain(diagnostics_leads(

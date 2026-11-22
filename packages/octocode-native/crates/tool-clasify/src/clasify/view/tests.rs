@@ -23,7 +23,7 @@ fn within(summary: &Value, details: &Value) -> bool {
 
 fn summary_of(details: &Value) -> Value {
     let mut summary = details.clone();
-    summarize(&mut summary);
+    summarize(&mut summary, false);
     // The one thing a summary adds is the warning that names what it
     // left out; everything else it states is a leaf of the details.
     let mut stated = summary.clone();
@@ -32,6 +32,92 @@ fn summary_of(details: &Value) -> Value {
     }
     assert!(within(&stated, details), "{summary}\n{details}");
     summary
+}
+
+#[test]
+fn a_predicate_summary_preserves_every_assessed_score_through_paging() {
+    use octocode_io::cancellation::Cancellation;
+    use octocode_runtime_base::response::{
+        page_model::ResponsePageOptions,
+        pager::{ResponseInput, SavedPages, prepare_saved},
+    };
+    use std::collections::BTreeMap;
+
+    let hits: Map<String, Value> = (1..=64)
+        .map(|line| {
+            (
+                line.to_string(),
+                json!({"p1":{"noul":f64::from(line) / 256.0}}),
+            )
+        })
+        .collect();
+    let units: Map<String, Value> = (1..=64)
+        .map(|id| {
+            (
+                format!("repo-{id}"),
+                json!({"p1":{"noul":f64::from(id) / 512.0}}),
+            )
+        })
+        .collect();
+    let quiet = hits.len() + units.len();
+    let usage = json!({"calls":65,"inputTokens":65,"outputTokens":65});
+    let mut row = json!({
+        "files":{"src/fixture.ts":hits}, "units":units,
+        "coverage":{"totalUnits":quiet,"answered":quiet,"quiet":quiet}, "usage":usage,
+    });
+    summarize(&mut row, true);
+    assert_eq!(row["coverage"]["quiet"], quiet);
+    assert_eq!(row["usage"], usage);
+    assert!(row.get("warnings").is_none());
+
+    let envelope = json!({"results":[{"index":0,"data":row}]});
+    let budget = 800;
+    let mut input = ResponseInput {
+        tool: ToolId::Clasify,
+        structured: Value::Null,
+        options: ResponsePageOptions {
+            response_chars: Some(budget),
+            paging: true,
+            ..Default::default()
+        },
+    };
+    let pages = SavedPages::default();
+    let cancelled = Cancellation::new();
+    let mut found = BTreeMap::new();
+    let mut previous = None;
+    loop {
+        let page = prepare_saved(&input, &envelope, &pages, &cancelled).expect("saved page");
+        let data = &page.value["results"][0]["data"];
+        for (origin, items) in [
+            ("file", &data["files"]["src/fixture.ts"]),
+            ("unit", &data["units"]),
+        ] {
+            for (key, score) in items.as_object().into_iter().flatten() {
+                assert!(
+                    found.insert((origin, key.clone()), score.clone()).is_none(),
+                    "duplicate {origin}/{key}"
+                );
+            }
+        }
+        let size = page.value.to_string().encode_utf16().count();
+        assert!(
+            size <= budget || page.value["oversized"] == true,
+            "undisclosed oversized page ({size})"
+        );
+        let Some(next) = page.next else {
+            break;
+        };
+        assert!(previous.is_none_or(|offset| next.offset > offset));
+        previous = Some(next.offset);
+        input.options.open(&next);
+    }
+    assert!(previous.is_some(), "fixture must exercise pagination");
+    let expected: BTreeMap<_, _> = hits
+        .into_iter()
+        .map(|(key, score)| (("file", key), score))
+        .chain(units.into_iter().map(|(key, score)| (("unit", key), score)))
+        .collect();
+    assert_eq!(found, expected);
 }
 
 /// What a summary states of a row's `usage`: the requests it billed, the

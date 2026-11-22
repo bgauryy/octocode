@@ -4,7 +4,7 @@
 use super::*;
 
 fn graph_bytes(dir: &Path, build: &GraphOutput) -> Vec<u8> {
-    let id = build.value["id"].as_str().expect("snapshot id");
+    let id = build.value["graph"].as_str().expect("snapshot id");
     std::fs::read(dir.join(".octocode/graph").join(id).join("graph.bin")).expect("graph.bin")
 }
 

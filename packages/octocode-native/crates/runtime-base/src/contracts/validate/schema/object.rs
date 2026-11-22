@@ -129,6 +129,9 @@ fn one_field_value(
         return Ok(None);
     }
     let received = super::super::repair::shown(received);
+    if let [field] = fields.as_slice() {
+        return Ok(Some(format!("send {{\"{field}\":{received}}}")));
+    }
     Ok(Some(format!(
         "{received} is the value of one field: send {{\"<field>\":{received}}} with <field> one of {}",
         fields.join(", ")

@@ -7,7 +7,7 @@ fn explicit_snapshot_paths_page_and_lead_by_their_snapshot_id() {
     let root = dir.0.as_path();
     let ingested = ingest_fixture(root, None);
     assert_eq!(ingested.class, ExitClass::Success);
-    let id = ingested.value["id"].as_str().unwrap();
+    let id = ingested.value["graph"].as_str().unwrap();
     let snapshot = root
         .join(".octocode/graph")
         .join(id)
@@ -53,7 +53,7 @@ fn explicit_snapshot_path_survives_ambiguous_candidate_continuation() {
     assert_eq!(ingested.class, ExitClass::Success);
     let snapshot = root
         .join(".octocode/graph")
-        .join(ingested.value["id"].as_str().unwrap())
+        .join(ingested.value["graph"].as_str().unwrap())
         .canonicalize()
         .unwrap();
     let options = QueryOptions {
@@ -113,7 +113,7 @@ fn graph_header_names_the_scope_relative_root_and_pages_lose_no_rows() {
         let graph = &page.value["graph"];
         // Every page names the graph by its id; the root and creation time
         // are graphBuild's, and the id carries the scope's slug.
-        assert_eq!(graph["id"], built.value["id"], "{}", page.value);
+        assert_eq!(graph["id"], built.value["graph"], "{}", page.value);
         assert_eq!(graph.as_object().map(serde_json::Map::len), Some(1));
         walked.extend(ids(&page));
         pages += 1;

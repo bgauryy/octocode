@@ -215,6 +215,49 @@ async fn a_file_missing_at_the_requested_ref_offers_no_default_branch_read() {
     assert!(out.data.pointer("/next/read").is_none(), "{}", out.data);
 }
 
+/// A path-only page at a ref carries the same ref facts as a full page: the
+/// row's file is looked up at the ref's commit, so a file the ref lacks says
+/// `atRef: false` and the page's rows name the resolved commit.
+#[tokio::test]
+async fn path_only_rows_at_a_ref_carry_the_ref_verification() {
+    let server = MockServer::builder().start().await;
+    app_rs_hit(&server).await;
+    mount_ref(&server, "dev").await;
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b/contents/app.rs",
+        404,
+        json_fixture(r#"{"message": "Not Found"}"#),
+    )
+    .await;
+    let query = |fields: &str| {
+        json_fixture(&format!(
+            r#"{{"owner":"a","repo":"b","keywords":["wrap_app"],"ref":"dev"{fields}}}"#
+        ))
+    };
+    let full = run(&server, query("")).await.expect("full");
+    let path_only = run(&server, query(r#","fields":["path"]"#))
+        .await
+        .expect("path only");
+    let (full, path_only) = (&full.data, &path_only.data);
+    assert_eq!(path_only["files"][0]["atRef"], false, "{path_only}");
+    assert_eq!(path_only["files"][0]["atRef"], full["files"][0]["atRef"]);
+    let (full_row, row) = (&full["files"][0], &path_only["files"][0]);
+    assert_eq!(row["commitSha"], TREE_SHA, "{path_only}");
+    assert_eq!(row["commitSha"], full_row["commitSha"], "{path_only}");
+
+    // A file the ref has is not marked absent, and the commit is stated.
+    let present = MockServer::builder().start().await;
+    app_rs_hit(&present).await;
+    mount_ref(&present, "dev").await;
+    mount_read(&present, "app.rs", "fn wrap_app() {}\n").await;
+    let out = run(&present, query(r#","fields":["path"]"#))
+        .await
+        .expect("present");
+    assert!(out.data["files"][0].get("atRef").is_none(), "{}", out.data);
+    assert_eq!(out.data["files"][0]["commitSha"], TREE_SHA, "{}", out.data);
+}
+
 /// A default-branch page reads every row's hit lines, not only the
 /// top files: no row is a fragment without line numbers.
 #[tokio::test]

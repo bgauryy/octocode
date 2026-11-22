@@ -57,7 +57,7 @@ async fn graph_home_keeps_the_workspace_untouched() {
     assert!(data(&stats).get("errorCode").is_none(), "{}", data(&stats));
     assert_eq!(
         data(&stats)["graph"]["id"],
-        data(&built)["id"],
+        data(&built)["graph"],
         "{}",
         data(&stats)
     );

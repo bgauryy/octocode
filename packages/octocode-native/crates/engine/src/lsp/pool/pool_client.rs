@@ -11,8 +11,9 @@ pub(super) type ClientFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 pub(super) trait PoolClient: Clone + Send + Sync + 'static {
     fn alive(&self) -> ClientFuture<bool>;
     /// Authoritative "in use" signal. The pool never stops a busy client: the
-    /// idle timer re-arms while it is busy and LRU eviction skips it (allowing a
-    /// temporary overflow instead). It MUST therefore stay `true` for the whole
+    /// idle timer re-arms while it is busy and LRU eviction skips it; a drain
+    /// task stops it once idle if it keeps the pool over budget (a temporary
+    /// overflow). It MUST therefore stay `true` for the whole
     /// of any operation holding the client — in-flight requests AND any lease
     /// held across document syncs, readiness waits, and the gaps between the
     /// requests of one multi-request walk — not only while a single request is

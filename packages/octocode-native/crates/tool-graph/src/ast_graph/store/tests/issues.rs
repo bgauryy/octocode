@@ -195,7 +195,7 @@ fn issue_evidence_lists_every_item_it_counts() {
 fn issues_baseline_reports_new_and_resolved_findings() {
     let dir = issues_fixture();
     let first = ingest_fixture(dir.0.as_path(), None);
-    let base = first.value["id"].as_str().expect("id").to_owned();
+    let base = first.value["graph"].as_str().expect("id").to_owned();
     dir.write("app/src/b.ts", "export const b = () => 1;\n");
     dir.write("app/src/orphan2.ts", "export const x = 1;\n");
     assert_eq!(
@@ -243,7 +243,7 @@ fn a_baseline_never_resolves_a_finding_the_view_hides() {
     let root = dir.0.as_path();
     let built = ingest_fixture(root, None);
     assert_eq!(built.class, ExitClass::Success, "{}", built.value);
-    let id = built.value["id"].as_str().expect("id").to_owned();
+    let id = built.value["graph"].as_str().expect("id").to_owned();
     for min_tier in [None, Some(60), Some(100)] {
         let out = ask(root, "issues", None, |o| {
             o.baseline = Some(id.clone());
@@ -368,7 +368,7 @@ fn drift_diffs_two_snapshots_by_file_cycle_transition_and_relation() {
     let dir = fixture();
     let root = dir.0.as_path();
     let base = ingest_fixture(root, None);
-    let base_id = base.value["id"].as_str().expect("id").to_owned();
+    let base_id = base.value["graph"].as_str().expect("id").to_owned();
     dir.write("app/src/b.ts", "export const b = () => 1;\n");
     dir.write(
         "app/src/main.ts",
@@ -465,8 +465,8 @@ fn drift_diffs_two_snapshots_by_file_cycle_transition_and_relation() {
     assert_eq!(rows[0]["category"], "file", "{}", out.value);
 
     let same = ask(root, "drift", None, |o| {
-        o.graph = head.value["id"].as_str().map(str::to_owned);
-        o.baseline = head.value["id"].as_str().map(str::to_owned);
+        o.graph = head.value["graph"].as_str().map(str::to_owned);
+        o.baseline = head.value["graph"].as_str().map(str::to_owned);
     });
     assert_eq!(same.class, ExitClass::Empty, "{}", same.value);
     let missing = ask(root, "drift", None, |_| {});
@@ -493,7 +493,7 @@ fn drift_keeps_repeated_names_across_a_moved_line_and_sees_a_rename() {
     dir.write("app/src/flags.ts", flags("getArg", ""));
     let base = ingest_fixture(root, None);
     assert_eq!(base.class, ExitClass::Success, "{}", base.value);
-    let base_id = base.value["id"].as_str().expect("id").to_owned();
+    let base_id = base.value["graph"].as_str().expect("id").to_owned();
     let relations = |out: &GraphOutput| {
         out.value["rows"]
             .as_array()

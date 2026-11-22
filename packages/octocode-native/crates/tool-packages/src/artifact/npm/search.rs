@@ -183,11 +183,18 @@ fn terms_matched(terms: &[String], package: Option<&Value>) -> usize {
             .filter_map(Value::as_str)
             .map(str::to_owned),
     );
-    let haystack = format!(" {} ", fold(&text.join(" ")));
+    let fields = text
+        .iter()
+        .map(|field| format!(" {} ", fold(field)))
+        .collect::<Vec<_>>();
     terms
         .iter()
         .map(|term| fold(term))
-        .filter(|term| !term.is_empty() && haystack.contains(&format!(" {term} ")))
+        .filter(|term| !term.is_empty())
+        .filter(|term| {
+            let phrase = format!(" {term} ");
+            fields.iter().any(|field| field.contains(&phrase))
+        })
         .count()
 }
 

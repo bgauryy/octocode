@@ -83,6 +83,45 @@ async fn a_missing_path_is_classified_as_missing_and_located_from_its_parent_lis
     );
 }
 
+#[tokio::test]
+async fn failure_of_the_commit_tree_stays_retryable_after_parent_fallback() {
+    let server = server().await;
+    mount_json(
+        &server,
+        &format!("/api/v3/repos/a/b/git/trees/{SHA}"),
+        503,
+        json!({"message": "Service Unavailable"}),
+    )
+    .await;
+    let provider = mock_provider(
+        &server,
+        RetryPolicy {
+            max_attempts: 1,
+            ..RetryPolicy::default()
+        },
+    );
+    let home = tempfile::tempdir().expect("home");
+    let failure = execute(
+        &provider,
+        &query(json!({"operation": "tree", "owner": "a", "repo": "b", "path": "docs/missing", "maxDepth": 1})),
+        &default_context(),
+        home.path(),
+        None,
+    )
+    .await
+    .expect_err("commit tree unavailable");
+    assert_eq!(failure.kind, ProviderErrorKind::Server);
+    assert_eq!(failure.status, Some(503));
+    assert!(
+        server
+            .received_requests()
+            .await
+            .expect("provider requests")
+            .iter()
+            .all(|request| !request.url.path().contains("/contents/")),
+    );
+}
+
 /// A missing path asked at a ref names that ref, as a file read does: a 404
 /// at one ref says nothing of another (a full SHA by its short form).
 #[tokio::test]

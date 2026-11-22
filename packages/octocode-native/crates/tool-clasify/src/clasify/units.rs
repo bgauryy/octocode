@@ -367,6 +367,9 @@ pub(super) fn judge_source(
     // Deciding hits in rank order: the order their units are listed.
     let ranked = rank_deciding(&judged);
     reads(&mut judged.output, tool, query, &data, &ranked, can_resume);
+    if tool == ToolId::GhSearchRepo {
+        repository_reads(&mut judged.output, &data, query);
+    }
     repository(&mut judged.output, tool, query, &data);
     judged.offer_retry(row, can_resume);
     let calls = page_calls(&judged);
@@ -476,6 +479,47 @@ fn page_row<'a>(data: &'a Value, path: &str) -> Option<&'a Value> {
         .filter_map(Value::as_array)
         .flatten()
         .find(|row| row["path"] == path)
+}
+
+/// Verify a surfaced repository judgment against the named repository's metadata.
+fn repository_reads(output: &mut Value, data: &Value, query: &Value) {
+    use octocode_runtime_base::response::result::{Continuation, attach_related, wire_query};
+    let shared_owner = data["owner"].as_str().or(query["owner"].as_str());
+    for row in data["repositories"].as_array().into_iter().flatten() {
+        let (Some(owner), Some(repo), Some(key)) = (
+            row["owner"].as_str().or(shared_owner),
+            row["repo"].as_str(),
+            name(row, shared_owner),
+        ) else {
+            continue;
+        };
+        if output["units"].get(&key).is_none_or(is_quiet) {
+            continue;
+        }
+        let mut read = json!({"operation":"get", "owner":owner, "repo":repo});
+        if let Some(fields) = query
+            .get("fields")
+            .filter(|fields| fields.as_array().is_some_and(|list| !list.is_empty()))
+        {
+            read["fields"] = fields.clone();
+        } else if let Some(fields) = row.as_object() {
+            // A sorted discovery row can show fields the exact view omits by default.
+            let evidence: Vec<_> = fields
+                .keys()
+                .filter(|key| !matches!(key.as_str(), "owner" | "repo"))
+                .filter_map(|key| {
+                    key.parse::<octocode_contract_types::GhSearchRepoFieldsItem>()
+                        .ok()
+                })
+                .collect();
+            if !evidence.is_empty() {
+                read["fields"] = json!(evidence);
+            }
+        }
+        if let Some(read) = wire_query::<octocode_contract_types::GhSearchRepoQuery>(read) {
+            attach_related(output, Continuation::related_query(read).required().build());
+        }
+    }
 }
 
 /// A GitHub page of one repository states it once, with the commit its rows

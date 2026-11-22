@@ -204,7 +204,10 @@ pub fn call(
         if row.details {
             view::carry_details(data);
         } else {
-            view::summarize(data);
+            let keep_quiet = row.query["predicates"]
+                .as_array()
+                .is_some_and(|predicates| !predicates.is_empty());
+            view::summarize(data, keep_quiet);
         }
     }
     Ok(receipts(output, kinds))

@@ -146,7 +146,7 @@ fn candidates_remain_pinned_when_a_new_snapshot_becomes_latest() {
         ToolId::GraphBuild,
         json_fixture(r#"{"path": "app"}"#),
     );
-    assert_ne!(rebuilt["id"], first["graph"]["id"]);
+    assert_ne!(rebuilt["graph"], first["graph"]["id"]);
     let rest = call(
         &dir.0,
         ToolId::GraphQuery,

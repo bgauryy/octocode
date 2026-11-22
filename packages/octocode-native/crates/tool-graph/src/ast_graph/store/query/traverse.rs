@@ -152,11 +152,28 @@ impl Query<'_> {
             window,
         };
         let page = walk(g, &seeds, &how, self.cancel)?;
-        let (hints, related) = if page.total == 0 {
+        let (hints, mut related) = if page.total == 0 {
             self.empty_walk_leads(&seeds, &how)?
         } else {
             (Vec::new(), Vec::new())
         };
+        // Grouped counts combine imports and re-export users without edge kinds.
+        if reexports
+            && grouped
+            && how.direction != Direction::Out
+            && page.total > 0
+            && first_page(self.options)
+        {
+            let mut row = query_row(self.options, &g.id);
+            row.insert("edges".into(), json!([EdgeKind::Imports.as_str()]));
+            related.push(
+                octocode_runtime_base::response::result::Continuation::related(
+                    octocode_runtime_base::id::ToolId::GraphQuery,
+                    Value::Object(row),
+                )
+                .build(),
+            );
+        }
         let page = match view {
             Some("files") => per_file(page),
             Some("modules") => per_module(page),
@@ -200,7 +217,6 @@ impl Query<'_> {
             };
             extra.insert("argumentCoverage".into(), g.argument_coverage(&sources));
         }
-        let (hints, mut related) = (hints, related);
         // The manifest states each declared name's unresolved call sites, so
         // this costs no evidence read and holds for listed answers too.
         let mut unresolved = None;
@@ -216,7 +232,7 @@ impl Query<'_> {
                 };
                 let (sites, verb) = call_sites(named);
                 unresolved = Some(format!(
-                    "{sites} {verb} the target but their receiver could not be resolved; {reach}"
+                    "{sites} {verb} the target but could not be linked to it; {reach}"
                 ));
                 related.extend(lead);
             }

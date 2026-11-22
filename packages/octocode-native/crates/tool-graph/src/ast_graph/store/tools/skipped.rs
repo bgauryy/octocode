@@ -113,7 +113,7 @@ pub(super) fn note_skipped(
     context: &ExecutionContext,
     out: &mut Value,
 ) -> Result<(), ToolError> {
-    if out["id"].is_null() {
+    if out["graph"].is_null() {
         return Ok(());
     }
     let parsed_any = out["scan"]["filesScanned"].as_u64().unwrap_or(0) > 0;

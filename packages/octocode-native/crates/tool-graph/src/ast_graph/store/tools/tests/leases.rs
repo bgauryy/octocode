@@ -10,7 +10,7 @@ fn rebuild(dir: &Fixture, edit: u32) -> String {
         ToolId::GraphBuild,
         json_fixture(r#"{"path": "app", "keep": 1}"#),
     );
-    built["id"].as_str().expect("graph id").to_owned()
+    built["graph"].as_str().expect("graph id").to_owned()
 }
 
 fn stats(dir: &Fixture, graph: &str) -> Value {

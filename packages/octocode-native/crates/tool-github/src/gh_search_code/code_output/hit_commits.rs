@@ -1,5 +1,5 @@
 //! The commits a page's hits are read at, and the line hits read there.
-use super::line_plan::{LinePlan, Read, RepoCommit};
+use super::line_plan::{LinePlan, Read, RepoCommit, Resolution};
 use super::{reads_lines, withheld_row};
 use crate::gh_search_code::Withholds;
 use octocode_contract_types::GhSearchCodeQuery;
@@ -67,10 +67,8 @@ pub(in crate::gh_search_code) fn requested_ref(query: &GhSearchCodeQuery) -> Opt
         .filter(|branch| !branch.is_empty())
 }
 
-/// The commit a ref search's hit lines are read at, resolved while the
-/// index search runs (`None`: a default-branch search, read at its indexed
-/// commits, or a page that lists no lines — owner-wide, path-only, or a
-/// `fields` pick without `lines`).
+/// The commit a ref search's hits are verified at, resolved alongside the
+/// index search. Default-branch searches use the index's commits instead.
 pub(in crate::gh_search_code) async fn line_commit(
     provider: &octocode_github::GitHubProvider,
     query: &GhSearchCodeQuery,
@@ -78,14 +76,52 @@ pub(in crate::gh_search_code) async fn line_commit(
 ) -> Option<Result<String, ProviderError>> {
     let repo = query.repo.as_deref()?;
     let reference = requested_ref(query)?;
-    if !reads_lines(query) {
-        return None;
-    }
     Some(
         provider
             .resolve_reference(&query.owner, repo, Some(reference), context)
             .await,
     )
+}
+
+/// A ref search that lists no lines (path-only, or a `fields` pick without
+/// `matches`) still checks whether each indexed path is present at the commit.
+/// Preserve the full lookup outcome so shaping can mark missing and
+/// unverified candidates distinctly.
+pub(in crate::gh_search_code) async fn verify_at_ref(
+    provider: &octocode_github::GitHubProvider,
+    query: &GhSearchCodeQuery,
+    items: &[Value],
+    commit: Option<Result<String, ProviderError>>,
+    context: &RequestContext,
+    security: &(impl octocode_runtime_base::security::scan::ContentScan + Sync),
+    withholds: Withholds<'_>,
+) -> Result<Option<Resolution>, ProviderError> {
+    let (Some(reference), Some(repo), Some(commit)) =
+        (requested_ref(query), query.repo.as_deref(), commit)
+    else {
+        return Ok(None);
+    };
+    if items.is_empty() {
+        return Ok(None);
+    }
+    // A named ref that does not resolve is the caller's mistake.
+    let sha = commit?;
+    let reads = items
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| !withheld_row(withholds, row))
+        .filter_map(|(index, row)| Some((index, row.get("path")?.as_str()?.to_owned(), None)))
+        .collect::<Vec<_>>();
+    let key = (query.owner.to_string(), repo.to_string(), sha.clone());
+    let mut plan = LinePlan::new(
+        query,
+        items.len(),
+        vec![(key, reads)],
+        Some((reference.to_owned(), sha)),
+    );
+    plan.read(provider, 0..items.len(), context, security, withholds)
+        .await?;
+    Ok(Some(plan.resolution(0..items.len())))
 }
 
 /// The reads of the page's line hits, at the requested ref's commit (a ref

@@ -61,7 +61,7 @@ fn saved_raw_identity_is_immutable_after_rewrites_and_encoding_changes() {
     std::fs::write(&path, &raw).unwrap();
     let first = ingest_root(&dir.0, &dir.0.join("app"), Some(10), false);
     assert_eq!(first.class, ExitClass::Success, "{}", first.value);
-    let first_id = first.value["id"].as_str().unwrap().to_owned();
+    let first_id = first.value["graph"].as_str().unwrap().to_owned();
     let original = ask(&dir.0, "node", Some("encoded.ts#run"), |o| {
         o.graph = Some(first_id.clone());
     });
@@ -319,7 +319,7 @@ fn registry_identity_prevents_reuse_and_missing_inventory_is_an_explicit_error()
     .unwrap();
     let rebuilt = ingest_root(&dir.0, &dir.0.join("app"), Some(10), false);
     assert_eq!(rebuilt.class, ExitClass::Success, "{}", rebuilt.value);
-    assert_ne!(rebuilt.value["id"], first.value["id"]);
+    assert_ne!(rebuilt.value["graph"], first.value["graph"]);
     manifest
         .as_object_mut()
         .unwrap()
@@ -330,7 +330,7 @@ fn registry_identity_prevents_reuse_and_missing_inventory_is_an_explicit_error()
     )
     .unwrap();
     let invalid = ask(&dir.0, "node", Some("plain.ts#stable"), |o| {
-        o.graph = first.value["id"].as_str().map(str::to_owned);
+        o.graph = first.value["graph"].as_str().map(str::to_owned);
     });
     assert_eq!(invalid.value["errorCode"], "snapshotIncompatible");
     assert!(

@@ -124,3 +124,32 @@ async fn clone_receipts_are_complete_without_saved_response_cache() {
     }
     runtime.close().await;
 }
+
+#[tokio::test]
+async fn clone_retry_cursor_reopens_the_failed_query_on_a_new_runtime() {
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[]);
+    let failed = call(
+        &runtime,
+        "ghCloneRepo",
+        json!({"owner": "o", "repo": "r", "ref": "main"}),
+    )
+    .await
+    .expect("transient GitHub failure row");
+    let first = row_data(&failed);
+    assert_eq!(first["errorCode"], "transport", "{first}");
+    assert_eq!(first["retryable"], true, "{first}");
+    let retry = &first["next"]["retry"];
+    assert_eq!(retry["tool"], "ghCloneRepo", "{retry}");
+    assert!(retry["input"]["cursor"].is_string(), "{retry}");
+    runtime.close().await;
+
+    let restarted = workspace.runtime(&[]);
+    let retried = call(&restarted, "ghCloneRepo", retry["input"].clone())
+        .await
+        .expect("issued retry");
+    let second = row_data(&retried);
+    assert_eq!(second["errorCode"], first["errorCode"], "{second}");
+    assert_eq!(second["retryable"], true, "{second}");
+    restarted.close().await;
+}

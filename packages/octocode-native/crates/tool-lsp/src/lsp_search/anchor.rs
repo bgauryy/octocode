@@ -99,7 +99,7 @@ pub(super) fn resolve_anchor(
         }
         let warning = lsp_search_query::anchor_line(query)
             .filter(|_| resolved.line_offset != 0)
-            .map(|asked| moved_anchor(name, asked, &resolved, &symbol));
+            .map(|asked| moved_anchor(name, asked, source, &resolved, &symbol));
         return Ok(Anchor {
             line: resolved.position.line,
             character: resolved.position.character,
@@ -186,9 +186,16 @@ fn past_the_end(source: &str, name: &str, asked: u32) -> Result<(), String> {
 /// `asked` line, so the answer is for the spelling on the line `resolved`
 /// names. When other lines spell the name too (the receipt's
 /// `alternatives`, in `symbol`), the answer may be for another identity
-/// than the one meant, and the warning lists them.
-fn moved_anchor(name: &str, asked: u32, resolved: &LspResolvedSymbol, symbol: &Value) -> String {
-    let others = symbol
+/// than the one meant, and the warning lists them, every spelling of the
+/// name in the file, not only the receipt's alternatives.
+fn moved_anchor(
+    name: &str,
+    asked: u32,
+    source: &str,
+    resolved: &LspResolvedSymbol,
+    symbol: &Value,
+) -> String {
+    let mut others = symbol
         .get("alternatives")
         .and_then(Value::as_array)
         .into_iter()
@@ -196,11 +203,21 @@ fn moved_anchor(name: &str, asked: u32, resolved: &LspResolvedSymbol, symbol: &V
         .filter_map(|alternative| alternative.get("foundAtLine").and_then(Value::as_u64))
         .filter_map(|line| u32::try_from(line).ok())
         .collect::<Vec<_>>();
+    // Spellings the receipt does not name (it lists the nearest rivals only)
+    // may be other symbols of that name too: the warning lists every line.
+    let mut unnamed = super::importers::occurrences(source, name)
+        .into_iter()
+        .map(|(line, _, _)| line + 1)
+        .filter(|line| *line != resolved.found_at_line && !others.contains(line))
+        .collect::<Vec<_>>();
+    unnamed.sort_unstable();
+    unnamed.dedup();
+    others.extend(unnamed);
     let rivals = if others.is_empty() {
         String::new()
     } else {
         format!(
-            "; it is also spelled on line(s) {} (resolvedSymbol.alternatives), so this answer may be for another identity: send the line of the one meant",
+            "; it is also spelled on line(s) {} (the nearest in resolvedSymbol.alternatives), so this answer may be for another identity: send the line of the one meant",
             listed_lines(&others)
         )
     };

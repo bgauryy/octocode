@@ -260,9 +260,8 @@ fn folder_reference(at: &Listing<'_>, path: &str) -> String {
 /// only where it answers no file's bytes: a directory's listing, or GitHub's
 /// not-found for a path that is absent or lies below a file or link. With no
 /// tree above it, or a folder on its path that answers no tree, nothing says
-/// the root is no link, and it is not read; when the commit's own tree is
-/// GitHub's not-found, that not-found is the answer (a commit or repository
-/// GitHub does not have), as its Contents read would be.
+/// the root is no link, and it is not read. The commit tree's not-found or
+/// upstream failure stays visible to the caller when no ancestor answers.
 async fn untreed_root(
     provider: &GitHubProvider,
     at: &Listing<'_>,
@@ -307,7 +306,15 @@ async fn untreed_root(
         }
         match answer {
             Err(error) if terminal_failure(&error) => return Err(error),
-            Err(error) if dir.is_empty() && error.kind == ProviderErrorKind::NotFound => {
+            Err(error)
+                if dir.is_empty()
+                    && matches!(
+                        error.kind,
+                        ProviderErrorKind::NotFound
+                            | ProviderErrorKind::Transport
+                            | ProviderErrorKind::Server
+                    ) =>
+            {
                 return Err(error);
             }
             _ if dir.is_empty() => return Err(unchecked_root(path)),

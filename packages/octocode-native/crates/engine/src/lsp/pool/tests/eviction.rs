@@ -304,3 +304,64 @@ async fn sharing_keeps_a_budget_a_budget_and_no_budget_none() {
     unbounded.share_memory_budget(8);
     assert_eq!(unbounded.budgeted().max_resident_bytes, 0);
 }
+
+/// A busy server that keeps the pool over budget is stopped as soon as its
+/// request ends, without an acquire to trigger the eviction, and it is never
+/// stopped while the request runs.
+#[test]
+fn an_over_budget_busy_server_is_stopped_when_its_request_ends() {
+    paused(|clock| async move {
+        let budget = 1_000;
+        let resident = 900;
+        let pool = GenericPool::with_clock(
+            LspPoolOptions {
+                max_entries: 8,
+                idle_timeout_ms: 3_600_000,
+                max_resident_bytes: budget,
+                ..LspPoolOptions::default()
+            },
+            clock.lsp(),
+        );
+        let busy = pool
+            .acquire("1".into(), "1".into(), || async move {
+                Ok(Some(FakeClient::new(1).resident(resident)))
+            })
+            .await
+            .expect("start")
+            .expect("client");
+        busy.busy.store(true, Ordering::SeqCst);
+        let newest = pool
+            .acquire("2".into(), "2".into(), || async move {
+                Ok(Some(FakeClient::new(2).resident(resident)))
+            })
+            .await
+            .expect("start")
+            .expect("client");
+        assert_eq!(pool.len(), 2, "the busy server outlives the overrun");
+        for _ in 0..3 {
+            clock.advance(Duration::from_secs(1)).await;
+        }
+        assert_eq!(busy.stops.load(Ordering::SeqCst), 0, "request in flight");
+        busy.busy.store(false, Ordering::SeqCst);
+        clock.advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(busy.stops.load(Ordering::SeqCst), 1, "stopped at its end");
+        assert_eq!(newest.stops.load(Ordering::SeqCst), 0);
+        assert_eq!(pool.len(), 1);
+        assert_eq!(pool.over_budget().await, None);
+    });
+}
+
+/// The overrun is reported only while a busy server will end it: the newest
+/// server alone over a budget is kept by design, not a temporary overrun.
+#[tokio::test]
+async fn a_lone_server_over_the_budget_is_not_reported_as_an_overrun() {
+    let pool = pool_with_memory_budget(1_000);
+    let _ = pool
+        .acquire("1".into(), "1".into(), || async {
+            Ok(Some(FakeClient::new(1).resident(5_000)))
+        })
+        .await
+        .expect("start");
+    assert_eq!(pool.over_budget().await, None);
+}

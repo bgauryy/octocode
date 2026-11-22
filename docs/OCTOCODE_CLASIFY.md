@@ -257,7 +257,7 @@ Rules:
 - **One billed request per source.** A `clasify` row is one request for each path, GitHub file, URL, `content` entry or whole-file chunk. Listed rows, `perItem` items and the kinds of a collapsed log **share requests**: up to 48 fit one request, each as a named field of the request with its own question, and the provider's window closes a request sooner. A search `source` bills **per file**: the hits of one file share one request, with one question per hit, and a long question's words are sent once per request. Identical requests are sent once. `perHit: true` (with a search or listing `source`) judges each hit in its own request instead, priced one request per hit; on a file or URL `source`, which has no hits, it is refused before anything is read.
 - **Refusals and retries add requests.** When the provider refuses a request as too large, its hits are split and asked again. When it leaves an answer out, that hit is asked once more. An answer still missing is reported as an `error` cell. A refused request counts in `usage.calls` and `usage.refused` and reports no tokens; the provider does not document whether it bills one. Within one process, a size the provider refused is remembered: literal `content` at least that large is refused without a request, and a source goes to its sections.
 - **`evaluate` always re-bills.** Repeating an identical `clasify` evaluation sends new requests, even on cached source.
-- **Saved `sections` pages replay for free.** `next.details`, `next.quiet` and the reply's `next` over a saved response replay saved answers with no request. A fresh `evaluate` or `sections` call starts again.
+- **Saved answers replay for free.** `next.details`, `next.quiet` and the reply's `next` when it reads a saved response send no requests. When the reply's `next` reaches a new source page or section batch, it sends requests to judge that material.
 - **Saved pages expire** after 30 minutes of inactivity. A new process can also need new inference.
 
 ### Budget (`maxRequests`)
@@ -286,6 +286,14 @@ Behavior:
 - A row without `maxRequests` is held to its ceiling too, except that a refusal's retries (long window or split) may pass it; they are counted and named in a warning. Transient retries never pass it.
 - Units still unanswered after the retries stay `error` cells; `next.retry` asks only them again, at their own price.
 - To keep a request under budget, narrow the source: fewer files, hits or resources, or smaller line ranges.
+
+#### Budget across a scout workflow
+
+To set an optional total for a scouting workflow, track the request allowance in the caller. `maxRequests` applies to one row's response page. Set it explicitly on each fresh row so the sum of the caps in the batch fits the remaining allowance.
+
+After each billed page, subtract `usage.calls` once. For an `evaluate` result with per-resource usage, add the `usage.calls` of its resource results. A replay marked `replayed: true` reports historical usage and consumes none of the allowance.
+
+Before following a billed `next`, check that the original `maxRequests` still fits the remaining allowance. The previous page's `usage.requestsCeiling` describes that page. For `next.confirm` or `next.retry`, use the ceiling stated for that call. If the next call's bound is unknown or too high, narrow the source in a fresh call or read the remaining evidence with exact tools.
 
 ```json
 {"queries": [{

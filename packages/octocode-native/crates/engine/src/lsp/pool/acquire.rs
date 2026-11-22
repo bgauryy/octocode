@@ -32,6 +32,20 @@ pub(super) struct GenericPool<C> {
     pub(super) clock: LspClock,
 }
 
+/// `options` with the memory budget cut to one pool's part among `sharers`.
+pub(super) fn budgeted_options(options: &LspPoolOptions, sharers: &AtomicUsize) -> LspPoolOptions {
+    let sharers = sharers.load(Ordering::Relaxed).max(1) as u64;
+    let budget = options.max_resident_bytes;
+    LspPoolOptions {
+        max_resident_bytes: if budget == 0 {
+            0
+        } else {
+            (budget / sharers).max(1)
+        },
+        ..*options
+    }
+}
+
 impl<C: PoolClient> GenericPool<C> {
     pub(super) fn new(options: LspPoolOptions) -> Self {
         Self::with_clock(options, LspClock::default())
@@ -63,16 +77,7 @@ impl<C: PoolClient> GenericPool<C> {
     /// cut to this pool's part. A budget stays a budget (never a part of
     /// zero, which means none), and no budget stays none.
     pub(super) fn budgeted(&self) -> LspPoolOptions {
-        let sharers = self.sharers.load(Ordering::Relaxed).max(1) as u64;
-        let budget = self.options.max_resident_bytes;
-        LspPoolOptions {
-            max_resident_bytes: if budget == 0 {
-                0
-            } else {
-                (budget / sharers).max(1)
-            },
-            ..self.options
-        }
+        budgeted_options(&self.options, &self.sharers)
     }
 
     pub(super) fn idle_timeout(&self) -> Duration {
@@ -189,6 +194,7 @@ impl<C: PoolClient> GenericPool<C> {
                             // A previously deferred (busy) eviction may be
                             // possible now.
                             let evicted = evict_overflow(&mut state, &self.budgeted(), &key);
+                            self.drain_busy_overflow(&mut state);
                             self.count.store(state.entries.len(), Ordering::SeqCst);
                             state.inflight.remove(&key);
                             inflight.complete(Ok(Some(client.clone())));

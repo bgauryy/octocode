@@ -1,6 +1,6 @@
 //! Page validation against the paging range and the last reachable page.
 use super::*;
-use crate::artifact::page_out_of_range;
+use crate::artifact::{TerminalLimit, page_out_of_range};
 use octocode_test_support::json_fixture;
 use std::time::Duration;
 
@@ -116,4 +116,26 @@ fn the_last_reachable_page_follows_the_page_size() {
         }"#,
     ));
     assert_eq!(last_reachable_page(&query), 51);
+}
+
+#[test]
+fn a_terminal_discovery_page_preserves_the_provider_total() {
+    let query = typed(&json!({
+        "operation": "search",
+        "ecosystem": "npm",
+        "keywords": ["schema"],
+        "page": 4
+    }));
+    let provider_total = 100_000;
+    let mut page = ArtifactProviderPage::empty(Some(provider_total));
+    let warning = "The registry repeats earlier results past the first 60 rows.";
+    page.terminal_limit = Some(TerminalLimit::result_cap(warning.to_owned()));
+
+    let data = respond(&query, page).expect("terminal discovery page");
+    assert_eq!(data["pagination"]["total"], provider_total, "{data}");
+    assert_eq!(data["terminalLimit"], true, "{data}");
+    assert_eq!(data["warnings"][0], warning, "{data}");
+    assert!(data.get("status").is_none(), "{data}");
+    assert!(data.get("hints").is_none(), "{data}");
+    assert!(data["next"].get("nextPage").is_none(), "{data}");
 }

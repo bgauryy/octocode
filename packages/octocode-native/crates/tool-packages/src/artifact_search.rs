@@ -213,18 +213,6 @@ fn respond(
         }
     }
     let mut data = json!({ "artifacts": rows });
-    // An empty page the registry ended the list at reaches only the rows
-    // before it.
-    let total = match (&terminal_limit, artifacts.is_empty()) {
-        (Some(_), true) => total.map(|total| {
-            total.min(
-                artifact_search_query::page(query)
-                    .saturating_sub(1)
-                    .saturating_mul(artifact_search_query::page_size(query) as u64),
-            )
-        }),
-        _ => total,
-    };
     // An exact lookup's row states its repository, directory, ref and
     // version: the tree read and the advisory check take them as fields.
     if artifact_search_query::package_name(query).is_none() {
@@ -250,12 +238,11 @@ fn respond(
                     .flat_map(|artifact| artifact.disclosures.iter().cloned()),
             ),
     );
+    // An empty page can establish absence only when the registry reached the
+    // end of its matches. A terminal limit instead states what is unread.
     if let Some(limit) = terminal_limit {
         paging::terminal_limit(&mut data, limit.reason, &[limit.warning]);
-    }
-    // A filtered page with no row can still lead to later windows: that is not
-    // absence, so only a finished walk is empty.
-    if artifacts.is_empty() && !has_next {
+    } else if artifacts.is_empty() && !has_next {
         data["status"] = json!("empty");
         leads::broaden_empty(&mut data, query);
     }

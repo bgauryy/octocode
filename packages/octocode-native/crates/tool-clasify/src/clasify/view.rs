@@ -66,7 +66,7 @@ pub(super) fn carry_details(row: &mut Value) {
 }
 
 /// Cut `row` to its summary, in place.
-pub(super) fn summarize(row: &mut Value) {
+pub(super) fn summarize(row: &mut Value, _keep_quiet: bool) {
     let Some(fields) = row.as_object_mut() else {
         return;
     };

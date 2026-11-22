@@ -3,13 +3,13 @@
 use super::{Exit, LspFailure, LspSearchQuery, Session, Target, crashed};
 
 /// The warning for a pool that holds more resident memory than its budget
-/// after this call's acquire (`resident`, `budget` in bytes): the pool never
-/// stops a server that is busy with a request, so it stays over until those
-/// servers are idle.
+/// after this call's acquire (`resident`, `budget` in bytes): a server busy
+/// with another request keeps it over, and the pool stops that server as its
+/// request ends.
 pub(in crate::lsp_search) fn disclose_pool_overflow(resident: u64, budget: u64) -> String {
     const MIB: u64 = 1024 * 1024;
     format!(
-        "The language server pool holds about {} MiB, over its {} MiB budget, because servers busy with requests are never stopped; the pool stops them once they are idle.",
+        "The language server pool holds about {} MiB, over its {} MiB budget, while other servers finish their requests; the pool stops each as its request ends.",
         resident.div_ceil(MIB),
         budget.div_ceil(MIB)
     )

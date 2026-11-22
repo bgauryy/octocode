@@ -131,3 +131,79 @@ async fn a_three_page_source_walk_bills_each_page_once_and_judges_each_row_once(
     }
     runtime.close().await;
 }
+
+fn walk_row(max_requests: Option<u64>) -> Value {
+    let mut row = json!({"operation":"evaluate",
+        "source":{"tool":"ghSearchRepo","query":{"operation":"search","keywords":["needle"],"limit":1}},
+        "questions":{"q":{"type":"noul","instructions":"The entry names a restart."}}});
+    if let Some(max) = max_requests {
+        row["maxRequests"] = json!(max);
+    }
+    row
+}
+
+async fn follow(runtime: &octocode_native::runtime::ToolRuntime, id: &str, next: Value) -> Value {
+    runtime
+        .run(id.into(), "clasify".into(), next)
+        .await
+        .expect("next page")
+        .structured_content
+        .into_value()
+}
+
+#[tokio::test]
+async fn maxrequests_bounds_the_whole_walk_and_each_page_states_the_walks_requests() {
+    let server = provider().await;
+    let github = github_serving_pages().await;
+    let workspace = Workspace::new();
+    let runtime = clasify_runtime(&workspace, &server, &support::github_api(&github));
+    let budget = 2;
+    let mut page = clasify(&runtime, vec![walk_row(Some(budget))]).await;
+    let mut walked = 0;
+    // Pages within the budget bill, each stating the walk's cumulative requests.
+    for pages in 1..=budget {
+        let data = &page["results"][0]["data"];
+        assert!(data.get("errorCode").is_none(), "{page:#}");
+        walked += data["usage"]["calls"].as_u64().unwrap();
+        assert_eq!(data["usage"]["walkCalls"], walked, "{page:#}");
+        assert_eq!(provider_calls(&server).await as u64, walked, "{page:#}");
+        let next = crate::support::next_input(&page).expect("next page");
+        page = follow(&runtime, &format!("budget-{pages}"), next).await;
+    }
+    // The page past the budget sends nothing and offers the walk's confirm.
+    let data = &page["results"][0]["data"];
+    assert_eq!(data["errorCode"], "classificationOverBudget", "{page:#}");
+    assert_eq!(provider_calls(&server).await as u64, walked, "{page:#}");
+    assert_eq!(data["usage"]["walkCalls"], walked, "{page:#}");
+    let confirm = data["next"]["confirm"]["input"].clone();
+    let raised = confirm["queries"][0]["maxRequests"].as_u64().unwrap();
+    assert!(raised > budget, "the confirm raises the walk's budget: {page:#}");
+    // The confirm's budget covers the requests already sent: it bills the last page.
+    let page = follow(&runtime, "budget-confirm", confirm).await;
+    let data = &page["results"][0]["data"];
+    assert!(data.get("errorCode").is_none(), "{page:#}");
+    assert_eq!(data["usage"]["walkCalls"].as_u64().unwrap(), walked + data["usage"]["calls"].as_u64().unwrap());
+    assert_eq!(provider_calls(&server).await as u64, walked + data["usage"]["calls"].as_u64().unwrap());
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn a_summary_page_offers_its_saved_details_unbilled() {
+    let server = provider().await;
+    let github = github_serving_pages().await;
+    let workspace = Workspace::new();
+    let runtime = clasify_runtime(&workspace, &server, &support::github_api(&github));
+    let page = clasify(&runtime, vec![walk_row(None)]).await;
+    let billed = provider_calls(&server).await;
+    let details = page["results"][0]["data"]["next"]["details"]["input"].clone();
+    assert!(details.is_object(), "the summary offers its details: {page:#}");
+    let again = follow(&runtime, "details", details).await;
+    let data = &again["results"][0]["data"];
+    assert_eq!(provider_calls(&server).await, billed, "reading details bills nothing: {again:#}");
+    assert_eq!(data["replayed"], true, "{again:#}");
+    assert!(
+        data.to_string().len() > page["results"][0]["data"].to_string().len(),
+        "details hold what the summary left out: {again:#}"
+    );
+    runtime.close().await;
+}

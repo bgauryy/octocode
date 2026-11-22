@@ -143,6 +143,9 @@ pub(super) struct State<C> {
     pub(super) backoff: LruCache<String, StartBackoff>,
     pub(super) lru: VecDeque<String>,
     pub(super) next_id: u64,
+    /// A drain task is running: it stops busy servers that keep the pool
+    /// over its limits as their requests end.
+    pub(super) draining: bool,
     #[cfg(test)]
     pub(super) idle_timers_spawned: usize,
 }
@@ -155,6 +158,7 @@ impl<C> State<C> {
             backoff: LruCache::new(max_entries),
             lru: VecDeque::new(),
             next_id: 1,
+            draining: false,
             #[cfg(test)]
             idle_timers_spawned: 0,
         }
@@ -231,6 +235,27 @@ pub(super) fn evict_overflow<C: PoolClient>(
         }
     }
     evicted
+}
+
+/// The most recently used key: eviction always keeps it.
+pub(super) fn newest_key<C>(state: &State<C>) -> &str {
+    state.lru.back().map_or("", String::as_str)
+}
+
+/// A busy server other than the newest holds the pool over its entry or
+/// memory limit, so stopping it once its request ends brings the pool back
+/// under. False for a newest server alone over the budget: eviction keeps it.
+pub(super) fn busy_overflow_pending<C: PoolClient>(
+    state: &State<C>,
+    options: &LspPoolOptions,
+) -> bool {
+    let over = state.entries.len() > options.max_entries
+        || resident_over_budget(&state.entries, options).is_some();
+    let newest = newest_key(state);
+    over && state
+        .entries
+        .iter()
+        .any(|(key, entry)| key != newest && entry.client.busy())
 }
 
 /// Remove the idle siblings of `key` (entries of `family` under another key)

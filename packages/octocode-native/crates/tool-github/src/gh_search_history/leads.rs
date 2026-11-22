@@ -166,7 +166,8 @@ pub(super) fn narrow_capped(q: &HistorySearch, items: &[Value]) -> Option<(PastW
                 .map(|date| octocode_tools_shared::gh_shared::dates::utc_date(Some(date)))
         })
     };
-    let mut row = same_query(q);
+    let original = same_query(q);
+    let mut row = original.clone();
     let mut route = PastWindow::FromLastRow;
     match sort.as_deref() {
         Some("committer-date") => {
@@ -187,6 +188,9 @@ pub(super) fn narrow_capped(q: &HistorySearch, items: &[Value]) -> Option<(PastW
             row["sort"] = json!({"by":"createdAt","order":"desc"});
             route = PastWindow::Resorted;
         }
+    }
+    if row == original {
+        return None;
     }
     octocode_runtime_base::contracts::validate(
         ToolId::GhSearchHistory.as_str(),
@@ -220,7 +224,7 @@ impl PastWindow {
     pub(super) fn warning(self) -> &'static str {
         match self {
             Self::FromLastRow => {
-                "The related ghSearchHistory search continues past the reachable window: the same search bounded at this page's last row's date. That instant is included, so its rows show again."
+                "The related ghSearchHistory search may reach beyond the provider window: it runs the same search bounded at this page's last row's date. That instant is included, so its rows show again. Use the page continuation to keep walking the current result."
             }
             Self::Resorted => {
                 "This order has no date to continue from past the reachable window: the related ghSearchHistory search re-runs the search newest first from its first row, and its last reachable page continues by date. For every match, run it instead of walking these pages."

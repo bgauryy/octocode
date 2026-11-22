@@ -78,7 +78,7 @@ fn constructor_boundaries_retain_sites_without_borrowing_unrelated_bindings() {
         ToolId::GraphBuild,
         json_fixture(r#"{"path": "app", "refresh": true}"#),
     );
-    assert_ne!(rebuilt["id"], built["id"], "{rebuilt}");
+    assert_ne!(rebuilt["graph"], built["graph"], "{rebuilt}");
     assert_eq!(rebuilt["counts"], built["counts"]);
     assert_eq!(rebuilt["linkage"], built["linkage"]);
     for (file, expected) in &original {
@@ -89,7 +89,7 @@ fn constructor_boundaries_retain_sites_without_borrowing_unrelated_bindings() {
         ToolId::GraphBuild,
         json_fixture(r#"{"path": "app", "refresh": true}"#),
     );
-    assert_ne!(fresh["id"], rebuilt["id"], "{fresh}");
+    assert_ne!(fresh["graph"], rebuilt["graph"], "{fresh}");
     assert_eq!(fresh["counts"], built["counts"]);
     assert_eq!(fresh["linkage"], built["linkage"]);
     for (file, expected) in original {

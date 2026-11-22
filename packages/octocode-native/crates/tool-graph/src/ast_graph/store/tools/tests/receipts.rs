@@ -23,7 +23,7 @@ fn an_unchanged_scope_says_its_snapshot_was_reused() {
     let first = call(&dir.0, ToolId::GraphBuild, request.clone());
     assert!(first.get("reused").is_none(), "{first}");
     let again = call(&dir.0, ToolId::GraphBuild, request.clone());
-    assert_eq!(again["id"], first["id"], "{again}");
+    assert_eq!(again["graph"], first["graph"], "{again}");
     assert_eq!(again["reused"], true, "{again}");
     assert_eq!(
         served(ToolId::GraphBuild, &request, again)["reused"],
@@ -32,7 +32,7 @@ fn an_unchanged_scope_says_its_snapshot_was_reused() {
     );
     dir.write("app/a.ts", "export const a = 2;\n");
     let rebuilt = call(&dir.0, ToolId::GraphBuild, request);
-    assert_ne!(rebuilt["id"], first["id"], "{rebuilt}");
+    assert_ne!(rebuilt["graph"], first["graph"], "{rebuilt}");
     assert!(rebuilt.get("reused").is_none(), "{rebuilt}");
 }
 
@@ -68,7 +68,7 @@ fn a_build_with_diagnostics_leads_to_each_codes_rows() {
             .find(|lead| lead.query["queries"][0]["target"] == code.as_str())
             .unwrap_or_else(|| panic!("a lead to {code}: {served}"));
         let row = &lead.query["queries"][0];
-        assert_eq!(row["graph"], built["id"], "{row}");
+        assert_eq!(row["graph"], built["graph"], "{row}");
         let listed = call(&dir.0, ToolId::GraphQuery, row.clone());
         let rows = listed["rows"].as_array().cloned().unwrap_or_default();
         assert!(!rows.is_empty(), "{code}: {listed}");

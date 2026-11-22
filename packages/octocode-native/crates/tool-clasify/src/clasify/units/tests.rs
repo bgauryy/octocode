@@ -557,9 +557,18 @@ fn deciding_hits_are_read_once_per_file_at_their_lines() {
 /// repository row is still named `owner/repo`.
 #[test]
 fn a_page_owner_names_its_repository_rows() {
-    let data =
-        json!({"owner": "openai", "repositories": [{"repo": "a"}, {"owner": "x", "repo": "b"}]});
+    let data = json!({"owner": "openai", "repositories": [{"repo": "a"}, {"owner": "x", "repo": "b", "forks": 42}]});
     assert_eq!(keys(&data), ["openai/a", "x/b"]);
+    let mut judged =
+        json!({"units": {"openai/a": {"p1": {"noul": 0.1}}, "x/b": {"p1": {"noul": 0.9}}}});
+    super::repository_reads(&mut judged, &data, &json!({"owner":"openai"}));
+    let leads = judged["related"].as_array().unwrap();
+    assert_eq!(leads.len(), 1);
+    assert_eq!(leads[0]["tool"], "ghSearchRepo");
+    assert_eq!(
+        leads[0]["input"]["queries"][0],
+        json!({"operation":"get","owner":"x","repo":"b", "fields":["forks"]})
+    );
 }
 
 /// A file's declarations may come as line-first outline strings: the hit

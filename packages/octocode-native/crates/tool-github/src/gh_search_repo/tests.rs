@@ -198,7 +198,7 @@ fn every_topic_github_returns_is_kept() {
         }"#,
     ))
     .expect("item");
-    let row = repository_row(item, &["hmr".to_owned()]);
+    let row = repository_row(item, &["hmr".to_owned()], &[]);
     assert_eq!(
         row["topics"],
         json_fixture(r#"["hmr", "vite", "frontend", "build-tool", "typescript"]"#),
@@ -223,7 +223,7 @@ fn a_repository_that_is_not_public_names_its_visibility() {
         item.as_object_mut()
             .expect("object")
             .extend(extra.as_object().expect("object").clone());
-        repository_row(serde_json::from_value(item).expect("item"), &[])
+        repository_row(serde_json::from_value(item).expect("item"), &[], &[])
     };
     assert_eq!(
         row(json_fixture(
@@ -293,7 +293,7 @@ fn a_default_row_leaves_secondary_facts_to_a_fields_pick() {
             .iter()
             .map(|field| (*field).to_owned())
             .collect::<Vec<_>>();
-        let mut value = json!({"repositories":[repository_row(item(), &[])]});
+        let mut value = json!({"repositories":[repository_row(item(), &[], &fields)]});
         octocode_tools_shared::gh_shared::lean_rows(&mut value, "repositories", detail, &fields);
         octocode_tools_shared::gh_shared::pick_rows(&mut value, "repositories", REPO_ID, &fields);
         value["repositories"][0].clone()
@@ -332,6 +332,31 @@ fn a_default_row_leaves_secondary_facts_to_a_fields_pick() {
         for key in detail {
             assert!(picked.get(*key).is_some(), "{key} is unreachable: {picked}");
         }
+    }
+}
+
+#[test]
+fn an_explicit_archive_pick_keeps_false_without_a_missing_field_warning() {
+    let item = || {
+        serde_json::from_value(json!({
+            "full_name": "o/active",
+            "name": "active",
+            "html_url": "https://github.com/o/active",
+            "default_branch": "main",
+            "archived": false,
+        }))
+        .expect("repository")
+    };
+    assert!(repository_row(item(), &[], &[]).get("archived").is_none());
+
+    let fields = ["archived".to_owned()];
+    for detail in [LISTED_DETAIL, EXACT_DETAIL] {
+        let mut response = json!({ "repositories": [repository_row(item(), &[], &fields)] });
+        lean_rows(&mut response, "repositories", detail, &fields);
+        pick_rows(&mut response, "repositories", REPO_ID, &fields);
+
+        assert_eq!(response["repositories"][0]["archived"], false, "{response}");
+        assert!(response.get("warnings").is_none(), "{response}");
     }
 }
 

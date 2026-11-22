@@ -203,8 +203,8 @@ fn sources_under_excluded_directories_are_not_added() {
     let stats = ask(root, "stats", None, |o| o.check_freshness = true);
     assert!(stats.value.get("freshness").is_none(), "{}", stats.value);
     assert_eq!(
-        build().value["id"],
-        built.value["id"],
+        build().value["graph"],
+        built.value["graph"],
         "an unchanged scope is reused"
     );
     // The proof stands in for the walk; without it the walk must agree too.

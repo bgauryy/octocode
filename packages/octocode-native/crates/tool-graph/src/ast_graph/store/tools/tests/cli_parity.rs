@@ -22,7 +22,7 @@ fn fixture() -> (Fixture, String) {
         ToolId::GraphBuild,
         json_fixture(r#"{"path": "app"}"#),
     );
-    let id = built["id"].as_str().expect("id").to_owned();
+    let id = built["graph"].as_str().expect("id").to_owned();
     (dir, id)
 }
 

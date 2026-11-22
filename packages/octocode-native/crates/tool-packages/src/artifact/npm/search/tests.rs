@@ -62,3 +62,16 @@ fn a_page_lists_packages_matching_more_terms_first() {
         0
     );
 }
+
+#[test]
+fn a_phrase_must_match_within_one_package_field() {
+    let terms = ["typed JSON".into(), "schema".into(), "mcp search".into()];
+    let package = json_fixture(
+        r#"{
+            "name": "json-schema-typed",
+            "description": "JSON Schema TypeScript definitions",
+            "keywords": ["mcp", "search"]
+        }"#,
+    );
+    assert_eq!(terms_matched(&terms, Some(&package)), 1);
+}

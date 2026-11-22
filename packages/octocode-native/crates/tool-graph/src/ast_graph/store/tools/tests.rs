@@ -61,17 +61,17 @@ fn a_graph_id_without_path_reads_the_snapshots_own_scope() {
     let with_path = call(
         &dir.0,
         ToolId::GraphQuery,
-        json!({"operation":"stats","path":"app","graph":built["id"]}),
+        json!({"operation":"stats","path":"app","graph":built["graph"]}),
     );
     let without = call(
         &dir.0,
         ToolId::GraphQuery,
-        json!({"operation":"stats","graph":built["id"]}),
+        json!({"operation":"stats","graph":built["graph"]}),
     );
     assert!(without.get("errorCode").is_none(), "{without}");
     assert_eq!(without["graph"], with_path["graph"], "{without}");
     assert_eq!(without["summary"], with_path["summary"], "{without}");
-    let id = built["id"].as_str().expect("id");
+    let id = built["graph"].as_str().expect("id");
     let partial = call(
         &dir.0,
         ToolId::GraphQuery,
@@ -101,7 +101,7 @@ fn argument_evidence_variants_and_continuations_match_the_generated_contract() {
     let stats = call(
         &dir.0,
         ToolId::GraphQuery,
-        json!({"operation":"stats","path":"app","graph":built["id"],"view":"details"}),
+        json!({"operation":"stats","path":"app","graph":built["graph"],"view":"details"}),
     );
     assert_eq!(
         stats["argumentCoverage"]["population"],
@@ -171,7 +171,7 @@ fn missing_snapshots_offer_build_recovery_for_the_requested_scope() {
                 "graph": "missing-snapshot"
             }"#,
         ),
-        json!({"operation":"drift", "path":"app", "graph":built["id"], "baseline":"missing-baseline"}),
+        json!({"operation":"drift", "path":"app", "graph":built["graph"], "baseline":"missing-baseline"}),
     ] {
         let mut output = call(&dir.0, ToolId::GraphQuery, row.clone());
         octocode_runtime_base::response::rows::attach_error_hint(

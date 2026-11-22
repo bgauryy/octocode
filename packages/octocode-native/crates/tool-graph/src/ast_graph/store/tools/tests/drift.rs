@@ -14,14 +14,14 @@ fn drift_answers_within_the_output_contract() {
         ToolId::GraphBuild,
         json_fixture(r#"{"path": "app"}"#),
     );
-    let base_id = base["id"].as_str().expect("id").to_owned();
+    let base_id = base["graph"].as_str().expect("id").to_owned();
     dir.write("app/a.ts", "export const a = 2;\n");
     let head = call(
         &dir.0,
         ToolId::GraphBuild,
         json_fixture(r#"{"path": "app"}"#),
     );
-    assert_ne!(head["id"], json!(base_id), "{head}");
+    assert_ne!(head["graph"], json!(base_id), "{head}");
     let drift = call(
         &dir.0,
         ToolId::GraphQuery,
@@ -50,7 +50,7 @@ fn a_baseline_of_another_scope_is_refused() {
         ToolId::GraphBuild,
         json_fixture(r#"{"path": "lib"}"#),
     );
-    let other_id = other["id"].as_str().expect("id").to_owned();
+    let other_id = other["graph"].as_str().expect("id").to_owned();
     call(
         &dir.0,
         ToolId::GraphBuild,
@@ -78,7 +78,7 @@ fn an_empty_drift_on_a_stale_head_leads_to_a_rebuild() {
         ToolId::GraphBuild,
         json_fixture(r#"{"path": "app"}"#),
     );
-    let base_id = base["id"].as_str().expect("id").to_owned();
+    let base_id = base["graph"].as_str().expect("id").to_owned();
     let fresh = call(
         &dir.0,
         ToolId::GraphQuery,

@@ -1,18 +1,21 @@
 //! Installing a started client, its idle timer, and clearing the pool.
 
-use super::acquire::GenericPool;
+use super::acquire::{GenericPool, budgeted_options};
 use super::pool_client::PoolClient;
 use super::start_guards::StartCancellationGuard;
 use super::state::{
-    Entry, IdleTimerGuard, InFlight, SharedResult, StartBackoff, evict_overflow,
-    inflight_is_current, remove_lru, resident_over_budget, restart_backoff_delay,
-    retire_idle_siblings,
+    Entry, IdleTimerGuard, InFlight, SharedResult, StartBackoff, State, busy_overflow_pending,
+    evict_overflow, inflight_is_current, newest_key, remove_lru, resident_over_budget,
+    restart_backoff_delay, retire_idle_siblings,
 };
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use tokio::task::AbortHandle;
-use tokio::time::Instant;
+use tokio::time::{Duration, Instant};
+
+/// How often the drain task looks for a busy server whose request ended.
+const DRAIN_POLL: Duration = Duration::from_secs(1);
 
 impl<C: PoolClient> GenericPool<C> {
     pub(super) async fn finish_start<Fut>(
@@ -67,6 +70,7 @@ impl<C: PoolClient> GenericPool<C> {
                         // keeps the working sibling.
                         retired = retire_idle_siblings(&mut state, &family, &key);
                         evicted = evict_overflow(&mut state, &self.budgeted(), &key);
+                        self.drain_busy_overflow(&mut state);
                         self.count.store(state.entries.len(), Ordering::SeqCst);
                         state.inflight.remove(&key);
                         inflight.complete(Ok(Some(client.clone())));
@@ -125,6 +129,44 @@ impl<C: PoolClient> GenericPool<C> {
                 inflight.wait().await
             }
         }
+    }
+
+    /// When a busy server keeps the pool over its limits, start the drain
+    /// task (one per pool) that stops it once its request ends: eviction
+    /// skips busy servers, and without this the overrun would last until the
+    /// next acquire or idle expiry. The server is never stopped while busy,
+    /// so no in-flight answer is lost. Call under the state lock.
+    pub(super) fn drain_busy_overflow(&self, state: &mut State<C>) {
+        if state.draining || !busy_overflow_pending(state, &self.budgeted()) {
+            return;
+        }
+        state.draining = true;
+        let state = Arc::clone(&self.state);
+        let count = Arc::clone(&self.count);
+        let sharers = Arc::clone(&self.sharers);
+        let options = self.options;
+        let clock = self.clock.clone();
+        tokio::spawn(async move {
+            loop {
+                clock.sleep(DRAIN_POLL).await;
+                let (evicted, pending) = {
+                    let mut state = state.lock().await;
+                    let options = budgeted_options(&options, &sharers);
+                    let keep = newest_key(&state).to_owned();
+                    let evicted = evict_overflow(&mut state, &options, &keep);
+                    count.store(state.entries.len(), Ordering::SeqCst);
+                    let pending = busy_overflow_pending(&state, &options);
+                    state.draining = pending;
+                    (evicted, pending)
+                };
+                for client in evicted {
+                    client.stop().await;
+                }
+                if !pending {
+                    return;
+                }
+            }
+        });
     }
 
     /// The single idle timer for one entry. It sleeps until the entry's
@@ -225,12 +267,15 @@ impl<C: PoolClient> GenericPool<C> {
         }
     }
 
-    /// The resident bytes and the budget when the servers hold more than the
-    /// budget: busy servers are never stopped, so the pool can stay over it
-    /// until they are idle.
+    /// The resident bytes and the budget while a busy server other than the
+    /// newest holds the pool over it: the drain task stops that server once
+    /// its request ends. None otherwise, also for a newest server alone over
+    /// the budget, which eviction keeps.
     pub(super) async fn over_budget(&self) -> Option<(u64, u64)> {
         let state = self.state.lock().await;
-        resident_over_budget(&state.entries, &self.budgeted())
+        let options = self.budgeted();
+        resident_over_budget(&state.entries, &options)
+            .filter(|_| busy_overflow_pending(&state, &options))
     }
 
     pub(super) fn len(&self) -> usize {

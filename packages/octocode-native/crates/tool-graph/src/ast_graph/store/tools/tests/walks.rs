@@ -5,6 +5,47 @@ fn freshness_checks() -> usize {
     crate::ast_graph::store::FRESHNESS_CHECKS.with(std::cell::Cell::get)
 }
 
+#[test]
+fn grouped_dependents_lead_to_the_same_view_with_only_import_edges() {
+    let dir = Fixture::new();
+    dir.write("app/core.ts", "export const seed = 1;\n");
+    dir.write("app/barrel.ts", "export { seed } from './core';\n");
+    dir.write(
+        "app/service.ts",
+        "import { seed } from './barrel';\nexport const value = seed;\n",
+    );
+    let built = call(&dir.0, ToolId::GraphBuild, json!({"path": "app"}));
+    for view in ["files", "modules"] {
+        let out = call(
+            &dir.0,
+            ToolId::GraphQuery,
+            json!({"operation":"dependents","path":"app","graph":built["graph"],"target":"core.ts","view":view}),
+        );
+        let edge_count = |answer: &Value| {
+            answer["rows"]
+                .as_array()
+                .expect("grouped rows")
+                .iter()
+                .map(|row| row["edges"].as_u64().expect("edge count"))
+                .sum::<u64>()
+        };
+        assert_eq!(edge_count(&out), 2, "{out}");
+        let lead = out["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|lead| lead["input"]["queries"][0]["edges"] == json!(["imports"]))
+            .unwrap_or_else(|| panic!("an import-only lead: {out}"));
+        assert_eq!(lead["tool"], "graphQuery");
+        let row = &lead["input"]["queries"][0];
+        assert_eq!(row["path"], "app");
+        assert_eq!(row["graph"], built["graph"]);
+        assert_eq!(row["view"], view);
+        let imports = call(&dir.0, ToolId::GraphQuery, row.clone());
+        assert_eq!(edge_count(&imports), 1, "{imports}");
+    }
+}
+
 /// A walk reads one immutable snapshot: its first page checks the tree and
 /// states a stale verdict once; a later page neither checks nor repeats it.
 #[test]
@@ -29,7 +70,7 @@ fn a_walk_checks_freshness_on_its_first_page_only() {
     let first = call(
         &dir.0,
         ToolId::GraphQuery,
-        json!({"operation":"hubs","path":"app","graph":built["id"],"kind":"file","limit":1}),
+        json!({"operation":"hubs","path":"app","graph":built["graph"],"kind":"file","limit":1}),
     );
     assert_eq!(first["freshness"]["fresh"], false, "{first}");
     assert_eq!(freshness_checks() - before, 1, "{first}");
@@ -58,7 +99,7 @@ fn a_walk_checks_freshness_on_its_first_page_only() {
     let again = call(
         &dir.0,
         ToolId::GraphQuery,
-        json!({"operation":"hubs","path":"app","graph":built["id"],"kind":"file","limit":1}),
+        json!({"operation":"hubs","path":"app","graph":built["graph"],"kind":"file","limit":1}),
     );
     assert_eq!(again["freshness"]["fresh"], false, "{again}");
     assert_eq!(freshness_checks() - before, 2);
@@ -82,8 +123,8 @@ fn a_stale_answer_leads_to_the_rebuild_of_its_scope() {
     );
     dir.write("app/b.ts", "export const b = 2;\n");
     for request in [
-        json!({"operation":"hubs","path":"app","graph":built["id"],"kind":"file"}),
-        json!({"operation":"dependents","path":"app","graph":built["id"],"target":"a.ts"}),
+        json!({"operation":"hubs","path":"app","graph":built["graph"],"kind":"file"}),
+        json!({"operation":"dependents","path":"app","graph":built["graph"],"target":"a.ts"}),
     ] {
         let out = call(&dir.0, ToolId::GraphQuery, request);
         assert_eq!(out["freshness"]["fresh"], false, "{out}");
@@ -135,7 +176,7 @@ fn symbol_answers_lead_to_the_lsp_search_that_checks_them() {
         let answer = call(
             &dir.0,
             ToolId::GraphQuery,
-            json!({"operation":operation,"path":"app","graph":built["id"],"target":"src/lib.ts#target"}),
+            json!({"operation":operation,"path":"app","graph":built["graph"],"target":"src/lib.ts#target"}),
         );
         let checks = checks(&answer);
         assert_eq!(checks.len(), 1, "{operation}: {answer}");
@@ -150,14 +191,14 @@ fn symbol_answers_lead_to_the_lsp_search_that_checks_them() {
     let file = call(
         &dir.0,
         ToolId::GraphQuery,
-        json!({"operation":"dependents","path":"app","graph":built["id"],"target":"src/lib.ts"}),
+        json!({"operation":"dependents","path":"app","graph":built["graph"],"target":"src/lib.ts"}),
     );
     assert!(checks(&file).is_empty(), "{file}");
     // A walk both ways states each row's direction, a declared row field.
     let both = call(
         &dir.0,
         ToolId::GraphQuery,
-        json!({"operation":"walk","path":"app","graph":built["id"],"target":"src/lib.ts#target","direction":"both","depth":1,"edges":["calls"]}),
+        json!({"operation":"walk","path":"app","graph":built["graph"],"target":"src/lib.ts#target","direction":"both","depth":1,"edges":["calls"]}),
     );
     let ways = both["rows"]
         .as_array()

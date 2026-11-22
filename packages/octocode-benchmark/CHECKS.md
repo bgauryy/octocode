@@ -230,16 +230,19 @@ Behavior, judged by reading, on both surfaces. The per-tool sections below list 
 - Calls: content search in a folder; `view: files`, `filesWithout`, `countMatches` with `limit` and
   `sort:{"by":"matchCount","order":"desc"}` (sorted by count); `matchOnly` with a regex; `contextLines`; `wholeWord`; `include`/`exclude`; a term that only matches
   as a regex (expect a hint).
-- Look for: hits grouped by file with line numbers, in walk (name) order; on a content page that has more, no `pagination.total` and no `matchCount` are stated; a hit in a line over 4 KB shows a window with its column
-  and a ready read of the line; empty rows carry `files: []` and `filesScanned`, no zero counters.
+- Look for: hits grouped by file with line numbers, in walk (name) order; on a content page that has more, no `pagination.total` and no `matchCount` are stated; a hit in a line over 4 KB shows a window with its column.
+  To read the whole line, pass the file path and a one-line range at the hit's line number to `localFetch`.
+  Empty rows carry `files: []` and `filesScanned`, no zero counters.
 - Compare: the expert command and what "better" means are in [COMPARISONS.md](COMPARISONS.md#localsearch).
 
 #### localFetch
 - Calls: whole file (page through); `ranges`; `matchString` + `block: true` on a short and a 600-line
   function; `view: symbols`, `compact`; a minified file with and without `matchString`.
-- Look for: the exact declaration on page 1 and a full first page for a long one; a match in a long line comes
-  first as a window with its byte offset; every byte reachable once by the cursor; a credential file name is
-  refused.
+- Look for: the exact declaration on page 1 and a full first page for a long one. When a long matched line exceeds
+  the response window, the reply shows the match's byte window and a `related` read of the full line.
+  Follow that call and any response cursors to reconstruct the entire line. An explicitly selected long line that
+  exceeds the response window has its own byte-window cursor.
+  A credential file name is refused.
 - Compare: the expert command and what "better" means are in [COMPARISONS.md](COMPARISONS.md#localfetch).
 
 #### structureSearch
@@ -291,6 +294,10 @@ Behavior, judged by reading, on both surfaces. The per-tool sections below list 
     every file whose name states the topic ranks above every file whose name does not.
   - Collapsed log: an 8,000-line access log with one 500 and two 404 lines, `collapse: true`. Pass: one
     request; the 500 keyed by its own line number; the 404 keyed by its first line.
+  - Scout budget. With a fake provider and an allowance of two requests, evaluate a source that returns
+    one unit per page under `maxRequests: 1`. Follow the billed page continuation once. Pass when both
+    pages report one new `usage.calls`, a saved-answer replay reports `replayed: true` and adds no
+    provider requests, and the caller stops before a third paid page.
   - Big file in parts: a log over the provider window, no `maxRequests`. Pass: one call; each planted failure
     in the part whose lines hold it; quiet parts counted in `coverage.quiet`.
   - Image as a source: a PNG as `source` with a question that says "the image". Pass: one request, and its

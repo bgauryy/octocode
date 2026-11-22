@@ -34,6 +34,7 @@ node packages/octocode/out/octocode.js schema localFetch --view query
 - Through public validation, exercise each operation's required fields, defaults, selectors and rejected cross-operation fields; compare `schema` with the input schema.
 - Execute documented examples with observed paths and identities (schema-valid is not runtime-correct).
 - Through the real adapter (MCP validates before the callback), a rejected call names a valid correction and the corrected call passes.
+- Run the correction against a fixture that distinguishes the caller's intent: a same-named symbol at another line, a conflicting filter, or a date bound. A schema-valid example can still select the wrong evidence.
 
 ### Agent routing measurements
 
@@ -47,6 +48,7 @@ node packages/octocode/out/octocode.js schema localFetch --view query
 - MCP must not publish `outputSchema`. Validate real structured results against the internal core/native validator, not static output types.
 - Verify content views against source after redaction, and transformed views separately; short is not faithful.
 - Keep source and revision anchors; every output row owns its evidence; verify workspace-relative paths against the configured workspace. Check mixed success/error batches: a successful MCP envelope does not prove every query succeeded.
+- Compare narrow field projections with the full result on known false values, missing paths at a pinned ref, and unavailable provider lookups. Keep the source identity and the distinction between an absent value and an unchecked value.
 
 ### Lossless reachable pagination
 

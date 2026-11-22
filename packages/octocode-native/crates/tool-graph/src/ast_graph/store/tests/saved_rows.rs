@@ -116,7 +116,7 @@ fn a_fresh_request_never_reuses_a_retained_set() {
 fn a_retained_set_is_bound_to_its_query_and_snapshot() {
     let dir = issues_fixture();
     let first = ingest_fixture(dir.0.as_path(), None);
-    let id = first.value["id"].as_str().expect("id").to_owned();
+    let id = first.value["graph"].as_str().expect("id").to_owned();
     let rows = retention();
     let pages = walk(dir.0.as_path(), &rows, "issues", 1, |_| {});
     let ordered = all_ids(&pages);
@@ -163,7 +163,7 @@ fn a_retained_set_is_bound_to_its_query_and_snapshot() {
         &NeverCancel,
         None,
     );
-    let rebuilt = rebuilt.value["id"].as_str().expect("id").to_owned();
+    let rebuilt = rebuilt.value["graph"].as_str().expect("id").to_owned();
     assert_ne!(rebuilt, id);
     let moved = second_page(&|o| o.graph = Some(rebuilt.clone()));
     assert_eq!(moved.value["graph"]["id"], rebuilt.as_str());
@@ -205,7 +205,7 @@ fn a_page_whose_set_is_not_retained_computes_it_and_retains_it_for_the_next() {
 fn impact_and_drift_pages_reconstruct_their_rows_exactly_once() {
     let dir = issues_fixture();
     let first = ingest_fixture(dir.0.as_path(), None);
-    let base = first.value["id"].as_str().expect("id").to_owned();
+    let base = first.value["graph"].as_str().expect("id").to_owned();
     dir.write("app/src/extra.ts", "export const extra = () => 1;\n");
     dir.write(
         "app/src/orphan2.ts",

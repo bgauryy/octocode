@@ -25,7 +25,7 @@ fn another_analysis_version_is_refused_by_every_operation_and_rebuilt() {
     let dir = fixture();
     let root = dir.0.as_path();
     let first = ingest_fixture(root, None);
-    let old_id = first.value["id"].as_str().expect("id").to_owned();
+    let old_id = first.value["graph"].as_str().expect("id").to_owned();
     let graph_dir = PathBuf::from(first.value["dir"].as_str().expect("dir"));
     as_previous_analysis(&graph_dir);
 
@@ -74,7 +74,7 @@ fn another_analysis_version_is_refused_by_every_operation_and_rebuilt() {
     let rebuilt = ingest_fixture(root, None);
     assert_eq!(rebuilt.class, ExitClass::Success);
     assert_fresh_build(&rebuilt);
-    assert_ne!(rebuilt.value["id"], first.value["id"]);
+    assert_ne!(rebuilt.value["graph"], first.value["graph"]);
     assert_fresh_build(&ingest_fixture(root, None));
     let current = ask(root, "stats", None, |o| o.check_freshness = true);
     assert_eq!(current.class, ExitClass::Success, "{}", current.value);
@@ -112,7 +112,7 @@ fn older_fact_schema_is_stale_and_rebuilt() {
     assert_eq!(out.value["freshness"]["fresh"], false, "{}", out.value);
     let rebuilt = ingest_fixture(dir.0.as_path(), None);
     assert_fresh_build(&rebuilt);
-    assert_ne!(rebuilt.value["id"], first.value["id"]);
+    assert_ne!(rebuilt.value["graph"], first.value["graph"]);
 }
 
 #[test]
@@ -311,7 +311,7 @@ fn an_older_format_snapshot_is_rebuilt_not_reused() {
     let second = ingest_fixture(dir.0.as_path(), None);
     assert_eq!(second.class, ExitClass::Success, "{}", second.value);
     assert_fresh_build(&second);
-    assert_ne!(second.value["id"], first.value["id"]);
+    assert_ne!(second.value["graph"], first.value["graph"]);
     let stats = ask(dir.0.as_path(), "stats", None, |_| {});
     assert_eq!(stats.class, ExitClass::Success, "{}", stats.value);
 }
@@ -399,8 +399,8 @@ fn graph_selection_is_exact_or_ambiguous() {
         false,
     );
     let (app_id, src_id) = (
-        app.value["id"].as_str().expect("id").to_owned(),
-        src.value["id"].as_str().expect("id").to_owned(),
+        app.value["graph"].as_str().expect("id").to_owned(),
+        src.value["graph"].as_str().expect("id").to_owned(),
     );
     let stats = |spec: &str| {
         ask(dir.0.as_path(), "stats", None, |o| {
@@ -450,9 +450,9 @@ fn prune_groups_snapshots_by_root_not_by_slug() {
     for _ in 0..3 {
         let out = ingest_root(dir.0.as_path(), &dir.0.as_path().join("a/b"), Some(1), true);
         assert_eq!(out.class, ExitClass::Success, "{}", out.value);
-        nested.push(out.value["id"].as_str().expect("id").to_owned());
+        nested.push(out.value["graph"].as_str().expect("id").to_owned());
     }
-    let dash_id = dash.value["id"].as_str().expect("id");
+    let dash_id = dash.value["graph"].as_str().expect("id");
     assert!(!nested.contains(&dash_id.to_owned()), "{nested:?}");
     let home = dir.0.as_path().join(".octocode").join("graph");
     let left = list_snapshots(&home);
@@ -483,14 +483,14 @@ fn ingest_prunes_older_format_snapshots_of_every_root() {
     dir.write("other/x.ts", "export const x = 1;\n");
     let home = dir.0.as_path().join(".octocode").join("graph");
     let old = ingest_root(dir.0.as_path(), &dir.0.as_path().join("other"), None, false);
-    let old_id = old.value["id"].as_str().expect("id").to_owned();
+    let old_id = old.value["graph"].as_str().expect("id").to_owned();
     let src = ingest_root(
         dir.0.as_path(),
         &dir.0.as_path().join("app/src"),
         None,
         false,
     );
-    let src_id = src.value["id"].as_str().expect("id").to_owned();
+    let src_id = src.value["graph"].as_str().expect("id").to_owned();
     age_snapshot(&home.join(&old_id));
     let app = ingest_fixture(dir.0.as_path(), None);
     assert_eq!(app.class, ExitClass::Success, "{}", app.value);
@@ -515,7 +515,7 @@ fn a_leased_older_format_snapshot_survives_prune() {
     dir.write("other/x.ts", "export const x = 1;\n");
     let home = dir.0.as_path().join(".octocode").join("graph");
     let old = ingest_root(dir.0.as_path(), &dir.0.as_path().join("other"), None, false);
-    let old_id = old.value["id"].as_str().expect("id").to_owned();
+    let old_id = old.value["graph"].as_str().expect("id").to_owned();
     age_snapshot(&home.join(&old_id));
     renew_lease(&home.join(&old_id)).expect("lease");
     let app = ingest_fixture(dir.0.as_path(), None);
@@ -551,12 +551,12 @@ fn a_substring_naming_one_roots_snapshots_picks_its_newest() {
     let first = ingest_root(dir.0.as_path(), &src, None, true);
     let second = ingest_root(dir.0.as_path(), &src, None, true);
     assert_eq!(second.class, ExitClass::Success, "{}", second.value);
-    assert_ne!(first.value["id"], second.value["id"]);
+    assert_ne!(first.value["graph"], second.value["graph"]);
     let stats = ask(dir.0.as_path(), "stats", None, |o| {
         o.graph = Some("pp-src".into());
     });
     assert_eq!(
-        stats.value["graph"]["id"], second.value["id"],
+        stats.value["graph"]["id"], second.value["graph"],
         "{}",
         stats.value
     );
@@ -580,8 +580,8 @@ fn a_lease_renewed_while_prune_acts_keeps_the_snapshot() {
     let first = ingest_root(dir.0.as_path(), &src, None, true);
     let second = ingest_root(dir.0.as_path(), &src, None, true);
     let (old_id, new_id) = (
-        first.value["id"].as_str().expect("id").to_owned(),
-        second.value["id"].as_str().expect("id").to_owned(),
+        first.value["graph"].as_str().expect("id").to_owned(),
+        second.value["graph"].as_str().expect("id").to_owned(),
     );
     // The older snapshot's lease has run out: prune judges it idle.
     let expired = std::time::SystemTime::now()
@@ -649,7 +649,7 @@ fn a_build_reaps_snapshots_of_roots_that_no_longer_exist() {
     let id_of = |root: &str| {
         let built = ingest_root(dir.0.as_path(), &dir.0.as_path().join(root), None, false);
         assert_eq!(built.class, ExitClass::Success, "{}", built.value);
-        built.value["id"].as_str().expect("id").to_owned()
+        built.value["graph"].as_str().expect("id").to_owned()
     };
     let (gone, leased) = (id_of("gone"), id_of("leased"));
     renew_lease(&home.join(&leased)).expect("lease");
@@ -665,7 +665,7 @@ fn a_build_reaps_snapshots_of_roots_that_no_longer_exist() {
         "a reader's lease holds it: {left:?}"
     );
     assert!(
-        left.contains(&app.value["id"].as_str().expect("id").to_owned()),
+        left.contains(&app.value["graph"].as_str().expect("id").to_owned()),
         "{left:?}"
     );
     // The lease runs out; the next build reaps it too.
@@ -827,7 +827,7 @@ fn a_read_only_graph_home_answers_an_unchanged_scope_and_names_a_write_failure_o
     let home = dir.0.as_path().join(".octocode").join("graph");
     let built = ingest_fixture(dir.0.as_path(), None);
     assert_eq!(built.class, ExitClass::Success, "{}", built.value);
-    let id = built.value["id"].as_str().expect("id").to_owned();
+    let id = built.value["graph"].as_str().expect("id").to_owned();
     if !set_tree_read_only(&home, true) {
         set_tree_read_only(&home, false);
         return; // a superuser writes anywhere
@@ -837,7 +837,7 @@ fn a_read_only_graph_home_answers_an_unchanged_scope_and_names_a_write_failure_o
     let changed = ingest_fixture(dir.0.as_path(), None);
     set_tree_read_only(&home, false);
     assert_eq!(unchanged.class, ExitClass::Success, "{}", unchanged.value);
-    assert_eq!(unchanged.value["id"], id, "{}", unchanged.value);
+    assert_eq!(unchanged.value["graph"], id, "{}", unchanged.value);
     assert_eq!(
         changed.value["errorCode"], "fileAccessFailed",
         "{}",

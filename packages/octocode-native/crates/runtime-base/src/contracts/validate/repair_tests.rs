@@ -116,6 +116,11 @@ fn every_misuse_shape_gets_a_one_line_repair() {
             r#"queries.0.contextLines: Expected object {after, before}; 3 is the value of one field: send {"<field>":3} with <field> one of after, before"#,
         ),
         (
+            "structureSearch",
+            json_fixture(r#"{"queries": [{"operation": "files", "sort": "bytes"}]}"#),
+            r#"queries.0.sort: Expected object {by: name|path|modifiedAt|bytes|totalLines|traversal, order: asc|desc}; send {"by":"bytes"}"#,
+        ),
+        (
             "localFetch",
             json_fixture(
                 r#"{
@@ -721,6 +726,23 @@ fn answered(tool: &str, sent: &Value) -> (Value, Vec<String>) {
     (envelope, lines)
 }
 
+#[test]
+fn a_missing_lsp_anchor_points_to_search_without_guessing_a_line() {
+    let sent = json!({
+        "queries": [{
+            "operation": "definition",
+            "path": "src/runner.ts",
+            "symbolName": "run"
+        }]
+    });
+    let (_, lines) = answered("lspSearch", &sent);
+    let [line] = lines.as_slice() else {
+        panic!("expected only the anchor guidance, got {lines:?}");
+    };
+    assert!(line.contains("queries.0.line"), "{line}");
+    assert!(line.contains("localSearch or astSearch"), "{line}");
+}
+
 /// The row of the example `tool` shows beside the rejected `row`, checked to
 /// be a request the tool accepts.
 fn shown_example(tool: &str, row: Value) -> Value {
@@ -734,6 +756,18 @@ fn shown_example(tool: &str, row: Value) -> Value {
     crate::contracts::validate(tool, shown.clone())
         .unwrap_or_else(|error| panic!("{tool}: {shown} is rejected: {error}"));
     shown["queries"][0].clone()
+}
+
+#[test]
+fn history_repairs_keep_the_requested_filter_intent() {
+    let row = json!({"operation":"pullRequest","owner":"cli","repo":"cli", "filters":{"state":"open", "isMerged":true}});
+    let repaired = shown_example("ghSearchHistory", row);
+    assert_eq!(repaired["filters"], json!({"isMerged":true}));
+
+    let sent = json!({"queries":[{"operation":"issue","owner":"cli","repo":"cli", "filters":{"createdAt":{"to":"2025-01-01"}}}]});
+    let (_, guidance) = answered("ghSearchHistory", &sent);
+    assert!(guidance.iter().any(|line| line.contains("createdAt.to")));
+    assert!(!guidance.iter().any(|line| line.starts_with("Example:")));
 }
 
 /// The example beside a rejected row keeps the row's own value of each

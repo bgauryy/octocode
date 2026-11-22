@@ -350,3 +350,33 @@ fn tree_filters_names_and_files_lists_ignored_entries_on_request() {
         ["a_test.rs", "gen.rs", "lib.rs"]
     );
 }
+
+/// A gitignored credential file is the path policy's, not the ignore rules':
+/// the walk counts it as withheld under its holding directory, with the
+/// credential file the gitignore does not cover, and never names it as
+/// ignored (localSearch reports the same).
+#[test]
+fn gitignored_credential_file_is_counted_withheld_not_named_ignored() {
+    let root = Fixture::new();
+    std::fs::create_dir(root.0.join(".git")).expect("repository marker");
+    std::fs::write(root.0.join(".gitignore"), ".env\n").expect("gitignore");
+    std::fs::create_dir(root.0.join("sub")).expect("sub");
+    for name in ["sub/.env", "sub/.env.local", "sub/b.txt"] {
+        std::fs::write(root.0.join(name), "x\n").expect("file");
+    }
+    let sub = root.0.join("sub");
+    for operation in ["tree", "files"] {
+        let out = run(
+            &root.0,
+            json!({"operation":operation,"path":sub,"includeHidden":true}),
+        )
+        .expect("listing");
+        assert_eq!(skipped_count(&out, "ignored"), 0, "{operation}: {out}");
+        assert_eq!(
+            skipped_reasons(&out, "withheld"),
+            [("credential file".into(), 2)],
+            "{operation}: {out}"
+        );
+        octocode_runtime_base::test_support::checks::assert_absent(&out["skippedPaths"], ".env");
+    }
+}

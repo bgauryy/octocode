@@ -307,6 +307,12 @@ pub(super) fn group_brief(group: &[&SecurityAdvisory]) -> Value {
         && let Some(severity) = twins.iter().find_map(|twin| twin.severity.as_deref())
     {
         row["severity"] = json!(severity);
+        // The word is another record's: the lead record's vectors do not
+        // describe it, so the row states one source's pair. Each record's
+        // own vectors stay in its `advisory` view.
+        if let Some(fields) = row.as_object_mut() {
+            fields.remove("cvss");
+        }
     }
     // GitHub's class of the advisory comes with its twin of an OSV record.
     if row.get("githubType").is_none()

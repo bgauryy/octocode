@@ -55,6 +55,7 @@ fn not_public(visibility: &str, private: bool) -> Option<&str> {
 pub(super) fn repository_row(
     item: octocode_github::RepositorySearchItem,
     wanted: &[String],
+    fields: &[String],
 ) -> Value {
     // Every topic GitHub returns: a topic is a tag the owner chose, even
     // when it spells the repository's name or language.
@@ -79,8 +80,8 @@ pub(super) fn repository_row(
         "createdAt": date(item.created_at),
         "description": item.description,
     });
-    if item.archived {
-        row["archived"] = json!(true);
+    if item.archived || fields.iter().any(|field| field == "archived") {
+        row["archived"] = json!(item.archived);
     }
     // A fork in an owner listing is not the owner's own source.
     if item.fork {
