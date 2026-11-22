@@ -1,10 +1,8 @@
-//! Which result rows state their `column`. A row is found by its line and
-//! its text, so a column tells apart only the rows of one file that repeat
-//! both. Whether a row repeats is read over the whole result, never over one
-//! page: a pair a page boundary splits keeps its columns on both pages. A
-//! tool marks such a row where it holds the whole result ([`repeated`],
-//! [`mark`]) and drops every other column where it finishes the row
-//! ([`take_mark`]).
+//! Preserve columns that distinguish hits on the same source line. AST
+//! matches keep columns whenever they share a start line. Other tools can
+//! use [`repeated`] to detect rows that also share their displayed text.
+//! Each tool checks the full result before paging and calls [`mark`], so
+//! hits on opposite sides of a page boundary keep their columns.
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::hash::Hash;

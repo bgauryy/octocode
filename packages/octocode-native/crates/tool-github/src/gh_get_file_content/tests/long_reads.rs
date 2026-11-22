@@ -179,6 +179,33 @@ async fn a_plain_read_fills_its_page_into_the_long_line() {
     assert_eq!(joined, source, "in order, every byte once");
 }
 
+#[tokio::test]
+async fn narrow_mixed_line_pages_fit_the_read_window_and_rebuild_the_source() {
+    let server = MockServer::builder().start().await;
+    let window = 500;
+    let source = format!("title\n{}\nend\n", "abc漢🙂".repeat(window * 4));
+    serve(&server, "mixed.txt", &source).await;
+    let provider = mock_provider(&server, RetryPolicy::default());
+    let mut query = json!({"owner":"a","repo":"b","path":"mixed.txt","ref":SHA});
+    let mut rebuilt = String::new();
+    loop {
+        let request = serde_json::from_value(query).expect("valid query");
+        let result = execute_default_regex(&provider, &request, &default_context(), Some(window))
+            .await
+            .expect("read");
+        let file = result.file;
+        let text = file.content.content.as_deref().expect("content");
+        assert!(!text.is_empty());
+        assert!(octocode_runtime_base::response::cut::escaped_len(text) <= window);
+        rebuilt.push_str(text);
+        let Some(next) = file.calls.as_ref().and_then(|calls| calls.get("nextPage")) else {
+            break;
+        };
+        query = next["input"]["queries"][0].clone();
+    }
+    assert_eq!(rebuilt, source);
+}
+
 /// G7: a walk through a line several pages long keeps one format as it is
 /// published. Every row that starts a source line carries its `N\t` gutter,
 /// on the byte pages as on the line page after them; a page that opens

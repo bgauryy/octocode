@@ -34,8 +34,12 @@ fn frame_chars() -> usize {
 /// (`next.<channel>`, an issued cursor of the published width).
 fn size(output: &GraphOutput) -> usize {
     let size = chars(&output.value).saturating_add(frame_chars());
+    size.saturating_add(next_chars(output))
+}
+
+fn next_chars(output: &GraphOutput) -> usize {
     if output.next.is_empty() {
-        return size;
+        return 0;
     }
     let next = output
         .next
@@ -49,8 +53,7 @@ fn size(output: &GraphOutput) -> usize {
         })
         .collect::<Map<_, _>>();
     // `,"next":{…}` after the answer's last field.
-    let next = chars(&json!({ "next": next })).saturating_sub(2) + 1;
-    size.saturating_add(next)
+    chars(&json!({ "next": next })).saturating_sub(2) + 1
 }
 
 impl Graph {
@@ -69,14 +72,40 @@ impl Graph {
         let Some(total) = output.value["pagination"]["total"].as_u64() else {
             return Ok(());
         };
-        if size(output) <= budget {
+        let mut delivered = size(output);
+        if delivered <= budget {
             return Ok(());
         }
-        let rows = match output.value.get_mut("rows") {
+        let mut rows = match output.value.get_mut("rows") {
             Some(Value::Array(rows)) if rows.len() > 1 => std::mem::take(rows),
             _ => return Ok(()),
         };
         let total = octocode_engine::num::saturating_usize(total);
+        // The window already fits its row budget. Without a source closure or
+        // cycle previews only the suffix, pagination and next calls can change.
+        if output.value.get("sourceEvidence").is_none()
+            && !output
+                .next
+                .iter()
+                .any(|(channel, _)| matches!(channel, Channel::Cycle(_)))
+        {
+            let header = |out: &GraphOutput| chars(&out.value["pagination"]) + next_chars(out);
+            let mut previous_header = header(output);
+            while rows.len() > 1
+                && delivered > budget
+                && let Some(removed) = rows.pop()
+            {
+                cancel
+                    .check()
+                    .map_err(|message| GraphOutput::error(ErrorCode::Cancelled, message))?;
+                settle_count(output, options, total, rows.len(), Vec::new());
+                let current_header = header(output);
+                delivered = delivered - previous_header - chars(&removed) - 1 + current_header;
+                previous_header = current_header;
+            }
+            output.value["rows"] = Value::Array(rows);
+            return Ok(());
+        }
         let mut page = |keep: usize| -> Result<usize, GraphOutput> {
             output.value["rows"] = Value::Array(rows[..keep].to_vec());
             settle(output, options, total);

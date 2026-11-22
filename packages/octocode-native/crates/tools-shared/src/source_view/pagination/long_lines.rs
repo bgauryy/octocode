@@ -212,6 +212,9 @@ impl MatchFirst {
     ) -> Option<Self> {
         let long_lines = long_lines?;
         let all = long_lines.match_windows;
+        if all.is_empty() {
+            return None;
+        }
         let bytes = content.as_bytes();
         let start = memchr::memrchr(b'\n', bytes.get(..at)?).map_or(0, |at| at + 1);
         let end = memchr::memchr(b'\n', bytes.get(at..)?).map_or(bytes.len(), |end| at + end + 1);
@@ -394,14 +397,22 @@ pub(super) fn filled_page(
     long_lines: Option<LongLines<'_>>,
 ) -> Option<Page> {
     long_lines?;
-    let room = budget.line.max(super::MIN_BYTE_PAGE);
+    let room = budget.line.min(budget.fill);
     // Each line the page shows, and the long line it ends with, renders
     // behind its gutter.
     let gutters = (taken + 1).saturating_mul(budget.gutter);
     let left = room.checked_sub(
         octocode_runtime_base::response::cut::escaped_len(content.get(lines.clone())?) + gutters,
     )?;
-    if left == 0 || MatchFirst::of(content, long_lines, lines.end, room).is_some() {
+    if left == 0
+        || MatchFirst::of(
+            content,
+            long_lines,
+            lines.end,
+            budget.line.max(super::MIN_BYTE_PAGE),
+        )
+        .is_some()
+    {
         return None;
     }
     let end = octocode_runtime_base::response::cut::window_end(content, lines.end, left);

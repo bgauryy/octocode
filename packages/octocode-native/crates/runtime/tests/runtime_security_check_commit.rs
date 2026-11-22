@@ -320,3 +320,69 @@ async fn each_read_that_failed_keeps_its_own_reason() {
         "the second reason is kept: {data}"
     );
 }
+
+#[tokio::test]
+async fn egress_preview_names_the_hash_and_origins_without_asking_either_provider() {
+    let github = MockServer::start().await;
+    let osv = MockServer::start().await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime_with(
+        &[
+            ("GITHUB_API_URL", format!("{}/api/v3", github.uri())),
+            ("OCTOCODE_SECURITY_CHECKS", "true".into()),
+        ],
+        RuntimeLimits {
+            osv_api: Box::leak(format!("{}/v1", osv.uri()).into_boxed_str()),
+            ..FIXTURE_LIMITS
+        },
+    );
+    let outcome = call(
+        &runtime,
+        "securityCheck",
+        json!({"operation":"commit","owner":"o","repo":"r","ref":SHA,"preview":true}),
+    )
+    .await
+    .unwrap();
+    let preview = &row_data(&outcome)["preview"];
+    for origin in [osv.uri(), github.uri()] {
+        assert!(
+            preview["destinations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|d| d["origin"] == origin && d["sends"].to_string().contains(SHA)),
+            "{preview}"
+        );
+    }
+    for query in [
+        json!({"operation":"repository","owner":"internal-owner","repo":"private-source","preview":true}),
+        json!({"operation":"url","url":"https://github.com/internal-owner/private-source","preview":true}),
+        json!({"operation":"advisory","id":"GHSA-29mw-wpgm-hmr9","owner":"internal-owner","repo":"private-source","preview":true}),
+    ] {
+        let outcome = call(&runtime, "securityCheck", query).await.unwrap();
+        let destinations = row_data(&outcome)["preview"]["destinations"]
+            .as_array()
+            .expect("offline destinations");
+        let github_fields = destinations
+            .iter()
+            .find(|d| d["origin"] == github.uri())
+            .expect("GitHub named")
+            .to_string();
+        let osv_fields = destinations
+            .iter()
+            .find(|d| d["origin"] == osv.uri())
+            .expect("OSV named")
+            .to_string();
+        assert!(github_fields.contains("internal-owner/private-source"));
+        assert!(!osv_fields.contains("internal-owner"));
+        assert!(!osv_fields.contains("private-source"));
+    }
+    let package=call(&runtime,"securityCheck",json!({"operation":"package","ecosystem":"npm","packageName":"@internal/package","version":"1.2.3","preview":true})).await.unwrap();
+    let plan = row_data(&package)["preview"].to_string();
+    assert!(plan.contains("registry.npmjs.org"));
+    assert!(plan.contains("@internal/package"));
+    assert!(!plan.contains("api.npmjs.org"));
+    assert!(github.received_requests().await.unwrap().is_empty());
+    assert!(osv.received_requests().await.unwrap().is_empty());
+    runtime.close().await;
+}

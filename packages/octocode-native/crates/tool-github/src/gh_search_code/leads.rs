@@ -2,8 +2,8 @@
 use super::code_output::{requested_ref, row_repo};
 use super::cut::Unlisted;
 use octocode_contract_types::{
-    CaseMode, GhGetFileContentQuery, GhSearchCodeQuery, GhSearchCodeQueryMatchInItem, RegexEngine,
-    SourceLineRange,
+    CaseMode, ContentView, GhGetFileContentQuery, GhGetFileContentQueryContentRanges,
+    GhSearchCodeQuery, GhSearchCodeQueryMatchInItem, RegexEngine, SourceLineRange,
 };
 use octocode_runtime_base::id::ToolId;
 use octocode_runtime_base::response::result::{Continuation, fresh_query_row, query_row};
@@ -32,6 +32,37 @@ pub(super) fn hits_read(
     };
     let read = match_read(&target, keyword_terms(query)?, Some((0, 0)), false)?;
     Some(Continuation::continued_query(read).build())
+}
+
+/// The source block around the highest-ranked hit, pinned to the commit read
+/// by the search.
+pub(super) fn source_read(
+    query: &GhSearchCodeQuery,
+    row: &serde_json::Map<String, Value>,
+    sha: &str,
+    hit_line: u32,
+) -> Option<GhGetFileContentQuery> {
+    if !octocode_github::is_full_sha(sha) {
+        return None;
+    }
+    let (owner, repo) = row_repo(query, row)?;
+    let line = NonZeroU64::new(u64::from(hit_line))?;
+    let read = GhGetFileContentQueryContentRanges {
+        owner: owner.try_into().ok()?,
+        repo: repo.try_into().ok()?,
+        path: row.get("path")?.as_str()?.try_into().ok()?,
+        ref_: Some(sha.try_into().ok()?),
+        ranges: vec![SourceLineRange {
+            start_line: line,
+            end_line: line,
+        }],
+        block: Some(true),
+        view: ContentView::Content,
+        main_goal: None,
+        reasoning: None,
+        read_progress: None,
+    };
+    Some(read.into())
 }
 
 /// The read of the hit lines a cut row left unlisted ([`Unlisted`]): its

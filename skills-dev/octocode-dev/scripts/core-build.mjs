@@ -9,7 +9,7 @@ import { ROOT } from './lib/workspaces.mjs';
 const CORE = path.resolve(ROOT, '..', 'octocode-mcp-host', 'packages', 'octocode-core');
 
 if (existsSync(CORE)) {
-  console.log('Building sibling octocode-core before generating the contract from the pinned release.');
+  console.log('Building sibling octocode-core before generating the tool contract.');
   const { status } = spawnSync('yarn', ['build'], { cwd: CORE, stdio: 'inherit' });
   process.exit(status ?? 1);
 }

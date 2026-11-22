@@ -18,7 +18,7 @@ The routes the server instructions serve, generated from core (`node skills/comm
 | why, when, who → ghSearchHistory → ghGetHistoryItem | `ghSearchHistory`, `ghGetHistoryItem` |
 | first release with a change → commit or PR, ghStructure refs, ghGetHistoryItem compare | `ghSearchHistory`, `ghStructure`, `ghGetHistoryItem` |
 | GitHub package version → artifactSearch → ghStructure → ghGetFileContent at its release ref; other hosts: use the source URL and ref | `artifactSearch`, `ghStructure`, `ghGetFileContent` |
-| known vulnerabilities, or a package before fetching or trusting it → securityCheck | `securityCheck` |
+| known vulnerabilities or a package trust check → securityCheck | `securityCheck` |
 | importers, cycles, impact, dead code → graphBuild → graphQuery | `graphBuild`, `graphQuery` |
 | many searches over a few paths of another repo → ghStructure tree materialize:true → local tools | `ghStructure`, `localSearch` |
 | a whole repo, or paths you cannot name → ghCloneRepo → local tools | `ghCloneRepo` |

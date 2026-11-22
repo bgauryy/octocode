@@ -186,7 +186,8 @@ impl GitHubServices {
         };
         let setup = self.clone_setup_for(request, context, paths);
         match gh_clone_repo::run(&self.provider, query, Ok(request), &setup).await {
-            Ok(result) => {
+            Ok(mut result) => {
+                result.location.lsp_trust_fetched_code = self.lsp_trust_fetched_code;
                 DomainResult::payload(serde_json::to_value(result).unwrap_or_default(), None)
             }
             Err(CloneFailure::Provider(error)) => provider_error(error),

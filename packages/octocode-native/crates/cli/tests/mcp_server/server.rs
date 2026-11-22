@@ -37,7 +37,7 @@ impl Server {
         Self::spawn(command)
     }
 
-    fn spawn(mut command: std::process::Command) -> Self {
+    pub(super) fn spawn(mut command: std::process::Command) -> Self {
         let mut child = command
             .arg("mcp")
             .stdin(std::process::Stdio::piped())

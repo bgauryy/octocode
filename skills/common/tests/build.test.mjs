@@ -144,9 +144,10 @@ test('every installed skill carries exactly the shared files its routes reach', 
   const root = new URL('../../..', import.meta.url).pathname;
   const targets = sharedTargets();
   for (const collection of COLLECTIONS) {
-    for (const name of readdirSync(join(root, collection))) {
+    for (const entry of readdirSync(join(root, collection), { withFileTypes: true })) {
+      const name = entry.name;
       const dir = join(root, collection, name);
-      if (!existsSync(join(dir, 'SKILL.md'))) continue;
+      if (!entry.isDirectory() || !existsSync(join(dir, 'SKILL.md'))) continue;
       const wanted = sharedAssets(dir);
       const label = `${collection}/${name}`;
       for (const target of targets) {

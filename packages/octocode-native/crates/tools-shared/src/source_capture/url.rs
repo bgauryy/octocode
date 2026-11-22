@@ -143,8 +143,8 @@ fn select_image(
     Ok((reply.body, json!({"url":url.as_str()})))
 }
 
-/// An HTTPS URL without credentials.
-fn parse(address: &str) -> Result<Url, ClassificationError> {
+/// Validate a capture URL without contacting its host or resolving DNS.
+pub fn parse(address: &str) -> Result<Url, ClassificationError> {
     let url = Url::parse(address).map_err(|_| {
         ClassificationError::new(
             ErrorCode::InvalidClassificationContext,

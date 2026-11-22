@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn acquire_waits_for_resume_and_reuses_the_same_client_without_starting() {
+fn acquire_waits_for_health_check_and_reuses_the_same_client_without_starting() {
     paused(|clock| async move {
         let pool = pool_on(&clock, 4, 60_000);
         let first = pool
@@ -11,11 +11,9 @@ fn acquire_waits_for_resume_and_reuses_the_same_client_without_starting() {
             .await
             .expect("install")
             .expect("client");
-        // The install itself resumed once: the readiness wait runs on the
-        // pooled client, so a caller cancelled during it leaves the server.
-        assert_eq!(first.resumes.load(Ordering::SeqCst), 1);
+        assert_eq!(first.health_checks.load(Ordering::SeqCst), 0);
         let (release, wait) = oneshot::channel();
-        *first.resume_gate.lock().await = Some(wait);
+        *first.health_gate.lock().await = Some(wait);
         let next = pool.acquire("k".into(), "k".into(), || async {
             panic!("a live client must not restart")
         });
@@ -23,20 +21,20 @@ fn acquire_waits_for_resume_and_reuses_the_same_client_without_starting() {
         std::future::poll_fn(|context| {
             assert!(
                 next.as_mut().poll(context).is_pending(),
-                "acquire waits for readiness resumption"
+                "acquire waits for the health check"
             );
             std::task::Poll::Ready(())
         })
         .await;
-        assert_eq!(first.resumes.load(Ordering::SeqCst), 2);
-        release.send(()).expect("release readiness");
+        assert_eq!(first.health_checks.load(Ordering::SeqCst), 1);
+        release.send(()).expect("release health check");
         let second = next.await.expect("reuse").expect("client");
         assert!(
             first.same(&second),
-            "resumption preserves the exact pooled client"
+            "validation preserves the exact pooled client"
         );
         assert_eq!(first.stops.load(Ordering::SeqCst), 0);
-        assert_eq!(first.resumes.load(Ordering::SeqCst), 2);
+        assert_eq!(first.health_checks.load(Ordering::SeqCst), 1);
     });
 }
 

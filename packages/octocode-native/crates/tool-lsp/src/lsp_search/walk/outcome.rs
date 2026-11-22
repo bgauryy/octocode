@@ -237,26 +237,9 @@ fn offer_excluded_frontier(
     walks: &[(Expansion, &HierarchyWalk)],
     paths: &PathPolicy,
 ) {
-    let depth = lsp_search_query::depth(query).unwrap_or(1);
-    let last_level = |unexpanded_only: bool| {
-        walks
-            .iter()
-            .flat_map(|(expansion, walk)| {
-                walk.edges
-                    .iter()
-                    .filter(|edge| edge.level == depth)
-                    .filter(|edge| {
-                        !unexpanded_only || walk.unexpanded_last_level.contains(&edge.node)
-                    })
-                    .map(|edge| public_edge(*expansion, edge, None))
-            })
-            .collect::<Vec<_>>()
-    };
-    let reached = last_level(false).len();
-    // Only a node the walk never expanded can have results of its own.
-    let mut frontier = last_level(true);
-    let unexpanded = frontier.len();
-    test_scope::retain_callers(query, paths, &mut frontier);
+    if octocode_tools_shared::test_code::Keep::of(lsp_search_query::test_code(query)).is_none() {
+        return;
+    }
     let pages_remain = row
         .get("next")
         .and_then(Value::as_object)
@@ -264,14 +247,30 @@ fn offer_excluded_frontier(
             next.values()
                 .any(|call| call.get("kind").and_then(Value::as_str) == Some("continue"))
         });
-    if reached == 0 || pages_remain {
+    if pages_remain {
         return;
     }
+    let depth = lsp_search_query::depth(query).unwrap_or(1);
+    let mut frontier = walks
+        .iter()
+        .flat_map(|(expansion, walk)| {
+            walk.edges
+                .iter()
+                .filter(|edge| {
+                    edge.level == depth && walk.unexpanded_last_level.contains(&edge.node)
+                })
+                .map(|edge| public_edge(*expansion, edge, None))
+        })
+        .collect::<Vec<_>>();
+    if frontier.is_empty() {
+        return;
+    }
+    test_scope::retain_callers(query, paths, &mut frontier);
     // A scope that left out every last-level edge leads to the call that
     // lists them: the row may show nothing, and that call is its recovery.
     // A last level the row does list is evidence: a deeper walk is the
     // `depth` input's to ask for, and the row carries no call for it.
-    if !(frontier.is_empty() && unexpanded > 0) {
+    if !frontier.is_empty() {
         return;
     }
     let change = json!({"testCode": "include"});

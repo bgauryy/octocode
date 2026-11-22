@@ -123,7 +123,7 @@ pub(crate) async fn execute(
         .items
         .into_iter()
         .map(|item| repository_row(item, &wanted, &fields))
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, _>>()?;
     let ignored_language = match &listing {
         None => ignored_language(provider, query, &repositories, page.matched, context).await,
         Some(_) => None,
@@ -235,7 +235,7 @@ async fn exact_repository(
         })
         .map(|(to_owner, to_repo)| (to_owner.to_owned(), to_repo.to_owned()));
     let fields = access::fields(query);
-    let row = repository_row(item, &[], &fields);
+    let row = repository_row(item, &[], &fields)?;
     let mut value = json!({ "repositories": [row] });
     lean_rows(&mut value, "repositories", EXACT_DETAIL, &fields);
     pick_rows(&mut value, "repositories", REPO_ID, &fields);

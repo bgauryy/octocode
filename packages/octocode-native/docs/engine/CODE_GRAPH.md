@@ -32,7 +32,7 @@ does. Use `--json` for machine callers, including errors:
 ```sh
 octocode --json graphBuild '{"queries":[{"path":".","keep":10}]}'
 octocode --json graphQuery '{"queries":[{"operation":"stats","path":"."}]}'
-octocode schema graphQuery --view query
+octocode-graph schema graphQuery --view query
 ```
 
 MCP exposes these tools when `OCTOCODE_BETA=true` or home configuration enables
@@ -53,7 +53,7 @@ writes, so it runs in the calling process and prints its progress (`graphBuild:
 scanning …`, `parsed N/M files`, `linked …`, `encoding snapshot`, `published`)
 on stderr while stdout keeps the result. MCP `graphBuild` reports no
 progress. For a bulk walk, a larger `responseChars` requests more evidence per page.
-Inspect `octocode schema graphBuild --view query` or the query schema above for
+Inspect `octocode-graph schema graphBuild --view query` or the query schema above for
 the contract embedded in the installed binary. Query alternatives reject
 missing required inputs and options that do not apply to the chosen operation.
 

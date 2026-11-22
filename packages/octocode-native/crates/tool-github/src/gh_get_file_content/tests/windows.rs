@@ -202,7 +202,7 @@ async fn a_minified_file_walks_to_its_end_through_next_continue() {
     }
     // Byte pages follow the response window `read` serves in: none is over
     // its room, and none is far under it.
-    let room = octocode_tools_shared::source_view::pagination::byte_page_room(Some(50_000));
+    let room = octocode_tools_shared::source_view::pagination::line_page_bytes(Some(50_000));
     assert!(
         (body.len().div_ceil(room)..=body.len().div_ceil(room / 2)).contains(&pages),
         "{pages} pages of a {room}-character room"

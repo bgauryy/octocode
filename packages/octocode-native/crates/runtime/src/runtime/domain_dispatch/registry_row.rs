@@ -16,6 +16,19 @@ impl DomainDispatcher {
             Ok(query) => query,
             Err(row) => return Ok(*row),
         };
+        if row_query["preview"] == true {
+            let answer = octocode_tool_packages::artifact_search::preview_destinations(
+                &query,
+                &self.config.resolved.github.api_url,
+            );
+            return Ok(registry_row(
+                ToolId::ArtifactSearch,
+                row_query,
+                answer.map(
+                    |destinations| serde_json::json!({"preview":{"destinations":destinations}}),
+                ),
+            ));
+        }
         // Release tags are checked through the GitHub transport; when its
         // services cannot be built (a malformed API URL), every check says so
         // on its row instead of being skipped.
@@ -59,6 +72,14 @@ impl DomainDispatcher {
             Ok(query) => query,
             Err(row) => return Ok(*row),
         };
+        if row_query["preview"] == true {
+            let answer = octocode_tool_packages::security_check::preview(
+                &query,
+                &self.config.resolved.github.api_url,
+                self.limits.osv_api,
+            );
+            return Ok(registry_row(ToolId::SecurityCheck, row_query, answer));
+        }
         // The repository operation reads GitHub with the row's own credential; when its
         // services cannot be built, the row says so instead of reading nothing.
         let reader: Box<dyn octocode_tool_packages::security_check::RepositoryRead + '_> =

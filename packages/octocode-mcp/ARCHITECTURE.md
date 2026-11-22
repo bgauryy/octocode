@@ -25,7 +25,7 @@ flowchart LR
   never started (platform package missing, binary not executable). The launcher
   answers the client's first JSON-RPC request with the reason as a `-32603`
   error, then exits 1, so the client shows why instead of a closed connection.
-- `build.mjs` bundles `src/index.ts` into `dist/index.js`. `@octocodeai/config`
+- `build.mjs` bundles the stdio launcher into `dist/index.js`. The prepack check requires the launcher. `@octocodeai/config`
   is a private workspace package, so it is bundled at build time (the shared
   launcher uses its development-override guard).
 - The native binary owns protocol framing for both eras (2025-11-25

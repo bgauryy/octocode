@@ -37,7 +37,7 @@ Per row:
 - [ ] Workflow: `impact` on the probe's id, `issues`, `cycles` and `unresolved` each answer without an error.
 - [ ] A second `graphBuild` without `refresh` on the unchanged tree reuses the snapshot (same id) and is faster.
 
-Judge before against after: precision must hold on every row; a recall drop, a stage that answered before and now fails, or reuse turning off is a regression to explain from source. For a timing claim, run one row at a time on an idle machine; machine load moves build time more than most changes. For per-edge agreement with LSP, compare `graphQuery` `witnesses` call edges of a crate with an octocode-graph-view LSP cross-check (`via: lsp | both | graph`).
+Judge before against after: precision must hold on every row; a recall drop, a stage that answered before and now fails, or reuse turning off is a regression to explain from source. For a timing claim, run one row at a time on an idle machine; machine load moves build time more than most changes. For per-edge agreement with LSP, compare `graphQuery` `witnesses` call edges of a crate with an octocode-graph LSP cross-check (`via: lsp | both | graph`).
 
 ## Reading a row
 
@@ -70,3 +70,5 @@ What stays text-level:
 Add a row to the table above: the clone directory, the ingest dir, a probe function with callers in several files, the oracle extensions, and `exclude` globs for vendored or amalgamated copies. Prefer a probe with one definition. Run the new row twice to confirm it is stable, then add it to the CODE_GRAPH.md evaluation table.
 
 For graph-view timing, count one start per tool ID in `events.jsonl`. A chunk’s paging event confirms a native snapshot. Its done event confirms the viewer consumed the graph pages. For subsection builds, verify each saved file location against disk before comparing timings or LSP coverage.
+
+For viewer paging comparisons, use the same frozen tree, binary and warm snapshots. Record wall time to the stitched checkpoint and to verification separately. Compare streamed rows as multisets (including repeated occurrences) and every edge’s provenance and lines. Count cursor calls separately from first requests.

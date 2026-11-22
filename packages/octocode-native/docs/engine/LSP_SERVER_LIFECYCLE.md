@@ -145,6 +145,8 @@ Running the Linux tests (kernel `/proc`, address-space reservations past the cap
 
 ## Readiness and diagnostics
 
+A cold `documentSymbols` request can use an advertised outline provider as soon as the server completes initialization. An empty outline for a nonblank file pays the pending readiness wait before retrying. A subsequent semantic operation acquires a lease on the same process and waits for project readiness. Concurrent semantic requests share the readiness probe.
+
 Traces contain phase labels, durations and counts only—not file paths, method
 arguments, source text, environment values, or credentials. The collector has a
 fixed set of phase keys and is isolated per query; tracing is not a request log.

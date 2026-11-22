@@ -16,6 +16,7 @@ mod serve;
 mod skill;
 mod system;
 mod tool_call;
+mod tool_package;
 use catalog::machine_catalog;
 use clap::Parser;
 use commands::{AuthCommand, Command, ConfigCommand};
@@ -29,6 +30,7 @@ use parse::emit_error;
 pub(crate) use parse::parse_args;
 use std::io::{self};
 use tool_call::run_tool;
+use tool_package::ToolPackage;
 
 /// The package version with the tool contract's fingerprint as build
 /// metadata (`20.2.0+01a553b7`), so a stale build, an MCP server or the CLI
@@ -50,6 +52,8 @@ fn build_version() -> String {
     after_help = ROOT_HELP_AFTER
 )]
 pub(crate) struct Args {
+    #[arg(skip)]
+    package: ToolPackage,
     #[command(subcommand)]
     command: Command,
     /// Print JSON instead of text: indented on a terminal, one line on a pipe.
@@ -75,7 +79,6 @@ same JSON from a file or stdin; clasify --content - reads one row's text from st
 const ROOT_HELP_TAIL: &str = r#"Discovery, smallest first: schema <tool> --view variants (operations, required
 fields, an example); schema <tool> (every field); schema --view full (all tools).
 All tools run here, MCP opt-ins included, for example:
-  graphBuild '{"queries":[{"path":"."}]}', then graphQuery with operation stats;
   ghCloneRepo '{"queries":[{"owner":"o","repo":"r"}]}', then local tools at location.path.
 
 Output: text, on a terminal or a pipe; --json prints JSON (schema always does).
@@ -163,7 +166,11 @@ fn interactive_session() -> bool {
 }
 
 pub(crate) async fn run(args: Args) -> u8 {
-    let Args { command, json } = args;
+    let Args {
+        command,
+        json,
+        package,
+    } = args;
     let mode = command.output_mode(json);
     let json_out = mode.json;
     let command = match command {
@@ -185,7 +192,7 @@ pub(crate) async fn run(args: Args) -> u8 {
             return config_view::run(false, commands::VIEW_IDLE_SECONDS, false).await;
         }
         Command::Serve { socket } => return serve::run(&socket).await,
-        Command::Mcp => mcp_server::run().await,
+        Command::Mcp => mcp_server::run(package).await,
         Command::Tool(tool) => return run_tool(tool, mode).await,
         command => command,
     };
@@ -193,7 +200,7 @@ pub(crate) async fn run(args: Args) -> u8 {
         Ok(runtime) => runtime,
         Err(error) => return start_failed(&error, mode),
     };
-    let result = dispatch(command, &runtime, mode).await;
+    let result = dispatch(command, &runtime, mode, package).await;
     runtime.close().await;
     result
 }
@@ -229,7 +236,12 @@ impl Command {
     }
 }
 
-async fn dispatch(command: Command, runtime: &ToolRuntime, mode: OutputMode) -> u8 {
+async fn dispatch(
+    command: Command,
+    runtime: &ToolRuntime,
+    mode: OutputMode,
+    package: ToolPackage,
+) -> u8 {
     let json_out = mode.json;
     match command {
         Command::Schema {
@@ -244,9 +256,11 @@ async fn dispatch(command: Command, runtime: &ToolRuntime, mode: OutputMode) -> 
         }
         Command::Schema { tool, view, select } => {
             let value = machine_catalog(runtime)
+                .map(|catalog| package.select(catalog))
                 .map_err(|message| schema::SchemaError { message, exit: 5 })
                 .and_then(|machine| match tool.as_deref() {
-                    None => schema::catalog(&machine, view.as_deref()),
+                    None => schema::package_catalog(&machine, view.as_deref(), package),
+                    Some(name) if !package.owns(name) => Err(schema::unknown_tool(&machine, name)),
                     Some(name) => {
                         schema::tool_view(&machine, name, view.as_deref(), select.as_deref())
                     }

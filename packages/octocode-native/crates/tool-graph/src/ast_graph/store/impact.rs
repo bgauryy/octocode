@@ -37,14 +37,22 @@ fn erased_import(kind: &str) -> bool {
     kind.contains("type")
 }
 
+/// The edge that brought a change to an affected file or symbol.
+#[derive(Clone, Copy)]
+struct Via {
+    from: u32,
+    kind: EdgeKind,
+    detail: u32,
+    line: u32,
+}
+
 #[derive(Clone, Copy)]
 struct Reach {
     depth: u32,
     /// Hops that crossed a component (package/crate/module) boundary.
     package_depth: u32,
     confidence: Confidence,
-    /// Edge that first reached this node: `(from node, kind, detail)`.
-    via: Option<(u32, EdgeKind, u32)>,
+    via: Option<Via>,
     types_only: bool,
     /// Reached only through a module-level import under symbol precision:
     /// it binds no linked name of the changed module, so it is listed as
@@ -453,6 +461,7 @@ impl<'t> Propagation<'t> {
                     src: edge.src,
                     kind: edge.kind,
                     detail: edge.detail,
+                    line: edge.line,
                     confidence: edge.confidence,
                     types_only: match edge.kind {
                         EdgeKind::Imports => erased_import(t.str(edge.detail)),
@@ -469,6 +478,7 @@ impl<'t> Propagation<'t> {
                 src: node.file,
                 kind: EdgeKind::Contains,
                 detail: NONE,
+                line: NONE,
                 confidence: Confidence::High,
                 types_only: false,
             });
@@ -527,7 +537,12 @@ impl<'t> Propagation<'t> {
             },
             package_depth: current.package_depth + u32::from(crosses),
             confidence: current.confidence.max(step.confidence),
-            via: Some((id, step.kind, step.detail)),
+            via: Some(Via {
+                from: id,
+                kind: step.kind,
+                detail: step.detail,
+                line: step.line,
+            }),
             types_only: current.types_only || step.types_only,
             candidate,
             module_only: module,

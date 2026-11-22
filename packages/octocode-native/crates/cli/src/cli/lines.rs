@@ -463,11 +463,12 @@ fn file_rows(
     let declarations_of_file = rest.shift_remove("declarations");
     match with_term(rest.shift_remove("matches"), term) {
         Some(Value::Array(matches)) if matches.iter().all(|item| item.get("value").is_some()) => {
-            let Value::Array(matches) =
+            let Value::Array(mut matches) =
                 with_declarations(Value::Array(matches), declarations_of_file.as_ref())
             else {
                 return None;
             };
+            hits::attach_match_keys(&mut rest, &mut matches);
             return hits(path, &matches, numbered, annotation(&rest).as_deref(), out);
         }
         // `lspSearch` call rows (`callers`, `callees`): the calling or

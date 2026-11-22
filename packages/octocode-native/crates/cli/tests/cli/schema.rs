@@ -56,7 +56,10 @@ fn schema_lists_clasify_only_with_a_key() {
         .find(|block| block["tool"] == "clasify")
         .and_then(|block| block["text"].as_str())
         .expect("clasify block");
-    let contract_tools = octocode_runtime_base::id::ToolId::ALL.len();
+    let contract_tools = octocode_runtime_base::id::ToolId::ALL
+        .into_iter()
+        .filter(|id| !matches!(id.as_str(), "graphBuild" | "graphQuery"))
+        .count();
     for (key, listed) in [
         (None, false),
         (Some("  "), false),

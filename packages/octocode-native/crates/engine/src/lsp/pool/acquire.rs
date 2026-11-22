@@ -173,7 +173,6 @@ impl<C: PoolClient> GenericPool<C> {
                             Retirement::Busy => {}
                         }
                     }
-                    client.resume().await;
                     enum Revalidated<C> {
                         Reused(Vec<C>),
                         // A clear or replacement owns the inflight now.

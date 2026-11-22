@@ -2,6 +2,45 @@
 use super::*;
 use octocode_test_support::json_fixture;
 
+/// A changed build links the exact retained pair; following it reveals the new edge.
+#[test]
+fn changed_build_offers_a_drift_query_for_its_retained_predecessor() {
+    let dir = Fixture::new();
+    dir.write("app/a.ts", "export const a = 1;\n");
+    let build = || {
+        call(
+            &dir.0,
+            ToolId::GraphBuild,
+            json_fixture(r#"{"path":"app"}"#),
+        )
+    };
+    let before = build();
+    dir.write("app/b.ts", "import { a } from './a'; export const b = a;\n");
+    let after = build();
+    let drift = after["related"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|lead| &lead["input"]["queries"][0])
+        .find(|query| query["operation"] == "drift")
+        .expect("retained predecessor");
+    assert_eq!(drift["baseline"], before["graph"]);
+    assert_eq!(drift["graph"], after["graph"]);
+    let answer = call(&dir.0, ToolId::GraphQuery, drift.clone());
+    assert!(
+        answer["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["category"] == "file"
+                && row["change"] == "added"
+                && row["path"]
+                    .as_str()
+                    .is_some_and(|path| path.ends_with("b.ts"))),
+        "{answer}"
+    );
+}
+
 #[test]
 fn builds_pages_and_freshness_are_workspace_scoped() {
     let dir = Fixture::new();

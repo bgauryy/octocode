@@ -81,18 +81,12 @@ async fn code_search_lines_follow_a_link_and_judge_its_target() {
         .into_iter()
         .flatten()
         .filter(|(name, _)| name.starts_with("read"))
-        .map(|(_, lead)| lead.clone())
+        .map(|(_, lead)| lead["input"].clone())
         .collect::<Vec<_>>();
-    // The ordinary link's lines are listed, so it needs no read lead; the
-    // withheld one leads nowhere. A read of the link, as an agent would ask,
-    // serves the target's text.
-    let direct = json!({"queries":[{"owner":"o","repo":"r","path":"shown.md","ref":SHA}]});
-    for lead in reads.into_iter().chain([direct]) {
-        assert!(!lead.to_string().contains("hidden.md"), "{lead}");
-        let input = lead.get("queries").map_or_else(
-            || json!({"queries": [lead.clone()]}),
-            |queries| json!({"queries": queries}),
-        );
+    // Only the ordinary link offers a source read. Replaying that lead
+    // serves the target's text and leaves the withheld target unread.
+    assert_eq!(reads.len(), 1, "{output}");
+    for input in reads {
         let read = runtime
             .run("lead".into(), "ghGetFileContent".into(), input)
             .await

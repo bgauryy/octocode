@@ -265,7 +265,12 @@ fn every_batch_carries_the_shared_questions_and_a_fresh_first_page_drops_them() 
     assert_eq!(later["questions"], session.questions, "{later}");
     let request = json!({"operation":"sections","questions":session.questions});
     let mut page = json!({"results":[{"index":0,"data":first}]});
-    octocode_runtime_base::response::pages::drop_echoes(false, &mut page, &[request], &[0]);
+    octocode_runtime_base::response::pages::drop_echoes(
+        octocode_runtime_base::id::ToolId::Clasify,
+        &mut page,
+        &[request],
+        &[0],
+    );
     assert!(
         page["results"][0]["data"].get("questions").is_none(),
         "{page}"

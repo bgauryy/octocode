@@ -198,7 +198,15 @@ fn every_topic_github_returns_is_kept() {
         }"#,
     ))
     .expect("item");
-    let row = repository_row(item, &["hmr".to_owned()], &[]);
+    let mut missing_owner = item.clone();
+    missing_owner.full_name = missing_owner.name.clone();
+    assert_eq!(
+        repository_row(missing_owner, &[], &[])
+            .expect_err("missing owner")
+            .kind,
+        octocode_github::ProviderErrorKind::Decode
+    );
+    let row = repository_row(item, &["hmr".to_owned()], &[]).expect("repository");
     assert_eq!(
         row["topics"],
         json_fixture(r#"["hmr", "vite", "frontend", "build-tool", "typescript"]"#),
@@ -223,7 +231,7 @@ fn a_repository_that_is_not_public_names_its_visibility() {
         item.as_object_mut()
             .expect("object")
             .extend(extra.as_object().expect("object").clone());
-        repository_row(serde_json::from_value(item).expect("item"), &[], &[])
+        repository_row(serde_json::from_value(item).expect("item"), &[], &[]).expect("repository")
     };
     assert_eq!(
         row(json_fixture(
@@ -293,7 +301,8 @@ fn a_default_row_leaves_secondary_facts_to_a_fields_pick() {
             .iter()
             .map(|field| (*field).to_owned())
             .collect::<Vec<_>>();
-        let mut value = json!({"repositories":[repository_row(item(), &[], &fields)]});
+        let mut value =
+            json!({"repositories":[repository_row(item(), &[], &fields).expect("repository")]});
         octocode_tools_shared::gh_shared::lean_rows(&mut value, "repositories", detail, &fields);
         octocode_tools_shared::gh_shared::pick_rows(&mut value, "repositories", REPO_ID, &fields);
         value["repositories"][0].clone()
@@ -347,11 +356,17 @@ fn an_explicit_archive_pick_keeps_false_without_a_missing_field_warning() {
         }))
         .expect("repository")
     };
-    assert!(repository_row(item(), &[], &[]).get("archived").is_none());
+    assert!(
+        repository_row(item(), &[], &[])
+            .expect("repository")
+            .get("archived")
+            .is_none()
+    );
 
     let fields = ["archived".to_owned()];
     for detail in [LISTED_DETAIL, EXACT_DETAIL] {
-        let mut response = json!({ "repositories": [repository_row(item(), &[], &fields)] });
+        let mut response =
+            json!({ "repositories": [repository_row(item(), &[], &fields).expect("repository")] });
         lean_rows(&mut response, "repositories", detail, &fields);
         pick_rows(&mut response, "repositories", REPO_ID, &fields);
 

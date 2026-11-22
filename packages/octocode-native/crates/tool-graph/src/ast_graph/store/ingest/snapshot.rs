@@ -130,6 +130,13 @@ pub(super) fn publish_snapshot(
     if let Err(error) = cancel.check() {
         return GraphOutput::error(ErrorCode::Cancelled, error);
     }
+    // Select the predecessor under the same publication lock as the new head.
+    let baseline = unchanged::newest(job.home, &job.built.root.to_string_lossy())
+        .filter(|(_, previous)| {
+            previous["buildIdentity"] == manifest["buildIdentity"]
+                && previous["graph"]["sha256"] != manifest["graph"]["sha256"]
+        })
+        .map(|(previous, _)| previous);
     let dir = match staged.publish(job.home, &id, &manifest) {
         Ok(dir) => dir,
         Err(error) => {
@@ -156,6 +163,15 @@ pub(super) fn publish_snapshot(
     );
     progress::emit(|| format!("published {id} ({bytes} bytes)"));
     let mut receipt = receipt(&id, &dir, &manifest, started);
+    if let Some(previous) = baseline.filter(|previous| !pruned.iter().any(|p| p.id == *previous)) {
+        let query = json!({"operation": "drift", "graph": id, "baseline": previous});
+        let lead = octocode_runtime_base::response::result::Continuation::related(
+            octocode_runtime_base::id::ToolId::GraphQuery,
+            query,
+        )
+        .build();
+        octocode_runtime_base::response::result::attach_related(&mut receipt, lead);
+    }
     if unfinished > 0 {
         receipt["unfinishedJobBytes"] = json!(unfinished);
     }

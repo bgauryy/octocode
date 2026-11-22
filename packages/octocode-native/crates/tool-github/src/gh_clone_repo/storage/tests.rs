@@ -28,53 +28,17 @@ fn deep_history_and_sparse_sets_key_their_own_entries() {
 
 const HOST: &str = "https://example.test";
 
-fn key(owner: &str, repo: &str, commit: &str, depth: u64) -> StoreKey {
-    StoreKey::new(
-        Path::new("/tmp/octocode-store-root"),
-        owner,
-        repo,
-        HOST,
-        depth,
-        commit,
-    )
-}
-
-/// Depth 1 (the default) shares one store per repository, whatever the
-/// commit; deeper history keeps a store per commit and depth, because a
-/// shallow boundary belongs to the whole repository.
 #[test]
-fn the_default_depth_shares_one_store_per_repository() {
-    let a = "a".repeat(40);
-    let b = "b".repeat(40);
-    assert_eq!(key("o", "r", &a, 1).dir(1), key("o", "r", &b, 1).dir(1));
-    // Owner and repository names are case-insensitive, like the checkouts'.
-    assert_eq!(key("O", "R", &a, 1).dir(1), key("o", "r", &a, 1).dir(1));
-    assert_ne!(key("o", "r", &a, 1).dir(1), key("o", "other", &a, 1).dir(1));
-    assert_ne!(key("o", "r", &a, 1).dir(1), key("o", "r", &a, 1).dir(2));
-    let shared = key("o", "r", &a, 1).dir(1);
-    assert!(shared.starts_with(Path::new("/tmp/octocode-store-root/clone-store/o")));
-    let name = shared.file_name().expect("name").to_string_lossy();
-    assert!(
-        name.starts_with("r__host_") && name.ends_with("__g1.git"),
-        "{name}"
+fn store_identity_is_the_host_and_case_insensitive_repository() {
+    let home = Path::new("/tmp/octocode-store-root");
+    let store = |owner, repo, host| StoreKey::new(home, owner, repo, host).dir(1);
+    assert_eq!(store("o", "r", HOST), store("O", "R", HOST));
+    assert_ne!(store("o", "r", HOST), store("o", "r2", HOST));
+    assert_ne!(
+        store("o", "r", HOST),
+        store("o", "r", "https://elsewhere.test")
     );
-    assert!(!name.contains(&a) && !name.contains("__d"), "{name}");
-    // The store never lies under the readable clones root.
-    assert!(!shared.starts_with(clones_root(Path::new("/tmp/octocode-store-root"))));
-}
-
-#[test]
-fn deeper_history_keeps_a_store_per_commit_and_depth() {
-    let a = "a".repeat(40);
-    let b = "b".repeat(40);
-    let deep = key("o", "r", &a, 3).dir(1);
-    assert_ne!(deep, key("o", "r", &a, 1).dir(1));
-    assert_ne!(deep, key("o", "r", &b, 3).dir(1));
-    assert_ne!(deep, key("o", "r", &a, 4).dir(1));
-    // Case of the commit does not matter.
-    assert_eq!(deep, key("o", "r", &a.to_ascii_uppercase(), 3).dir(1));
-    let name = deep.file_name().expect("name").to_string_lossy();
-    assert!(name.contains(&format!("r__{a}__d3__host_")), "{name}");
+    assert!(!store("o", "r", HOST).starts_with(clones_root(home)));
 }
 
 /// The current store is the highest generation that finished its init; an
@@ -83,15 +47,14 @@ fn deeper_history_keeps_a_store_per_commit_and_depth() {
 #[test]
 fn the_current_store_is_the_highest_ready_generation() {
     let root = octocode_runtime_base::test_support::Fixture::new();
-    let sha = "a".repeat(40);
-    let key = StoreKey::new(&root.0, "o", "r", HOST, 1, &sha);
+    let key = StoreKey::new(&root.0, "o", "r", HOST);
     assert_eq!(key.ready(), None);
     assert_eq!(key.next_dir(), key.dir(1));
     for generation in [1, 2, 3] {
         fs::create_dir_all(key.dir(generation)).expect("store");
     }
     // Another repository's store and a stray file are not generations.
-    let other = StoreKey::new(&root.0, "o", "r2", HOST, 1, &sha);
+    let other = StoreKey::new(&root.0, "o", "r2", HOST);
     fs::create_dir_all(other.dir(9)).expect("other");
     fs::write(key.dir(1).with_extension("txt"), "").expect("stray");
     assert_eq!(key.generations(), [1, 2, 3]);

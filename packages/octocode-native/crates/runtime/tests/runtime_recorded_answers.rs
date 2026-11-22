@@ -43,14 +43,7 @@ async fn a_repository_row_states_what_github_answered() {
     let (recording, data) = answered("github/repo-get").await;
     let github = answer(&recording, "/repos/octocat/Hello-World");
     let row = &data["repositories"][0];
-    // A page of one owner's repositories states the owner once (hoist G-H3),
-    // and a fresh response drops it where the request named it: the row reads
-    // it from `data`, else the request.
-    let owner = row
-        .get("owner")
-        .or_else(|| data.get("owner"))
-        .unwrap_or(&recording["query"]["owner"]);
-    assert_eq!(*owner, github["owner"]["login"], "{data}");
+    assert_eq!(data["owner"], github["owner"]["login"], "{data}");
     assert_eq!(row["repo"], github["name"], "{data}");
     assert_eq!(row["defaultBranch"], github["default_branch"], "{data}");
 }

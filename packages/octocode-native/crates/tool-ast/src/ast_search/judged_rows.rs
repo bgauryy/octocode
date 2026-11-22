@@ -120,12 +120,8 @@ struct Judging<'a, 'b> {
     known: &'a Known,
 }
 
-/// Drop what only the judging above reads from a lean match row: its start
-/// `column` (no input takes it, and an expanded row keeps its range) and the
-/// `clipped` flag, which the header's own ` …` marker already states. A row
-/// the page marked as repeating the line and header of another match of its
-/// file, on any page, keeps its `column`: it is the only thing that tells the
-/// two occurrences apart ([`octocode_tools_shared::same_line`]).
+/// Lean rows retain a start column when multiple matches start on their line.
+/// Expanded rows keep their ranges. The header text already marks clipping.
 pub(super) fn drop_judging_positions(value: &mut Value) {
     match value {
         Value::Array(items) => items.iter_mut().for_each(drop_judging_positions),

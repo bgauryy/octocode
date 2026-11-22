@@ -190,7 +190,9 @@ fn no_local_refs(context: &GitContext<'_>, directory: &Path) -> Result<bool, Git
         "check local checkout refs",
         None,
     )?;
-    Ok(refs.stdout.trim().is_empty())
+    Ok(refs.stdout.lines().all(|name| {
+        name.starts_with("refs/remotes/origin/") || name.starts_with("refs/octocode/tags/")
+    }))
 }
 
 /// Repo-relative paths of the repository symlinks (index mode `120000`) the
@@ -409,8 +411,8 @@ pub(super) fn blobs_absent(
 }
 
 /// Check out `commit` (a full SHA: `run` pins every row to one) as the linked
-/// worktree `stage` of the shared partial `store`, with `depth` commits of
-/// history, limited to `sparse_paths`, leaving out every credential-named
+/// worktree `stage` of the shared partial `store`, with full history and
+/// limited to `sparse_paths`, leaving out every credential-named
 /// file in scope. Returns what was left out ([`Staged`]), or `None` when `store` already
 /// held a credential-named blob it did not just fetch (a rule set that
 /// withheld less, or an earlier remote that ignored the filter): the caller
@@ -421,10 +423,13 @@ pub(super) fn checkout(
     store: &Path,
     commit: &str,
     sparse_paths: Option<&[String]>,
-    depth: u64,
     stage: &Path,
 ) -> Result<Option<Staged>, GitError> {
+    let existed = store.exists();
     let created = ensure_store(context, store, repository_url)?;
+    if !created && !storage::has_verified_history(store) {
+        return Ok(None);
+    }
     let Some(staged) = ensure_commit(
         context,
         store,
@@ -432,7 +437,6 @@ pub(super) fn checkout(
             repository_url,
             commit,
             sparse_paths,
-            depth,
             created,
         },
         |staged| {
@@ -461,7 +465,14 @@ pub(super) fn checkout(
             }
             Ok(())
         },
-    )?
+    )
+    .inspect_err(|_| {
+        // A failed first fetch may have received blobs from an unfiltered
+        // remote. This generation was created under our lock for this call.
+        if !existed && storage::has_no_worktrees(store) {
+            storage::remove_dir(store);
+        }
+    })?
     else {
         return Ok(None);
     };
@@ -493,9 +504,8 @@ pub(super) struct Staged {
 }
 
 /// The shared store at `store`: a bare repository whose every checkout is a
-/// linked worktree, with the `origin` the row cloned from. Its own `HEAD`
-/// and refs stay empty: a fetch names a commit, a worktree's `HEAD` keeps it
-/// reachable, and every ref is somebody's local work.
+/// linked worktree, with the `origin` the row cloned from. Each detached
+/// worktree keeps its pinned commit reachable.
 fn ensure_store(
     context: &GitContext<'_>,
     store: &Path,
@@ -557,7 +567,6 @@ struct Fetch<'a> {
     repository_url: &'a str,
     commit: &'a str,
     sparse_paths: Option<&'a [String]>,
-    depth: u64,
     /// The store did not exist before this row.
     created: bool,
 }
@@ -566,16 +575,8 @@ struct Fetch<'a> {
 /// no credential-named blob in scope is stored. Returns the credential-named
 /// files in scope, which a checkout leaves out, and the tree's symlinks.
 ///
-/// A fetch with `--depth` deepens or shortens history shared with other tips,
-/// so only a depth-1 store is shared: there a present commit is skipped, and
-/// a fetch only adds a one-commit boundary. A deeper store belongs to one
-/// commit and depth; it is skipped when it already holds that many commits.
-///
-/// `prepare_stage` sets up the worktree the checkout fills: local steps that
-/// fetch no blob. In a store this call `created` it runs beside the blob
-/// check, which gates only the checkout that follows; in an older store the
-/// check comes first, so a store holding a withheld blob gets no worktree.
-///
+/// One filtered fetch imports remote branches, tags and the exact pin. Later
+/// worktrees can resolve any of those commits without another history fetch.
 /// `None` when a store that existed before this call holds a credential-named
 /// blob in scope (the caller makes a clean one); a store `created` by this
 /// call can only have it from a remote that ignored the filter.
@@ -589,28 +590,65 @@ fn ensure_commit(
         repository_url,
         commit,
         sparse_paths,
-        depth,
         created,
     } = *request;
     // A store this row made holds nothing yet.
-    let fetching = created || !holds_history(context, store, commit, depth)?;
+    let fetching = created || !holds_commit(context, store, commit)?;
     if fetching {
         // Every checkout is a partial one: blobs arrive only when a checkout
         // needs them, so a credential-named file left out is never fetched.
         // The fetch carries `--filter`, and a filtered fetch registers the
         // remote as a promisor with that filter itself
         // (`remote.origin.promisor`, `remote.origin.partialclonefilter`).
-        let depth = depth.to_string();
-        let mut fetch = scoped(store, &["fetch", "--no-tags", "--depth", &depth]);
-        fetch.extend([OsString::from("--filter"), OsString::from("blob:none")]);
-        fetch.extend(["--".into(), "origin".into(), OsString::from(commit)]);
-        run(
+        let mut fetch = scoped(
+            store,
+            &[
+                "fetch",
+                "--atomic",
+                "--prune",
+                "--no-tags",
+                "--filter",
+                "blob:none",
+                "--",
+                "origin",
+                commit,
+            ],
+        );
+        // Separate managed tags from local tags: pruning a remote ref must
+        // never delete a tag the user created in a linked worktree.
+        fetch.extend([
+            "+refs/heads/*:refs/remotes/origin/*".into(),
+            "+refs/tags/*:refs/octocode/tags/*".into(),
+        ]);
+        storage::begin_history_fetch(store)?;
+        let fetched = run(
             context,
             fetch,
             step_timeout(context),
             "fetch requested commit",
             Some(repository_url),
         )?;
+        if fetched
+            .stderr
+            .contains("filtering not recognized by server")
+        {
+            return Err(GitError::new(
+                ErrorCode::GitFailed,
+                "The remote ignored the partial-clone blob filter. A shared history store requires a remote that supports partial clone.",
+            ));
+        }
+        // Git can reject shallow refs with exit status zero and leave no
+        // shallow file. The explicit history fetch alone must supply ancestry.
+        if fetched
+            .stderr
+            .contains("shallow roots are not allowed to be updated")
+        {
+            return Err(GitError::new(
+                ErrorCode::GitFailed,
+                "The remote supplied shallow history. Use a source with complete ancestry.",
+            ));
+        }
+        storage::verify_history_fetch(store)?;
     }
     let TreeListing {
         withheld: listed,
@@ -646,45 +684,19 @@ fn ensure_commit(
     Ok(Some(staged))
 }
 
-/// Whether `store` already holds `commit` with the history `depth` asks for.
-fn holds_history(
-    context: &GitContext<'_>,
-    store: &Path,
-    commit: &str,
-    depth: u64,
-) -> Result<bool, GitError> {
-    // `--missing` keeps a walk from fetching what the store lacks.
-    if depth == 1 {
-        let listed = run(
-            context,
-            scoped(store, &["rev-list", "--no-walk", "--missing=print", commit]),
-            step_timeout(context),
-            "check commit in store",
-            None,
-        )?;
-        return Ok(listed
-            .stdout
-            .lines()
-            .any(|line| line.trim().eq_ignore_ascii_case(commit)));
-    }
-    // A history shorter than `depth` ends at the root commit: complete, not
-    // missing. `--missing=print` marks each absent commit with `?`.
-    let count = depth.to_string();
-    let walked = run(
+/// A complete commit graph needs only a presence check at the pinned tip.
+fn holds_commit(context: &GitContext<'_>, store: &Path, commit: &str) -> Result<bool, GitError> {
+    let listed = run(
         context,
-        scoped(
-            store,
-            &["rev-list", "--max-count", &count, "--missing=print", commit],
-        ),
+        scoped(store, &["rev-list", "--no-walk", "--missing=print", commit]),
         step_timeout(context),
         "check commit in store",
         None,
     )?;
-    let mut lines = walked.stdout.lines().map(str::trim);
-    Ok(lines
-        .next()
-        .is_some_and(|first| first.eq_ignore_ascii_case(commit))
-        && lines.all(|line| !line.starts_with('?')))
+    Ok(listed
+        .stdout
+        .lines()
+        .any(|line| line.trim().eq_ignore_ascii_case(commit)))
 }
 
 /// A new linked worktree of `store` at `stage`, detached at `commit` and
@@ -716,39 +728,6 @@ pub(super) fn move_worktree(
     args.extend([from.as_os_str().to_owned(), to.as_os_str().to_owned()]);
     run(context, args, step_timeout(context), "move worktree", None)?;
     Ok(())
-}
-
-/// Whether `store` holds every commit back to the roots: it keeps no
-/// shallow boundary, or each boundary commit is a root (a depth that ends
-/// exactly at a root marks it shallow all the same). A boundary commit's own
-/// object still names its parents, which the shallow boundary hides from
-/// history walks; the first one that has a parent decides.
-pub(super) fn holds_whole_history(
-    context: &GitContext<'_>,
-    store: &Path,
-) -> Result<bool, GitError> {
-    for commit in storage::shallow_boundary(store) {
-        // A boundary git's file does not name as a commit proves nothing.
-        let Some(commit) = commit else {
-            return Ok(false);
-        };
-        let object = run(
-            context,
-            scoped(store, &["cat-file", "commit", &commit]),
-            step_timeout(context),
-            "read history boundary",
-            None,
-        )?;
-        let parented = object
-            .stdout
-            .lines()
-            .take_while(|line| !line.is_empty())
-            .any(|line| line.starts_with("parent "));
-        if parented {
-            return Ok(false);
-        }
-    }
-    Ok(true)
 }
 
 /// Whether git finds `store` intact: its connectivity check exits zero. A

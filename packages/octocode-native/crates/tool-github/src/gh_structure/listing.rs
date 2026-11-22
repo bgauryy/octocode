@@ -291,7 +291,12 @@ pub(super) async fn link_targets(
     use futures_util::StreamExt as _;
     let reads = entries
         .iter()
-        .filter(|entry| entry.kind == EntryKind::Link)
+        .filter(|entry| {
+            entry.kind == EntryKind::Link
+                && !octocode_runtime_base::policy::discovery::is_sensitive_repository_file(
+                    &entry.path,
+                )
+        })
         .filter_map(|entry| Some((&entry.path, entry.oid.as_deref()?)))
         .map(|(path, oid)| async move {
             (

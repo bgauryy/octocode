@@ -4,12 +4,12 @@ Use `graphBuild` and `graphQuery` to find importers, trace dependencies or see w
 
 ## Turn it on
 
-The CLI includes both tools. For MCP, run `octocode config set local.beta true` with local tools enabled, then restart MCP. Builds save snapshots under the graph workspace’s `.octocode/graph/` by default. [Change the snapshot location](CONFIGURATION.md#all-settings-and-defaults)
+Install `@octocodeai/octocode-graph` for the CLI or configure `octocode-graph mcp` as a stdio server. Builds save snapshots under the graph workspace’s `.octocode/graph/` by default. [Change the snapshot location](CONFIGURATION.md#all-settings-and-defaults)
 
 ## Build
 
 ```bash
-octocode graphBuild '{"queries":[{"path":"src"}]}'
+octocode-graph graphBuild '{"queries":[{"path":"src"}]}'
 ```
 
 Replace `src` with a directory in your project. If the build pauses, follow `next.expandScan`. Keep the returned `graph` value to query that exact snapshot.
@@ -17,8 +17,8 @@ Replace `src` with a directory in your project. If the build pauses, follow `nex
 ## Query
 
 ```bash
-octocode graphQuery '{"queries":[{"operation":"hubs","path":"src","kind":"file","rankBy":"pageRank"}]}'
-octocode graphQuery '{"queries":[{"operation":"impact","path":"src","target":"src/config.ts"}]}'
+octocode-graph graphQuery '{"queries":[{"operation":"hubs","path":"src","kind":"file","rankBy":"pageRank"}]}'
+octocode-graph graphQuery '{"queries":[{"operation":"impact","path":"src","target":"src/config.ts"}]}'
 ```
 
 Use the build’s `path` in both queries. Replace `src/config.ts` with a file from the snapshot. You can also pass the saved `graph` value.
@@ -32,7 +32,7 @@ Use the build’s `path` in both queries. Replace `src/config.ts` with a file fr
 | Which files or tests could this change affect? | `impact` |
 | Has the source changed since the build? | `stale` |
 
-A file's dependents can include code that uses its exports through another module. Set `edges: ["imports"]` to follow imports only. Run `octocode schema graphQuery --view variants` for more operations and examples.
+A file's dependents can include code that uses its exports through another module. Set `edges: ["imports"]` to follow imports only. Run `octocode-graph schema graphQuery --view variants` for more operations and examples.
 
 ## Read the answer
 

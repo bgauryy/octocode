@@ -283,6 +283,37 @@ fn the_tool_flow_is_readable_as_a_resource() {
         r#"{"jsonrpc": "2.0", "method": "notifications/initialized"}"#,
     ));
     let listed = server.request("resources/list", json!({}));
+    let templates = server.request("resources/templates/list", json!({}));
+    let templates = templates["result"]["resourceTemplates"]
+        .as_array()
+        .expect("templates");
+    let ast_uri = "octocode://contract/input/astSearch/{operation}";
+    assert!(
+        templates
+            .iter()
+            .any(|entry| entry["uriTemplate"] == ast_uri)
+    );
+    let read = server.request(
+        "resources/read",
+        json!({"uri":ast_uri.replace("{operation}", "match")}),
+    );
+    let details: serde_json::Value = serde_json::from_str(
+        read["result"]["contents"][0]["text"]
+            .as_str()
+            .expect("operation resource"),
+    )
+    .expect("selected schema");
+    assert_eq!(
+        details["querySchema"]["properties"]["operation"]["enum"],
+        json!(["match"])
+    );
+    for uri in [
+        "octocode://contract/input/astSearch/unknown",
+        "octocode://contract/input/graphQuery/deps",
+    ] {
+        let read = server.request("resources/read", json!({"uri": uri}));
+        assert!(read.get("error").is_some(), "{read}");
+    }
     let listed_uris: Vec<&str> = listed["result"]["resources"]
         .as_array()
         .expect("resources")

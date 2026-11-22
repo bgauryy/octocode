@@ -802,6 +802,51 @@ pub(super) fn shown_example(tool: &str, row: Value) -> Value {
 }
 
 #[test]
+fn clasify_question_repairs_keep_the_question_text_and_request() {
+    let sent = json!({"queries":[
+        {"operation":"evaluate","content":"Doubles its input.","preview":true,
+         "questions":["Does it double?","Is zéro preserved?"],"maxRequests":1},
+        {"operation":"evaluate","content":"Another task.","predicates":["Is it signed?"]}
+    ]});
+    let shown = example_of("clasify", &sent);
+    let mut expected = json!({"queries":[sent["queries"][0].clone()]});
+    expected["queries"][0]["questions"] = json!({
+        "q1":{"type":"noul","instructions":"Does it double?"},
+        "q2":{"type":"noul","instructions":"Is zéro preserved?"}
+    });
+    assert_eq!(shown, expected);
+    super::validate("clasify", shown).expect("replay");
+}
+
+#[test]
+fn clasify_question_repairs_keep_keys_and_never_drop_unreadable_items() {
+    let typed = json!({"type":"noul","instructions":"Is it constant?"});
+    let row = json!({"operation":"evaluate","content":"Doubles its input.","preview":true,
+        "questions":{"first":"Does it double?","second":typed,
+          "third":{"type":"noul","question":"Is it signed?"}}});
+    let repaired = shown_example("clasify", row);
+    assert_eq!(
+        repaired["questions"]["first"]["instructions"],
+        "Does it double?"
+    );
+    assert_eq!(repaired["questions"]["second"], typed);
+    assert_eq!(
+        repaired["questions"]["third"]["instructions"],
+        "Is it signed?"
+    );
+    let (_, lines) = answered(
+        "clasify",
+        &json!({"queries":[{
+            "operation":"evaluate","content":"Doubles its input.","questions":["Does it double?", 2]
+        }]}),
+    );
+    assert!(
+        !lines.iter().any(|line| line.starts_with("Example: ")),
+        "{lines:?}"
+    );
+}
+
+#[test]
 fn history_repairs_keep_the_requested_filter_intent() {
     let row = json!({"operation":"pullRequest","owner":"cli","repo":"cli", "keywords":["fix"], "filters":{"state":"open", "isMerged":true, "author":"octocat", "baseRef":"main"}, "limit":7});
     let repaired = shown_example("ghSearchHistory", row.clone());

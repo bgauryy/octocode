@@ -91,6 +91,7 @@ struct NativeLspClientInner {
     capabilities: StdMutex<Option<Value>>,
     server_info: StdMutex<Option<Value>>,
     readiness: StdMutex<Option<Readiness>>,
+    readiness_wait: Mutex<()>,
     progress: Arc<ProgressTracker>,
     /// When this server started: a file changed since is not what it indexed.
     started_at: std::sync::OnceLock<std::time::SystemTime>,
@@ -242,6 +243,7 @@ impl NativeLspClient {
                 capabilities: StdMutex::new(None),
                 server_info: StdMutex::new(None),
                 readiness: StdMutex::new(None),
+                readiness_wait: Mutex::new(()),
                 progress: ProgressTracker::new(clock.clone()),
                 started_at: std::sync::OnceLock::new(),
                 listed_files: std::sync::OnceLock::new(),

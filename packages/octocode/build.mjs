@@ -24,6 +24,7 @@ console.log('✓ skills staged → skills/');
 const bundles = await Promise.all(
   [
     ['src/index.ts', outfile],
+    ['src/native.ts', 'out/native.js'],
     ['src/install.ts', 'out/install.js'],
   ].map(([entry, out]) =>
     esbuild.build({ ...launcherBuildOptions(pkg), entryPoints: [entry], outfile: out })

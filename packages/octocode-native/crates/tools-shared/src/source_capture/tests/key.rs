@@ -76,6 +76,12 @@ impl SourceReader for Keying {
     ) -> Result<DomainResult, ExecutionError> {
         unreachable!("keying runs no row")
     }
+    fn artifact_preview_destinations(
+        &self,
+        _: &octocode_contract_types::ArtifactSearchQuery,
+    ) -> Result<Vec<Value>, ClassificationError> {
+        unreachable!("keying previews no source")
+    }
     fn retained_github_identity(
         &self,
         _: &ExecutionContext,

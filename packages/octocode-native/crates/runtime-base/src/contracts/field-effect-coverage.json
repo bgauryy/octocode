@@ -109,6 +109,10 @@
         ],
         "view": [
           "view"
+        ],
+        "preview": [
+          "execution",
+          "view"
         ]
       }
     },
@@ -442,6 +446,10 @@
         ],
         "view": [
           "view"
+        ],
+        "preview": [
+          "execution",
+          "view"
         ]
       }
     },
@@ -486,6 +494,10 @@
           "source"
         ],
         "view": [
+          "view"
+        ],
+        "preview": [
+          "execution",
           "view"
         ]
       }

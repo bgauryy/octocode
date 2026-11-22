@@ -85,6 +85,7 @@ pub(super) async fn read(
     // fit at their smallest cut ([`Runs`]); [`share`] then lists each as
     // fully as the room left allows.
     let (mut shown, mut used, mut cut) = (0, Used::default(), None);
+    let mut read_sizes = ReadSizes::default();
     let mut measured: Vec<(Measured, Runs)> = Vec::new();
     let (mut largest, mut smallest) = (0_usize, 0_usize);
     while shown < total {
@@ -92,9 +93,11 @@ pub(super) async fn read(
         let ahead = shown.saturating_mul(READ_AHEAD);
         let take = match cut {
             _ if shown == 0 => READ_AHEAD + 1,
-            None => (left(room.part) / largest.max(1)).min(ahead),
-            Some(_) if (total - shown).saturating_mul(smallest) > left(room.whole) => 0,
-            Some(_) => (left(room.whole) / largest.max(1)).min(ahead),
+            None => read_sizes.fitting(shown, ahead.min(total - shown), largest, left(room.part)),
+            Some(_) if !read_sizes.fits(shown, total - shown, smallest, left(room.whole)) => 0,
+            Some(_) => {
+                read_sizes.fitting(shown, ahead.min(total - shown), largest, left(room.whole))
+            }
         };
         if take == 0 {
             if cut.is_none() {
@@ -109,10 +112,20 @@ pub(super) async fn read(
         let resolution = plan.resolution(shown..end);
         for (row, hit) in items[shown..end].iter().zip(resolution.hits) {
             let runs = Runs::of(row, &hit, query, window);
-            let measured_row = row_chars(row, hit, resolution.reference.clone(), query, withholds);
+            let measured_row = row_chars(
+                row,
+                hit,
+                resolution.reference.clone(),
+                query,
+                withholds,
+                &mut read_sizes,
+            );
             let before = used.fitted();
             let next = used.clone().with(measured_row.clone(), runs.floor());
-            let added = next.fitted().saturating_sub(before);
+            let added = next
+                .fitted()
+                .saturating_sub(before)
+                .saturating_sub(measured_row.read_chars);
             (largest, smallest) = if shown <= 1 {
                 (added, added)
             } else {
@@ -250,10 +263,10 @@ impl Runs {
             return none;
         };
         let count = u32::try_from(*line_count).unwrap_or(u32::MAX);
-        let Some(lead) = unlisted_read(query, row, sha, &Unlisted::widest(count)) else {
+        if unlisted_read(query, row, sha, &Unlisted::widest(count)).is_none() {
             return none;
-        };
-        let added = utf16_units(&lead).unwrap_or(usize::MAX / 4)
+        }
+        let added = *READ_CURSOR_CHARS
             + READ_KEY_CHARS
             + READ_ENTRY_CHARS
             + if query
@@ -320,6 +333,74 @@ const MATCH_COUNT_CHARS: usize = r#","matchCount":"#.len();
 /// the key, the comma before it, and the page's `next` object it may open.
 const READ_ENTRY_CHARS: usize = r#","next":{:}"#.len();
 
+/// Every executable source or hit read is published as a handle of this
+/// length, regardless of the path, revision or ranges stored under it.
+static READ_CURSOR_CHARS: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| {
+    let call = octocode_runtime_base::response::result::Continuation::cursor(
+        ToolId::GhGetFileContent.as_str(),
+        octocode_runtime_base::response::cursor::issued::placeholder(),
+    );
+    // The pager measures the kind before the public envelope removes it.
+    utf16_units(&call).unwrap_or(0)
+});
+
+#[derive(Clone, Copy, Default)]
+struct ReadSizes {
+    hits: usize,
+    sources: usize,
+}
+
+impl ReadSizes {
+    /// The numbered cursor entries of one row, including the enclosing
+    /// `next` object only when the page adds its first read.
+    fn add(&mut self, hits: usize, sources: usize) -> usize {
+        let mut first = self.hits + self.sources == 0;
+        let mut chars = 0;
+        for (name, count, added, per_call) in [
+            ("readHits", &mut self.hits, hits, 1),
+            (
+                "readSource",
+                &mut self.sources,
+                sources,
+                *super::page_facts::SOURCE_BATCH,
+            ),
+        ] {
+            for index in count.div_ceil(per_call)..(*count + added).div_ceil(per_call) {
+                let key = octocode_runtime_base::id::numbered(name, index);
+                chars += key.len()
+                    + 3
+                    + *READ_CURSOR_CHARS
+                    + if first { r#","next":{}"#.len() } else { 1 };
+                first = false;
+            }
+            *count += added;
+        }
+        chars
+    }
+
+    /// A page of resolved sources pays for a new cursor only when it opens
+    /// another batch. Account for that boundary separately from the file size.
+    fn fits(self, shown: usize, count: usize, row_chars: usize, room: usize) -> bool {
+        let mut next = self;
+        let guidance = if self.sources == shown {
+            next.add(0, count)
+        } else if self.hits == shown {
+            next.add(count, 0)
+        } else {
+            0
+        };
+        count.saturating_mul(row_chars).saturating_add(guidance) <= room
+    }
+
+    fn fitting(self, shown: usize, ahead: usize, row_chars: usize, room: usize) -> usize {
+        let upper = ahead.min(room / row_chars.max(1));
+        (1..=upper)
+            .rev()
+            .find(|&count| self.fits(shown, count, row_chars, room))
+            .unwrap_or(0)
+    }
+}
+
 /// The longest key a page's reads take: `readHits`, `readHits2`, … one per
 /// row, and a page holds at most the contract's `limit` maximum of rows.
 const READ_KEY_CHARS: usize = r#""readHits"#.len()
@@ -346,6 +427,7 @@ fn prefix(costs: impl Iterator<Item = usize>) -> Vec<usize> {
 struct Measured {
     full: usize,
     moved: usize,
+    read_chars: usize,
     stated: Map<String, Value>,
 }
 
@@ -419,6 +501,7 @@ fn row_chars(
     reference: Option<String>,
     query: &GhSearchCodeQuery,
     withholds: Withholds<'_>,
+    read_sizes: &mut ReadSizes,
 ) -> Measured {
     let mut rows = vec![row.clone()];
     let resolution = Resolution {
@@ -430,8 +513,7 @@ fn row_chars(
     let reads = shape_files(&mut rows, query, withholds, Some(resolution));
     let mut page = json!({ "files": rows });
     pick_rows(&mut page, "files", CODE_ROW_ID, &field_names(&query.fields));
-    let lead = |read: &Value| utf16_units(read).unwrap_or(0) + 1;
-    let leads = reads.hits.iter().map(lead).sum::<usize>();
+    let leads = read_sizes.add(reads.hits.len(), reads.sources.len());
     let full = utf16_units(&page["files"][0]).unwrap_or(0) + 1 + leads;
     let mut data = Map::new();
     data.insert("files".into(), page["files"].take());
@@ -441,6 +523,7 @@ fn row_chars(
     Measured {
         full,
         moved,
+        read_chars: leads,
         stated: data,
     }
 }

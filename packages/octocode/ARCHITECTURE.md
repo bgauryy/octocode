@@ -36,3 +36,5 @@ Publishing order and checks: [AGENTS.md "Release and environment"](../../AGENTS.
 - Public tool definitions belong in core and runtime behavior belongs in Rust.
 - Keep arguments, stdio, environment, working directory, signals, and exit status intact across the launcher boundary.
 - Verify direct native and built npm entry points against the same command cases. Browser session ports and credentials are generated per invocation; their lifecycle and API contract must match.
+
+The public `octocode/native` entry resolves the platform binary and delegates arguments and signals. The separate graph package uses it for its MCP and CLI.

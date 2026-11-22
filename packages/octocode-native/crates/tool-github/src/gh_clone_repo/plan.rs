@@ -47,15 +47,13 @@ impl Plan<'_> {
         Ok(clone_dir)
     }
 
-    /// The shared store that holds `commit` for this row ([`storage::StoreKey`]).
-    pub(super) fn store_key(&self, commit: &str) -> storage::StoreKey {
+    /// The shared repository store for this row ([`storage::StoreKey`]).
+    pub(super) fn store_key(&self) -> storage::StoreKey {
         storage::StoreKey::new(
             &self.context.config.home,
             &self.query.owner,
             &self.query.repo,
             &self.host,
-            self.depth,
-            commit,
         )
     }
 
@@ -123,9 +121,10 @@ impl Plan<'_> {
                 symlinks: (!checkout.symlinks.is_empty()).then_some(checkout.symlinks),
                 skipped: (!checkout.withheld.is_empty()).then_some(checkout.withheld),
                 history_depth: (self.depth > 1).then_some(self.depth),
-                full_history: checkout.full_history,
+                full_history: true,
                 cloned_at: None,
                 reused: false,
+                lsp_trust_fetched_code: false,
             },
         }
     }
@@ -332,7 +331,4 @@ pub(super) struct Checkout {
     pub(super) withheld: Vec<String>,
     /// The root's own files are on disk beside a sparse scope (cone mode).
     pub(super) root_files: bool,
-    /// The store holds the commit's whole history, back to the roots
-    /// ([`super::git::holds_whole_history`]; asked only past depth 1).
-    pub(super) full_history: bool,
 }

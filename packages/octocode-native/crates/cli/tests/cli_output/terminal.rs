@@ -171,7 +171,7 @@ fn graph_build_reports_progress_on_a_terminal_stderr_and_the_result_on_stdout() 
     );
     let build = |query: &str| {
         let mut command = workspace.cli();
-        command.args(["graphBuild", "--json", query]);
+        command.args(["__graph", "graphBuild", "--json", query]);
         let (output, shown) = tty(command, Tty::Stderr);
         assert_eq!(output.status.code(), Some(0), "{shown}");
         let lines = shown.lines().map(str::to_owned).collect::<Vec<_>>();
@@ -179,7 +179,7 @@ fn graph_build_reports_progress_on_a_terminal_stderr_and_the_result_on_stdout() 
     };
     let piped = workspace
         .cli()
-        .args(["graphBuild", "--json", BUILD_APP])
+        .args(["__graph", "graphBuild", "--json", BUILD_APP])
         .output()
         .expect("piped graphBuild");
     assert_eq!(piped.status.code(), Some(0), "{}", stderr(&piped));

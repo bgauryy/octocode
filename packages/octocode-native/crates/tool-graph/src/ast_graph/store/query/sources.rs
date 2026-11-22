@@ -196,6 +196,66 @@ impl Graph {
         Ok(json!(projected))
     }
 
+    /// Source evidence is read from an immutable snapshot. Authorize each path
+    /// on the delivered page under today's policy, including after a symlink
+    /// or allowed root changes. Historical files may have been deleted.
+    pub(super) fn authorize_source_page(
+        &self,
+        page: &Value,
+        paths: &PathPolicy,
+        occurrence_rows: bool,
+    ) -> Result<(), GraphOutput> {
+        let descriptors = page["sourceEvidence"]["snapshots"].as_array();
+        if !occurrence_rows && descriptors.is_none() {
+            return Ok(());
+        }
+        let root = Path::new(self.manifest["root"].as_str().unwrap_or_default());
+        let workspace = Path::new(self.manifest["workspace"].as_str().unwrap_or_default());
+        let base = if !workspace.as_os_str().is_empty() && root.starts_with(workspace) {
+            workspace
+        } else {
+            root
+        };
+        let snapshots = descriptors.into_iter().flatten();
+        let occurrences = page["rows"]
+            .as_array()
+            .filter(|_| occurrence_rows)
+            .into_iter()
+            .flatten();
+        let policy = paths.withholding_credentials();
+        let mut checked = std::collections::HashSet::new();
+        for path in snapshots
+            .chain(occurrences)
+            .filter_map(|row| row["path"].as_str())
+        {
+            if !checked.insert(path) {
+                continue;
+            }
+            // Stored descriptors can name an absolute source, whereas an
+            // occurrence normally names it relative to the displayed root.
+            let candidate = base.join(path);
+            let in_scope = candidate.strip_prefix(root).is_ok_and(|tail| {
+                !tail.as_os_str().is_empty()
+                    && tail
+                        .components()
+                        .all(|part| matches!(part, std::path::Component::Normal(_)))
+            });
+            if !in_scope {
+                return Err(GraphOutput::error(
+                    ErrorCode::Policy,
+                    "Snapshot source evidence lies outside its scanned root.",
+                ));
+            }
+            policy.validate_location(candidate).map_err(|error| {
+                GraphOutput::error(
+                    error.shared_code(),
+                    "The current path policy withholds a source on this evidence page.",
+                )
+            })?;
+        }
+        Ok(())
+    }
+
     pub(super) fn close_sources(
         &self,
         output: &mut GraphOutput,

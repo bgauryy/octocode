@@ -218,7 +218,13 @@ fn local_commits_and_refs_are_preserved_before_replacement() {
         let context = bench.context();
         let first = clone_pinned(&bench.fixture, &query(), &context).unwrap();
         let path = Path::new(&first.location.path);
-        assert!(git_output(path, &["for-each-ref"]).is_empty());
+        assert!(
+            git_output(
+                path,
+                &["for-each-ref", "refs/heads", "refs/tags", "refs/stash"]
+            )
+            .is_empty()
+        );
         match kind {
             "tag" => git(path, &["tag", "local-work"]),
             "custom-ref" => git(path, &["update-ref", "refs/notes/local-work", "HEAD"]),

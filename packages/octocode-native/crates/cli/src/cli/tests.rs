@@ -252,7 +252,13 @@ fn every_contract_tool_parses_as_a_tool_command() {
     let contract = octocode_runtime_base::contracts::parsed_contract().expect("contract");
     for tool in contract["tools"].as_array().expect("tools") {
         let name = tool["name"].as_str().expect("name");
-        let args = parse_args_from(["octocode", name, "{}", "--json"]).expect(name);
+        let mut argv = vec!["octocode"];
+        if super::ToolPackage::Graph.owns(name) {
+            assert!(parse_args_from(["octocode", name, "{}"]).is_err());
+            argv.push("__graph");
+        }
+        argv.extend([name, "{}", "--json"]);
+        let args = parse_args_from(argv).expect(name);
         assert!(args.json, "{name}");
         match args.command {
             super::Command::Tool(command) => {
@@ -274,7 +280,7 @@ fn json_is_one_global_flag() {
         vec!["octocode", "auth", "status", "--json"],
         vec!["octocode", "auth", "logout", "--json"],
         vec!["octocode", "install", "--list", "--json"],
-        vec!["octocode", "graphQuery", "--json", "{}"],
+        vec!["octocode", "__graph", "graphQuery", "--json", "{}"],
         vec!["octocode", "lsp-server", "list", "--json"],
     ] {
         let args = parse_args_from(argv.clone()).expect("parses");
@@ -470,14 +476,18 @@ async fn dispatch_routes_runtime_commands_to_their_owner() {
     let runtime = fixture_runtime(dir.path());
     for json in [false, true] {
         let mode = OutputMode::from(json);
-        assert_eq!(dispatch(Command::Mcp, &runtime, mode).await, 2);
+        assert_eq!(
+            dispatch(Command::Mcp, &runtime, mode, super::ToolPackage::Research).await,
+            2
+        );
         assert_eq!(
             dispatch(
                 Command::LspServer {
                     command: lsp_provision::LspServerCommand::List
                 },
                 &runtime,
-                mode
+                mode,
+                super::ToolPackage::Research
             )
             .await,
             0
@@ -490,7 +500,8 @@ async fn dispatch_routes_runtime_commands_to_their_owner() {
                     select: None
                 },
                 &runtime,
-                mode
+                mode,
+                super::ToolPackage::Research
             )
             .await,
             2
@@ -503,7 +514,8 @@ async fn dispatch_routes_runtime_commands_to_their_owner() {
                     select: None
                 },
                 &runtime,
-                mode
+                mode,
+                super::ToolPackage::Research
             )
             .await,
             0

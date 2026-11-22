@@ -3,6 +3,31 @@ use octocode_engine::text::analysis::{ByteRange, Contribution, UnmappedReason};
 use octocode_runtime_base::execution::cancel::NeverCancel;
 
 #[test]
+fn a_source_page_requires_the_current_read_policy_even_for_stored_descriptors() {
+    use octocode_runtime_base::test_support::{Fixture, workspace_policy};
+    let allowed = Fixture::new();
+    let other = Fixture::new();
+    let graph = Graph {
+        manifest: json!({"workspace": allowed.0, "root": allowed.0}),
+        ..Graph::default()
+    };
+    let evidence = json!({"sourceEvidence":{"snapshots":[{"path":"module.ts"}]}});
+    let absolute = json!({"sourceEvidence":{"snapshots":[{"path":allowed.0.join("module.ts")}]}});
+    let witnesses = json!({"rows":[{"path":"module.ts","line":1}]});
+    for (page, occurrences) in [(&evidence, false), (&absolute, false), (&witnesses, true)] {
+        assert!(
+            graph
+                .authorize_source_page(page, &workspace_policy(&allowed.0), occurrences)
+                .is_ok()
+        );
+        let refused = graph
+            .authorize_source_page(page, &workspace_policy(&other.0), occurrences)
+            .expect_err("a stored read must honor the current scope");
+        assert_eq!(refused.value["errorCode"], "outsideAllowedRoots");
+    }
+}
+
+#[test]
 fn compact_identity_requires_the_span_copied_from_its_single_raw_utf8_source() {
     let table = super::super::super::format::evidence_tests::source_fixture();
     let origin = table

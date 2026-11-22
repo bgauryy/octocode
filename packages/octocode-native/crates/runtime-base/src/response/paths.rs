@@ -28,9 +28,13 @@ pub fn shown_paths(states_own_root: bool, value: &mut Value, paths: &PathPolicy,
     let outside = asked["path"].as_str().is_some_and(|path| {
         Path::new(path).is_absolute() && paths.workspace_relative(path).is_none()
     });
+    // Cursor inputs do not carry a visible path. Keep a paged source read's
+    // path relative to its tree on the initial page and every continuation.
+    let paged_read = !asked["readProgress"].is_null()
+        || (value["content"].is_string() && value.pointer("/next/nextPage").is_some());
     let echo = value
         .as_object_mut()
-        .filter(|fields| outside && fields.get("path") == asked.get("path"))
+        .filter(|fields| outside && !paged_read && fields.get("path") == asked.get("path"))
         .and_then(|fields| fields.shift_remove("path"));
     let root = (!states_own_root)
         .then(|| outside_root(value, paths))

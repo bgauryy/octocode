@@ -245,3 +245,88 @@ async fn judgments_are_saved_in_no_storage_mode_so_every_runtime_asks_again() {
     }
     assert_eq!(sent(&server).await.len(), 4);
 }
+
+#[tokio::test]
+async fn egress_preview_discloses_literal_input_and_can_be_mixed_with_a_live_row() {
+    let server = provider(1).await;
+    let workspace = Workspace::new();
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let mut preview = content_row();
+    preview["preview"] = json!(true);
+    preview["maxRequests"] = json!(2);
+    preview["reasoning"] = json!("user-only-reasoning");
+    let out = clasify(&runtime, vec![preview.clone(), content_row()]).await;
+    let data = &out["results"][0]["data"]["preview"];
+    assert_eq!(data["selection"]["content"], preview["content"], "{out}");
+    assert_eq!(data["requestsCeiling"], preview["maxRequests"]);
+    assert!(!data.to_string().contains("user-only-reasoning"));
+    assert_eq!(sent(&server).await.len(), 1);
+    assert!(out["results"][1]["data"]["answers"].is_object(), "{out}");
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn egress_preview_shows_only_selected_and_screened_local_lines() {
+    let server = provider(0).await;
+    let workspace = Workspace::new();
+    let secret = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
+    workspace.write(
+        "guide.txt",
+        format!("excluded line\nselected line {secret}\n"),
+    );
+    workspace.write(".env", "VALUE=private-marker");
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let row = |path: &str| json!({"operation":"evaluate","preview":true,"source":{"tool":"localFetch","query":{"path":path,"ranges":[{"startLine":2,"endLine":2}]}},"questions":{"selected":noul("Which line?")}});
+    let out = clasify(&runtime, vec![row("guide.txt"), row(".env")]).await;
+    let capture = &out["results"][0]["data"]["preview"]["selection"]["captured"];
+    assert!(capture.to_string().contains("selected line"), "{out}");
+    for hidden in ["excluded line", "private-marker", secret] {
+        assert!(!out.to_string().contains(hidden));
+    }
+    assert!(out["results"][1]["data"]["preview"].is_null(), "{out}");
+    assert!(server.received_requests().await.unwrap().is_empty());
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn egress_preview_of_nested_sources_and_images_only_names_their_destinations() {
+    let server = provider(0).await;
+    let sources = wiremock::MockServer::start().await;
+    let workspace = Workspace::new();
+    let runtime = clasify_runtime(&workspace, &server, &crate::support::github_api(&sources));
+    let mut image = content_row();
+    image["preview"] = json!(true);
+    image["assets"] = json!({"frame":{"source":{"tool":"ghGetFileContent","query":{"owner":"octo","repo":"example","path":"private.png"}}}});
+    let registry = json!({"operation":"evaluate","preview":true,"perHit":true,
+      "source":{"tool":"artifactSearch","query":{"operation":"resolve","ecosystem":"npm","packageName":"@internal/example","registryUrl":sources.uri()}},
+      "questions":{"read":noul("Is this the selected release?")}});
+    let out = clasify(
+        &runtime,
+        vec![
+            image,
+            registry,
+            json!({"operation":"models","preview":true}),
+        ],
+    )
+    .await;
+    for (i, source) in ["github", "npm"].iter().enumerate() {
+        let preview = &out["results"][i]["data"]["preview"];
+        assert!(
+            preview["destinations"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{out}"))
+                .iter()
+                .any(|d| d["origin"] == sources.uri() && d["provider"] == *source),
+            "{out}"
+        );
+        assert!(preview["selection"].get("captured").is_none());
+    }
+    assert_eq!(
+        out["results"][2]["data"]["preview"]["destinations"][0]["origin"],
+        server.uri(),
+        "{out}"
+    );
+    assert!(server.received_requests().await.unwrap().is_empty());
+    assert!(sources.received_requests().await.unwrap().is_empty());
+    runtime.close().await;
+}

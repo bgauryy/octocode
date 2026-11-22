@@ -100,6 +100,19 @@ fn rows_outside_the_workspace_name_paths_from_their_root_stated_once() {
     let mut read = json!({"path": file, "content": "1\tx"});
     shown_paths(false, &mut read, &paths, &asked);
     assert_eq!(read, json!({"path": file, "content": "1\tx"}), "{read}");
+    // A cursor has no visible query whose path the response could drop as an
+    // echo. Its read must name the file relative to the same allowed root.
+    let mut first = json!({"path": file, "content": "first", "next": {"nextPage": {
+        "tool":"localFetch", "input":{"queries":[{"path": file}]}
+    }}});
+    shown_paths(false, &mut first, &paths, &asked);
+    assert_eq!(first["path"], "src/a.ts");
+    assert_eq!(first["root"], json!(tree));
+    let resume = json!({"path": file, "readProgress": {"unit":"bytes","offset":32}});
+    let mut page = json!({"path": file, "content": "continued"});
+    shown_paths(false, &mut page, &paths, &resume);
+    assert_eq!(page["path"], "src/a.ts");
+    assert_eq!(page["root"], json!(tree));
     // A row path joined to the stated root names the file.
     let joined = Path::new(row["root"].as_str().expect("root"))
         .join(row["files"][0]["path"].as_str().expect("path"));

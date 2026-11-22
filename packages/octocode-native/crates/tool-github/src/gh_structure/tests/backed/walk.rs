@@ -426,6 +426,12 @@ async fn a_one_level_listing_types_symlinks_like_a_deep_one() {
                 "mode": "120000",
                 "size": 19
             },
+            {
+                "path": ".env",
+                "type": "blob",
+                "mode": "120000",
+                "sha": "adadadadadadadadadadadadadadadadadadadad"
+            },
             {"path": "src", "type": "tree", "mode": "040000"}
         ]"#,
     );
@@ -454,6 +460,14 @@ async fn a_one_level_listing_types_symlinks_like_a_deep_one() {
         .expect(0)
         .mount(&server)
         .await;
+    Mock::given(method("GET"))
+        .and(path(
+            "/api/v3/repos/a/b/git/blobs/adadadadadadadadadadadadadadadadadadadad",
+        ))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&server)
+        .await;
     let root = run(
         &server,
         json_fixture(
@@ -473,7 +487,7 @@ async fn a_one_level_listing_types_symlinks_like_a_deep_one() {
             r#"[
                 {
                     "dir": ".",
-                    "files": ["CHANGELOG.md (link)", "README.md (5)", "src/"]
+                    "files": [".env (link)", "CHANGELOG.md (link)", "README.md (5)", "src/"]
                 }
             ]"#
         ),

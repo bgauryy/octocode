@@ -1,0 +1,63 @@
+{
+  "name": "@octocodeai/octocode-graph",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "Build, query and serve repository graphs using Octocode.",
+  "engines": {
+    "node": "^24.15.0"
+  },
+  "bin": {
+    "octocode-graph": "bin/octocode-graph.mjs",
+    "octocode-graph-build": "skills/octocode-graph/scripts/build.mjs",
+    "octocode-graph-query": "skills/octocode-graph/scripts/query.mjs",
+    "octocode-graph-serve": "skills/octocode-graph/scripts/serve.mjs"
+  },
+  "imports": {
+    "#graph-engine": "octocode/native"
+  },
+  "exports": {
+    ".": "./index.mjs",
+    "./mcp": "./mcp.mjs",
+    "./skill": "./skills/octocode-graph/SKILL.md",
+    "./cli": "./bin/octocode-graph.mjs"
+  },
+  "files": [
+    "skills",
+    "README.md",
+    "LICENSE",
+    "bin",
+    "index.mjs",
+    "mcp.mjs"
+  ],
+  "scripts": {
+    "build": "npm pack --dry-run",
+    "lint": "node scripts/lint.mjs skills/octocode-graph",
+    "test": "node --test tests/*.test.mjs",
+    "typecheck": "tsgo --noEmit --allowJs --skipLibCheck --module nodenext --target esnext skills/octocode-graph/scripts/*.mjs index.mjs mcp.mjs bin/*.mjs",
+    "verify": "yarn verify:own",
+    "lint:own": "yarn lint",
+    "verify:own": "yarn lint && yarn typecheck && yarn test"
+  },
+  "dependencies": {
+    "octocode": "20.2.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bgauryy/octocode.git",
+    "directory": "packages/octocode-graph"
+  },
+  "devDependencies": {
+    "@typescript/native-preview": "7.0.0-dev.20260707.2"
+  },
+  "mcp": {
+    "type": "stdio",
+    "command": "octocode-graph",
+    "args": [
+      "mcp"
+    ]
+  }
+}

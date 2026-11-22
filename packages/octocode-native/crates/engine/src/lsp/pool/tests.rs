@@ -24,8 +24,6 @@ struct FakeClient {
     health_checks: Arc<AtomicUsize>,
     stops: Arc<AtomicUsize>,
     busy: Arc<AtomicBool>,
-    resumes: Arc<AtomicUsize>,
-    resume_gate: Arc<Mutex<Option<oneshot::Receiver<()>>>>,
     resident: Arc<AtomicU64>,
     config_changed: Arc<AtomicBool>,
 }
@@ -39,8 +37,6 @@ impl FakeClient {
             health_checks: Arc::new(AtomicUsize::new(0)),
             stops: Arc::new(AtomicUsize::new(0)),
             busy: Arc::new(AtomicBool::new(false)),
-            resumes: Arc::new(AtomicUsize::new(0)),
-            resume_gate: Arc::new(Mutex::new(None)),
             resident: Arc::new(AtomicU64::new(0)),
             config_changed: Arc::new(AtomicBool::new(false)),
         }
@@ -94,17 +90,6 @@ impl PoolClient for FakeClient {
 
     fn same(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.alive, &other.alive)
-    }
-
-    fn resume(&self) -> ClientFuture<()> {
-        let resumes = Arc::clone(&self.resumes);
-        let gate = Arc::clone(&self.resume_gate);
-        Box::pin(async move {
-            resumes.fetch_add(1, Ordering::SeqCst);
-            if let Some(receiver) = gate.lock().await.take() {
-                let _ = receiver.await;
-            }
-        })
     }
 
     fn project_config_changed(&self) -> ClientFuture<bool> {

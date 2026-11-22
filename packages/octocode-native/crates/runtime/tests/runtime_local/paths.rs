@@ -28,6 +28,55 @@ async fn invoke(
 }
 
 #[tokio::test]
+async fn a_paged_outside_read_keeps_one_relative_identity_from_cli_to_mcp() {
+    let workspace = Workspace::new();
+    let outside = Workspace::new();
+    let relative = "nested/mixed.txt";
+    let runtime = workspace.runtime(&[(
+        "ALLOWED_PATHS",
+        outside.workspace.to_string_lossy().into_owned(),
+    )]);
+    let budget = 500;
+    for repeats in [100, 500] {
+        let long_line = "words 漢🙂 ".repeat(repeats);
+        let file = outside.write(relative, format!("first\n{long_line}\nlast\n"));
+        let mut input = json!({"queries":[{"path":file}],"responseChars":budget});
+        let mut content = String::new();
+        let mut pages = 0;
+        loop {
+            let channel = if pages % 2 == 0 {
+                Channel::Cli
+            } else {
+                Channel::Mcp
+            };
+            let output = invoke(&runtime, channel, "localFetch", input).await;
+            let row = &output["results"][0];
+            let data = &row["data"];
+            // A subsequent rowPart continues the same row identity.
+            if row["rowPart"]["part"].as_u64().unwrap_or(1) == 1 {
+                assert_eq!(data["path"], relative, "{data}");
+                assert_eq!(data["root"], json!(outside.workspace), "{data}");
+            }
+            if let Some(text) = data["content"].as_str() {
+                assert!(
+                    octocode_runtime_base::response::cut::escaped_len(text) <= budget,
+                    "a source text page exceeded {budget} characters"
+                );
+                content.push_str(text);
+            }
+            pages += 1;
+            let Some(next) = output.pointer("/next/input") else {
+                break;
+            };
+            input = next.clone();
+        }
+        assert!(pages > 1);
+        assert_eq!(content, format!("1\tfirst\n2\t{long_line}\n3\tlast\n"));
+    }
+    runtime.close().await;
+}
+
+#[tokio::test]
 async fn local_evidence_paths_name_one_stated_root_on_both_channels() {
     let workspace = Workspace::new();
     let outside = Workspace::new();

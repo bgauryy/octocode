@@ -397,7 +397,7 @@ fn a_structured_value_the_request_stated_is_an_echo_too() {
     let mut output = json!({"results":[{"index":0,"data":{
         "questions":questions,"resources":{},
     }}]});
-    drop_echoes(false, &mut output, &queries, &[0]);
+    drop_echoes(ToolId::Clasify, &mut output, &queries, &[0]);
     assert_eq!(
         output["results"][0]["data"],
         json_fixture(r#"{"resources": {}}"#)
@@ -423,7 +423,7 @@ fn only_a_value_the_request_stated_unchanged_is_an_echo() {
         }"#,
     );
     // Query positions 0 and 1 answer original rows 0 and 2; row 1 was rejected.
-    drop_echoes(false, &mut output, &queries, &[0, 2]);
+    drop_echoes(ToolId::LocalSearch, &mut output, &queries, &[0, 2]);
     assert_eq!(
         output["results"],
         json_fixture(
@@ -440,7 +440,7 @@ fn a_commit_pinned_ref_drops_only_a_file_reads_commit_sha() {
     let sha = "8a6a9492d0bc897ebb455fc1ab6916fb34e7b55a";
     let queries = [json!({"owner":"o","repo":"r","ref":sha,"path":"a.rs"})];
     let mut read = json!({"results":[{"index":0,"data":{"commitSha":sha,"content":"x"}}]});
-    drop_echoes(true, &mut read, &queries, &[0]);
+    drop_echoes(ToolId::GhGetFileContent, &mut read, &queries, &[0]);
     assert_eq!(
         read["results"][0]["data"],
         json_fixture(r#"{"content": "x"}"#)
@@ -448,7 +448,7 @@ fn a_commit_pinned_ref_drops_only_a_file_reads_commit_sha() {
 
     let queries = [json!({"owner":"o","repo":"r","operation":"commit","ref":sha})];
     let mut commit = json!({"results":[{"index":0,"data":{"commitSha":sha,"message":"m"}}]});
-    drop_echoes(false, &mut commit, &queries, &[0]);
+    drop_echoes(ToolId::GhGetHistoryItem, &mut commit, &queries, &[0]);
     assert_eq!(commit["results"][0]["data"]["commitSha"], sha);
 }
 
@@ -467,13 +467,13 @@ fn a_shared_value_every_query_stated_is_an_echo_too() {
         "results": [{"index": 0, "data": {"content": "1"}}, {"index": 1, "data": {"content": "2"}}],
         "shared": {"data": {"owner": "o", "repo": "r", "commitSha": sha}},
     });
-    drop_echoes(true, &mut read, &queries, &[0, 1]);
+    drop_echoes(ToolId::GhGetFileContent, &mut read, &queries, &[0, 1]);
     assert_eq!(read["shared"], json!({"data": {"commitSha": sha}}));
     let pinned = [
         json!({"owner": "o", "repo": "r", "path": "a.md", "ref": sha}),
         json!({"owner": "o", "repo": "r", "path": "b.md", "ref": sha}),
     ];
-    drop_echoes(true, &mut read, &pinned, &[0, 1]);
+    drop_echoes(ToolId::GhGetFileContent, &mut read, &pinned, &[0, 1]);
     assert!(read.get("shared").is_none(), "{read}");
     let mixed = [
         json!({"owner": "o", "repo": "r", "path": "a.md"}),
@@ -483,7 +483,9 @@ fn a_shared_value_every_query_stated_is_an_echo_too() {
         "results": [{"index": 0, "data": {}}, {"index": 1, "data": {}}],
         "shared": {"data": {"owner": "o"}},
     });
-    drop_echoes(false, &mut both, &mixed, &[0, 1]);
+    drop_echoes(ToolId::LocalSearch, &mut both, &mixed, &[0, 1]);
+    assert_eq!(both["shared"], json!({"data": {"owner": "o"}}));
+    drop_echoes(ToolId::GhSearchRepo, &mut both, &queries, &[0, 1]);
     assert_eq!(both["shared"], json!({"data": {"owner": "o"}}));
 }
 

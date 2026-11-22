@@ -281,7 +281,7 @@ pub(in super::super) fn compact_location(value: Value) -> Value {
     if is_definition {
         compact.insert("isDefinition".into(), json!(true));
     }
-    for key in ["source", "role"] {
+    for key in ["source", "role", "importRole"] {
         if let Some(label) = value.get(key).and_then(Value::as_str) {
             compact.insert(key.into(), json!(label));
         }

@@ -4,7 +4,7 @@
 //! that resolves the same relative link (`octocode://research/<file>`).
 //! The instructions name none of them: a client finds them through
 //! `resources/list`, so a session that never reads these pays nothing for them.
-use rmcp::model::{Resource, ResourceContents};
+use rmcp::model::{Resource, ResourceContents, ResourceTemplate};
 
 const MARKDOWN: &str = "text/markdown";
 
@@ -77,6 +77,25 @@ mod tests;
 
 /// One tool's output view (`schema <tool> --view output`) as a resource.
 const OUTPUT_VIEW: &str = "octocode://contract/output/";
+const INPUT_VIEW: &str = "octocode://contract/input/";
+
+/// Tools with shorter discovery notes serve their full operation views on demand.
+fn has_operation_view(tool: &str) -> bool {
+    matches!(tool, "astSearch" | "graphQuery")
+}
+
+pub(super) fn templates<'a>(tools: impl Iterator<Item = &'a str>) -> Vec<ResourceTemplate> {
+    tools
+        .filter(|tool| has_operation_view(tool))
+        .map(|tool| {
+            ResourceTemplate::new(
+                format!("{INPUT_VIEW}{tool}/{{operation}}"),
+                format!("{tool} operation schema"),
+            )
+            .with_mime_type("application/json")
+        })
+        .collect()
+}
 
 /// Every served reference and the output view of each listed tool, for
 /// `resources/list`.
@@ -99,8 +118,23 @@ pub(super) fn list<'a>(tools: impl Iterator<Item = &'a str>) -> Vec<Resource> {
 }
 
 /// The contents of one served reference, or `None` for an unknown URI.
-pub(super) fn read(uri: &str) -> Option<ResourceContents> {
+pub(super) fn read(uri: &str, enabled: impl Fn(&str) -> bool) -> Option<ResourceContents> {
+    if let Some(rest) = uri.strip_prefix(INPUT_VIEW) {
+        let (tool, operation) = rest.split_once('/')?;
+        if !has_operation_view(tool) || !enabled(tool) || operation.contains(',') {
+            return None;
+        }
+        let catalog = octocode_runtime_base::contracts::cli_presentation().ok()?;
+        let entry = super::super::schema::tool_entry(catalog, tool)?;
+        let selected = entry["selections"].get(format!("operation={operation}"))?;
+        return Some(
+            ResourceContents::text(selected.to_string(), uri).with_mime_type("application/json"),
+        );
+    }
     if let Some(tool) = uri.strip_prefix(OUTPUT_VIEW) {
+        if !enabled(tool) {
+            return None;
+        }
         let view = super::super::schema::output_of(tool)?;
         return Some(
             ResourceContents::text(view.to_string(), uri).with_mime_type("application/json"),

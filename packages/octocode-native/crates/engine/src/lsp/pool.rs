@@ -43,12 +43,8 @@ impl Default for LspPoolOptions {
 }
 
 /// Start one pooled client; the pool's factory for both acquire flavors.
-/// The readiness wait (the server's project load, for languages that need
-/// it) happens after the client is installed, through
-/// [`pool_client::PoolClient::resume`]: a caller cancelled during that wait
-/// leaves a started, indexing server in the pool for the next request
-/// instead of throwing its index away, and a wait that ends in `timeout`
-/// is resumed by the next acquire instead of failing it.
+/// Installation finishes after the initialize handshake. Callers that depend on
+/// a project index wait under their lease.
 async fn start_client(
     config: LspLanguageServerConfig,
     options: super::client::LspClientOptions,
@@ -86,19 +82,29 @@ impl LspClientPool {
         &self,
         config: LspLanguageServerConfig,
     ) -> Result<Option<NativeLspClient>> {
-        let (key, family) = keys_of(&config).await?;
-        let options = self.inner.options.client;
-        let clock = self.inner.clock.clone();
-        self.inner
-            .acquire(key, family, || start_client(config, options, clock))
-            .await
-            .map_err(Arc::unwrap_or_clone)
+        Ok(self
+            .acquire_leased(config)
+            .await?
+            .map(|(client, _lease)| client))
     }
 
     /// Acquire a client already leased: the lease is taken under the pool
     /// lock, so the idle timer cannot stop the server between acquire and the
     /// caller's first request. Hold the lease for the whole operation.
     pub async fn acquire_leased(
+        &self,
+        config: LspLanguageServerConfig,
+    ) -> Result<Option<(NativeLspClient, LspLease)>> {
+        let leased = self.acquire_initialized(config).await?;
+        if let Some((client, _lease)) = &leased {
+            client.wait_for_project_readiness().await;
+        }
+        Ok(leased)
+    }
+
+    /// Lease a server after initialization. A document outline can be requested
+    /// immediately, while index-dependent operations still owe their readiness wait.
+    pub async fn acquire_initialized(
         &self,
         config: LspLanguageServerConfig,
     ) -> Result<Option<(NativeLspClient, LspLease)>> {

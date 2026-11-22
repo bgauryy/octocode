@@ -85,6 +85,12 @@ impl SourceReader for Identity {
     ) -> Result<DomainResult, ExecutionError> {
         unreachable!("a quiet replay runs no row")
     }
+    fn artifact_preview_destinations(
+        &self,
+        _: &octocode_contract_types::ArtifactSearchQuery,
+    ) -> Result<Vec<Value>, ClassificationError> {
+        unreachable!("a quiet replay previews no source")
+    }
     fn retained_github_identity(
         &self,
         _: &ExecutionContext,

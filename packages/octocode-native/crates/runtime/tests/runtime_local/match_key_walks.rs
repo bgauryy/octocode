@@ -151,7 +151,8 @@ async fn key_paths_read_plainly_and_a_secret_shaped_name_in_one_is_hidden() {
     let rows = page_rows(&tokens.structured_content.clone().into_value());
     assert!(
         rows.iter()
-            .any(|row| row.starts_with("tokens.json:3=services.[REDACTED")),
+            .any(|row| row.starts_with("tokens.json:3=services[\"[REDACTED")
+                && row.ends_with("]\"]")),
         "{rows:?}"
     );
     runtime.close().await;

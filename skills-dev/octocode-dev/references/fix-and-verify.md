@@ -8,7 +8,7 @@ Load before editing and before reporting done; the wrong order ships a stale con
 
 ## Landing order
 
-- Core (schema, description, instructions): edit CORE; core `yarn test && yarn lint`; `node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen` at the monorepo root (installs the pinned core release, then regenerates `packages/octocode-config/contract/`); declare a new field in `field-effect-coverage.json` or confirm it inherits its ancestor's effect (the `field_effect_coverage` test gates it); native rebuild.
+- Core (schema, description, instructions): edit CORE; core `yarn test && yarn lint`; `node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen` at the monorepo root (installs the configured core, then regenerates `packages/octocode-config/contract/`); declare a new field in `field-effect-coverage.json` or confirm it inherits its ancestor's effect (the `field_effect_coverage` test gates it); native rebuild.
 - Native runtime or engine: edit; `cargo fmt` + clippy on the touched crate; `yarn workspace @octocodeai/octocode-native test:rust` (nextest; `bacon test` while editing); native rebuild.
 - Config contract: edit `scripts/config-contract/declaration/` (Zod); `yarn workspace @octocodeai/config generate:config-contract`; native rebuild.
 - Native rebuild: `yarn workspace @octocodeai/octocode-native build:dev`; `build.rs` embeds `contract/` in place (a config change regenerates the struct).

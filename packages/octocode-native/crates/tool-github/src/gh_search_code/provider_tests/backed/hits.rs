@@ -113,13 +113,13 @@ async fn complete_long_and_many_hits_need_no_recovery_read() {
     );
 }
 
-/// A fully shown hit list needs no extra read.
+/// Each fully shown hit opens its source block at its verified commit.
 #[tokio::test]
 async fn fully_shown_hit_files_get_no_hit_read() {
     let server = MockServer::builder().start().await;
     mount_code_search(&server).await;
     mount_ref(&server, "HEAD").await;
-    mount_read(&server, "src/handler.py", "def wrap_app(app):\n").await;
+    mount_read(&server, "src/handler.py", "# handler\ndef wrap_app(app):\n").await;
     mount_read(&server, "src/routing.py", "wrap_app()\n").await;
     let out = run(
         &server,
@@ -128,6 +128,18 @@ async fn fully_shown_hit_files_get_no_hit_read() {
     .await
     .expect("search");
     assert!(out.data["next"].get("readHits").is_none(), "{}", out.data);
+    for (index, (file, line)) in [("src/handler.py", 2), ("src/routing.py", 1)]
+        .into_iter()
+        .enumerate()
+    {
+        let read = &out.data["next"]["readSource"];
+        assert_eq!(read["tool"], "ghGetFileContent", "{read}");
+        let query = &read["input"]["queries"][index];
+        assert_eq!(query["ref"], TREE_SHA);
+        assert_eq!(query["path"], file);
+        assert_eq!(query["block"], true);
+        assert_eq!(query["ranges"], json!([{"startLine":line,"endLine":line}]));
+    }
 }
 
 /// Unresolved owner-wide hits retain repository identity and fragment offsets.

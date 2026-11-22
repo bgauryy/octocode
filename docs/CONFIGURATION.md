@@ -37,13 +37,13 @@ Use `octocode config set classification.apiHost https://gateway.example.com` for
 
 ## Tool availability CLI and MCP
 
-The CLI has 16 tools by default. MCP starts with 12.
+The CLI has 14 tools by default. MCP starts with 12.
 
 | MCP tools | Availability |
 |---|---|
 | `structureSearch`, `localSearch`, `localFetch`, `astSearch`, `lspSearch` | On by default. `local.enabled=false` hides local tools, including graphs. |
 | `ghSearchRepo`, `ghSearchCode`, `ghStructure`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `artifactSearch` | On by default. |
-| `graphBuild`, `graphQuery` | Set `local.beta=true` with local tools enabled. |
+| `graphBuild`, `graphQuery` | Install the separate `@octocodeai/octocode-graph` MCP server with local tools enabled. Its launcher opts into the graph tools. |
 | `ghCloneRepo` | Set `tools.enableClone=true`. Clones require persistent storage on either interface. |
 | `securityCheck` | Set `tools.enableSecurityCheck=true`. [What advisory checks send](SECURITY.md#advisory-egress) |
 | `clasify` | Set a nonblank `OCTOCODE_CLASSIFICATION_API` to enable classification on both interfaces. |
@@ -80,7 +80,7 @@ Set proxy and TLS variables in the shell, CI or MCP process environment. `SSL_CE
 |---|---|---|---|---|---|---|
 | `github.apiUrl` | `GITHUB_API_URL` | url | `https://api.github.com` | no | no | GitHub REST API root. GitHub Enterprise commonly uses /api/v3. |
 | `local.enabled` | `OCTOCODE_ENABLE_LOCAL` | boolean | `true` | no | only `false` | Expose local filesystem tools through MCP. CLI tools remain available; path and content security apply on both surfaces. |
-| `local.beta` | `OCTOCODE_BETA` | boolean | `false` | no | no | Expose graphBuild and graphQuery through MCP. CLI tools remain available without this opt-in. Restart MCP after changing this setting. |
+| `local.beta` | `OCTOCODE_BETA` | boolean | `false` | no | no | Enable beta tools on their owning MCP server. The octocode-graph launcher opts into its graph tools by default. Restart the server after changing its environment. |
 | `local.allowedPaths` | `ALLOWED_PATHS` | list | `[]` | no | no | Extra absolute or home-relative roots added to the allowed roots (workspace root and OCTOCODE_HOME). The environment value is a comma-separated list. |
 | `local.workspaceRoot` | `WORKSPACE_ROOT` | path | `the working directory` | no | no | Optional absolute or home-relative workspace root. |
 | `local.graphHome` | `OCTOCODE_GRAPH_HOME` | path | `<workspace>/.octocode/graph` | no | no | Directory in which graphBuild keeps its snapshots, in place of the workspace's .octocode/graph, shared by every workspace: a build then writes nothing in the repository and may scan any allowed directory, such as a ghCloneRepo checkout. Octocode creates the directory if needed and writes only in its own octocode-graph folder there, never reading or removing anything else; the setting grants local tools no read access to it. A build of a path that contains it is refused. Home-only, so a repository cannot choose where Octocode writes. |

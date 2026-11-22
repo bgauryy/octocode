@@ -1,4 +1,4 @@
-use super::leads::{hits_read, unlisted_read};
+use super::leads::{hits_read, source_read, unlisted_read};
 use super::{GhSearchCodeQuery, GhSearchCodeQueryMatchInItem, Withholds};
 use octocode_github::{CodeSearchItem, ProviderError};
 use octocode_runtime_base::security::scan::ContentScan;
@@ -23,6 +23,8 @@ pub(super) use line_plan::{LinePlan, Resolution};
 /// The page's required reads of unresolved source, and what its lines show.
 pub(super) struct PageReads {
     pub(super) hits: Vec<Value>,
+    /// Source blocks at verified commits for completely listed hits.
+    pub(super) sources: Vec<octocode_contract_types::GhGetFileContentQuery>,
     /// Secret-shaped values the page's lines show as placeholders.
     pub(super) redacted: usize,
     /// Rows the path policy withholds ([`withheld_row`]): path only.
@@ -77,6 +79,7 @@ pub(super) fn shape_files(
     resolution: Option<Resolution>,
 ) -> PageReads {
     let mut hit_reads = Vec::new();
+    let mut sources = Vec::new();
     let mut redacted = 0;
     // A withheld row lists its path only, whether or not lines were resolved:
     // no lines, no index fragment, no read lead.
@@ -123,6 +126,7 @@ pub(super) fn shape_files(
                 super::lines::FileHits::Lines {
                     lines,
                     matched,
+                    best,
                     total,
                     redacted: shown_redacted,
                     ..
@@ -145,6 +149,12 @@ pub(super) fn shape_files(
                         .and_then(|unlisted| unlisted_read(query, row, sha, unlisted))
                     {
                         hit_reads.push(read);
+                    } else if unlisted.is_none()
+                        && query.fields.is_empty()
+                        && !lines.is_empty()
+                        && let Some(read) = source_read(query, row, sha, *best)
+                    {
+                        sources.push(read);
                     }
                 }
                 // A link to a withheld file: its path only, no read lead.
@@ -192,6 +202,7 @@ pub(super) fn shape_files(
     }
     PageReads {
         hits: hit_reads,
+        sources,
         redacted,
         withheld,
         oversized,

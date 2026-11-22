@@ -187,9 +187,11 @@ async fn commit_row_carries_its_sha_and_path_stat_files() {
     assert!(out.get("ref").is_none(), "{out}");
     assert!(out.get("changedFileCount").is_none(), "{out}");
     // Patches: each line numbered on its own side.
-    let mut patched = row;
-    patched["sections"] = json_fixture(r#"["patches"]"#);
-    let out = read(&server, patched).await;
+    let summary = read(&server, row).await;
+    let patched = &summary["next"]["patches"]["input"]["queries"][0];
+    assert_eq!(patched["ref"], HEAD, "{summary}");
+    assert_eq!(patched["sections"], json!(["patches"]), "{summary}");
+    let out = read(&server, patched.clone()).await;
     let file = &out["files"][0];
     assert_eq!(file["path"], "src/a.rs", "{out}");
     let patch = file["patch"].as_str().expect("patch");

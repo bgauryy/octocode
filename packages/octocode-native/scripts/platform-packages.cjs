@@ -24,6 +24,7 @@ const readJson = path => JSON.parse(readFileSync(path, 'utf8'));
 
 function platformManifest(suffix, native) {
   const { os, arch, libc } = PLATFORMS[suffix];
+  const binary = executableName('octocode', os);
   return {
     name: platformPackageName(suffix),
     description: `Octocode native binary — ${suffix}`,
@@ -34,10 +35,11 @@ function platformManifest(suffix, native) {
     os: [os],
     cpu: [arch],
     ...(libc ? { libc: [libc === 'gnu' ? 'glibc' : libc] } : {}),
-    files: [executableName('octocode', os), 'README.md'],
+    files: [binary, 'README.md'],
     // Yarn PnP cannot execute a binary from a zip archive.
     preferUnplugged: true,
-    publishConfig: { access: 'public' },
+    // Yarn pack only preserves execute permission for bins or explicit executableFiles.
+    publishConfig: { access: 'public', ...(os === 'win32' ? {} : { executableFiles: [binary] }) },
   };
 }
 

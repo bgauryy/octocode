@@ -22,6 +22,8 @@ fn root_help_lists_tools_independent_of_mcp_filters_and_clasify_only_with_a_key(
                 text.contains(&format!("\n  {} ", tool.as_str())),
                 match tool {
                     octocode_runtime_base::id::ToolId::Clasify => !key.is_empty(),
+                    octocode_runtime_base::id::ToolId::GraphBuild
+                    | octocode_runtime_base::id::ToolId::GraphQuery => false,
                     _ => true,
                 },
                 "{key:?} {}: {text}",
@@ -90,6 +92,7 @@ fn tool_help_states_each_contract_tools_trigger() {
         .expect("contract tools")
         .iter()
         .filter_map(|tool| tool["name"].as_str())
+        .filter(|name| !matches!(*name, "graphBuild" | "graphQuery"))
         .collect::<Vec<_>>();
     listed_tools.sort_unstable();
     contract_tools.sort_unstable();
@@ -100,19 +103,33 @@ fn tool_help_states_each_contract_tools_trigger() {
         .join(" ");
     for tool in contract["tools"].as_array().expect("contract tools") {
         let name = tool["name"].as_str().expect("tool name");
+        let graph = matches!(name, "graphBuild" | "graphQuery");
+        let owner_help = if graph {
+            let output = workspace
+                .cli()
+                .args(["__graph", "--help"])
+                .output()
+                .expect("graph help");
+            stdout(&output)
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        } else {
+            root_text.clone()
+        };
         let trigger =
             octocode_runtime_base::contracts::cli_tool_trigger(name).expect("tool trigger");
         assert!(!trigger.is_empty(), "{name}");
         assert!(
-            root_text.contains(trigger),
+            owner_help.contains(trigger),
             "missing {name} trigger in root help: {root_text}"
         );
         for flag in ["-h", "--help"] {
-            let output = workspace
-                .cli()
-                .args([name, flag])
-                .output()
-                .expect("tool help");
+            let mut cli = workspace.cli();
+            if graph {
+                cli.arg("__graph");
+            }
+            let output = cli.args([name, flag]).output().expect("tool help");
             assert!(output.status.success(), "{name}: {}", stderr(&output));
             let text = stdout(&output)
                 .split_whitespace()
@@ -175,6 +192,14 @@ fn help_names_each_tools_required_fields_and_output_reference() {
         }
         for tool in presentation["tools"].as_array().expect("tools") {
             let name = tool["name"].as_str().expect("tool name");
+            if matches!(name, "graphBuild" | "graphQuery") {
+                assert!(
+                    !section
+                        .lines()
+                        .any(|line| line.split_whitespace().next() == Some(name))
+                );
+                continue;
+            }
             let forms = tool["views"]["variants"]["variants"]
                 .as_array()
                 .expect("variants");
@@ -245,7 +270,14 @@ fn help_names_each_tools_required_fields_and_output_reference() {
         let forms = tool["views"]["variants"]["variants"]
             .as_array()
             .expect("variants");
-        let own = all_tools_enabled(workspace.cli().args([name, "--help"]))
+        let mut cli = workspace.cli();
+        let bin = if matches!(name, "graphBuild" | "graphQuery") {
+            cli.arg("__graph");
+            "octocode-graph"
+        } else {
+            "octocode"
+        };
+        let own = all_tools_enabled(cli.args([name, "--help"]))
             .output()
             .expect("tool help");
         assert!(own.status.success(), "{name}: {}", stderr(&own));
@@ -260,7 +292,7 @@ fn help_names_each_tools_required_fields_and_output_reference() {
             }
         }
         assert!(
-            own.contains(&format!("octocode schema {name} --view output")),
+            own.contains(&format!("{bin} schema {name} --view output")),
             "{name}: {own}"
         );
     }

@@ -12,6 +12,10 @@ Octocode runs on your machine. The CLI and MCP server share one set of path, cre
 | `securityCheck` | OSV, GitHub, public registries. [Advisory egress](#advisory-egress) |
 | `clasify` | The provider. [Classification egress](#classification-egress) |
 
+### Preview an outbound query
+
+Set `preview: true` on a query row for `artifactSearch`, `securityCheck`, or a fresh `clasify` request. Its `data.preview` describes the recipients and selected data locally. Remote source contents are known only after a live fetch. Each row in a batch is independent. Set the flag on every row you want to preview. Run a fresh query without the flag to contact the providers.
+
 ## Files and credentials
 
 Relative paths resolve against `local.workspaceRoot`; `local.allowedPaths` adds roots. Sensitive directories stay restricted.

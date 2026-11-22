@@ -376,3 +376,27 @@ async fn a_binary_source_that_is_no_image_keeps_its_readers_refusal() {
     assert!(requests(&server).await.is_empty(), "{out}");
     runtime.close().await;
 }
+
+#[tokio::test]
+async fn egress_preview_of_a_binary_source_returns_its_selector_without_sending_pixels() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    let bytes = png();
+    std::fs::write(workspace.workspace.join("private.png"), &bytes).unwrap();
+    let runtime = runtime(&workspace, &server, &[]);
+    let source = json!({"tool":"localFetch","query":{"path":"private.png"}});
+    let out = clasify(
+        &runtime,
+        vec![
+            json!({"operation":"evaluate","preview":true,"source":source,
+        "questions":{"bounds":{"type":"box","instructions":"Where is the center?"}}}),
+        ],
+    )
+    .await;
+    let preview = &out["results"][0]["data"]["preview"];
+    assert_eq!(preview["selection"]["source"], source, "{out}");
+    assert!(preview["selection"].get("captured").is_none());
+    assert!(!out.to_string().contains(&STANDARD.encode(&bytes)));
+    assert!(requests(&server).await.is_empty());
+    runtime.close().await;
+}

@@ -23,6 +23,7 @@ doctest = false
 test-support = ["octocode-runtime-base/test-support", "octocode-tools-shared/test-support"]
 
 [dependencies]
+url = { workspace = true }
 octocode-io = { path = "../io" }
 octocode-contract-types = { path = "../contract-types" }
 octocode-runtime-base = { path = "../runtime-base" }

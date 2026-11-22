@@ -81,7 +81,7 @@ async fn termination() {
 /// Serve until the client closes stdin or the process is told to stop, then
 /// cancel what is in flight and close the runtime, waiting at most the
 /// grace period for it to unwind.
-pub(super) async fn run() -> ! {
+pub(super) async fn run(package: super::ToolPackage) -> ! {
     octocode_engine::memory::MEMORY.sweep_expired_while_running();
     let runtime = match ToolRuntime::from_host(mcp_host()) {
         Ok(runtime) => Arc::new(runtime),
@@ -94,7 +94,7 @@ pub(super) async fn run() -> ! {
         octocode_runtime_base::contracts::cli_presentation()
             .map_err(str::to_owned)
             .and_then(|presentation| {
-                let mut listing = listing::build(presentation, &runtime.catalog())?;
+                let mut listing = listing::build(presentation, &package.select(runtime.catalog()))?;
                 listing.instructions.push_str(
                     &octocode_runtime_base::contracts::setting_instructions(presentation, |path| {
                         let field = octocode_runtime_base::config::CONFIG_FIELDS
@@ -105,7 +105,9 @@ pub(super) async fn run() -> ! {
                 );
                 Ok(listing)
             })
-            .and_then(|listing| Handler::new(Arc::clone(&runtime), Arc::clone(&warm), listing));
+            .and_then(|listing| {
+                Handler::new(Arc::clone(&runtime), Arc::clone(&warm), listing, package)
+            });
     let handler = match handler {
         Ok(handler) => handler,
         Err(message) => fail_startup(&format!("Server initialization failed: {message}")).await,
@@ -122,7 +124,9 @@ pub(super) async fn run() -> ! {
     // first): warm the workspace's language servers in the background for
     // the session's first lspSearch.
     let prewarm = Arc::clone(&runtime);
-    tokio::spawn(async move { warm.prewarm(&prewarm).await });
+    if package == super::ToolPackage::Research {
+        tokio::spawn(async move { warm.prewarm(&prewarm).await });
+    }
     let stop = service.cancellation_token();
     tokio::spawn(async move {
         termination().await;

@@ -373,10 +373,8 @@ async fn repaired_mixed_response_pages_survive_eviction() {
     repaired_pages_after_eviction(true, true).await;
 }
 
-/// A mixed read batch pages its response: a long line's byte walk and line
-/// reads beside a rejected row, and one line too wide for its share but
-/// shorter than a long line, which is read whole (never cut across byte
-/// windows) and which the response pager splits into parts. Its later pages
+/// A mixed read batch pages its response: two byte-paged lines of
+/// different sizes and line reads beside a rejected row. Its later pages
 /// replay identically after eviction. The rejected row changes the reads'
 /// shares even though it is not replayed.
 #[tokio::test]

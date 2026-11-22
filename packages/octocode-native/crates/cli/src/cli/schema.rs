@@ -5,6 +5,7 @@
 //! `run`.
 mod grammar;
 mod output;
+use super::ToolPackage;
 use grammar::grammar_instruction;
 pub(super) use output::output_of;
 use output::output_view;
@@ -108,7 +109,6 @@ pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, Sche
                 "auth": "octocode auth status (login: octocode auth login)",
                 "mcp": "octocode install --ide <id> (ids: octocode install --list)",
                 "skills": "octocode skill install --all --platform <claude|codex|cursor|...> --global",
-                "graph": "octocode graphBuild --help, then octocode graphQuery --help",
             },
         },
         "instructions": format!(
@@ -148,6 +148,22 @@ pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, Sche
         });
     }
     Ok(value)
+}
+
+pub(super) fn package_catalog(
+    machine: &Value,
+    view: Option<&str>,
+    package: ToolPackage,
+) -> Result<Value, SchemaError> {
+    let mut result = catalog(machine, view)?;
+    if package == ToolPackage::Graph {
+        result["commands"] = json!({
+            "run": "octocode-graph <tool> '<json>' (or --input FILE|-)",
+            "query": "octocode-graph schema <tool> --view query [--select operation=VALUE]",
+            "full": "octocode-graph schema --view full",
+        });
+    }
+    Ok(result)
 }
 
 /// What every form of tool `name` requires, for the root help's entry per
@@ -246,7 +262,19 @@ pub(super) fn required_by_operation(name: &str) -> Option<Vec<String>> {
 
 /// The command that prints what `name`'s output fields mean.
 pub(super) fn output_command(name: &str) -> String {
-    format!("octocode schema {name} --view output")
+    format!(
+        "{} schema {name} --view output",
+        ToolPackage::for_name(name).cli()
+    )
+}
+
+pub(super) fn unknown_tool(machine: &Value, name: &str) -> SchemaError {
+    let known = tools(machine)
+        .filter_map(|tool| tool["name"].as_str())
+        .filter(|tool| enabled(machine, tool))
+        .collect::<Vec<_>>()
+        .join(", ");
+    usage(format!("Unknown tool: {name}. Known tools: {known}"))
 }
 
 /// `octocode schema <tool> [--view] [--select]`.
@@ -258,12 +286,7 @@ pub(super) fn tool_view(
 ) -> Result<Value, SchemaError> {
     let presentation = presentation()?;
     let Some(tool) = tool_entry(presentation, name) else {
-        let known = tools(presentation)
-            .filter_map(|tool| tool["name"].as_str())
-            .filter(|tool| enabled(machine, tool))
-            .collect::<Vec<_>>()
-            .join(", ");
-        return Err(usage(format!("Unknown tool: {name}. Known tools: {known}")));
+        return Err(unknown_tool(machine, name));
     };
     if view == Some("output") {
         if select.is_some() {
@@ -309,7 +332,10 @@ pub(super) fn tool_view(
     value["availability"] = tool_entry(machine, name)
         .map(|entry| entry["availability"].clone())
         .unwrap_or_else(|| json!({ "enabled": false }));
-    value["run"] = Value::String(format!("octocode {name} '<json>'"));
+    value["run"] = Value::String(format!(
+        "{} {name} '<json>'",
+        ToolPackage::for_name(name).cli()
+    ));
     Ok(value)
 }
 

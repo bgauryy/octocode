@@ -228,6 +228,19 @@ async fn open_leased(
     // the caller's deadline. A load still under way then is not queried: the
     // row says how long the call waited and offers the same query again, on
     // the server the pool keeps loading.
+    let operation = lsp_search_query::operation(query);
+    // Dynamic registration may arrive during project loading. Only an already
+    // advertised document outline can skip the initial readiness probe.
+    if lsp_search_query::op(query) != Op::DocumentSymbols
+        || !receipt::admits(operation, &advertises)
+    {
+        reporting(
+            LOADING,
+            &config,
+            cancellable(cancel, client.wait_for_project_readiness()),
+        )
+        .await?;
+    }
     let load = reporting(
         LOADING,
         &config,
@@ -240,7 +253,6 @@ async fn open_leased(
             receipt::server_receipt(&config, false),
         ));
     }
-    let operation = lsp_search_query::operation(query);
     if let Some(capability) = receipt::required_capability(operation)
         && !receipt::admits(operation, &advertises)
     {
@@ -323,7 +335,7 @@ pub(super) async fn acquire_leased_client(
     let acquired = reporting(
         STARTING,
         &target.config,
-        cancellable(cancel, pool.acquire_leased(target.config.clone())),
+        cancellable(cancel, pool.acquire_initialized(target.config.clone())),
     )
     .await?;
     let (code, message) = match start_failure(acquired) {
@@ -350,7 +362,7 @@ pub(super) async fn acquire_leased_client(
     let acquired = reporting(
         STARTING,
         &fallback,
-        cancellable(cancel, pool.acquire_leased(fallback.clone())),
+        cancellable(cancel, pool.acquire_initialized(fallback.clone())),
     )
     .await?;
     match start_failure(acquired) {

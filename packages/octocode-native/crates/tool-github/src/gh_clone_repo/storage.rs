@@ -23,37 +23,21 @@ pub const CHECKOUT_DEPTH: usize = 3;
 /// Written last by a store's init: a store without it is unfinished.
 const STORE_READY: &str = "octocode-store-ready";
 
-/// Which bare partial store holds a checkout's objects. Depth 1 (the
-/// default) shares one store per repository: shallow boundaries belong to a
-/// whole repository, and a depth-1 fetch only ever adds one-commit
-/// boundaries. Deeper history gets a store per commit and depth, where only
-/// that commit's sparse variants share it. A store is one directory per
-/// generation (`__g<G>.git`): recovery makes a fresh generation instead of
-/// repairing a store a checkout may still use.
+/// One blob-filtered store per host and repository. A distinct namespace
+/// keeps older shallow stores and their published worktrees usable. Recovery
+/// advances the generation without changing a store with live worktrees.
 pub(super) struct StoreKey {
     parent: PathBuf,
     stem: String,
 }
 
 impl StoreKey {
-    pub(super) fn new(
-        home: &Path,
-        owner: &str,
-        repo: &str,
-        host: &str,
-        depth: u64,
-        commit: &str,
-    ) -> Self {
-        let repo = repo.to_ascii_lowercase();
-        let host = hash(host, 16);
-        let stem = if depth > 1 {
-            format!(
-                "{repo}__{}__d{depth}__host_{host}",
-                commit.to_ascii_lowercase()
-            )
-        } else {
-            format!("{repo}__host_{host}")
-        };
+    pub(super) fn new(home: &Path, owner: &str, repo: &str, host: &str) -> Self {
+        let stem = format!(
+            "{}__full__host_{}",
+            repo.to_ascii_lowercase(),
+            hash(host, 16)
+        );
         Self {
             parent: octocode_tools_shared::gh_git::store_root(home)
                 .join(owner.to_ascii_lowercase()),
@@ -184,6 +168,35 @@ pub(super) fn is_ready(store: &Path) -> bool {
     store.join(STORE_READY).is_file()
 }
 
+/// A fetch may have written objects before it failed or before its process
+/// stopped. Only a completed filtered fetch may supply future checkouts.
+const HISTORY_VERIFIED: &str = "octocode-history-verified";
+
+pub(super) fn has_verified_history(store: &Path) -> bool {
+    store.join(HISTORY_VERIFIED).is_file() && !store.join("shallow").exists()
+}
+
+pub(super) fn begin_history_fetch(store: &Path) -> Result<(), GitError> {
+    match fs::remove_file(store.join(HISTORY_VERIFIED)) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        result => result.map_err(storage_io),
+    }
+}
+
+pub(super) fn verify_history_fetch(store: &Path) -> Result<(), GitError> {
+    if store
+        .join("shallow")
+        .try_exists()
+        .map_err(storage_read_io)?
+    {
+        return Err(GitError::new(
+            ErrorCode::GitFailed,
+            "The source supplied shallow history; the checkout requires complete ancestry.",
+        ));
+    }
+    octocode_io::atomic::write_atomic(&store.join(HISTORY_VERIFIED), b"", true).map_err(storage_io)
+}
+
 /// The text of the config file `path` of a store.
 #[cfg_attr(
     octocode_clippy_ratchet,
@@ -252,7 +265,7 @@ pub(super) fn clone_dir(
         String::new()
     };
     repo_dir(home, owner, repo).join(format!(
-        "{}{sparse}{history}__host_{}",
+        "{}__full{sparse}{history}__host_{}",
         commit.to_ascii_lowercase(),
         hash(host, 16)
     ))
@@ -448,42 +461,6 @@ pub(super) fn record_scope(
         return Ok(());
     }
     octocode_tools_shared::gh_git::clone_scope::write_record(&git_dir, record).map_err(storage_io)
-}
-
-/// The commits the store at `store` keeps as its shallow boundary (git's
-/// `shallow` file: history walks stop at them), read one line at a time.
-/// Each line is a commit id, so a longer line names none: `Some(None)`.
-/// Nothing for a store that keeps no boundary.
-pub(super) fn shallow_boundary(store: &Path) -> impl Iterator<Item = Option<String>> {
-    // A commit id is at most 64 hex digits (SHA-256), then a line ending.
-    const LINE_BYTES: u64 = 66;
-    let mut reader = fs::File::open(store.join("shallow"))
-        .ok()
-        .map(io::BufReader::new);
-    std::iter::from_fn(move || {
-        loop {
-            let reader = reader.as_mut()?;
-            let mut line = Vec::new();
-            let read = io::BufRead::read_until(
-                &mut io::Read::take(&mut *reader, LINE_BYTES),
-                b'\n',
-                &mut line,
-            );
-            let line = match read {
-                Ok(0) => return None,
-                Ok(_) => line,
-                Err(_) => return Some(None),
-            };
-            let commit = std::str::from_utf8(&line).map(str::trim);
-            match commit {
-                Ok("") => continue,
-                Ok(commit) if octocode_github::is_full_sha(commit) => {
-                    return Some(Some(commit.to_ascii_lowercase()));
-                }
-                _ => return Some(None),
-            }
-        }
-    })
 }
 
 /// When the checkout was completed ([`record_completion`]); `None` for a

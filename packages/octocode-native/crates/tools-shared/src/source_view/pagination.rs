@@ -42,7 +42,7 @@ pub(super) struct LineBudget {
     /// Response characters the page's lines take at most as they render: each
     /// line's JSON text (escapes, UTF-16) and its gutter.
     pub(super) fill: usize,
-    /// A line longer than this is read in byte pages of about this size.
+    /// The room for a byte page of a long line.
     pub(super) line: usize,
     /// Characters each line's gutter (`<line>\t`) adds when it renders; 0 for
     /// a view that is not numbered.
@@ -93,64 +93,26 @@ impl LineBudget {
     }
 }
 
-/// The length past which a line is a long line: a search row shows a window
-/// of it around its hits, a match read windows its hits
-/// ([`super::extraction::FITS_ANY_BYTE_PAGE`]), and a byte page of it holds
-/// what the response window sets. A byte page that holds a shorter line, or
-/// a hit's window, takes at least this much, so neither is cut into pieces
-/// across pages (a narrow window shrinks the line page budget, and a page cut
-/// to half of it would take thousands of calls to walk such a line).
+/// The byte length above which a line can have its own byte walk.
+/// Shorter lines keep their source gutters and page as whole lines; the
+/// response pager can split their text. A match-centered page gets this
+/// much room for its hit. Ordinary byte windows use the caller's budget.
 pub const MIN_BYTE_PAGE: usize = 4_096;
 
 /// The bytes a line page holds under the response `window` a read is served
-/// in: [`LINE_PAGE_BYTES`] without one. A line longer than this is read in
-/// byte pages.
+/// in: [`LINE_PAGE_BYTES`] without one. Byte windows of a long line fit this
+/// budget.
 pub fn line_page_bytes(window: Option<usize>) -> usize {
     window.map_or(LINE_PAGE_BYTES, |window| {
         octocode_runtime_base::response::page_windows::page_budget(Some(window))
     })
 }
 
-/// The fewest escaped units a byte page of a long line holds, however narrow
-/// the row's share of the response: one hit's window
-/// ([`super::extraction::MATCH_MARGIN`] on each side), so a narrow share
-/// never reads a long line in slivers.
-pub const MIN_LONG_LINE_PAGE: usize = 2 * super::extraction::MATCH_MARGIN;
-
-/// A byte page's room under the response `window` a read is served in, in the
-/// escaped UTF-16 units a JSON string of it takes (the unit of
-/// `responseChars`): what a line page holds ([`line_page_bytes`]), so a page
-/// of one long line fits the row's share of the response, and a wide window
-/// reads the line in as few pages as it holds; never under
-/// [`MIN_LONG_LINE_PAGE`].
-pub fn byte_page_room(window: Option<usize>) -> usize {
-    line_page_bytes(window).max(MIN_LONG_LINE_PAGE)
-}
-
 /// A page of hit windows: what the response `window` sets, and never less
 /// than a long line's length ([`MIN_BYTE_PAGE`]), so each hit's window shows
 /// whole on one page.
 pub fn hit_page_room(window: Option<usize>) -> usize {
-    byte_page_room(window).max(MIN_BYTE_PAGE)
-}
-
-/// Whether the line holding byte `offset` of `content` is a long line
-/// ([`MIN_BYTE_PAGE`]), counted whole: with the bytes of it a streamed
-/// window holds before its text (`edges.lead`), and as long when it runs
-/// past the text (`edges.more`).
-fn long_line_at(content: &str, offset: usize, edges: Edges) -> bool {
-    let bytes = content.as_bytes();
-    let start = bytes
-        .get(..offset)
-        .and_then(|before| before.iter().rposition(|byte| *byte == b'\n'))
-        .map_or(0, |at| at + 1);
-    let end = bytes
-        .get(offset..)
-        .and_then(|after| after.iter().position(|byte| *byte == b'\n'))
-        .map(|at| offset + at);
-    let lead = if start == 0 { edges.lead } else { 0 };
-    (end.is_none() && edges.more)
-        || lead + end.unwrap_or(content.len()).saturating_sub(start) > MIN_BYTE_PAGE
+    line_page_bytes(window).max(MIN_BYTE_PAGE)
 }
 
 /// The page of `content` that `q` asks for, with a line page of at most
@@ -277,31 +239,38 @@ fn view_page_limited(
             // The reader refused an offset no window emits; a streamed
             // window's raw offset starts at its character's first byte.
             let offset = content.floor_char_boundary(offset.min(content.len()));
-            // A long line's byte page holds what the row's share of the
-            // response sets, never under one hit's window; one that holds a
-            // shorter line, or a hit's window, takes at least a long line's
-            // length, so it holds that line or window whole.
-            let floor = budget.line.max(MIN_BYTE_PAGE);
             // The text's first line started before the page: earlier in the
             // view, or before a streamed window's first byte.
             let opens_inside = match offset.checked_sub(1) {
                 Some(before) => content.as_bytes().get(before) != Some(&b'\n'),
                 None => edges.lead > 0,
             };
-            let chunk_size = if long_line_at(content, offset, edges) {
-                budget.line.max(MIN_LONG_LINE_PAGE)
-            } else {
-                floor
-            };
-            if !out_of_range && let Some(walk) = MatchFirst::of(content, long_lines, offset, floor)
+            let hit_room = budget.line.max(MIN_BYTE_PAGE);
+            if !out_of_range
+                && let Some(walk) = MatchFirst::of(content, long_lines, offset, hit_room)
             {
-                return walk.page(content, offset, floor);
+                return walk.page(content, offset, hit_room);
             }
             // The window that fits the room as serialized text, ending at
             // a line end when one fits, never inside a character, a CRLF
             // pair or a redaction marker.
+            let mut chunk_size = budget.line.min(budget.fill);
             let mut end =
                 octocode_runtime_base::response::cut::window_end(content, offset, chunk_size);
+            // A match read keeps a line that fits a hit window whole. A
+            // larger line with hits already took the match-first path.
+            if local_fetch_query::has_matches(q) && !opens_inside && chunk_size < hit_room {
+                let hit_end =
+                    octocode_runtime_base::response::cut::window_end(content, offset, hit_room);
+                if content
+                    .get(offset..hit_end)
+                    .is_some_and(|text| text.ends_with('\n'))
+                    || (hit_end == content.len() && !edges.more)
+                {
+                    end = hit_end;
+                    chunk_size = hit_room;
+                }
+            }
             let first = octocode_engine::text::line_containing(content, offset);
             let resume = oversized_line_end(content, first, offset, end, budget.line, edges);
             if let Some((line_end, _)) = resume {
@@ -374,7 +343,7 @@ fn view_page_limited(
                     break;
                 }
                 rendered += budget.rendered(line);
-                long = line.len() > budget.line;
+                long = line.len() > budget.line.max(MIN_BYTE_PAGE);
                 if (at != 0 && rendered > budget.fill) || long {
                     break;
                 }
@@ -412,6 +381,7 @@ fn view_page_limited(
             }
             let end_byte = advance_lines(content, byte_offset, page).unwrap_or(content.len());
             if long
+                && !local_fetch_query::has_matches(q)
                 && let Some(filled) = filled_page(
                     content,
                     byte_offset..end_byte,

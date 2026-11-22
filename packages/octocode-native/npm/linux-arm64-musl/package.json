@@ -24,6 +24,9 @@
   ],
   "preferUnplugged": true,
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "executableFiles": [
+      "octocode"
+    ]
   }
 }

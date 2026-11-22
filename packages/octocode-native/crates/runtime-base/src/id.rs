@@ -98,6 +98,18 @@ impl ToolId {
         matches!(self, Self::LocalFetch | Self::GhGetFileContent)
     }
 
+    /// Query field that can supply this top-level output field as an echo.
+    /// Repository search retains the owner its provider returned as identity.
+    /// A file read pinned by ref can recover its matching commit from that ref.
+    #[must_use]
+    pub fn echo_query_field(self, output_field: &str) -> Option<&str> {
+        match (self, output_field) {
+            (Self::GhSearchRepo, "owner") => None,
+            (Self::GhGetFileContent, "commitSha") => Some("ref"),
+            _ => Some(output_field),
+        }
+    }
+
     /// Whether a row of this tool read again (with a wider share of the
     /// response page) costs no provider request.
     #[must_use]

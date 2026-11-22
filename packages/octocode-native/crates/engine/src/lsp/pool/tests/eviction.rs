@@ -75,7 +75,7 @@ async fn overflow_eviction_during_validate_restarts_instead_of_hanging() {
         .expect("install")
         .expect("client");
     let (release_send, release_receive) = oneshot::channel();
-    *client.resume_gate.lock().await = Some(release_receive);
+    *client.health_gate.lock().await = Some(release_receive);
     let validating = {
         let pool = Arc::clone(&pool);
         tokio::spawn(async move {
@@ -86,12 +86,12 @@ async fn overflow_eviction_during_validate_restarts_instead_of_hanging() {
         })
     };
     tokio::time::timeout(Duration::from_secs(1), async {
-        while client.resumes.load(Ordering::SeqCst) == 0 {
+        while client.health_checks.load(Ordering::SeqCst) == 0 {
             tokio::task::yield_now().await;
         }
     })
     .await
-    .expect("validate must reach resume");
+    .expect("validate must reach the health check");
     let _other = pool
         .acquire("other".into(), "other".into(), || async {
             Ok(Some(FakeClient::new(9)))

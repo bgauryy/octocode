@@ -22,12 +22,14 @@ pub(super) fn reuse_checkout(
         return Ok(None);
     }
     // A home that moved leaves the checkout pointing into the old one.
-    let key = plan.store_key(reference);
+    let key = plan.store_key();
     if storage::moved_store(&key, clone_dir).is_some() {
         let _store_lock = storage::CloneLock::acquire(&key.anchor(), context)?;
         reconnect_moved(context, &key, clone_dir)?;
     }
-    if !storage::is_store_worktree(&context.config.home, clone_dir) {
+    if !storage::worktree_store(&context.config.home, clone_dir)
+        .is_some_and(|store| storage::has_verified_history(&store))
+    {
         return Ok(None);
     }
     // The checks read one checkout and none depends on another: they run
@@ -58,10 +60,6 @@ pub(super) fn reuse_checkout(
         size: storage::checked_out_size(clone_dir),
         symlinks: inspection.symlinks,
         root_files: plan.root_files(clone_dir),
-        full_history: match storage::worktree_store(&context.config.home, clone_dir) {
-            Some(store) if plan.depth > 1 => git::holds_whole_history(context, &store)?,
-            _ => false,
-        },
         withheld,
     };
     context
@@ -91,7 +89,7 @@ pub(super) fn fresh_clone(
     if clone_dir.exists() && !git::safe_to_replace(context, clone_dir, reference)? {
         return Err(dirty_checkout(clone_dir));
     }
-    let key = plan.store_key(reference);
+    let key = plan.store_key();
     let _store_lock = storage::CloneLock::acquire(&key.anchor(), context)?;
     // Before the store prunes the registrations whose directories are gone:
     // a checkout of a moved home would read as gone.
@@ -167,7 +165,6 @@ fn publish_stage(
         size: storage::checked_out_size(stage),
         symlinks: git::present_symlinks(stage, staged.links),
         root_files: plan.root_files(stage),
-        full_history: plan.depth > 1 && git::holds_whole_history(context, store)?,
         withheld: staged.withheld,
     };
     // The lock serializes only Octocode: a user can create or edit the
@@ -255,7 +252,6 @@ fn checkout_stage(
             store,
             reference,
             sparse_paths,
-            plan.depth,
             stage,
         )
     };

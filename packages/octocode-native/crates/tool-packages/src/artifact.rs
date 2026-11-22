@@ -9,6 +9,7 @@ mod npmrc;
 mod nuget;
 mod packagist;
 mod pins;
+pub(crate) mod preview;
 mod pypi;
 pub mod query;
 mod release_ref;
@@ -29,6 +30,7 @@ pub use http::{
     rejection_detail,
 };
 pub use npm::registry::invalid_registry_url;
+pub(crate) use npm::registry::validate_base as validate_npm_base;
 pub use npmrc::npm_authorization;
 use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
 pub use pins::{Pin, exact_pins};

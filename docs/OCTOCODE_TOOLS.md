@@ -15,6 +15,8 @@ The catalog has 17 tools. To see the ones available in your terminal, run `octoc
 
 For examples that connect multiple tools, see the [question-to-source workflows](../README.md#how-an-agent-uses-octocode). For a request you can adapt, run `octocode schema <tool> --view variants`. Use `--select operation=<value>` to narrow a schema and `--view output` to look up a result field. [Read a paged answer](TOOL_DATA_CONTRACT.md#executable-continuations)
 
+For AST match rules, run `octocode schema astSearch --select operation=match` or read the MCP resource `octocode://contract/input/astSearch/match`. The separate graph MCP server exposes graph operations the same way, for example `octocode://contract/input/graphQuery/impact` when graph tools are enabled. MCP clients can discover both URI patterns with `resources/templates/list`.
+
 ## Local code tools reference
 
 ### `structureSearch`
@@ -45,7 +47,7 @@ Find calls or declarations by syntax. A rule can use `$X` to match a single node
 {"queries":[{"operation":"match","content":"foo(1); bar(2)","parser":"typescript","rule":{"pattern":"foo($A)"}}]}
 ```
 
-### `graphBuild` and `graphQuery`
+### Graph package · `graphBuild` and `graphQuery`
 
 Build a snapshot of a directory, then query the same path for importers, cycles, or the files a change could affect. To reuse a specific snapshot, pass the build's `graph` value. [Code graph examples](OCTOCODE_GRAPH.md)
 

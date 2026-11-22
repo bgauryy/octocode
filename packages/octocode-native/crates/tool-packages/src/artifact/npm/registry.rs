@@ -15,6 +15,18 @@ pub(super) fn validate_registry(
     registry: &ResolvedNpmRegistry,
     allow_private_registry: bool,
 ) -> Result<Option<DnsPin>, ArtifactError> {
+    validate_base(query, registry)?;
+    if allow_private_registry {
+        return Ok(None);
+    }
+    validate_registry_target(&registry.base)
+}
+
+/// Validate the configured base locally, before any DNS or HTTP lookup.
+pub(crate) fn validate_base(
+    query: &ArtifactSearchQuery,
+    registry: &ResolvedNpmRegistry,
+) -> Result<(), ArtifactError> {
     let base = &registry.base;
     if !matches!(base.scheme(), "http" | "https")
         || !base.username().is_empty()
@@ -33,10 +45,7 @@ pub(super) fn validate_registry(
             ));
         }
     }
-    if allow_private_registry {
-        return Ok(None);
-    }
-    validate_registry_target(base)
+    Ok(())
 }
 
 pub(super) fn trim_registry(url: &Url) -> String {

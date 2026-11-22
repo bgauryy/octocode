@@ -370,16 +370,16 @@ pub(super) fn validate_object(
             }
         }
     }
-    if let Some(properties) = properties {
+    if mode != ValidationMode::ReadOnly
+        && let Some(properties) = properties
+    {
         for (name, field_schema) in properties {
-            let default = crate::contracts::schema_facts::schema_keyword(
-                field_schema,
-                &root["$defs"],
-                "default",
-            );
-            if mode != ValidationMode::ReadOnly
-                && !object.contains_key(name)
-                && let Some(default) = default
+            if !object.contains_key(name)
+                && let Some(default) = crate::contracts::schema_facts::schema_keyword(
+                    field_schema,
+                    &root["$defs"],
+                    "default",
+                )
             {
                 object.insert(name.clone(), default.clone());
             }

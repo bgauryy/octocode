@@ -30,6 +30,8 @@ describe('native distribution', () => {
         main?: unknown;
         exports?: unknown;
         files: string[];
+        os: string[];
+        publishConfig: { executableFiles?: string[] };
         preferUnplugged?: boolean;
       };
       expect(platformManifest.name).toBe(platformPackageName(suffix));
@@ -37,6 +39,9 @@ describe('native distribution', () => {
       expect(platformManifest.main).toBeUndefined();
       expect(platformManifest.exports).toBeUndefined();
       expect(platformManifest.preferUnplugged).toBe(true);
+      if (!platformManifest.os.includes('win32')) {
+        expect(platformManifest.publishConfig.executableFiles).toContain('octocode');
+      }
       expect(platformManifest.files.some(file => file.endsWith('.node'))).toBe(false);
     }
   });

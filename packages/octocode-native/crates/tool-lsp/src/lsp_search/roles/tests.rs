@@ -21,7 +21,12 @@ fn row(uri: &str, source: &str, needle: &str, nth: usize) -> Value {
     }})
 }
 
-async fn roles(root: &Fixture, file: &str, source: &str, sites: &[(&str, usize)]) -> Vec<Value> {
+async fn classified_rows(
+    root: &Fixture,
+    file: &str,
+    source: &str,
+    sites: &[(&str, usize)],
+) -> Vec<Value> {
     let path = root.write(file, source);
     let uri = octocode_engine::lsp::uri::path_to_uri(&path.to_string_lossy()).expect("uri");
     let mut rows = sites
@@ -32,7 +37,50 @@ async fn roles(root: &Fixture, file: &str, source: &str, sites: &[(&str, usize)]
     assign_roles(&mut rows, &mut SourceCache::new(&paths), &NeverCancel, None)
         .await
         .expect("roles");
+    rows
+}
+
+async fn roles(root: &Fixture, file: &str, source: &str, sites: &[(&str, usize)]) -> Vec<Value> {
+    let rows = classified_rows(root, file, source, sites).await;
     rows.iter().map(|row| row["role"].clone()).collect()
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn explicit_import_aliases_identify_both_tokens() {
+    let root = Fixture::new();
+    for (file, source) in [
+        (
+            "a.ts",
+            "import {
+read as load, plain
+} from './port';
+load();",
+        ),
+        ("a.py", "from port import (read as load, plain)\nload()"),
+        (
+            "a.rs",
+            "use port::{
+read as load, plain
+};
+fn f() { load(); }",
+        ),
+    ] {
+        let rows = classified_rows(
+            &root,
+            file,
+            source,
+            &[("read", 0), ("load", 0), ("plain", 0), ("load", 1)],
+        )
+        .await;
+        assert_eq!(rows[0]["importRole"], "importedName", "{file}: {rows:?}");
+        assert_eq!(rows[1]["importRole"], "localAlias", "{file}: {rows:?}");
+        assert!(rows[..3].iter().all(|r| r["role"] == "import"), "{rows:?}");
+        assert!(
+            rows[2..].iter().all(|r| r.get("importRole").is_none()),
+            "{rows:?}"
+        );
+        assert_eq!(rows[3]["role"], "call");
+    }
 }
 
 #[tokio::test(flavor = "current_thread")]

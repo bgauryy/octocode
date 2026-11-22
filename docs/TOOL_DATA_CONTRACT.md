@@ -31,7 +31,7 @@ For example, if `next.tool` is `localFetch`, call it with `{"cursor":"<returned 
 
 ## Pages and size
 
-Set `responseChars` on the first call to request a page size. A single indivisible value can exceed it. When a row spans pages, `rowPart` gives the order of its pieces. Append collection items, keep repeated identifiers once and join split text at the returned JSON pointer. Use the output schema's `collectionPaths` when joining results in a script. For source byte windows, use `offset` to put the text in file order.
+Set `responseChars` on the first call to request a page size. An indivisible value can exceed the target and sets `oversized`. Fixed envelope fields, repeated context and the executable `next` call can also take the delivered page above the target. When a row spans pages, `rowPart` gives the order of its pieces. Append collection items, keep repeated identifiers once and join split text at the returned JSON pointer. Use the output schema's `collectionPaths` when joining results in a script. For source byte windows, use `offset` to put the text in file order.
 
 ## Errors and recovery
 

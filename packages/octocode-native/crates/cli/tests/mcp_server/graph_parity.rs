@@ -53,6 +53,7 @@ fn graph_issues_walk_matches_on_cli_and_mcp() {
     let build = workspace
         .cli()
         .args([
+            "__graph",
             "graphBuild",
             &json_fixture(r#"{"queries": [{"path": "."}]}"#).to_string(),
         ])
@@ -60,7 +61,9 @@ fn graph_issues_walk_matches_on_cli_and_mcp() {
         .expect("graphBuild");
     assert!(build.status.success(), "{build:?}");
 
-    let mut server = Server::start_with(&workspace, &[("OCTOCODE_BETA", "true")]);
+    let mut command = workspace.cli();
+    command.arg("__graph").env("OCTOCODE_BETA", "true");
+    let mut server = Server::spawn(command);
     server.request(
         "initialize",
         json_fixture(
@@ -74,6 +77,17 @@ fn graph_issues_walk_matches_on_cli_and_mcp() {
     server.send(&json_fixture(
         r#"{"jsonrpc": "2.0", "method": "notifications/initialized"}"#,
     ));
+
+    let listing = server.request("tools/list", json!({}));
+    let names: Vec<_> = listing["result"]["tools"]
+        .as_array()
+        .expect("graph tools")
+        .iter()
+        .map(|tool| tool["name"].as_str().expect("tool name"))
+        .collect();
+    assert_eq!(names, ["graphBuild", "graphQuery"]);
+    let rejected = server.request("tools/call", json!({"name": "localFetch", "arguments": {}}));
+    assert_eq!(rejected["error"]["code"], -32602);
 
     // Each surface follows its own cursors; saved work must outlive a CLI call.
     let first = json_fixture(
@@ -108,7 +122,7 @@ fn graph_issues_walk_matches_on_cli_and_mcp() {
     let cli_pages = walk(Box::new(|input| {
         let cli = persistent
             .cli()
-            .args(["graphQuery", &input.to_string(), "--json"])
+            .args(["__graph", "graphQuery", &input.to_string(), "--json"])
             .output()
             .expect("CLI --json");
         let cli = String::from_utf8(cli.stdout).expect("UTF-8");
@@ -120,4 +134,25 @@ fn graph_issues_walk_matches_on_cli_and_mcp() {
     );
     assert_eq!(mcp_pages, cli_pages);
     assert!(server.finish().success());
+}
+
+#[test]
+fn research_mcp_cannot_enable_graph_with_beta_or_direct_calls() {
+    let workspace = Workspace::new();
+    let mut server = Server::start_with(&workspace, &[("OCTOCODE_BETA", "true")]);
+    server.request("initialize", json!({"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}));
+    server.send(&json!({"jsonrpc":"2.0","method":"notifications/initialized"}));
+    let list = server.request("tools/list", json!({}));
+    let tools = list["result"]["tools"].as_array().expect("research tools");
+    assert!(tools.iter().any(|t| t["name"] == "localSearch"));
+    for name in ["graphBuild", "graphQuery"] {
+        assert!(!tools.iter().any(|t| t["name"] == name));
+        let call = server.request("tools/call", json!({"name":name,"arguments":{}}));
+        assert_eq!(call["error"]["code"], -32602);
+        let resource = server.request(
+            "resources/read",
+            json!({"uri": format!("octocode://contract/output/{name}")}),
+        );
+        assert!(resource.get("error").is_some());
+    }
 }

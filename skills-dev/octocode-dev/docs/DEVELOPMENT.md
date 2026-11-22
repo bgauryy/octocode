@@ -34,7 +34,7 @@ Under `packages/octocode-native/`: contracts are authored in core `src/toolContr
 ## Contract pipeline
 
 1. Author in core (Zod schema, description, instructions, limits) and build core.
-2. `node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen` at the repo root installs the published core version pinned in `packages/octocode-config/package.json`, then runs `@octocodeai/config generate:tool-contract`, the only generator. Output is `packages/octocode-config/contract/`: committed, never hand-edited; `check:tool-contract` fails when stale.
+2. `node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen` at the repo root refreshes the configured core (the sibling package during local development or the exact npm pin after reset), then runs `@octocodeai/config generate:tool-contract`, the only generator. Output is `packages/octocode-config/contract/`: committed, never hand-edited; `check:tool-contract` fails when stale.
 3. Rebuild native (`yarn workspace @octocodeai/octocode-native build:dev`): `crates/runtime-base/build.rs` embeds `contract/`. Before replacing a runnable host executable, staging checks its public `--version` against the package version and the first eight characters of the generated contract fingerprint. A mismatch leaves the existing executable in place.
 
 Regeneration needs `cargo install cargo-typify --version 0.8.0 --locked`. `tool_types.rs` holds only the generated types native source names and what they reach; after a native edit that starts or stops naming one, regenerate. The binary embeds the contract it serves (CLI and `octocode mcp`), so there is no runtime override.
@@ -138,6 +138,8 @@ samply load .octocode/octocode-dev/profile/<run>/profile.json.gz   # the flamegr
 ```
 
 `--phase` picks what is measured: `first` (a fresh MCP server's first call), `repeat`, `page:N`, or `one` (a whole one-shot CLI process). It prints min-of-3 retired instructions and peak footprint measured without a sampler, then samples a server looping that phase and writes `top.md` (self and inclusive CPU shares, loop only) beside `counters.json` under `.octocode/octocode-dev/profile/`. Wall time is noise on a shared machine: trust instructions.
+
+For a graph cursor profile, put the snapshot in the target workspace’s graph store, use that workspace as `--cwd`, and request `--phase page:2` on a query that issues a continuation. Check the counters’ error list before comparing instruction counts.
 
 A plain CLI tool call is a thin client of the shared warm `octocode serve` process (`crates/cli/src/cli/serve.rs`), so separate CLI processes are not separate runs and `time -l` measures nothing useful. Measure through `$DEV profile` or a fresh `octocode mcp` process. `OCTOCODE_STORAGE_MODE=memory` runs in-process but refuses any answer that needs a continuation (`executionFailed`), so it cannot measure large answers.
 

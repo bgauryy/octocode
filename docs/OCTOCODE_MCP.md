@@ -23,7 +23,7 @@ For a client that takes an `mcpServers` JSON object, add this entry by hand. Set
 
 ## Tools and opt-ins
 
-The contract has 17 tools. MCP exposes 12 by default. Graph tools, cloning, advisory lookups and classification have separate opt-ins. Check your client’s tool list after a restart. GitHub code search and private repositories require authentication. [Availability and opt-ins](CONFIGURATION.md#tool-availability-cli-and-mcp) · [GitHub sign-in](AUTHENTICATION.md)
+The contract has 17 tools. MCP exposes 12 by default. Install the graph MCP separately for graph tools. Cloning, advisory lookups and classification have their own opt-ins. Check your client’s tool list after a restart. GitHub code search and private repositories require authentication. [Availability and opt-ins](CONFIGURATION.md#tool-availability-cli-and-mcp) · [GitHub sign-in](AUTHENTICATION.md)
 
 If the same workspace appears twice in your client, check whether both a plugin and a manual entry connect it. Keep one entry for that workspace and configuration.
 

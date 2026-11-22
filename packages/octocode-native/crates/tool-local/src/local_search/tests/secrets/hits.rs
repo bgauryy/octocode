@@ -5,6 +5,35 @@
 use super::*;
 use serde_json::json;
 
+#[test]
+fn a_key_path_and_context_are_derived_from_the_same_redacted_source_as_the_hit() {
+    let token = format!("ghp_{}", "a1B2c3D4".repeat(5));
+    let source = format!("{{\n  \"{token}\": {{\n    \"label\": \"needle {token}\"\n  }}\n}}\n");
+    let rows = search_fixture(
+        &[("settings.json", &source)],
+        ls_query(
+            json!({"matchString":["needle"],"contextLines":{"before":1}}),
+            None,
+        ),
+    );
+    let file = &rows["files"][0];
+    assert!(
+        file["matches"][0]["value"]
+            .as_str()
+            .expect("hit")
+            .contains("[REDACTED-")
+    );
+    let path = file["matchKeys"][0]["keyPath"].as_str().expect("key path");
+    assert!(
+        path.ends_with(".label") && path.contains("[REDACTED-"),
+        "{path}"
+    );
+    assert!(
+        !file.to_string().contains(&token),
+        "a displayed field exposed the original key"
+    );
+}
+
 /// What `rg -c` finds of `needle` in `text`.
 fn raw_lines(text: &str, needle: &str) -> usize {
     text.lines().filter(|line| line.contains(needle)).count()

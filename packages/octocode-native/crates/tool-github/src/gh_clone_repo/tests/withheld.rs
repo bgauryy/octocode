@@ -177,6 +177,13 @@ fn a_remote_that_ignores_the_blob_filter_is_refused() {
     let error = clone_pinned(&fixture, &query(), &context).expect_err("refused");
     assert_eq!(error.code, ErrorCode::GitFailed, "{error:?}");
     assert!(error.message.contains("ignored"), "{error:?}");
+    assert!(
+        store_dirs(&home).is_empty(),
+        "unfiltered objects must not be retained"
+    );
+    git(&bare, &["config", "uploadpack.allowFilter", "true"]);
+    let restored = clone_pinned(&fixture, &query(), &context).expect("filtered retry");
+    assert!(restored.location.full_history);
 }
 
 /// A credential blob that reached the store (a rule set that withheld less

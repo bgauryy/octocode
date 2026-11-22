@@ -25,6 +25,7 @@
   },
   "files": [
     "dist/index.js",
+    "scripts/check-entrypoints.mjs",
     "dist/docs/**",
     "assets/logo.png",
     "manifest.json",
@@ -70,6 +71,7 @@
     "directory": "packages/octocode-mcp"
   },
   "scripts": {
+    "prepack": "node scripts/check-entrypoints.mjs",
     "build": "yarn check:manifest && yarn clean && node build.mjs && node ../../skills-dev/octocode-dev/scripts/package-build.mjs docs dist",
     "build:dev": "node build.mjs",
     "check:manifest": "node scripts/sync-manifest.mjs --check",

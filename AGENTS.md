@@ -33,6 +33,7 @@ Launchers, plugins and the VS Code extension are thin adapters with no tool logi
 | Path | npm name | What it is |
 |---|---|---|
 | `packages/octocode-native` | `@octocodeai/octocode-native` (private) | Rust engine and the `octocode` binary (CLI + stdio MCP server); platform binaries ship under `npm/<platform>` |
+| `packages/octocode-graph` | `@octocodeai/octocode-graph` | Graph MCP, CLI, tool functions and graph skill. Runs the shared engine through `octocode/native`. |
 | `packages/octocode-mcp` | `octocode-mcp` | `npx octocode-mcp`: runs `octocode mcp` over the same stdio |
 | `packages/octocode` | `octocode` | `npx octocode`: forwards arguments and stdio to the native binary |
 | `packages/octocode-config` | `@octocodeai/config` (private) | The only tool-contract generator; config loading (home, `.env`, `.octocoderc`) |
@@ -40,6 +41,7 @@ Launchers, plugins and the VS Code extension are thin adapters with no tool logi
 | `packages/octocode-vscode` | `octocode-mcp-vscode` | VS Code extension: GitHub sign-in, token sync, MCP install; runs no tools |
 | `packages/octocode-claude-plugin`, `packages/octocode-codex-plugin` | `@octocodeai/claude-plugin`, `@octocodeai/codex-plugin` | Plugins: MCP launch config, public skills, onboarding |
 | `packages/octocode-agents-communication` | `@octocodeai/octocode-agents-communication` | MCP server + CLI for cross-agent messages, identity and path leases |
+| `packages/octocode-graph` | `@octocodeai/octocode-graph` | Graph skill and commands to build, query and serve stitched repository graphs using the engine supplied by `octocode-mcp` |
 | `packages/octocode-chrome-devtools` | `@octocodeai/octocode-chrome-devtools` | Chrome DevTools MCP server + CLI for live-browser work; owns its skill in `packages/octocode-chrome-devtools/skills/` (self-contained, staged with the public skills by `stage-skills.mjs`) |
 | `packages/octocode-mcp-cli` | `octocode-mcp-cli` (private) | Library mapping MCP tools and instructions to a Zod CLI and back |
 | `packages/octocode-benchmark` | none (docs) | Checks and benchmarks as behavioral docs: tool, security and skill checks, comparisons, scorecards |
@@ -57,7 +59,7 @@ Contract changes also need `../octocode-mcp-host` and `cargo install cargo-typif
 ```bash
 DEV='node skills-dev/octocode-dev/scripts/dev.mjs'   # repo tasks: $DEV --help
 OCTO='node packages/octocode/out/octocode.js'        # local CLI
-corepack enable && yarn install        # workspace packages + published core
+corepack enable && yarn install        # workspace packages + configured core
 $DEV build:dev                                       # this machine's native target only
 $OCTO auth status                                    # GitHub tools need `auth login` or `gh auth login`
 $OCTO schema [<tool> --view query]; $OCTO <tool> '{"queries":[…]}'
@@ -69,7 +71,7 @@ $DEV gates                                           # every release gate in one
 - Build only the host target (`build:dev`); `--all`, `build:all`, `build:publish` are for requested release work.
 - Local MCP server: `node packages/octocode-mcp/dist/index.js` (stdio). Restart it after a native rebuild: it
   serves the contract it started with.
-- Core resolves from npm at the version pinned in `packages/octocode-config/package.json`.
+- For local core development, `$DEV setup --install` resolves the sibling package via a relative `file:` override. `$DEV setup --reset --install` restores the published pin in `packages/octocode-config/package.json`.
 - Full checks without native: `$DEV lint:ci`, `$DEV typecheck:ci`, `$DEV test:ci`; run `$DEV skills:check` after
   editing `skills/`.
 - End-to-end checks are agent prompts: [tool checks](packages/octocode-benchmark/CHECKS.md).

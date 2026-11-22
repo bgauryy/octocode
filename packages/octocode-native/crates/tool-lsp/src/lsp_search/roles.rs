@@ -1,8 +1,8 @@
 //! The role of each reference site (`role`): the symbol's declaration, a
 //! call of it, an import or re-export binding, or another use. A site that
 //! starts a declaration of the file's declarations parse is a declaration
-//! ([`lands`]), and one on a name its imports bind is an import
-//! ([`imports_at`], each line of a multi-line import group). JS/TS sites read one oxc parse of their file
+//! ([`binding_role`]), and one on a name its imports bind is an import
+//! ([`binding_role`], each line of a multi-line import group). JS/TS sites read one oxc parse of their file
 //! ([`classify_sites`]); every other site, and a name the parse holds no
 //! node for, reads the text rule of its own line. In a file with no
 //! declarations parse (a language octocode has no grammar for), the
@@ -10,7 +10,7 @@
 use super::call_sites::text_rule::is_call_site;
 use super::call_sites::{classify_sites, flatten_symbols, is_declaration_name};
 use super::failure::LspFailure;
-use super::recovery::{Landing, imports_at, lands};
+use super::recovery::{BindingRole, binding_role};
 use super::render::uri_to_path;
 use super::source::SourceCache;
 use octocode_engine::graph::GraphPosition;
@@ -58,7 +58,7 @@ pub(super) async fn assign_roles(
         let parsed = classify_sites(cancel, &source, &path, starts).await?;
         let lines = LineIndex::new(&source.content);
         let mut text_decided = Vec::new();
-        let parsed_roles = declared.clone().unwrap_or_default();
+        let parsed_roles = declared.as_deref().unwrap_or_default();
         for (position, &index) in indices.iter().enumerate() {
             let site = parsed.as_ref().and_then(|sites| sites.get(position));
             let row = &mut rows[index];
@@ -82,7 +82,16 @@ pub(super) async fn assign_roles(
                 text()
             };
             let role = match (parsed_roles.get(position).copied().flatten(), site) {
-                (Some(role), _) => role,
+                (Some(BindingRole::Declaration), _) => "declaration",
+                (Some(BindingRole::ImportedName), _) => {
+                    row["importRole"] = json!("importedName");
+                    "import"
+                }
+                (Some(BindingRole::LocalAlias), _) => {
+                    row["importRole"] = json!("localAlias");
+                    "import"
+                }
+                (Some(BindingRole::Import), _) => "import",
                 (None, Some(site)) if site.is_import == Some(true) => "import",
                 (None, Some(site)) => match site.is_call {
                     Some(true) => "call",
@@ -134,7 +143,7 @@ pub(super) async fn import_sites(
             .enumerate()
             .map(
                 |(index, &(line, _))| match parsed.get(index).copied().flatten() {
-                    Some(role) => role == "import",
+                    Some(role) => role != BindingRole::Declaration,
                     None => imports_on(line_text(&source.content, &lines, line)),
                 },
             )
@@ -165,7 +174,7 @@ async fn parsed_roles(
     path: &str,
     source: &std::sync::Arc<super::source::Source>,
     starts: &[GraphPosition],
-) -> Result<Option<Vec<Option<&'static str>>>, LspFailure> {
+) -> Result<Option<Vec<Option<BindingRole>>>, LspFailure> {
     let (path, source) = (path.to_owned(), std::sync::Arc::clone(source));
     let starts = starts
         .iter()
@@ -176,15 +185,7 @@ async fn parsed_roles(
         Some(
             starts
                 .iter()
-                .map(|&(line, character)| {
-                    if lands(&document, line, character) == Landing::Declaration {
-                        Some("declaration")
-                    } else if imports_at(&document, line, character) {
-                        Some("import")
-                    } else {
-                        None
-                    }
-                })
+                .map(|&(line, character)| binding_role(&document, line, character))
                 .collect::<Vec<_>>(),
         )
     })
@@ -207,7 +208,7 @@ fn line_text<'a>(content: &'a str, lines: &LineIndex, line: u32) -> &'a str {
 /// The text rule of an import: the site's line opens a statement that
 /// brings names from another module (`use`, `import`, `from … import`,
 /// `export … from`, `#include`). A line inside a multi-line import group
-/// opens no statement: the declarations parse places it ([`imports_at`]).
+/// opens no statement: the declarations parse places it ([`binding_role`]).
 fn imports_on(line: &str) -> bool {
     let line = line.trim_start();
     let line = ["pub(crate) ", "pub(super) ", "pub(self) ", "pub "]

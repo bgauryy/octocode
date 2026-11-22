@@ -9,15 +9,16 @@ import {
   toolVariants,
 } from '@octocodeai/octocode-core/schema';
 import { at, presentation, tool, tools } from './cli-presentation-fixture.ts';
+import { toolPackage } from '../src/contracts/tool-package.ts';
 import { toolHelpSection } from '../scripts/tool-contract/presentation.ts';
 
 const ajv = new Ajv2020({ strict: false, validateFormats: false });
 
 function commands(help: string): Array<{ name: string; input: unknown }> {
-  return [...help.matchAll(/^ {2}octocode (\w+) ('(?:[^']|'\\'')*')/gm)].map(([, name = '', quoted = '']) => ({
-    name,
-    input: JSON.parse(quoted.slice(1, -1).replaceAll("'\\''", "'")),
-  }));
+  return [...help.matchAll(/^ {2}(octocode(?:-graph)?) (\w+) ('(?:[^']|'\\'')*')/gm)].map(([, cli, name = '', quoted = '']) => {
+    expect(cli).toBe(toolPackage(name));
+    return { name, input: JSON.parse(quoted.slice(1, -1).replaceAll("'\\''", "'")) };
+  });
 }
 
 describe('canonical CLI and MCP discovery', () => {

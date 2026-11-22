@@ -365,6 +365,7 @@ pub(super) fn locations(
                 .to_owned();
             if let (Some(column), Some(symbol)) =
                 (hit.get("column").and_then(Value::as_u64), symbol)
+                && hit.get("importRole").is_none()
                 && spelled_only_at(&text, symbol, column)
                 && let Some(hit) = hit.as_object_mut()
             {
@@ -412,16 +413,12 @@ fn one_line_each(group: Vec<Value>) -> Vec<Value> {
     merged
 }
 
-/// Whether `text` spells `symbol` once, starting at the 1-based character
+/// Whether `text` spells `symbol` once, starting at the 1-based UTF-16
 /// `column`: the column then says nothing the line does not.
 fn spelled_only_at(text: &str, symbol: &str, column: u64) -> bool {
-    let mut found = text.match_indices(symbol);
-    match (found.next(), found.next()) {
-        (Some((at, _)), None) => {
-            text.char_indices().take_while(|(i, _)| *i < at).count() as u64 + 1 == column
-        }
-        _ => false,
-    }
+    text.split_once(symbol).is_some_and(|(prefix, suffix)| {
+        !suffix.contains(symbol) && prefix.encode_utf16().count() as u64 + 1 == column
+    })
 }
 
 /// A page state ([`super::follow::is_page`]) in the one form every page

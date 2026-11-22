@@ -146,14 +146,12 @@ async fn a_missing_path_carries_one_listing_and_no_hint_beside_it() {
 /// of it for one row, an equal share for each row of a batch
 /// (`read_share::row_window`), less the skeleton every page budget keeps. A
 /// share that holds 4 KB pages reads them; a narrower one reads smaller
-/// pages, never slivers under one hit's window, and no share grows past
+/// pages, with no fixed minimum overriding the requested share. No share grows past
 /// the page.
 #[tokio::test]
-async fn a_long_lines_byte_pages_fit_each_rows_share_and_never_shrink_to_slivers() {
+async fn a_long_lines_byte_pages_fill_each_rows_share() {
     use octocode_runtime_base::{id::ToolId, response::read_share::row_window};
-    use octocode_tools_shared::source_view::pagination::{
-        MIN_BYTE_PAGE, MIN_LONG_LINE_PAGE, byte_page_room,
-    };
+    use octocode_tools_shared::source_view::pagination::{MIN_BYTE_PAGE, line_page_bytes};
     let workspace = Workspace::new();
     let line = (0..2_500).map(|at| format!("{at:07};")).collect::<String>();
     let path = workspace.write("bundle.min.js", format!("{line}\n"));
@@ -175,7 +173,7 @@ async fn a_long_lines_byte_pages_fit_each_rows_share_and_never_shrink_to_slivers
     // (rows, responseChars): one row of a narrow page, a batch's narrow
     // shares of it, and a batch whose shares of the default page hold 4 KB.
     for (rows, page) in [(1, 400), (3, 400), (3, 20_000)] {
-        let room = byte_page_room(Some(row_window(ToolId::LocalFetch, page, rows)));
+        let room = line_page_bytes(Some(row_window(ToolId::LocalFetch, page, rows)));
         assert!(
             room >= MIN_BYTE_PAGE || page == 400,
             "{rows} rows of {page}: a share of this page holds 4 KB pages"
@@ -197,7 +195,7 @@ async fn a_long_lines_byte_pages_fit_each_rows_share_and_never_shrink_to_slivers
         for result in &results {
             let shown = page_text(&result["data"]);
             assert!(
-                (MIN_LONG_LINE_PAGE..=room).contains(&shown),
+                shown == room,
                 "{rows} rows of {page}: {shown} bytes, room {room}"
             );
             if page == 400 {

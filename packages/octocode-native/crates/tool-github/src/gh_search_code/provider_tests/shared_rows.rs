@@ -2,8 +2,8 @@
 //! the largest rows list a run of their hits, state `matchCount`, and their
 //! `readHits` read lists the rest, so every row of the page is shown.
 use super::*;
-use octocode_engine::json_size::utf16_units;
 use octocode_runtime_base::response::numbered::SEPARATOR;
+use octocode_runtime_base::response::read_share::published_chars;
 
 /// `a/b`'s search of `files` (each `(name, body)`) at [`SHA`].
 async fn mount_files(server: &MockServer, files: &[(&str, String)]) {
@@ -85,7 +85,7 @@ async fn the_largest_row_lists_a_run_and_reads_the_rest() {
         )
     };
     let whole = page(None).await.expect("whole page");
-    let whole_chars = utf16_units(&whole.data).expect("size");
+    let whole_chars = published_chars(&whole.data).row;
     assert_eq!(
         row(&whole.data, "busy.rs")["matches"]
             .as_array()
@@ -132,7 +132,7 @@ async fn the_largest_row_lists_a_run_and_reads_the_rest() {
         octocode_runtime_base::id::ToolId::GhSearchCode,
         &mut published,
     );
-    let chars = utf16_units(&published).expect("size");
+    let chars = published_chars(&serde_json::Value::Object(published)).row;
     assert!(
         chars <= window,
         "the page fits its window: {chars} > {window}"

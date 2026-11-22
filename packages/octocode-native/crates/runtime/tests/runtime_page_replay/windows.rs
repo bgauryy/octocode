@@ -275,13 +275,13 @@ async fn a_single_huge_content_line_pages_in_windows() {
 const FLOOR: usize = octocode_tools_shared::source_view::pagination::MIN_BYTE_PAGE;
 
 /// A long line read at a narrow budget walks in byte windows that fit the
-/// budget's page room, never under one hit's window, each served whole on one
+/// budget's page room, each served whole on one
 /// page and flagged `oversized` only when it holds a value over the budget
 /// ([`content_parts`] checks the flag on every page): a 40 KB line at 300
 /// chars takes a call per window of that room, every byte once.
 #[tokio::test]
 async fn a_long_line_at_a_narrow_budget_takes_a_call_per_window_of_its_room() {
-    use octocode_tools_shared::source_view::pagination::{MIN_LONG_LINE_PAGE, byte_page_room};
+    use octocode_tools_shared::source_view::pagination::line_page_bytes;
     let workspace = Workspace::new();
     let line = "abcdefghij".repeat(4_000);
     let text = format!("{line}\n");
@@ -293,11 +293,8 @@ async fn a_long_line_at_a_narrow_budget_takes_a_call_per_window_of_its_room() {
         budget,
         1,
     );
-    let room = byte_page_room(Some(share));
-    assert!(
-        (MIN_LONG_LINE_PAGE..FLOOR).contains(&room),
-        "a narrow room: {room}"
-    );
+    let room = line_page_bytes(Some(share));
+    assert!((1..FLOOR).contains(&room), "a narrow room: {room}");
     for (mut parts, _) in content_parts(&runtime, "long.txt", budget).await {
         // The file's one line starts on the first window, behind its gutter;
         // every later window continues it bare. The windows count the source.

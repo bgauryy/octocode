@@ -126,7 +126,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "type": "boolean",
     "resolved": true,
     "credential": false,
-    "description": "Expose graphBuild and graphQuery through MCP. CLI tools remain available without this opt-in. Restart MCP after changing this setting.",
+    "description": "Enable beta tools on their owning MCP server. The octocode-graph launcher opts into its graph tools by default. Restart the server after changing its environment.",
     "env": {
       "name": "OCTOCODE_BETA",
       "dotenv": "home"

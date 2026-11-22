@@ -292,31 +292,25 @@ fn rebuild_file(
 }
 
 /// `group`'s row with the matches `slice` a page shows of its file's `rows`.
-/// A row another match of the file repeats in line and text, on this page or
-/// another, is marked to keep its column
-/// ([`octocode_tools_shared::same_line`]).
+/// Positions are ordered by source. Check the neighbors in the whole file,
+/// including across page cuts, so each match on a shared line can be located.
 fn show(group: &mut Group, rows: &[MatchRow], slice: std::ops::Range<usize>) {
-    let shares_line = octocode_tools_shared::same_line::repeated(rows, slice.clone(), |row| {
-        (
-            row.value.get("line").and_then(serde_json::Value::as_u64),
-            row.value.get("value").and_then(serde_json::Value::as_str),
-        )
-    });
-    let rows = &rows[slice];
-    group.nested = nesting(rows);
-    group.row["matches"] = rows
-        .iter()
-        .zip(shares_line)
-        .map(|(row, shares_line)| {
+    let page = &rows[slice.clone()];
+    group.nested = nesting(page);
+    group.row["matches"] = slice
+        .map(|index| {
+            let row = &rows[index];
+            let same_line = |other: &MatchRow| other.node.start.0 == row.node.start.0;
+            let before = index.checked_sub(1).and_then(|i| rows.get(i));
             let mut value = row.value.clone();
-            if shares_line {
+            if before.is_some_and(same_line) || rows.get(index + 1).is_some_and(same_line) {
                 octocode_tools_shared::same_line::mark(&mut value);
             }
             value
         })
         .collect();
     group.source_descriptors.clear();
-    for descriptor in rows
+    for descriptor in page
         .iter()
         .filter_map(|row| row.source_descriptors.as_ref())
     {

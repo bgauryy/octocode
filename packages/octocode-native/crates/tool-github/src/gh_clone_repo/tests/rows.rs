@@ -157,9 +157,9 @@ fn reuse_probes_git_and_reports_the_checked_out_size() {
     );
 }
 
-/// `depth` fetches that many commits and keys its own destination.
+/// Distinct requested depths keep their destinations while sharing full history.
 #[test]
-fn history_depth_fetches_that_many_commits() {
+fn requested_depths_share_history_across_checkout_destinations() {
     let bench = Bench::committing(api_github_endpoint());
     let context = bench.context();
     bench.fixture.push_second();
@@ -181,7 +181,7 @@ fn history_depth_fetches_that_many_commits() {
             .trim()
             .to_owned()
     };
-    assert_eq!(count(&shallow.location.path), "1");
+    assert_eq!(count(&shallow.location.path), count(&deep.location.path));
     assert_eq!(count(&deep.location.path), "2");
 }
 
@@ -216,10 +216,11 @@ fn reuse_reports_the_fresh_clones_completion_time() {
     let reused = clone_pinned(&fixture, &query(), &context).expect("reuse");
     assert!(fresh.location.cloned_at.is_some());
     assert_eq!(fresh.location.cloned_at, reused.location.cloned_at);
-    // The receipt says which one fetched: only the reuse is marked.
+    // Both receipts state whether the checkout was reused.
     let receipt = |result: &CloneResult| serde_json::to_value(result).expect("receipt");
-    assert!(
-        receipt(&fresh)["location"].get("reused").is_none(),
+    assert_eq!(
+        receipt(&fresh)["location"]["reused"],
+        false,
         "{}",
         receipt(&fresh)
     );
@@ -239,11 +240,9 @@ fn at_depth(commit: &str, depth: u64) -> GhCloneRepoQuery {
     }
 }
 
-/// Depth 1 (the default) shares one store whatever the commit, and every
-/// worktree sees exactly the history it asked for: a shallow boundary added
-/// for one commit never shortens another's.
+/// Refs requested out of order reuse the full history of the first fetch.
 #[test]
-fn depth_one_rows_of_different_commits_share_one_store() {
+fn default_rows_share_the_full_commit_graph() {
     let fixture = Fixture::new();
     let (root, home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
@@ -261,16 +260,15 @@ fn depth_one_rows_of_different_commits_share_one_store() {
         clone_pinned(&fixture, &at_depth(&commits[index], 1), &context).expect("depth 1 row")
     });
     assert_eq!(store_dirs(&home).len(), 1, "{:?}", store_dirs(&home));
-    for row in &rows {
-        assert_eq!(history(&row.location.path), 1, "{row:?}");
+    for (row, expected) in rows.iter().zip([3, 1, 2]) {
+        assert_eq!(history(&row.location.path), expected, "{row:?}");
     }
 }
 
-/// Shallow boundaries belong to a whole repository, so deeper history gets
-/// a store per commit and depth: fetching a descendant at the same depth
-/// must not shorten the first row's history.
+/// A second tip can traverse the same objects without cutting the first
+/// checkout's ancestry. A branch or tag is available before its own checkout.
 #[test]
-fn deeper_history_rows_of_different_commits_keep_their_depth() {
+fn deeper_rows_share_one_store_and_keep_each_tips_ancestry() {
     let fixture = Fixture::new();
     let (root, home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
@@ -283,15 +281,47 @@ fn deeper_history_rows_of_different_commits_keep_their_depth() {
     let fourth = fixture.push_commit("four.txt");
 
     let first = clone_pinned(&fixture, &at_depth(&third, 3), &context).expect("C3");
+    assert_eq!(
+        git_output(
+            Path::new(&first.location.path),
+            &["rev-parse", "refs/octocode/tags/v1^{commit}"]
+        )
+        .trim(),
+        fixture.first_commit
+    );
     assert_eq!(history(&first.location.path), 3);
     let second = clone_pinned(&fixture, &at_depth(&fourth, 3), &context).expect("C4");
-    assert_eq!(history(&second.location.path), 3);
+    assert_eq!(history(&second.location.path), 4);
     assert_eq!(
         history(&first.location.path),
         3,
         "a descendant's fetch shortened an earlier row"
     );
-    assert_eq!(store_dirs(&home).len(), 2, "{:?}", store_dirs(&home));
+    assert_eq!(store_dirs(&home).len(), 1, "{:?}", store_dirs(&home));
+    assert_eq!(steps(&runner, "fetch requested commit"), 1);
+    assert_eq!(
+        git_output(
+            Path::new(&first.location.path),
+            &["rev-parse", "refs/remotes/origin/main"]
+        )
+        .trim(),
+        fourth
+    );
+}
+
+#[test]
+fn a_shallow_remote_cannot_supply_a_full_history_receipt() {
+    let bench = Bench::committing(api_github_endpoint());
+    let tip = bench.fixture.push_commit("second.txt");
+    let remote = url::Url::parse(&bench.fixture.bare_url)
+        .unwrap()
+        .to_file_path()
+        .unwrap();
+    fs::write(remote.join("shallow"), format!("{tip}\n")).unwrap();
+    let error = clone_pinned(&bench.fixture, &at_depth(&tip, 1), &bench.context())
+        .expect_err("incomplete ancestry");
+    assert_eq!(error.code, ErrorCode::GitFailed, "{error:?}");
+    assert!(error.message.contains("shallow"), "{error:?}");
 }
 
 /// A repository with fewer commits than `historyDepth` asks for is complete
@@ -316,11 +346,9 @@ fn a_history_shorter_than_the_depth_is_not_fetched_again() {
     assert_eq!(steps(&runner, "fetch requested commit"), 1, "one fetch");
 }
 
-/// A depth that reaches the root commit states that the checkout holds the
-/// whole history, on the first clone and on reuse; a depth that stops short
-/// does not. Checked against the origin's own commit count.
+/// Fresh and reused checkouts disclose full history for every requested depth.
 #[test]
-fn a_depth_past_the_root_states_the_whole_history() {
+fn every_depth_discloses_full_ancestry() {
     let bench = Bench::committing(api_github_endpoint());
     let context = bench.context();
     bench.fixture.push_second();
@@ -354,5 +382,5 @@ fn a_depth_past_the_root_states_the_whole_history() {
         }
     }
     let shallow = clone_pinned(&bench.fixture, &query(), &context).expect("shallow");
-    assert!(!shallow.location.full_history, "{shallow:?}");
+    assert!(shallow.location.full_history, "{shallow:?}");
 }

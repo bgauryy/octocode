@@ -3,3 +3,4 @@
 // imports contracts from "@octocodeai/config/schema". Native's Rust types are
 // generated from the same contract (scripts/generate-tool-contract.ts).
 export * from "@octocodeai/octocode-core/schema";
+export { toolPackage } from "./tool-package.js";

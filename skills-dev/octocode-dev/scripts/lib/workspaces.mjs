@@ -12,7 +12,7 @@ export const SKILL_COLLECTIONS = fs.existsSync(skillsBuild) ? (await import(path
 // Skills a package owns beside its tool (staged with the public ones, never bundled with shared assets):
 // linted and doc-checked like a collection, but outside the shared-asset build.
 const stageSkills = path.join(ROOT, 'packages', 'octocode', 'scripts', 'stage-skills.mjs');
-export const PACKAGE_SKILL_COLLECTIONS = fs.existsSync(stageSkills) ? (await import(pathToFileURL(stageSkills).href)).PACKAGE_SKILLS : [];
+export const PACKAGE_SKILL_COLLECTIONS = fs.existsSync(stageSkills) ? [...(await import(pathToFileURL(stageSkills).href)).PACKAGE_SKILLS, 'packages/octocode-graph/skills'].filter(dir => fs.existsSync(path.join(ROOT, dir))) : [];
 export const SKILL_ROOTS = [...SKILL_COLLECTIONS, ...PACKAGE_SKILL_COLLECTIONS];
 
 const PACKAGE_SCRIPT_POLICY = ['build', 'lint', 'test', 'typecheck', 'verify'];
@@ -34,7 +34,7 @@ const BUILD_INPUTS = {
 };
 const BUILD_OUTPUTS = {
   'packages/octocode-mcp': ['dist/index.js'],
-  'packages/octocode': ['out/octocode.js'],
+  'packages/octocode': ['out/octocode.js', 'out/native.js'],
   'packages/octocode-vscode': ['out/extension.js'],
   'packages/octocode-claude-plugin': ['.claude-plugin/plugin.json', '.mcp.json', 'skills/octocode-get-started/SKILL.md'],
   'packages/octocode-codex-plugin': ['plugin.json', 'mcp.json', 'skills/octocode-get-started/SKILL.md'],

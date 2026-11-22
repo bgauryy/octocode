@@ -253,6 +253,8 @@ async fn happy_path_rows_carry_the_next_hop_anchors() {
         }"#,
     ))
     .await;
+    assert_eq!(listed["commitSelection"], "revisionHistory");
+    assert_eq!(searched["commitSelection"], "messageSearch");
     for data in [&listed, &searched] {
         let row = &data["commits"][0];
         assert_repository(row);

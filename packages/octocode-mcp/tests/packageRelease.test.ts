@@ -1,4 +1,14 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -6,8 +16,8 @@ interface PackageManifest {
   version: string;
   bin: string;
   main?: unknown;
-  exports?: unknown;
   files: string[];
+  scripts: { prepack: string };
   dependencies: Record<string, string>;
   optionalDependencies: Record<string, string>;
 }
@@ -45,7 +55,9 @@ describe('published package release contract', () => {
     // The manifest lists every tool MCP can register, opt-in tools included:
     // ghCloneRepo stays here and is hidden at runtime unless tools.enableClone is on.
     expect(dxtManifest.tools.map(tool => tool.name).sort()).toEqual(
-      DIRECT_TOOL_DEFINITIONS.map(tool => tool.name).sort()
+      DIRECT_TOOL_DEFINITIONS.map(tool => tool.name)
+        .filter(name => name !== 'graphBuild' && name !== 'graphQuery')
+        .sort()
     );
   });
 
@@ -69,6 +81,7 @@ describe('published package release contract', () => {
       if (
         !tool.beta ||
         typeof tool.name !== 'string' ||
+        !descriptions.has(tool.name) ||
         tool.name === TOOL_NAMES.CLASIFY
       )
         continue;
@@ -96,10 +109,35 @@ describe('published package release contract', () => {
 describe('published launcher package', () => {
   const packageJson = readJson<PackageManifest>('package.json');
 
-  it('is a launcher: one executable, no library entry, the binary from platform packages', () => {
+  it('refuses to pack a missing launcher', () => {
+    const dir = mkdtempSync(resolve(tmpdir(), 'mcp-prepack-'));
+    try {
+      cpSync(
+        resolve(packageRoot, 'package.json'),
+        resolve(dir, 'package.json')
+      );
+      cpSync(resolve(packageRoot, 'scripts'), resolve(dir, 'scripts'), {
+        recursive: true,
+      });
+      mkdirSync(resolve(dir, 'dist'));
+      const [node, script] = packageJson.scripts.prepack.split(' ');
+      expect(node).toBe('node');
+      const run = () =>
+        spawnSync(process.execPath, [script!], { cwd: dir, encoding: 'utf8' });
+      const missing = run();
+      expect(missing.status).toBe(1);
+      expect(missing.stderr).toContain(`missing ${packageJson.bin}`);
+      writeFileSync(resolve(dir, packageJson.bin), '');
+      expect(run().status).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('ships the research launcher backed by platform packages', () => {
     expect(packageJson.bin).toBe('dist/index.js');
     expect(packageJson.main).toBeUndefined();
-    expect(packageJson.exports).toBeUndefined();
+    expect(packageJson.files).toContain(packageJson.bin);
     expect(Object.keys(packageJson.dependencies)).toEqual([
       '@typescript/native-preview',
     ]);

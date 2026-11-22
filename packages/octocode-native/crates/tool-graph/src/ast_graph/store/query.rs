@@ -336,6 +336,11 @@ fn run_with(
         output.value["freshness"] = freshness;
     }
     graph.fit_page(&mut output, options, cancel)?;
+    graph.authorize_source_page(
+        &output.value,
+        paths,
+        matches!(op, Op::Witnesses | Op::Unresolved),
+    )?;
     query.retain_pending(&output);
     #[cfg(test)]
     if let Some(reader) = &graph.selective {

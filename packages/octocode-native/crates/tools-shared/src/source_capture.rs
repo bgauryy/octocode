@@ -59,6 +59,11 @@ pub trait SourceReader: Sync {
         query: &CheckedQuery,
         context: &ExecutionContext,
     ) -> Result<DomainResult, ExecutionError>;
+    /// Describe a nested registry request without acquiring a source or opening a transport.
+    fn artifact_preview_destinations(
+        &self,
+        query: &octocode_contract_types::ArtifactSearchQuery,
+    ) -> Result<Vec<Value>, ClassificationError>;
     /// The saved GitHub access identity, checked against the live one.
     fn retained_github_identity(
         &self,

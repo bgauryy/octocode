@@ -11,7 +11,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { configFieldEnvName } from '@octocodeai/config';
-import { getPublicToolCatalog, TOOL_NAMES } from '@octocodeai/config/schema';
+import { getPublicToolCatalog, TOOL_NAMES, toolPackage } from '@octocodeai/config/schema';
 
 const check = process.argv.includes('--check');
 
@@ -38,7 +38,8 @@ function describe(tool) {
 
 function manifestTools() {
   return getPublicToolCatalog()
-    .tools.map(tool => ({ name: tool.name, description: describe(tool) }));
+    .tools.filter(tool => toolPackage(tool.name) === 'octocode')
+    .map(tool => ({ name: tool.name, description: describe(tool) }));
 }
 
 const packageRoot = resolve(import.meta.dirname, '..');

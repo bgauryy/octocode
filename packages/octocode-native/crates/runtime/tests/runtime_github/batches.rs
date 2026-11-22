@@ -168,10 +168,7 @@ async fn gh_search_picked_repositories_are_contract_valid() {
         .await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    // A pick keeps the row's id (owner+repo) beside the picked keys, so the
-    // picked row still satisfies the output contract. A page of one owner's
-    // repositories states the owner once on `data` (hoist G-H3), where a
-    // row's identity reads it.
+    // The response carries the identity needed for an independent tree read.
     let outcome = call(
         &runtime,
         "ghSearchRepo",
@@ -190,14 +187,10 @@ async fn gh_search_picked_repositories_are_contract_valid() {
         json_fixture(r#"[{"repo": "r", "stars": 0}]"#)
     );
     assert_eq!(row_data(&outcome)["owner"], "o");
-    // A picked row keeps the identity a caller needs to form the tree request:
-    // its own repo, and the owner its page states.
     assert!(row_data(&outcome).get("related").is_none());
     let repository = &row_data(&outcome)["repositories"][0];
-    let owner = repository
-        .get("owner")
-        .unwrap_or(&row_data(&outcome)["owner"]);
-    let tree = json!({"operation":"tree","owner":owner,"repo":repository["repo"]});
+    let tree =
+        json!({"operation":"tree","owner":row_data(&outcome)["owner"],"repo":repository["repo"]});
     assert_eq!(tree["owner"], "o");
     assert_eq!(tree["repo"], "r");
     call(&runtime, "ghStructure", tree)

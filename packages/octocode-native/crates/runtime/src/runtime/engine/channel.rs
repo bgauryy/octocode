@@ -306,7 +306,7 @@ impl ChannelRun {
             if self.fresh {
                 outcome.structured_content.edit(|output| {
                     octocode_runtime_base::response::pages::drop_echoes(
-                        self.id == octocode_runtime_base::id::ToolId::GhGetFileContent,
+                        self.id,
                         output,
                         response_query["queries"]
                             .as_array()

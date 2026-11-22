@@ -217,6 +217,15 @@ impl NativeLspClient {
         self.inner.config.language_id.as_deref()
     }
 
+    /// Serialize readiness probes on this server so simultaneous semantic requests
+    /// share its first completed wait. Outlines only need this on an empty answer.
+    pub async fn wait_for_project_readiness(&self) {
+        if let Some(timeout) = crate::lsp::pool::readiness_timeout(self.language_id()) {
+            let _wait = self.inner.readiness_wait.lock().await;
+            self.resume_timed_out_readiness(timeout).await;
+        }
+    }
+
     /// The readiness wait a pooled client owes before it is handed out: the
     /// whole `timeout_ms` for a client that never waited (just started), and
     /// up to [`RESUME_REWAIT_MS`] again for one whose last wait ended in

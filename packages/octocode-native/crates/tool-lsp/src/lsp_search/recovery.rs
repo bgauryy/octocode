@@ -22,8 +22,9 @@ mod landing;
 #[cfg(test)]
 pub(super) use aliases::may_rename;
 pub(super) use aliases::{AliasSearch, recover_aliases};
+use landing::Landing;
 use landing::landing;
-pub(super) use landing::{Landing, imports_at, lands};
+pub(super) use landing::{BindingRole, binding_role};
 
 const DEFINITION_ALIAS_SETTLE_MS: u64 = 50;
 

@@ -125,7 +125,17 @@ pub(super) fn shape(
     let mut value = match gh_search_history_query::operation(query) {
         HistoryOperation::PullRequest => pull_requests(query, &items, paging, terms),
         HistoryOperation::Issue => issues(query, &items, paging, terms),
-        HistoryOperation::Commit => commits(query, items, paging),
+        HistoryOperation::Commit => {
+            let mut value = commits(query, items, paging);
+            value["commitSelection"] = json!(if super::query::uses_search(query) {
+                "messageSearch"
+            } else if gh_search_history_query::path(query).is_some() {
+                "pathChanges"
+            } else {
+                "revisionHistory"
+            });
+            value
+        }
     };
     if !warnings.is_empty() {
         value["warnings"] = json!(warnings);

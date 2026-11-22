@@ -138,6 +138,28 @@ pub(super) async fn commit(
         // The summary lists no file: `changedFileCount` states how many
         // there are (when the count is exact) and `next.files` opens the
         // list from its first page.
+        // A single supplied patch can be opened directly at this commit.
+        // The provider may omit a binary patch or withhold a renamed path.
+        if exact
+            && let [file] = loaded.items.as_slice()
+            && file
+                .get("patch")
+                .and_then(Value::as_str)
+                .is_some_and(|text| !text.is_empty())
+            && let Some(path) = file.get("filename").and_then(Value::as_str)
+            && !query.withheld_text(path, file.get("previous_filename").and_then(Value::as_str))
+        {
+            let mut patch = commit_query(query, &commit.sha);
+            patch["sections"] = json!(["patches"]);
+            if let Some(call) = super::pr_menu::continuation(patch) {
+                octocode_runtime_base::response::collection::insert_walk(
+                    &mut out["next"],
+                    octocode_runtime_base::id::ToolId::GhGetHistoryItem,
+                    Some("patches"),
+                    call,
+                );
+            }
+        }
         FilePage {
             cursors: DiffCursors {
                 file_page: (listed > 0).then_some(1),

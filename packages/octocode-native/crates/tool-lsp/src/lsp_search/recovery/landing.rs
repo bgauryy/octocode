@@ -1,6 +1,6 @@
 //! Where a definition location lands, by the declarations parse of its
 //! file: an alias binding (the chain hops on) or a declaration (it ends).
-use super::{LspFailure, spans};
+use super::LspFailure;
 use octocode_runtime_base::execution::cancel::CancellationCheck;
 
 /// What a definition location starts, by the declarations parse of its
@@ -46,16 +46,6 @@ pub(in super::super) fn lands(
     line: u32,
     character: u32,
 ) -> Landing {
-    let starts = |range: &octocode_engine::graph::GraphRange| {
-        (range.start.line, range.start.character) == (line, character)
-    };
-    // An `impl` block names the type it implements: no declaration of it.
-    let declared = || {
-        document.declarations.iter().any(|declaration| {
-            declaration.kind != "impl"
-                && (starts(&declaration.selection_range) || starts(&declaration.range))
-        })
-    };
     // A declaration export (`export function f`) names no other binding;
     // a specifier carries its local name or source module.
     let re_exported = || {
@@ -64,36 +54,52 @@ pub(in super::super) fn lands(
                 && export.line == line.saturating_add(1)
         })
     };
-    if imports_at(document, line, character) {
-        Landing::Alias
-    } else if declared() {
-        Landing::Declaration
-    } else if re_exported() {
-        Landing::Alias
-    } else {
-        Landing::Unknown
+    match binding_role(document, line, character) {
+        Some(BindingRole::Declaration) => Landing::Declaration,
+        Some(_) => Landing::Alias,
+        None if re_exported() => Landing::Alias,
+        None => Landing::Unknown,
     }
 }
 
-/// Whether zero-based `(line, character)` lies on a name an import of
-/// `document` binds or brings (`import { f }`, each name of a multi-line
-/// `use a::{…}` group).
-pub(in super::super) fn imports_at(
+/// A parsed name's role at a reference site. Only distinct source ranges
+/// can identify the two sides of an explicitly aliased import.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(in super::super) enum BindingRole {
+    Declaration,
+    Import,
+    ImportedName,
+    LocalAlias,
+}
+
+pub(in super::super) fn binding_role(
     document: &octocode_engine::graph::GraphFactsDocument,
     line: u32,
     character: u32,
-) -> bool {
+) -> Option<BindingRole> {
+    let at = (line, character);
     let within = |range: &octocode_engine::graph::GraphRange| {
-        spans(
-            (range.start.line, range.start.character),
-            (range.end.line, range.end.character),
-            (line, character),
-        )
+        (range.start.line, range.start.character) <= at
+            && at < (range.end.line, range.end.character)
     };
-    document.imports.iter().any(|import| {
-        import.local_range.as_ref().is_some_and(within)
-            || import.imported_range.as_ref().is_some_and(within)
-    })
+    for import in &document.imports {
+        let local = import.local_range.as_ref().is_some_and(within);
+        let imported = import.imported_range.as_ref().is_some_and(within);
+        if local || imported {
+            return Some(match (local, imported) {
+                (true, false) if import.imported_range.is_some() => BindingRole::LocalAlias,
+                (false, true) if import.local_range.is_some() => BindingRole::ImportedName,
+                _ => BindingRole::Import,
+            });
+        }
+    }
+    // An impl block refers to the type it implements.
+    let starts = |r: &octocode_engine::graph::GraphRange| (r.start.line, r.start.character) == at;
+    document
+        .declarations
+        .iter()
+        .any(|d| d.kind != "impl" && (starts(&d.selection_range) || starts(&d.range)))
+        .then_some(BindingRole::Declaration)
 }
 
 #[cfg(test)]

@@ -310,6 +310,20 @@ const EXAMPLE: &str = "Example: ";
 /// causes; empty for a name that is no tool, and left out where a misplaced
 /// request field or a refused value (`security.*`) is the whole repair.
 fn call_reference(tool_name: &str, rejected: Option<&Rejected<'_>>) -> Vec<String> {
+    if tool_name == "clasify"
+        && let Some(rejected) = rejected
+        && rejected.faulted.iter().any(|field| field == "questions")
+        && let Some(questions) = rejected.row.get("questions")
+        && questions.as_object().is_none_or(|named| {
+            named
+                .values()
+                .any(|item| item.is_string() || item.get("question").is_some())
+        })
+    {
+        return question_example(rejected.row, questions)
+            .into_iter()
+            .collect();
+    }
     let row = rejected.map(|rejected| rejected.row);
     let example = rejected.and_then(|rejected| with_missing_fields(tool_name, rejected));
     let example = match example {
@@ -343,10 +357,69 @@ fn call_reference(tool_name: &str, rejected: Option<&Rejected<'_>>) -> Vec<Strin
     if rejected.is_some_and(|rejected| !rejected.holds_mistyped(&example)) {
         return Vec::new();
     }
+    // A sample question in a form may illustrate its shape, but cannot
+    // stand in for a named question the caller actually sent.
+    if tool_name == "clasify"
+        && let Some(named) = row
+            .and_then(|row| row.get("questions"))
+            .and_then(Value::as_object)
+        && named.iter().any(|(name, original)| {
+            let Some(shown) = example["questions"].get(name) else {
+                return true;
+            };
+            original
+                .get("instructions")
+                .is_some_and(|text| shown.get("instructions") != Some(text))
+        })
+    {
+        return Vec::new();
+    }
     vec![format!(
         "{EXAMPLE}{}",
         serde_json::json!({ "queries": [example] })
     )]
+}
+
+/// Plain questions use the same yes/no form as classifier predicates. Keep
+/// supplied names and typed questions; an unnamed list gets stable ordinal
+/// names. Only replay this row: other rows in a batch may already have run.
+fn question_example(row: &serde_json::Map<String, Value>, questions: &Value) -> Option<String> {
+    let question = |value: &Value| match value {
+        Value::String(text) => Some(serde_json::json!({"type":"noul", "instructions":text})),
+        Value::Object(fields) if fields.contains_key("question") => {
+            if fields.contains_key("instructions") {
+                return None;
+            }
+            let mut fields = fields.clone();
+            let text = fields.shift_remove("question")?;
+            fields.insert("instructions".into(), text);
+            Some(Value::Object(fields))
+        }
+        Value::Object(_) => Some(value.clone()),
+        _ => None,
+    };
+    let mut named = serde_json::Map::new();
+    match questions {
+        Value::String(_) => {
+            named.insert("q1".into(), question(questions)?);
+        }
+        Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                named.insert(format!("q{}", index + 1), question(item)?);
+            }
+        }
+        Value::Object(fields) => {
+            for (key, item) in fields {
+                named.insert(key.clone(), question(item)?);
+            }
+        }
+        _ => return None,
+    }
+    let mut retry = row.clone();
+    retry.insert("questions".into(), Value::Object(named));
+    let request = serde_json::json!({"queries":[retry]});
+    super::validate("clasify", request.clone()).ok()?;
+    Some(format!("{EXAMPLE}{request}"))
 }
 
 /// The rejected row itself, when all it gets wrong is lacking required row

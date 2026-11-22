@@ -227,6 +227,12 @@ impl Evaluator {
         }
     }
 
+    /// Public origin of this evaluator's validated endpoint; contains no credential.
+    pub fn provider_origin(&self) -> Result<String, ClassificationError> {
+        transport::endpoint(&self.base_url, self.provider.defaults().endpoint_path)
+            .map(|url| url.origin().ascii_serialization())
+    }
+
     pub fn is_configured(&self) -> bool {
         self.key.is_some()
     }

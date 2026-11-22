@@ -62,6 +62,12 @@ impl SourceReader for Judging {
     ) -> Result<DomainResult, ExecutionError> {
         unreachable!("a content row runs no tool")
     }
+    fn artifact_preview_destinations(
+        &self,
+        _: &octocode_contract_types::ArtifactSearchQuery,
+    ) -> Result<Vec<Value>, ClassificationError> {
+        unreachable!("a content row previews no source")
+    }
     fn retained_github_identity(
         &self,
         _: &ExecutionContext,

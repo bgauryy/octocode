@@ -306,6 +306,20 @@ impl SystemGit {
             .arg(format!("core.hooksPath={}", null_device()))
             .args(&request.args);
         command.envs(self.passthrough.iter().map(|(name, value)| (name, value)));
+        // An explicit transfer must discover its objects through that fetch.
+        // A nested promisor fetch can retry a shallow source's missing parents.
+        // Set the environment form so older Git can still run the command.
+        let mut args = request.args.iter();
+        while let Some(arg) = args.next() {
+            if arg == "-C" || arg == "-c" {
+                args.next();
+                continue;
+            }
+            if arg == "fetch" {
+                command.env("GIT_NO_LAZY_FETCH", "1");
+            }
+            break;
+        }
         if let Some(askpass) = askpass {
             // The helper on disk holds no credential: the token and the
             // prompts it may answer reach it through this child's

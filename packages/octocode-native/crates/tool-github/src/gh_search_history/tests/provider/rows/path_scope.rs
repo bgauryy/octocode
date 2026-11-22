@@ -37,6 +37,15 @@ async fn commit_listing_rows_are_typed_commits() {
         let data = execute(&provider, &query, &default_context(), &Passthrough)
             .await
             .expect("commit listing");
+        assert_eq!(
+            data["commitSelection"],
+            if scope.is_null() {
+                "revisionHistory"
+            } else {
+                "pathChanges"
+            },
+            "{data}"
+        );
         assert!(data.get("type").is_none(), "{scope}: {data}");
         assert_eq!(data["commits"][0]["commitSha"], "aaa", "{data}");
         // The listed path is the caller's own input: not restated.

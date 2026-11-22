@@ -49,6 +49,21 @@ fn impact_is_symbol_precise_for_symbols_and_transitive_for_files() {
         files.contains(&("app/src/main.test.ts".into(), 2)),
         "{files:?}"
     );
+    let direct = file.value["rows"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .find(|row| row["id"] == "app/src/main.ts")
+        .expect("direct dependent");
+    let line = direct["edgeLine"].as_u64().expect("witness line") as usize;
+    let source = std::fs::read_to_string(root.join("app/src/main.ts")).expect("source");
+    assert!(
+        source
+            .lines()
+            .nth(line - 1)
+            .is_some_and(|s| s.contains("greet")),
+        "{direct}"
+    );
     assert_eq!(file.value["summary"]["affectedEntrypoints"], 1);
     assert_eq!(
         summary_list(root, Some("src/lib.ts"), "affectedEntrypoints", |_| {}),

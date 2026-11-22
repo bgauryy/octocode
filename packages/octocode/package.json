@@ -78,5 +78,9 @@
     "verify:own": "yarn lint:own && yarn typecheck && yarn test:coverage",
     "verify": "yarn verify:own && yarn lint:oxlint"
   },
-  "type": "module"
+  "type": "module",
+  "exports": {
+    "./native": "./out/native.js",
+    "./*": "./*"
+  }
 }

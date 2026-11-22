@@ -23,5 +23,9 @@
     "packages/*",
     "packages/octocode-native/npm/*",
     "skills/common"
-  ]
+  ],
+  "resolutions": {
+    "octocode@npm:20.2.0": "workspace:packages/octocode",
+    "@octocodeai/octocode-core": "file:../octocode-mcp-host/packages/octocode-core"
+  }
 }

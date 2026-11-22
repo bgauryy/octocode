@@ -6,6 +6,7 @@ import path from 'node:path';
 import {
   DIRECT_TOOL_DEFINITIONS,
   TOOL_NAMES,
+  toolPackage,
   isBetaTool,
 } from '@octocodeai/config/schema';
 import { DEFAULT_CONFIG } from '@octocodeai/config';
@@ -23,7 +24,7 @@ const needsSetup = name =>
   (name === TOOL_NAMES.SECURITY_CHECK && !DEFAULT_CONFIG.tools.enableSecurityCheck);
 const CATALOG_TOOL_COUNT = PUBLIC_TOOL_NAMES.length;
 // CLI discovery includes securityCheck independently of MCP's opt-in switch.
-const CLI_DEFAULT_TOOL_NAMES = PUBLIC_TOOL_NAMES.filter(name => name !== TOOL_NAMES.CLASIFY);
+const CLI_DEFAULT_TOOL_NAMES = PUBLIC_TOOL_NAMES.filter(name => name !== TOOL_NAMES.CLASIFY && toolPackage(name) === 'octocode');
 const CLI_DEFAULT_TOOL_COUNT = CLI_DEFAULT_TOOL_NAMES.length;
 // Default MCP catalog: core tool policy decides beta tools; clone needs its own opt-in.
 const DEFAULT_TOOL_COUNT = CLI_DEFAULT_TOOL_NAMES.filter(name => {

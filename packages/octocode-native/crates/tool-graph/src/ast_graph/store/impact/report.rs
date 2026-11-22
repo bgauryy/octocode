@@ -6,6 +6,7 @@ pub(super) struct Step {
     pub(super) src: u32,
     pub(super) kind: EdgeKind,
     pub(super) detail: u32,
+    pub(super) line: u32,
     pub(super) confidence: Confidence,
     pub(super) types_only: bool,
 }
@@ -192,9 +193,13 @@ pub(super) fn impact_row(
         row["packageDistance"] = json!(r.package_depth);
     }
     let via = match r.via {
-        Some((member, EdgeKind::Contains, NONE))
-            if t.nodes[member as usize].kind == NodeKind::Symbol
-                && t.nodes[member as usize].file == id =>
+        Some(Via {
+            from: member,
+            kind: EdgeKind::Contains,
+            detail: NONE,
+            ..
+        }) if t.nodes[member as usize].kind == NodeKind::Symbol
+            && t.nodes[member as usize].file == id =>
         {
             reach[member as usize]
                 .and_then(|member| member.via)
@@ -211,7 +216,15 @@ pub(super) fn impact_row(
                 row["via"] = json!("changed");
             }
         }
-        Some((from, kind, detail)) => {
+        Some(Via {
+            from,
+            kind,
+            detail,
+            line,
+        }) => {
+            if line != NONE {
+                row["edgeLine"] = json!(line);
+            }
             row["from"] = json!(key(from));
             row["via"] = json!(if detail == NONE {
                 kind.as_str().to_owned()

@@ -9,7 +9,7 @@ use octocode_tools_shared::judgment::{
 };
 use octocode_tools_shared::source_capture::{self, Captured, SourceReader};
 
-fn rejected(error: ClassificationError, captured: Option<Box<Captured>>) -> RowOutcome {
+pub(super) fn rejected(error: ClassificationError, captured: Option<Box<Captured>>) -> RowOutcome {
     RowOutcome::Judgment {
         judged: Err(error),
         captured,
@@ -181,7 +181,7 @@ pub(super) struct Prepared {
 
 impl Prepared {
     /// The judged state with the row's task context.
-    fn sent<'a>(&'a self, row: &Row) -> std::borrow::Cow<'a, serde_json::Value> {
+    pub(super) fn sent<'a>(&'a self, row: &Row) -> std::borrow::Cow<'a, serde_json::Value> {
         super::rows::contextual_state(
             self.located
                 .as_ref()
@@ -242,7 +242,33 @@ pub(super) fn prepare(
     context: &ExecutionContext,
     can_resume: bool,
 ) -> Result<Prepared, Box<RowOutcome>> {
-    let (state, captured, image) = match judged_state(target, dispatcher, context, can_resume) {
+    let state = judged_state(target, dispatcher, context, can_resume);
+    prepare_with_state(row, target, dispatcher, context, state)
+}
+
+/// Local preview uses the text capture, and leaves an image as its selector.
+/// Preparing a real image would persist its pixels and construct the provider payload.
+pub(super) fn preview_text(
+    row: &Row,
+    target: &Target,
+    dispatcher: &dyn SourceReader,
+    context: &ExecutionContext,
+) -> Result<Option<Prepared>, Box<RowOutcome>> {
+    let state = judged_state(target, dispatcher, context, false);
+    if matches!(&state, Err(error) if error.code == ErrorCode::BinaryFileUnsupported) {
+        return Ok(None);
+    }
+    prepare_with_state(row, target, dispatcher, context, state).map(Some)
+}
+
+fn prepare_with_state(
+    row: &Row,
+    target: &Target,
+    dispatcher: &dyn SourceReader,
+    context: &ExecutionContext,
+    state: Result<(serde_json::Value, Option<Box<Captured>>), ClassificationError>,
+) -> Result<Prepared, Box<RowOutcome>> {
+    let (state, captured, image) = match state {
         Ok((state, captured)) => (state, captured, None),
         // A source that is no text may be an image: it is judged as one.
         Err(refusal) => match image_source(row, target, &refusal) {

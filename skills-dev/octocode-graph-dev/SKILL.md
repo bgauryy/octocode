@@ -1,12 +1,12 @@
 ---
 name: octocode-graph-dev
-description: "Load this skill first when changing or benchmarking Octocode's native graph engine (extraction, linking, snapshots, detectors): it gives the engine map and baseline battery. Queries: octocode-graph; viewer: octocode-graph-view."
+description: "Load this skill first when changing or benchmarking Octocode's native graph engine (extraction, linking, snapshots, detectors): it gives the engine map and baseline battery. Queries and viewer: octocode-graph."
 compatibility: "Node 20+, ripgrep, the pinned clones in packages/octocode-benchmark/local/repos, and a built octocode launcher or native binary."
 ---
 
 # Octocode graph dev
 
-The same native engine backs the `graphBuild` and `graphQuery` tools over MCP and the CLI (`octocode graphBuild '<json>'`, `octocode graphQuery '<json>'`).
+The same native engine backs the `graphBuild` and `graphQuery` tools over MCP and the CLI (`octocode-graph graphBuild '<json>'`, `octocode-graph graphQuery '<json>'`).
 
 ## Change the engine
 
@@ -24,4 +24,4 @@ Use the [battery guide](references/battery.md) for the rows, the per-row checkli
 
 ## Related skills
 
-Use `rust-best-practices` for open Rust design choices, `octocode-engineer` to review the graph modules’ boundaries, and `octocode-graph-view` to render a repository’s architecture.
+Use `rust-best-practices` for open Rust design choices, `octocode-engineer` to review the graph modules’ boundaries, and `octocode-graph` to render a repository’s architecture.

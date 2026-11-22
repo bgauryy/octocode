@@ -15,6 +15,12 @@ The default home is `~/.octocode` on macOS and Linux or `%USERPROFILE%\.octocode
 
 <a id="materialize-git-store"></a>
 
+## Git checkouts and history
+
+`ghCloneRepo` resolves the requested ref with your credential on every call. One bare Git store per host and repository holds the commit history. The first fetch imports branch heads and tags with `--filter=blob:none`. A checkout downloads the file content its scope needs. A pin missing from the store triggers a fetch that refreshes the remote refs. Each checkout stays detached at the commit in its receipt.
+
+Use `git log HEAD` in the returned path to walk the pinned history. Branches from the last fetch are under `refs/remotes/origin/` and remote tags under `refs/octocode/tags/`. Local branches and tags remain user-owned. `historyDepth` requests a minimum and retains a separate checkout path for that depth. New checkouts use the full-history store. Previously returned shallow checkout paths remain usable.
+
 ## Cache storage and lifecycle
 
 Persistent storage lets another CLI call resume a saved page and lets GitHub tools save checkouts and selected files. Memory mode keeps cached results in the running process. Keep the same MCP session open for an in-memory continuation. Requested graph snapshots still write to disk.

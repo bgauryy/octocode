@@ -23,7 +23,7 @@ octocode --json localFetch '{"queries":[{"path":"README.md","ranges":[{"startLin
 | Judge piped command output with `clasify` | `<cmd> 2>&1 \| octocode clasify --content - '<json>'`. [Details](OCTOCODE_CLASIFY.md#from-a-pipe-cli) |
 | Run the MCP server over stdio | `octocode mcp` |
 
-The CLI lists 16 tools by default, including graph, clone and security tools. A classification key adds `clasify`. Each call takes a JSON envelope with `queries`, or an issued `cursor` alone. `octocode <tool> --help` shows examples for every form of that tool. [Tool reference](OCTOCODE_TOOLS.md) · [Availability and opt-ins](CONFIGURATION.md#tool-availability-cli-and-mcp)
+The CLI lists 14 tools by default, including clone and security tools. A classification key adds `clasify`. Each call takes a JSON envelope with `queries`, or an issued `cursor` alone. `octocode <tool> --help` shows examples for every form of that tool. [Tool reference](OCTOCODE_TOOLS.md) · [Availability and opt-ins](CONFIGURATION.md#tool-availability-cli-and-mcp)
 
 ## Output
 

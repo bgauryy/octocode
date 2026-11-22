@@ -185,6 +185,41 @@ fn server_crash_mid_request_fails_pending_fast_as_server_crashed() {
     });
 }
 
+/// The handshake lease is usable before the cold readiness probe. A subsequent
+/// semantic acquire on the same server still pays the wait the outline skipped.
+#[test]
+fn an_outline_lease_leaves_project_readiness_for_the_semantic_request() {
+    if !require_node() {
+        return;
+    }
+    let (_dir, root, script) = fixture();
+    let pids = root.join("pids.txt");
+    let mut config = config(&root, &script, Some(&pids));
+    config.language_id = Some("python".into());
+    tokio::runtime::Runtime::new().expect("rt").block_on(async {
+        let pool = LspClientPool::new(LspPoolOptions {
+            client: FAKE_SERVER_CLIENT,
+            ..Default::default()
+        });
+        let (outline, _outline_lease) = pool
+            .acquire_initialized(config.clone())
+            .await
+            .expect("handshake")
+            .expect("client");
+        assert!(outline.is_alive().await);
+        assert!(outline.readiness().is_none());
+        let (semantic, _semantic_lease) = pool
+            .acquire_leased(config)
+            .await
+            .expect("readiness")
+            .expect("client");
+        assert!(semantic.readiness().is_some());
+        assert_eq!(outline.readiness(), semantic.readiness());
+        drop((_outline_lease, _semantic_lease));
+        pool.clear_all().await;
+    });
+}
+
 /// Repeated acquire/stop through the pool leaves no server or grandchild
 /// process running.
 #[test]

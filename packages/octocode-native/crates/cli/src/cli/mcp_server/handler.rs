@@ -5,6 +5,7 @@
 use super::listing::Listing;
 use super::resources;
 use super::warm::Warm;
+use crate::cli::ToolPackage;
 use octocode_contract_types::ErrorCode;
 use octocode_native::runtime::error::McpResult;
 use octocode_native::runtime::{Channel, RuntimeError, ToolRuntime};
@@ -13,9 +14,10 @@ use rmcp::ErrorData;
 use rmcp::ServerHandler;
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, CustomRequest,
-    CustomResult, Implementation, JsonObject, ListResourcesResult, ListToolsResult, MetaObject,
-    PaginatedRequestParams, ProtocolVersion, ReadResourceRequestParams, ReadResourceResponse,
-    ReadResourceResult, ResultType, ServerCapabilities, ServerConfig, Tool,
+    CustomResult, Implementation, JsonObject, ListResourceTemplatesResult, ListResourcesResult,
+    ListToolsResult, MetaObject, PaginatedRequestParams, ProtocolVersion,
+    ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, ResultType,
+    ServerCapabilities, ServerConfig, Tool,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use serde_json::Value;
@@ -26,6 +28,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 const SERVER_INFO_META_KEY: &str = "io.modelcontextprotocol/serverInfo";
 
 pub(super) struct Handler {
+    package: ToolPackage,
     runtime: Arc<ToolRuntime>,
     warm: Arc<Warm>,
     tools: Vec<Tool>,
@@ -38,6 +41,7 @@ impl Handler {
         runtime: Arc<ToolRuntime>,
         warm: Arc<Warm>,
         listing: Listing,
+        package: ToolPackage,
     ) -> Result<Self, String> {
         let instructions = listing.instructions;
         let tools = listing
@@ -59,13 +63,17 @@ impl Handler {
         if let Some(tools) = capabilities.tools.as_mut() {
             tools.list_changed = Some(false);
         }
+        let (name, title) = match package {
+            ToolPackage::Research => ("octocode-mcp", "Octocode MCP"),
+            ToolPackage::Graph => ("octocode-graph", "Octocode Graph"),
+        };
         let config = ServerConfig::new(capabilities)
             .with_server_info(
-                Implementation::new("octocode-mcp", crate::cli::build_version())
-                    .with_title("Octocode MCP"),
+                Implementation::new(name, crate::cli::build_version()).with_title(title),
             )
             .with_instructions(instructions);
         Ok(Self {
+            package,
             runtime,
             warm,
             tools,
@@ -169,12 +177,25 @@ impl ServerHandler for Handler {
         Ok(result)
     }
 
+    async fn list_resource_templates(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<ListResourceTemplatesResult, ErrorData> {
+        let tools = self.tools.iter().map(|tool| tool.name.as_ref());
+        let mut result = ListResourceTemplatesResult::with_all_items(resources::templates(tools));
+        result.meta = self.response_meta(&context);
+        Ok(result)
+    }
+
     async fn read_resource(
         &self,
         request: ReadResourceRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResponse, ErrorData> {
-        let Some(contents) = resources::read(&request.uri) else {
+        let Some(contents) = resources::read(&request.uri, |name| {
+            self.tools.iter().any(|tool| tool.name == name)
+        }) else {
             return Err(ErrorData::resource_not_found(
                 format!("Resource {} not found", request.uri),
                 None,
@@ -213,9 +234,7 @@ impl ServerHandler for Handler {
         // but does not list (gated by a setting or a tool list) goes to the
         // runtime's admission, which refuses it with an error naming the
         // setting to change: "not found" would read as a connection fault.
-        if !self.tools.iter().any(|tool| tool.name == request.name)
-            && octocode_runtime_base::id::ToolId::from_name(&request.name).is_none()
-        {
+        if !self.package.owns(&request.name) {
             return Err(ErrorData::invalid_params(
                 format!("Tool {} not found", request.name),
                 None,

@@ -255,7 +255,7 @@ fn unchanged_receipt(
 }
 
 /// The newest snapshot whose manifest names `root`, with that manifest.
-fn newest(home: &Path, root: &str) -> Option<(String, Value)> {
+pub(super) fn newest(home: &Path, root: &str) -> Option<(String, Value)> {
     list_snapshots(home).into_iter().rev().find_map(|id| {
         let directory = home.join(&id);
         let metadata = read_snapshot_metadata(&directory)?;

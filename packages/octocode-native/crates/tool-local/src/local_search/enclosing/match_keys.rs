@@ -1,5 +1,5 @@
 //! Key paths of hit lines in shown JSON and TOML files (`matchKeys`), read
-//! from the same current bytes the enclosing names are.
+//! from the same redacted source view as the hit lines.
 use super::super::types::SearchFile;
 use super::{row_lines, shown_bytes};
 use octocode_runtime_base::security::ContentSecurity;
@@ -36,10 +36,11 @@ pub(in super::super) fn annotate_match_keys(
         let Some(bytes) = shown_bytes(&source, expected(&source)) else {
             continue;
         };
-        let Ok(text) = security.decode_source_bytes(&bytes, limit) else {
+        let Ok(shown) = security.validate_text_bytes(&bytes, Some(&source), limit) else {
             continue;
         };
-        let keys = octocode_tools_shared::match_keys::line_key_paths(&source, &text, &lines);
+        let keys =
+            octocode_tools_shared::match_keys::line_key_paths(&source, &shown.content, &lines);
         if keys.is_empty() {
             continue;
         }

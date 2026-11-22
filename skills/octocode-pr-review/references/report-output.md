@@ -41,7 +41,7 @@ Author Markdown; the template supplies presentation. Apply the [format and conte
 ## Visual and data contracts
 - Special fences: `mermaid`, `graph`, `chart`. Before graph/chart JSON, read [widget schemas and examples](report-widgets.md), which own fields, allowed types and data constraints; no library options, executable code, or duplicate authored data tables.
 - Use measured data with sources and units; label estimates and unknowns. Explain each visual's takeaway nearby; use labels beyond color and Mermaid `accTitle`/`accDescr` where supported. No invented metrics or decorative graphs.
-- The template owns fonts, layout, themes, search, zoom, export and fallbacks. Do not generate CSS, JavaScript, SVG, Mermaid initialization directives or a custom viewer. For an interactive graph of files, functions, layers and flows, use `octocode-graph-view` when installed.
+- The template owns fonts, layout, themes, search, zoom, export and fallbacks. Do not generate CSS, JavaScript, SVG, Mermaid initialization directives or a custom viewer. For an interactive graph of files, functions, layers and flows, use `octocode-graph` when installed.
 - Keep Markdown as editable source and HTML as the viewing artifact; provide JSON/CSV separately when machine reuse matters. Apply [evidence rules](evidence.md) and [communication protocols](protocol-catalog.md#catalog).
 
 ## Render and retrieve

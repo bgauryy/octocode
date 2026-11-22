@@ -167,11 +167,11 @@ fn commits_of_one_repository_share_one_store_of_linked_worktrees() {
     assert!(stores[0].to_string_lossy().ends_with("__g1.git"));
     assert_eq!(steps(&runner, "initialize shared store"), 1);
     let store = fs::canonicalize(&stores[0]).expect("store");
-    for row in [&first, &second] {
+    for (row, expected_history) in [(&first, 1), (&second, 2)] {
         let checkout = Path::new(&row.location.path);
         assert!(checkout.join(".git").is_file(), "a linked worktree");
         assert_eq!(common_dir(&row.location.path), store);
-        assert_eq!(history(&row.location.path), 1);
+        assert_eq!(history(&row.location.path), expected_history);
     }
 }
 

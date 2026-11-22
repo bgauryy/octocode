@@ -11,6 +11,9 @@ async fn schema_availability_is_independent_of_invocation_prerequisites() {
     for (beta, key) in [(false, false), (false, true), (true, false), (true, true)] {
         let availability = async |tool: &str| {
             let mut command = workspace.cli();
+            if matches!(tool, "graphBuild" | "graphQuery") {
+                command.arg("__graph");
+            }
             command
                 .args(["schema", tool])
                 .env("OCTOCODE_CLASSIFICATION_API_HOST", server.uri())

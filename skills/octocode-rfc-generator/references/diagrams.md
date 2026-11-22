@@ -18,7 +18,7 @@ Draw when the reader's question below is real for this RFC; skip it when a table
 | Features | Which proposed features first? | `quadrantChart`, axes named, placements marked estimates |
 | Proposed design | Who sends what, in what order, and on failure? | `sequenceDiagram` with `alt`/`opt` for failure and retry |
 | Proposed design | Which boundaries and services? | `flowchart` with subgraphs; `C4Container` or `architecture-beta` when hosting or trust boundaries decide |
-| Proposed design | Dense layered dependencies? | `flowchart` split by layer; a `graph` widget when readers search or follow nodes; `octocode-graph-view` for a repository map |
+| Proposed design | Dense layered dependencies? | `flowchart` split by layer; a `graph` widget when readers search or follow nodes; `octocode-graph` for a repository map |
 | Decisions and reasoning | Which option wins on which criterion? | A table; `quadrantChart` when two criteria decide; a `flowchart` decision tree when a condition picks the option |
 | Risks and mitigations | What does a failure reach? | `flowchart` from the failure to each affected consumer, containment marked |
 | Tasks and rollout | In what order, what runs in parallel? | `flowchart` of `T` IDs, `Depends on` as edges, critical path labelled; a numbered list when nothing branches |

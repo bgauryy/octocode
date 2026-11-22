@@ -267,6 +267,9 @@ impl NativeLspClient {
         if !empty || content.trim().is_empty() || !owed {
             return Ok((symbols, None));
         }
+        if self.readiness().is_none() {
+            self.wait_for_project_readiness().await;
+        }
         let readiness = self
             .open_document_and_wait(file_path, content, None, None)
             .await?;

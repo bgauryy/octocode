@@ -1,5 +1,4 @@
 use crate::support::{Workspace, call, row_data, row_status, walk};
-use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -42,7 +41,7 @@ async fn summary_and_patch_walks_terminate_without_requiring_each_other() {
     let summary = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"commit","owner":"a","repo":"b","ref":SHA}),
+        json!({"queries":[{"operation":"commit","owner":"a","repo":"b","ref":SHA}],"responseChars":4000}),
     )
     .await
     .expect("summary");
@@ -53,8 +52,7 @@ async fn summary_and_patch_walks_terminate_without_requiring_each_other() {
         summary.structured_content
     );
     assert_eq!(row_data(&summary)["message"], message);
-    // The summary is finished: the reply has no continuation and lists no
-    // file. Its file list is a branch one call away, a `files` read.
+    // The summary is finished. Files and patches are independently readable.
     assert!(
         summary.structured_content.get("next").is_none(),
         "{}",
@@ -71,19 +69,10 @@ async fn summary_and_patch_walks_terminate_without_requiring_each_other() {
         "{}",
         summary.structured_content
     );
-    // The summary offers no lead that restates the query for its patches:
-    // the patches read is a `sections` value the tool description names.
     let summary_data = row_data(&summary);
     crate::support::checks::assert_leads_valid(summary_data);
-    assert!(
-        summary_data["related"]
-            .as_array()
-            .is_none_or(|calls| calls.iter().all(|call| {
-                call["input"]["queries"][0]["sections"] != json_fixture(r#"["patches"]"#)
-            })),
-        "{summary_data}"
-    );
-    let input = json!({"queries":[{"operation":"commit","owner":"a","repo":"b","ref":row_data(&summary)["commitSha"],"sections":["patches"]}],"responseChars":4000});
+    let input = summary_data["next"]["patches"]["input"].clone();
+    assert!(input.is_object(), "{summary_data}");
     let walked = walk(&runtime, "ghGetHistoryItem", input, patch_tokens).await;
     assert!(walked.queries.len() > 1, "patch must exercise continuation");
     assert_eq!(walked.rows, expected);

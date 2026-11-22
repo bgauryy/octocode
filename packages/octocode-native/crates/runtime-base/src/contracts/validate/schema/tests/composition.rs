@@ -391,3 +391,35 @@ fn guidance_never_replaces_a_wrong_type_or_an_unknown_field() {
         [("probe.choice".to_owned(), "choice".to_owned())]
     );
 }
+
+#[test]
+fn read_only_scalar_fields_match_full_validation_and_preserve_ref_siblings() {
+    for kind in ["string", "boolean", "null", "integer", "number"] {
+        let root = json!({"$defs":{"field":{"type":kind}}});
+        for schema in [
+            json!({"type":kind}),
+            json!({"$ref":"#/$defs/field"}),
+            json!({"$ref":"#/$defs/field","enum":["accepted"]}),
+        ] {
+            for input in [
+                json!("accepted"),
+                json!("🍎"),
+                json!(true),
+                json!(null),
+                json!(1),
+                json!(1.0),
+                json!(1.5),
+                json!({}),
+                json!([]),
+            ] {
+                let mut actual = input.clone();
+                let mut expected = input;
+                let read =
+                    super::super::validate_read_only(&root, &schema, &mut actual, &mut vec![]);
+                let full = validate_schema(&root, &schema, &mut expected, &mut vec![]);
+                assert_eq!(read, full);
+                assert_eq!(actual, expected);
+            }
+        }
+    }
+}

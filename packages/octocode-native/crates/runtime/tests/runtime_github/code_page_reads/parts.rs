@@ -171,6 +171,10 @@ async fn a_part_ends_only_where_its_next_row_does_not_fit() {
         }
         continued += 1;
         let next_row = &pair[1].output["results"][0]["data"]["files"][0];
+        let next_read = pair[1].output["results"][0]["data"]["next"]
+            .as_object()
+            .and_then(|calls| calls.iter().find(|(name, _)| name.starts_with("read")))
+            .map_or(0, |(name, call)| chars(call) + name.len() + 4);
         // A part reserves the reply's continuation at its widest: beside
         // `next`, the expiry and replay facts a saved page states, and the
         // call's `kind`, which a served call drops. A fresh part states
@@ -178,8 +182,8 @@ async fn a_part_ends_only_where_its_next_row_does_not_fit() {
         let widest = r#","expiresAt":"2026-01-01T00:00:00.000Z","replayed":true"#.len()
             + r#""kind":"continue","#.len();
         assert!(
-            chars(&pair[0].output) + chars(next_row) + widest > window,
-            "a part of {} chars left room for a row of {} in a window of {window}",
+            chars(&pair[0].output) + chars(next_row) + next_read + widest > window,
+            "a part of {} chars left room for a row of {} and its {next_read}-char read in a window of {window}",
             chars(&pair[0].output),
             chars(next_row)
         );
@@ -321,9 +325,38 @@ async fn a_page_that_fits_the_window_is_shown_whole() {
     assert_eq!(super::listed(&fitted).len(), names.len(), "{fitted}");
     assert!(fitted.get("next").is_none(), "{fitted}");
     assert!(
-        fitted["results"][0]["data"].get("next").is_none(),
+        fitted["results"][0]["data"]
+            .pointer("/next/nextPage")
+            .is_none(),
         "{fitted}"
     );
+    let branches = fitted["results"][0]["data"]["next"]
+        .as_object()
+        .expect("source reads");
+    let max_rows = octocode_runtime_base::response::result::rows_per_call(
+        octocode_runtime_base::id::ToolId::GhGetFileContent,
+    );
+    assert_eq!(branches.len(), names.len().div_ceil(max_rows));
+    let mut opened = Vec::new();
+    for index in 0..branches.len() {
+        let lead = &branches[&octocode_runtime_base::id::numbered("readSource", index)];
+        let reads = support::walk(
+            &runtime,
+            "ghGetFileContent",
+            lead["input"].clone(),
+            |page| {
+                page["results"]
+                    .as_array()
+                    .expect("reads")
+                    .iter()
+                    .filter_map(|row| row["data"]["path"].as_str().map(str::to_owned))
+                    .collect()
+            },
+        )
+        .await;
+        opened.extend(reads.rows);
+    }
+    assert_eq!(opened, names);
     let short = walk(&server, &runtime, start(None, chars - 50)).await;
     assert!(short.len() > 1, "a window short of the page continues");
     assert_eq!(shown(&short), names.iter().cloned().collect());

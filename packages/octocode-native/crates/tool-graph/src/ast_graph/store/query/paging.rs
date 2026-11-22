@@ -99,7 +99,6 @@ pub(super) fn run_page(
 /// channels that continue the rows it shows (the rows after them, each cycle
 /// cut at its preview). Summary and baseline arrays belong to the shared response pager.
 pub(super) fn settle(output: &mut GraphOutput, options: &QueryOptions, total: usize) {
-    let offset = options.offset.unwrap_or(0);
     let rows = output.value["rows"]
         .as_array()
         .map(Vec::as_slice)
@@ -123,6 +122,17 @@ pub(super) fn settle(output: &mut GraphOutput, options: &QueryOptions, total: us
             (Channel::Cycle(index), resume)
         })
         .collect::<Vec<_>>();
+    settle_count(output, options, total, shown, cycles);
+}
+
+pub(super) fn settle_count(
+    output: &mut GraphOutput,
+    options: &QueryOptions,
+    total: usize,
+    shown: usize,
+    cycles: Vec<(Channel, Resume)>,
+) {
+    let offset = options.offset.unwrap_or(0);
     // The first page of an `impact` answer counts its summary lists: each
     // is read whole by its own `list` call.
     let lists = (options.op == "impact" && first_page(options))

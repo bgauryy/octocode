@@ -1,5 +1,6 @@
 //! One compact repository row.
 use octocode_contract_types::GhSearchRepoQuery;
+use octocode_github::{ProviderError, ProviderErrorKind};
 use octocode_runtime_base::response::result::remove_null_fields;
 use serde_json::{Value, json};
 
@@ -56,7 +57,7 @@ pub(super) fn repository_row(
     item: octocode_github::RepositorySearchItem,
     wanted: &[String],
     fields: &[String],
-) -> Value {
+) -> Result<Value, ProviderError> {
     // Every topic GitHub returns: a topic is a tag the owner chose, even
     // when it spells the repository's name or language.
     let mut topics = item.topics;
@@ -65,9 +66,13 @@ pub(super) fn repository_row(
     let (owner, repo) = item
         .full_name
         .split_once('/')
-        .map_or((None, item.name.clone()), |(owner, repo)| {
-            (Some(owner.to_owned()), repo.to_owned())
-        });
+        .filter(|(owner, repo)| !owner.is_empty() && !repo.is_empty() && !repo.contains('/'))
+        .ok_or_else(|| {
+            ProviderError::new(
+                ProviderErrorKind::Decode,
+                "GitHub returned a repository without a valid owner/repo name",
+            )
+        })?;
     let default_branch = Some(item.default_branch).filter(|branch| !branch.is_empty());
     let mut row = json!({
         "owner": owner,
@@ -99,5 +104,5 @@ pub(super) fn repository_row(
     row["openIssuesCount"] = json!(item.open_issues_count);
     row["sizeKiB"] = json!(item.size);
     remove_null_fields(&mut row);
-    row
+    Ok(row)
 }

@@ -1,7 +1,6 @@
 //! The client surface the pool manages, so the pool logic is tested against
 //! a fake client while production pools [`NativeLspClient`]s.
 
-use super::readiness_timeout;
 use crate::lsp::client::NativeLspClient;
 use std::future::Future;
 use std::pin::Pin;
@@ -25,11 +24,6 @@ pub(super) trait PoolClient: Clone + Send + Sync + 'static {
     fn stop(&self) -> ClientFuture<()>;
     /// Same underlying client (a clone of it), not merely an equal config.
     fn same(&self, other: &Self) -> bool;
-    /// Runs on a live pooled client before it is handed out again. A client
-    /// whose readiness wait timed out waits again here, so a stored
-    /// `timeout` never fails every later call while the server indexes.
-    /// Concurrent acquires of the key share this one wait.
-    fn resume(&self) -> ClientFuture<()>;
     /// A project config file the server reads once and never re-reads for a
     /// document it holds changed under it (see `lsp::project_config`): the
     /// pool replaces the server when it is idle.
@@ -60,15 +54,6 @@ impl PoolClient for NativeLspClient {
 
     fn same(&self, other: &Self) -> bool {
         self.same_client(other)
-    }
-
-    fn resume(&self) -> ClientFuture<()> {
-        let client = self.clone();
-        Box::pin(async move {
-            if let Some(timeout_ms) = readiness_timeout(client.language_id()) {
-                client.resume_timed_out_readiness(timeout_ms).await;
-            }
-        })
     }
 
     fn project_config_changed(&self) -> ClientFuture<bool> {

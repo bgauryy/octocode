@@ -254,6 +254,7 @@ fn restates(request: &(Vec<String>, Value), response: &(Vec<String>, Value)) -> 
 
 /// B4, Rule E: no response field restates a request value.
 pub(super) fn echoes(report: &mut Report, request: &Value, data: &Value) {
+    let tool = octocode_runtime_base::id::ToolId::from_name(report.tool);
     let Some(request) = request.as_object() else {
         return;
     };
@@ -273,6 +274,7 @@ pub(super) fn echoes(report: &mut Report, request: &Value, data: &Value) {
         .flatten()
         // Calls carry inputs by design; prose quotes what it explains.
         .filter(|(key, _)| !matches!(key.as_str(), "next" | "related" | "hints" | "error"))
+        .filter(|(key, _)| tool.is_none_or(|id| id.echo_query_field(key).is_some()))
         .flat_map(|(key, value)| {
             leaves(value).into_iter().map(move |(mut path, leaf)| {
                 path.insert(0, key.clone());

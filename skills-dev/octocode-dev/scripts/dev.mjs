@@ -63,7 +63,7 @@ const TASKS = {
   'docs:rust': ['Native rustdoc with broken intra-doc links denied (cargo doc --no-deps --document-private-items, in a build slot)', () => [slotted(['cargo', ['doc', '--locked', '--no-deps', '--document-private-items', '--workspace']], { cwd: NATIVE, env: { ...process.env, RUSTDOCFLAGS: [process.env.RUSTDOCFLAGS, '-D rustdoc::broken_intra_doc_links'].filter(Boolean).join(' ') } })]],
   'deps:dedupe': ['One version range per external dependency (--fix rewrites)', [script('dedupe-deps.mjs')]],
   'contracts:regen': ['Regenerate the tool contract, one run at a time machine-wide: core typecheck (refuses when it fails), core build, install pinned dependencies, generate the contract, then the tool-flow route table', [script('contracts-regen.mjs')]],
-  setup: ['Remove legacy local resolutions (--dry-run to preview, --install to install dependencies)', [script('dev-setup.mjs')]],
+  setup: ['Use sibling core locally (--reset for registry, --dry-run to preview, --install to install)', [script('dev-setup.mjs')]],
   prepublish: ['Local-resolution check (--fix strips local resolutions, --dry-run previews)', [script('prepublish.mjs')]],
   'brew:formula': ['Render the Homebrew formula from the published native npm packages ([version] [--out FILE])', [script('brew-formula.mjs')]],
   'lsp:lock': ['Generate the managed language-server lock from GitHub release digests ([--check] diffs it, [--bump] moves to the latest releases)', [script('lsp-lock.mjs')]],

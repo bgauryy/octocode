@@ -205,6 +205,7 @@ Behavior, judged by reading, on both surfaces. The per-tool sections below list 
   out and `next.quiet` lists them. Answers are judgments, so judge the framing, not the number: is each question one standalone
   fact, does the judge see the hit line marked and its enclosing context, and does `next.read` lead to the
   deciding lines? A surprising answer is first a question about our wording or context.
+- [ ] At two refs and two history depths, compare `git rev-parse --git-common-dir`, verify ancestry against the origin and repeat the first request after the second. Check the remote tag and that a local tag survives.
 - [ ] ghCloneRepo: other `paths` or `historyDepth` give another checkout; a refresh over a local edit
   refuses (`checkoutDirty`) and keeps the edit.
 - [ ] Every workflow below, in its number of calls.
@@ -259,6 +260,7 @@ Behavior, judged by reading, on both surfaces. The per-tool sections below list 
   pattern `f($$$A)` in Rust where only `x.f(…)` exists; `syntaxTree`.
 - Look for: matches only of the shape asked (no comments or strings); an empty bare pattern says how many
   receiver calls exist and offers the rule call.
+- On a line with two different matching calls, each hit gives its 1-based UTF-16 column, including when a page boundary separates the hits.
 - Compare: the expert command and what "better" means are in [COMPARISONS.md](COMPARISONS.md#astsearch).
 
 #### lspSearch
@@ -266,6 +268,7 @@ Behavior, judged by reading, on both surfaces. The per-tool sections below list 
   Rust symbol (needs `line`), cold and repeat.
 - Look for: rows with roles (declaration, import, call); `coverage.state complete` unless something real is
   missing; one cold-start warning, not three.
+- For `import { greet as hello }`, references mark both tokens as imports. Their `importRole` values are `importedName` and `localAlias`. A call to `hello()` still has the call role.
 - Compare: the expert command and what "better" means are in [COMPARISONS.md](COMPARISONS.md#lspsearch).
 
 #### graphBuild and graphQuery

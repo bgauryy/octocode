@@ -29,6 +29,7 @@ pub mod combined;
 pub mod evaluate;
 mod kinds;
 mod locate;
+mod preview;
 mod recovery;
 mod reply;
 mod rows;
@@ -134,6 +135,9 @@ pub fn call(
                 let (gate, evaluations, section_budget) = (&gate, &evaluations, &section_budget);
                 scope.spawn(octocode_io::notice::carried(move || {
                     let _enter = dispatcher.handle().enter();
+                    if row.query["preview"] == true {
+                        return preview::row(evaluator, row, dispatcher, context);
+                    }
                     if let Some(refused) =
                         admission::unretainable_source(row, section_runtime.can_resume)
                     {
@@ -213,6 +217,9 @@ pub fn call(
     }
     across.attach(&mut output, &parsed, can_resume);
     for (row, data) in parsed.iter().zip(&mut output) {
+        if row.query["preview"] == true {
+            continue;
+        }
         if row.details {
             view::carry_details(data);
         } else {
@@ -280,6 +287,7 @@ fn shaped(
                 octocode_contract_types::ErrorCode::ClassificationOverBudget,
             )),
         ),
+        RowOutcome::Preview(data) => (data, None),
         RowOutcome::Combined(combined) => (combined.output, None),
         RowOutcome::Units(Ok(units)) => (units.finish(), None),
         RowOutcome::Units(Err(error)) => (
@@ -383,6 +391,7 @@ fn mark_default(models: &mut Value, model: &str) {
 }
 
 pub enum RowOutcome {
+    Preview(Value),
     Judgment {
         judged: Result<Judged, ClassificationError>,
         captured: Option<Box<Captured>>,

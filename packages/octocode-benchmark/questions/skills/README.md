@@ -10,8 +10,7 @@ Do not pool results across different request wordings.
 | octocode-research | How does request retry work in this repo, and who calls it? · Why did the cache TTL change last year? · Which version of a library fixed this bug? | The test is failing with a stack trace (→ debugging) |
 | octocode-debugging | This service hangs after ~50 requests, find out why · A flaky test fails one run in ten · Memory grows steadily in this worker | Explain how the scheduler is structured (→ research) |
 | octocode-engineer | Should this cache be write-through or write-back for our load? · Plan a refactor to split this module · Compare two data structures for this lookup | The build crashes on startup (→ debugging) |
-| octocode-graph | Which files import this module? · Is there a dependency cycle in `src/`? · What would break if I change this function? | Draw me an interactive map of the repo (→ graph-view) |
-| octocode-graph-view | Show me a visual map of this repo's architecture · Serve a dependency graph I can click through | List the cycles as text (→ graph) |
+| octocode-graph | Which files import this module? · What would break if this function changed? · Show me an interactive map of this repo. | Why did this function return the wrong value? (→ debugging) |
 | octocode-pr-review | Review PR #123 · Review the pull request on this branch | Tear this code apart, no mercy (→ roast); review my local diff with no PR |
 | octocode-roast | Roast this module · Brutally critique this design | Review PR #123 normally (→ pr-review) |
 | octocode-clean-agentic-code | Remove dead code and unused exports from this package · Delete leftover debug logs without changing behavior | Refactor this module's architecture (→ engineer) |

@@ -47,7 +47,14 @@ test('a package-owned skill stages beside the public ones, self-contained and wi
     for (const name of readdirSync(resolve(import.meta.dirname, '../../..', dir))) {
       const staged = join(installed, name);
       assert.ok(existsSync(join(staged, 'SKILL.md')), `${name} is staged`);
-      assert.equal(existsSync(join(staged, 'scripts')), false, `${name} bundles no shared scripts`);
+      const source = resolve(import.meta.dirname, '../../..', dir, name);
+      const scripts = skillDir => existsSync(join(skillDir, 'scripts'))
+        ? readdirSync(join(skillDir, 'scripts'), { recursive: true, encoding: 'utf8' }).sort()
+        : [];
+      assert.deepEqual(scripts(staged), scripts(source), `${name} stages exactly its own scripts`);
+      for (const file of scripts(source).filter(path => path.endsWith('.mjs'))) {
+        assert.deepEqual(readFileSync(join(staged, 'scripts', file)), readFileSync(join(source, 'scripts', file)));
+      }
       for (const file of readdirSync(staged, { recursive: true, encoding: 'utf8' }).filter(f => f.endsWith('.md')))
         for (const [, target = ''] of readFileSync(join(staged, file), 'utf8').matchAll(/\]\(((?!https?:|#)[^)#]+)/g))
           assert.ok(existsSync(join(staged, file, '..', target)), `${name}/${file} links ${target}`);

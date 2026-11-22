@@ -23,6 +23,29 @@ pub(super) fn hit_objects(structured: &mut Value) {
     }
 }
 
+/// Put a one-to-one set of JSON/TOML key paths on the hit lines they annotate.
+/// Merged windows and split collections keep the separate line-indexed table.
+pub(super) fn attach_match_keys(file: &mut Map<String, Value>, matches: &mut [Value]) {
+    let Some(keys) = file.get("matchKeys").and_then(Value::as_array) else {
+        return;
+    };
+    if keys.len() != matches.len()
+        || !keys.iter().zip(matches.iter()).all(|(key, hit)| {
+            key.as_object().is_some_and(|row| row.len() == 2)
+                && key["keyPath"].is_string()
+                && key["line"].is_u64()
+                && key["line"] == hit["line"]
+                && hit.get("keyPath").is_none()
+        })
+    {
+        return;
+    }
+    for (hit, key) in matches.iter_mut().zip(keys) {
+        hit["keyPath"] = key["keyPath"].clone();
+    }
+    file.shift_remove("matchKeys");
+}
+
 /// A hit value's lines with their numbers: numbered source when the query
 /// asked for context (`None` when the value is not, such as a clipped
 /// snippet), else the value's lines from `line`. An empty value is one empty

@@ -7,8 +7,7 @@ Choose a skill by the task you want your agent to complete. Run `npx -y octocode
 | [octocode-get-started](octocode-get-started/SKILL.md) | Install Octocode, connect your agent, sign in to GitHub, and verify a first tool call. |
 | [octocode-research](octocode-research/SKILL.md) | Answer how code works or why it changed, with citations to source files or commits. |
 | [octocode-debugging](octocode-debugging/SKILL.md) | Diagnose a crash, wrong result, hang, or slowdown using runtime evidence. |
-| [octocode-graph](octocode-graph/SKILL.md) | Find callers, importers, cycles, or the code a change could affect. |
-| [octocode-graph-view](octocode-graph-view/SKILL.md) | Explore a repository as an interactive dependency map or save a graph report. |
+| [octocode-graph](../packages/octocode-graph/skills/octocode-graph/SKILL.md) | Query dependencies, callers and change impact, build a stitched graph or explore a repository in the viewer. |
 | [octocode-brainstorming](octocode-brainstorming/SKILL.md) | Compare ideas or challenge a proposal using evidence from web sources. |
 | [octocode-engineer](octocode-engineer/SKILL.md) | Choose an implementation or architecture by comparing trade-offs against the workload. |
 | [octocode-rfc-generator](octocode-rfc-generator/SKILL.md) | Write, revise, or review an RFC, design proposal, migration plan, or implementation plan. |

@@ -48,6 +48,7 @@ pub(super) struct GitHubServices {
     home: PathBuf,
     /// `storage.mode` allows writing under the home: materialize needs it.
     persistent: bool,
+    lsp_trust_fetched_code: bool,
     /// ghCloneRepo's git, keeping the runtime env's PATH, proxy and CA names.
     git: std::sync::Arc<SystemGit>,
     /// The automatic response page: file and patch pages are sized to fit
@@ -120,6 +121,7 @@ impl GitHubServices {
         let git = std::sync::Arc::new(SystemGit::with_env(&config.credential_env()));
         let persistent =
             octocode_runtime_base::config::is_persistent_storage_enabled(&config.resolved);
+        let lsp_trust_fetched_code = config.resolved.lsp.trust_fetched_code;
         let credentials = Authentication::new(config);
         Ok(Self {
             credentials,
@@ -127,6 +129,7 @@ impl GitHubServices {
             timeout: limits.network_timeout,
             home,
             persistent,
+            lsp_trust_fetched_code,
             git,
             auto_page_chars: limits.auto_page_chars,
         })

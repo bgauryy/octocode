@@ -22,6 +22,7 @@ import {
   rowVariants,
   toolVariants,
 } from '@octocodeai/octocode-core/schema';
+import { toolPackage } from '../../src/contracts/tool-package.ts';
 import { outputFields } from './output-view.ts';
 
 type Json = Record<string, unknown>;
@@ -65,6 +66,7 @@ const shellQuote = (text: string): string =>
 /** What follows clap's help for `<tool> --help`: required fields and one runnable example (workspace-relative, from the variant's Zod `examples` meta). */
 export function toolHelpSection(definition: Definition): string {
   const { name } = definition;
+  const cli = toolPackage(name);
   const variants = toolVariants(definition);
   const lines: string[] = [];
   const jsonExamples = variants.flatMap(variant =>
@@ -73,7 +75,7 @@ export function toolHelpSection(definition: Definition): string {
   lines.push('Examples:');
   for (const example of jsonExamples)
     lines.push(
-      `  octocode ${name} ${shellQuote(exampleJson({ queries: [example] }))}`
+      `  ${cli} ${name} ${shellQuote(exampleJson({ queries: [example] }))}`
     );
   lines.push('', AGENT_TEXT.helpInput, queriesPerCall(definition));
   const [only] = variants;
@@ -125,10 +127,10 @@ export function toolHelpSection(definition: Definition): string {
       lines.push(`  ${form.label.padEnd(width)}  ${form.requires}`.trimEnd());
     lines.push(
       '',
-      `Each form's example: octocode schema ${name} --view variants`
+      `Each form's example: ${cli} schema ${name} --view variants`
     );
   }
-  lines.push('', `Fields: octocode schema ${name}`);
+  lines.push('', `Fields: ${cli} schema ${name}`);
   return lines.join('\n');
 }
 

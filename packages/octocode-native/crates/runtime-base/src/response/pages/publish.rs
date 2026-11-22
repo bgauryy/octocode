@@ -2,7 +2,7 @@
 //! paging. Tools build page facts as they cut pages and read them back while
 //! shaping; a caller sees one `pagination` object with one meaning per field,
 //! and none at all when one page holds the complete result.
-use crate::response::hoist::CALL_CHANNELS;
+use crate::{id::ToolId, response::hoist::CALL_CHANNELS};
 use serde_json::{Map, Value};
 
 /// Keys a list or window block states about a complete page and nothing else.
@@ -287,16 +287,14 @@ fn state_partial_once(data: &mut Map<String, Value>) {
 /// already maps the row to its query. Only the first response to a fresh
 /// request applies it; a page read through a cursor keeps them, because its
 /// request names none of them. A value the tool resolved or changed differs
-/// and stays (a branch's resolved `commitSha` stays). `pinned_commit_is_echo`
-/// says the caller's rows treat a `commitSha` equal to a commit-pinned `ref`
-/// as a repeat (a file read); elsewhere `commitSha` is the row's identity,
-/// which the output contract requires, so it stays.
-pub fn drop_echoes(
-    pinned_commit_is_echo: bool,
-    structured: &mut Value,
-    queries: &[Value],
-    row_indices: &[usize],
-) {
+/// and stays. A file read can echo a commit-pinned ref as `commitSha`.
+/// A repository search keeps its owner's identity with the published page.
+pub fn drop_echoes(tool: ToolId, structured: &mut Value, queries: &[Value], row_indices: &[usize]) {
+    let echoed = |key: &str, value: &Value, query: &Map<String, Value>| {
+        tool.echo_query_field(key)
+            .and_then(|field| query.get(field))
+            == Some(value)
+    };
     let query_of = |row: &Value| {
         let index = row["index"]
             .as_u64()
@@ -320,15 +318,7 @@ pub fn drop_echoes(
             .pointer_mut("/shared/data")
             .and_then(Value::as_object_mut)
     {
-        shared.retain(|key, value| {
-            let echoed = |query: &&serde_json::Map<String, Value>| {
-                query.get(key) == Some(value)
-                    || (pinned_commit_is_echo
-                        && key == "commitSha"
-                        && query.get("ref") == Some(value))
-            };
-            !asked.iter().all(echoed)
-        });
+        shared.retain(|key, value| !asked.iter().all(|query| echoed(key, value, query)));
         if shared.is_empty()
             && let Some(envelope) = structured.as_object_mut()
         {
@@ -343,15 +333,7 @@ pub fn drop_echoes(
             continue;
         };
         if let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) {
-            data.retain(|key, value| query.get(key) != Some(value));
-            // A read pinned to a commit states that commit as `ref`; the
-            // `commitSha` it resolved to is the same text.
-            if pinned_commit_is_echo
-                && let Some(pinned) = query.get("ref")
-                && data.get("commitSha") == Some(pinned)
-            {
-                data.remove("commitSha");
-            }
+            data.retain(|key, value| !echoed(key, value, query));
             drop_resource_echoes(data, query);
         }
     }

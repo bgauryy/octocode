@@ -77,6 +77,23 @@ impl SourceReader for DomainDispatcher {
         self.execute_row_under(tool, query, context, true, None)
     }
 
+    fn artifact_preview_destinations(
+        &self,
+        query: &octocode_contract_types::ArtifactSearchQuery,
+    ) -> Result<Vec<Value>, octocode_tools_shared::judgment::ClassificationError> {
+        octocode_tool_packages::artifact_search::preview_destinations(
+            query,
+            &self.config.resolved.github.api_url,
+        )
+        .map_err(|error| {
+            octocode_tools_shared::judgment::ClassificationError::new(
+                error.code,
+                error.message,
+                "Correct the registry selection.",
+            )
+        })
+    }
+
     fn retained_github_identity(
         &self,
         context: &ExecutionContext,

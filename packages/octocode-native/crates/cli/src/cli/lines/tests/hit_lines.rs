@@ -3,6 +3,20 @@ use super::*;
 use octocode_test_support::json_fixture;
 
 #[test]
+fn matching_key_paths_print_beside_their_hit_line() {
+    let result = json!({"results":[{"index":0,"data":{"files":[{
+        "path":"package.json","matchKeys":[{"line":9,"keyPath":"dependencies.core"}],
+        "matches":[{"line":9,"value":"core"}]
+    }]}}]});
+    let query = json!({"queries":[{"path":"package.json","matchString":["core"]}]});
+    let answer = render(ToolId::LocalSearch, &result, &query, None).expect("rendered hits");
+    assert_eq!(
+        answer.out,
+        "package.json:9:core  [keyPath dependencies.core]"
+    );
+}
+
+#[test]
 fn hits_print_like_rg_and_lose_no_field() {
     let lines = render(ToolId::LocalSearch, &sample(), &context(), None).expect("lines");
     assert_eq!(
@@ -377,6 +391,23 @@ fn location_labels_state_once_per_run_and_columns_only_where_needed() {
         "{}",
         lines.out
     );
+}
+
+#[test]
+fn alias_token_columns_survive_text_rendering_and_lone_hits_use_utf16() {
+    let result = json!({"results":[{"data":{"files":[{"path":"a.ts","matches":[
+        {"line":1,"column":3,"value":"  greet as hello,","role":"import","importRole":"importedName"},
+        {"line":1,"column":12,"value":"  greet as hello,","role":"import","importRole":"localAlias"},
+        {"line":2,"column":7,"value":"\"🙂\"; greet();","role":"call"}
+    ]}]}}]});
+    let query =
+        json!({"queries":[{"operation":"references","path":"b.ts","symbolName":"greet","line":1}]});
+    let out = render(ToolId::LspSearch, &result, &query, None)
+        .expect("lines")
+        .out;
+    assert!(out.contains("column 3 "), "{out}");
+    assert!(out.contains("column 12 "), "{out}");
+    assert!(!out.contains("column 7"), "{out}");
 }
 
 /// A request shape the runtime repairs before the call runs (a scalar where

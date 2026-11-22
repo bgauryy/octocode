@@ -382,14 +382,28 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@octocodeai/octocode-core@npm:21.3.0":
-  version: 21.3.0
-  resolution: "@octocodeai/octocode-core@npm:21.3.0"
+"@octocodeai/octocode-core@file:../octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
+  version: 21.4.1
+  resolution: "@octocodeai/octocode-core@file:../octocode-mcp-host/packages/octocode-core#../octocode-mcp-host/packages/octocode-core::hash=e74017&locator=octocode-monorepo%40workspace%3A."
   dependencies:
     zod: "npm:^4.6.2"
-  checksum: 10c0/db8ef485049f2c0da016f97ae56548ffef3072c2f32d01d3710b9f5385b4bc7cdc5a8f1de26090bb0667616959b020c64c9526b09f4899f1e67f9bda1570b116
+  checksum: 10c0/f84fdbab7f4bce3e42e9d1f30c8071addf0148409f977640c642213419a75646ad7456ba21434658cbc1c222d452616dd6740b1ad4ee11b0403e87db5606b4d8
   languageName: node
   linkType: hard
+
+"@octocodeai/octocode-graph@workspace:packages/octocode-graph":
+  version: 0.0.0-use.local
+  resolution: "@octocodeai/octocode-graph@workspace:packages/octocode-graph"
+  dependencies:
+    "@typescript/native-preview": "npm:7.0.0-dev.20260707.2"
+    octocode: "npm:20.2.0"
+  bin:
+    octocode-graph: bin/octocode-graph.mjs
+    octocode-graph-build: skills/octocode-graph/scripts/build.mjs
+    octocode-graph-query: skills/octocode-graph/scripts/query.mjs
+    octocode-graph-serve: skills/octocode-graph/scripts/serve.mjs
+  languageName: unknown
+  linkType: soft
 
 "@octocodeai/octocode-native-darwin-arm64@npm:20.2.0, @octocodeai/octocode-native-darwin-arm64@workspace:packages/octocode-native/npm/darwin-arm64":
   version: 0.0.0-use.local

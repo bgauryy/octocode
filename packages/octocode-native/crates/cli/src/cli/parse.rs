@@ -1,4 +1,4 @@
-use super::{Args, OutputMode, stdout_is_terminal, write_json};
+use super::{Args, OutputMode, ToolPackage, stdout_is_terminal, write_json};
 use clap::{CommandFactory, FromArgMatches};
 use octocode_contract_types::ErrorCode;
 use octocode_runtime_base::config::RuntimeSurface;
@@ -103,6 +103,14 @@ where
     T: Into<std::ffi::OsString> + Clone,
 {
     let mut argv: Vec<std::ffi::OsString> = argv.into_iter().map(Into::into).collect();
+    // The graph distribution delegates to this same binary through a private selector.
+    let package = if argv.get(1).is_some_and(|arg| arg == "__graph") {
+        argv.remove(1);
+        argv[0] = "octocode-graph".into();
+        ToolPackage::Graph
+    } else {
+        ToolPackage::Research
+    };
     // A bare `octocode` on a pipe is an agent asking what it can do. A
     // terminal is the ordinary clap help path (stdout and a successful exit).
     if argv.len() == 1 && !stdout_is_terminal() {
@@ -110,14 +118,17 @@ where
     } else if argv.len() == 1 {
         argv.push("--help".into());
     }
-    match Args::command()
+    match package_command(package)
         .try_get_matches_from(&argv)
         .and_then(|matches| Args::from_arg_matches(&matches))
     {
-        Ok(args) => Ok(args),
+        Ok(mut args) => {
+            args.package = package;
+            Ok(args)
+        }
         Err(error) => {
             let error = if is_help(&error) {
-                help_command()
+                help_command(package)
                     .try_get_matches_from(&argv)
                     .err()
                     .unwrap_or(error)
@@ -142,6 +153,36 @@ where
             Err(2)
         }
     }
+}
+
+/// Project the one clap definition onto the installed package, including direct help.
+fn package_command(package: ToolPackage) -> clap::Command {
+    let all = Args::command();
+    let mut command = clap::Command::new(package.cli())
+        .version(super::build_version())
+        .subcommand_required(true)
+        .args(all.get_arguments().cloned())
+        .subcommands(
+            all.get_subcommands()
+                .filter(|sub| {
+                    let name = sub.get_name();
+                    match ToolId::from_name(name) {
+                        Some(id) => ToolPackage::of(id) == package,
+                        None => {
+                            package == ToolPackage::Research || matches!(name, "mcp" | "schema")
+                        }
+                    }
+                })
+                .cloned(),
+        );
+    if package == ToolPackage::Graph {
+        command = command.about("Create and query Octocode graph snapshots");
+    } else {
+        command = command
+            .about("Native Octocode research tools")
+            .after_help(super::ROOT_HELP_AFTER);
+    }
+    command
 }
 
 /// The exit code clap gives `error`: 0 for help and version, 2 for a usage
@@ -171,7 +212,9 @@ pub(super) fn hide_unavailable_tools(mut command: clap::Command) -> clap::Comman
     let config = resolve_config(&input);
     let availability = ToolAvailability::resolve(&config, surface);
     for tool in ToolId::ALL {
-        if !availability.is_available(tool.as_str()) {
+        if command.find_subcommand(tool.as_str()).is_some()
+            && !availability.is_available(tool.as_str())
+        {
             command = command.mut_subcommand(tool.as_str(), |sub| sub.hide(true));
         }
     }
@@ -183,11 +226,13 @@ pub(super) fn hide_unavailable_tools(mut command: clap::Command) -> clap::Comman
 /// its output fields are explained, and the root help with each available
 /// tool's required fields by operation, all from the embedded CLI
 /// presentation.
-pub(super) fn help_command() -> clap::Command {
-    let command =
-        ToolId::ALL
-            .into_iter()
-            .fold(hide_unavailable_tools(Args::command()), |command, tool| {
+pub(super) fn help_command(package: ToolPackage) -> clap::Command {
+    let command = ToolId::ALL
+        .into_iter()
+        .filter(|tool| ToolPackage::of(*tool) == package)
+        .fold(
+            hide_unavailable_tools(package_command(package)),
+            |command, tool| {
                 let name = tool.as_str();
                 match octocode_runtime_base::contracts::cli_tool_help(name) {
                     Some(help) => command.mut_subcommand(name, |sub| {
@@ -198,7 +243,11 @@ pub(super) fn help_command() -> clap::Command {
                     }),
                     None => command,
                 }
-            });
+            },
+        );
+    if package == ToolPackage::Graph {
+        return command;
+    }
     let listed: Vec<(&str, Vec<String>)> = ToolId::ALL
         .into_iter()
         .map(ToolId::as_str)

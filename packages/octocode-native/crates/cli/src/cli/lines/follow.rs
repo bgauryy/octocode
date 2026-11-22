@@ -283,12 +283,13 @@ fn remove_at(value: &mut Value, path: &[String]) -> bool {
 /// `octocode <tool> '<json>'`, single-quoted for the shell that runs it:
 /// POSIX, or PowerShell ([`powershell`]).
 pub(in super::super) fn command(tool: &str, json: &str) -> String {
+    let cli = crate::cli::tool_package::ToolPackage::for_name(tool).cli();
     if powershell() {
         // PowerShell doubles a quote inside single quotes; the JSON's own
         // double quotes reach the program intact from PowerShell 7.3.
-        format!("octocode {tool} '{}'", json.replace('\'', "''"))
+        format!("{cli} {tool} '{}'", json.replace('\'', "''"))
     } else {
-        format!("octocode {tool} {}", octocode_io::shell::quote(json))
+        format!("{cli} {tool} {}", octocode_io::shell::quote(json))
     }
 }
 

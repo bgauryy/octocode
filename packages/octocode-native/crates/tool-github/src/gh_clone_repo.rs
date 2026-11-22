@@ -1,4 +1,4 @@
-//! Durable, shallow GitHub checkout materialization through the system Git baseline.
+//! Durable, blob-filtered GitHub checkout materialization through the system Git baseline.
 mod checkout;
 mod git;
 mod pin;
@@ -66,8 +66,7 @@ impl Sparse {
     }
 }
 
-/// Commits of history to fetch; the contract's default of 1 is a shallow
-/// checkout.
+/// Requested history depth, retained in the checkout identity.
 fn history_depth(query: &GhCloneRepoQuery) -> u64 {
     query.history_depth.get()
 }
@@ -95,20 +94,20 @@ pub struct CloneLocation {
     /// leaves out, as ghStructure materialize does; absent when there are none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skipped: Option<Vec<String>>,
-    /// History depth when more than the shallow single commit.
+    /// Requested minimum depth when greater than the default.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub history_depth: Option<u64>,
-    /// The depth reached the root commit: the checkout holds the whole
-    /// history. Stated only beside `historyDepth`.
+    /// The verified checkout holds the pinned commit’s complete ancestry.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub full_history: bool,
     /// When the checkout of this commit was cloned.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cloned_at: Option<String>,
     /// The checkout was already on disk, verified unchanged, and nothing was
-    /// fetched: `clonedAt` is its first clone. Absent on a fresh clone.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    /// fetched: `clonedAt` is its first clone.
     pub reused: bool,
+    /// Whether the runtime permits language servers to load fetched projects.
+    pub lsp_trust_fetched_code: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

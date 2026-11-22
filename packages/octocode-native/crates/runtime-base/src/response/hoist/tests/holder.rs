@@ -171,9 +171,8 @@ fn a_field_the_contract_does_not_declare_on_data_stays_on_the_rows() {
 }
 
 /// The embedded contract drives it: a ghGetHistoryItem pull request states
-/// its repository on `data` (declared there), and a ghSearchRepo page of one
-/// owner states the owner once (hoist G-H3, regen 4), each row keeping its
-/// required `repo`.
+/// its repository on `data`, and ghSearchRepo rows from the same owner
+/// share that owner while keeping each repository's name.
 #[test]
 fn the_embedded_contract_decides_what_moves() {
     let mut history = json_fixture(
@@ -215,10 +214,7 @@ fn the_embedded_contract_decides_what_moves() {
     );
     state_shared_identity(ToolId::GhSearchRepo, &mut repos);
     let data = &repos["results"][0]["data"];
-    assert_eq!(
-        data["owner"], "o",
-        "one owner's page states it once: {repos}"
-    );
+    assert_eq!(data["owner"], "o", "{repos}");
     for row in data["repositories"].as_array().expect("repositories") {
         assert!(row.get("owner").is_none(), "{repos}");
         assert_eq!(

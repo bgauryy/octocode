@@ -46,7 +46,7 @@ For GitHub code search or private repositories, sign in on the machine that runs
 
 ## Tools
 
-**17 tools.** With default settings you get 12 tools over MCP and 16 in the CLI. Both interfaces use the same tool names and JSON inputs.
+**17 tools.** With default settings you get 12 tools over MCP and 14 in the CLI. Both interfaces use the same tool names and JSON inputs.
 
 | Task | Tools | Availability |
 |---|---|---|
@@ -55,7 +55,7 @@ For GitHub code search or private repositories, sign in on the machine that runs
 | Read GitHub code | `ghSearchRepo` finds repositories. `ghSearchCode` finds code on the default branch. `ghStructure` browses a tree at a ref, and `ghGetFileContent` reads a file there. | Default |
 | Trace a change | `ghSearchHistory` finds commits, pull requests and issues. `ghGetHistoryItem` opens their patches or discussions and compares revisions. | Default |
 | Look up a package | `artifactSearch` resolves a package version to registry metadata, dependencies and upstream source when available. | Default |
-| Explore dependencies | `graphBuild` creates a snapshot. `graphQuery` finds importers, cycles and files a change could affect. | CLI default · MCP opt-in |
+| Explore dependencies | `graphBuild` creates a snapshot. `graphQuery` finds importers, cycles and files a change could affect. | Graph package CLI and MCP |
 | Search a GitHub repo locally | `ghCloneRepo` returns a checkout path for local tools. Requires Git and persistent storage. | CLI default · MCP opt-in |
 | Check known vulnerabilities | `securityCheck` looks up advisories for a package version, repository or commit and reports affected ranges and known fixes. | CLI default · MCP opt-in |
 | Read by meaning | `clasify` answers questions about files, images and web pages, or filters search results by meaning. | Provider key on both |
@@ -102,7 +102,7 @@ npx -y octocode skill install octocode-research --platform codex --project-dir .
 | What you want to do | Public skills |
 |---|---|
 | Get set up and investigate code | [octocode-get-started](skills/octocode-get-started/SKILL.md), [octocode-research](skills/octocode-research/SKILL.md), [octocode-debugging](skills/octocode-debugging/SKILL.md) |
-| Explore dependencies and visualize a repository | [octocode-graph](skills/octocode-graph/SKILL.md), [octocode-graph-view](skills/octocode-graph-view/SKILL.md) |
+| Explore dependencies and visualize a repository | [octocode-graph](packages/octocode-graph/skills/octocode-graph/SKILL.md) |
 | Evaluate ideas and design changes | [octocode-brainstorming](skills/octocode-brainstorming/SKILL.md), [octocode-engineer](skills/octocode-engineer/SKILL.md), [octocode-rfc-generator](skills/octocode-rfc-generator/SKILL.md) |
 | Review, test and document code | [octocode-pr-review](skills/octocode-pr-review/SKILL.md), [octocode-test-plan](skills/octocode-test-plan/SKILL.md), [octocode-roast](skills/octocode-roast/SKILL.md), [octocode-clean-agentic-code](skills/octocode-clean-agentic-code/SKILL.md), [octocode-documentation](skills/octocode-documentation/SKILL.md) |
 | Research the web or operate a browser | [octocode-scraping](skills/octocode-scraping/SKILL.md), [octocode-chrome-devtools](packages/octocode-chrome-devtools/skills/octocode-chrome-devtools/SKILL.md) |

@@ -37,8 +37,11 @@ function walk(directory: string, keep: (path: string) => boolean): string[] {
 function sources(): string[] {
   const isTest = /tests?[./]|\/tests\/|\.test\.|config-env\.mjs$|node_modules|process_fixture\.rs$/;
   return [
+    ...walk('packages/octocode/src', path => path.endsWith('.ts')),
     ...walk('packages/octocode-native/crates', path => /\/src\/.*\.rs$/.test(path)),
-    ...walk('skills', path => /\/scripts\/(lib\/)?[^/]+\.mjs$/.test(path)),
+    ...['skills', 'packages/octocode-graph/skills'].flatMap(root =>
+      walk(root, path => /\/scripts\/(lib\/)?[^/]+\.mjs$/.test(path)),
+    ),
   ].filter(path => !isTest.test(path));
 }
 

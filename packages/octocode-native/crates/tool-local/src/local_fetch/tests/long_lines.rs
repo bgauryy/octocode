@@ -49,6 +49,28 @@ fn a_byte_page_never_exceeds_the_callers_response_page() {
     assert_eq!(collected, source);
 }
 
+#[test]
+fn narrow_mixed_line_pages_fit_the_read_window_and_rebuild_the_source() {
+    let fixture = Fixture::new();
+    let paths = Paths(fixture.0.clone());
+    let window = 500;
+    for word in ["plain ", "漢🙂", "\"\t"] {
+        let source = format!(
+            "one\n{}\nlast\n",
+            word.repeat(
+                octocode_tools_shared::source_view::pagination::MIN_BYTE_PAGE / word.len() + 1
+            )
+        );
+        let path = fixture.write("mixed.txt", &source);
+        for (_, text) in walk_exactly_once(&q(&path), &paths, Some(window), &source) {
+            assert!(
+                octocode_runtime_base::response::cut::escaped_len(&text) <= window,
+                "splittable text alone exceeds the requested {window} characters"
+            );
+        }
+    }
+}
+
 /// The related localFetch reads `next` names (kind `related`) as JSON rows.
 fn related_rows(read: &LocalFetchResult) -> Vec<serde_json::Value> {
     let next = serde_json::to_value(&read.next).expect("next serializes");
@@ -701,7 +723,7 @@ fn a_long_line_pages_as_wide_as_the_response_window() {
 #[test]
 fn a_streamed_long_line_pages_as_wide_as_the_response_window() {
     let window = 2_000_000;
-    let room = octocode_tools_shared::source_view::pagination::byte_page_room(Some(window));
+    let room = octocode_tools_shared::source_view::pagination::line_page_bytes(Some(window));
     // Streamed sources are those over the in-memory ceiling.
     let line = positional(super::super::acquire::MAX_SOURCE_BYTES as usize + 1_000);
     let fixture = Fixture::new();

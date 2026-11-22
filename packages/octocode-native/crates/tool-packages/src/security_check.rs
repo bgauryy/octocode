@@ -16,6 +16,8 @@ mod osv;
 #[cfg(test)]
 pub(crate) mod osv_double;
 mod package;
+mod preview;
+pub use preview::preview;
 mod record;
 pub mod repository;
 mod source;

@@ -104,17 +104,35 @@ fn validate_schema_with_ref_depth(
     ref_depth: usize,
     mode: ValidationMode,
 ) -> Result<(), ContractValidationError> {
-    match schema {
+    let keywords = match schema {
         Value::Bool(true) => return Ok(()),
         Value::Bool(false) => {
             return Err(issue("schema.false", path.clone(), "Value is forbidden"));
         }
-        Value::Object(_) => {}
+        Value::Object(keywords) => keywords,
         _ => {
             return Err(super::internal(
                 "Schema must be an object or boolean".into(),
             ));
         }
+    };
+    // Published rows frequently repeat unconstrained scalar fields. A matching
+    // JSON type satisfies the entire schema here. Mismatches take the normal
+    // diagnostic path and any sibling keyword takes full validation.
+    if mode == ValidationMode::ReadOnly
+        && keywords.len() == 1
+        && let Some(kind) = keywords.get("type").and_then(Value::as_str)
+        && match value {
+            Value::String(_) => kind == "string",
+            Value::Bool(_) => kind == "boolean",
+            Value::Null => kind == "null",
+            Value::Number(n) => {
+                kind == "number" || (kind == "integer" && (n.is_i64() || n.is_u64()))
+            }
+            _ => false,
+        }
+    {
+        return Ok(());
     }
     if mode == ValidationMode::Input {
         normalize_integer(schema, value);
@@ -141,6 +159,9 @@ fn validate_schema_with_ref_depth(
             })?;
         // Every reference in a chain can carry constraints of its own.
         validate_schema_with_ref_depth(root, target, value, path, ref_depth + 1, mode)?;
+        if keywords.len() == 1 {
+            return Ok(());
+        }
     }
 
     // Preserve successful branch defaults, but retain enclosing field errors

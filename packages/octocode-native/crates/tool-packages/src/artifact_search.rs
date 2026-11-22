@@ -1,6 +1,8 @@
 //! Typed artifact registry discovery and exact metadata lookup.
 mod leads;
 mod pages;
+mod preview;
+pub use preview::preview_destinations;
 mod summary;
 
 use crate::artifact::query::artifact_search_query;
@@ -153,10 +155,21 @@ fn npm_registry(
     query: &ArtifactSearchQuery,
     env: &std::collections::BTreeMap<String, String>,
 ) -> Result<Option<ResolvedNpmRegistry>, ArtifactError> {
+    let Some(mut registry) = selected_npm_registry(query)? else {
+        return Ok(None);
+    };
+    registry.authorization = crate::artifact::npm_authorization(&registry.base, env);
+    Ok(Some(registry))
+}
+
+/// Resolve the destination without opening a credential file or resolving DNS.
+fn selected_npm_registry(
+    query: &ArtifactSearchQuery,
+) -> Result<Option<ResolvedNpmRegistry>, ArtifactError> {
     if artifact_search_query::artifact_type(query) != ArtifactType::Npm {
         return Ok(None);
     }
-    let mut registry = match artifact_search_query::registry_url(query) {
+    let registry = match artifact_search_query::registry_url(query) {
         Some(raw) => {
             let base = url::Url::parse(raw).map_err(|_| invalid_registry_url())?;
             ResolvedNpmRegistry {
@@ -166,7 +179,6 @@ fn npm_registry(
         }
         None => ResolvedNpmRegistry::npmjs(),
     };
-    registry.authorization = crate::artifact::npm_authorization(&registry.base, env);
     Ok(Some(registry))
 }
 

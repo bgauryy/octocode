@@ -105,11 +105,11 @@ fn complete_captures_preserve_multiline_and_unicode_source() {
 }
 
 #[test]
-fn a_column_is_kept_only_where_two_matches_repeat_a_line_and_header() {
+fn default_columns_locate_different_matches_on_the_same_line() {
     let root = Fixture::new();
     root.write(
         "pair.ts",
-        "export const both = [a.unwrap(), a.unwrap()];\nexport const one = b.unwrap();\n",
+        "export const both = [\"🙂\", a.unwrap(), b.unwrap()];\nexport const one = b.unwrap();\n",
     );
     let out = run(
         &root.0,
@@ -118,9 +118,12 @@ fn a_column_is_kept_only_where_two_matches_repeat_a_line_and_header() {
     .expect("same-line matches");
     let rows = out["files"][0]["matches"].as_array().expect("matches");
     assert_eq!(rows.len(), 3, "{out}");
-    assert_ne!(rows[0], rows[1], "two hits on one line must differ: {out}");
-    assert!(rows[0]["column"].is_number() && rows[1]["column"].is_number());
-    assert_ne!(rows[0]["column"], rows[1]["column"]);
+    for (row, before) in [
+        (&rows[0], "export const both = [\"🙂\", "),
+        (&rows[1], "export const both = [\"🙂\", a.unwrap(), "),
+    ] {
+        assert_eq!(row["column"], before.encode_utf16().count() + 1, "{out}");
+    }
     assert!(rows[2].get("column").is_none(), "{out}");
 }
 
@@ -132,7 +135,7 @@ fn a_pair_a_page_boundary_splits_keeps_its_columns_on_both_pages() {
     let root = Fixture::new();
     root.write(
         "same_line.rs",
-        "fn pair(x: Option<u8>) -> (u8, u8) {\n    (x.unwrap(), x.unwrap())\n}\nfn one(y: Option<u8>) -> u8 { y.unwrap() }\n",
+        "fn pair(x: Option<u8>) -> (u8, u8) {\n    (x.unwrap(), Some(1).unwrap())\n}\nfn one(y: Option<u8>) -> u8 { y.unwrap() }\n",
     );
     let pages = ast_chain(
         &root.0,

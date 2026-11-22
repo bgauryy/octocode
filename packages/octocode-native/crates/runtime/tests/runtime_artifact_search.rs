@@ -482,3 +482,23 @@ async fn a_tag_check_stopped_by_a_spent_quota_states_its_reset() {
     );
     runtime.close().await;
 }
+
+#[tokio::test]
+async fn egress_preview_uses_the_selected_registry_without_contacting_it() {
+    let registry = MockServer::start().await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[]);
+    let outcome = call(&runtime, "artifactSearch", json!({
+        "operation":"resolve","ecosystem":"npm","packageName":"@internal/example","version":"1.2.3",
+        "registryUrl":registry.uri(),"preview":true
+    })).await.expect("artifact preview");
+    let preview = &row_data(&outcome)["preview"];
+    assert_eq!(
+        preview["destinations"][0]["origin"],
+        registry.uri(),
+        "{preview}"
+    );
+    assert!(preview.to_string().contains("@internal/example"));
+    assert!(registry.received_requests().await.unwrap().is_empty());
+    runtime.close().await;
+}
