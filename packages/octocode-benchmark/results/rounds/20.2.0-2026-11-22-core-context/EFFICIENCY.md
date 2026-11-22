@@ -41,3 +41,25 @@ Each first/repeat pair below used identical inputs and is separate from the rece
 | Scout and proof | Connected MCP | Unmeasured | Unmeasured |
 
 Both local attempts matched fixture evidence. The same graph snapshot was returned and queried in both passes. Connected rows for symbol/body, PR files/reviews and version affected returned different serialized data in the timing pair. Evidence verification for those rows comes from the first table. Clone was already blocked and the scout retained its single inference request. Their only observed timings appear above.
+
+
+## Verified native build
+
+The rebuilt local CLI and a fresh stdio MCP server served `20.2.0+b755586b`. All 17 discovery input schemas matched the generated presentation. CLI and MCP agreed on the tool descriptions, fetched output references and invalid requests. On the same three-file fixture, both builds found the single orphan, returned eight AST nodes, and refused an over-budget scout before sending a request.
+
+| UTF-8 bytes | Original native build | Corrected native build | Saved |
+|---|---:|---:|---:|
+| Default MCP startup, 12 tools | 53,502 | 53,389 | 113 |
+| Default plus classification, 13 tools | 65,625 | 65,155 | 470 |
+| All opt-ins, 17 tools | 84,182 | 83,485 | 697 |
+| `graphQuery` MCP input schema | 8,657 | 8,430 | 227 |
+| `clasify` MCP input schema | 8,492 | 8,186 | 306 |
+| `astSearch` MCP input schema | 7,027 | 6,995 | 32 |
+
+The three tool schemas saved 565 bytes. The measurements used the same fixture, detected language servers and structured reply mode. Startup includes the compact tools array and one copy of the shared instructions. The full-profile catalog fell by 754 bytes, and shared instructions grew by 57 bytes. No rendered-prompt token savings were measured.
+
+The core patch also clarifies npm matching, history sections, classifier billing, saved evidence and nested result paging. The isolated core build passed all 1,884 tests across 139 files. The package version and enforcement fingerprint alone do not identify every wording change. The final executable SHA-256 is `a2bece18e04f15c187fb0069dfd77bbc93d8ddc3bb29d217547e0f4541f33087`. The source patch SHA-256 is `e75f77c49258454c76c81b1c28ce0fd3d411d17524dbde9cd60d234dfe3c0db8`.
+
+Host staging now rejects an executable whose public version reports an unexpected enforcement fingerprint before it can replace the destination. A real stale executable was rejected and the existing verified executable remained usable. All 24 staging and release-pipeline checks passed. All three focused native output-validation tests passed, including active, archived, mixed and compact repository rows.
+
+The already connected service still withheld both active rows while returning the archived control. It was not redeployed. A full release gate was not established: the initial verification build reused an older binary, and loopback-dependent tests in this environment reported permission errors. The final native build, core suite, project static checks and documentation verification passed.

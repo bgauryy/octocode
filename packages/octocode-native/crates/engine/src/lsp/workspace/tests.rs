@@ -220,15 +220,17 @@ fn package_includes_name_what_rust_analyzer_cannot_load() {
         b"include!(\"../../../contract/nested.rs\");\n",
     )
     .expect("nested lib");
-    let no_script = cargo_package_includes(&lib, &|| false).expect("package");
-    fs::write(package.join("build.rs"), b"fn main() {}").expect("build.rs");
-    let with_script = cargo_package_includes(&lib, &|| false).expect("package");
+    // The stopped scan runs first: a completed scan of settled files is kept
+    // and would answer it, so its order must not depend on the clock.
     let checks = std::cell::Cell::new(0);
     let capped = cargo_package_includes(&lib, &|| {
         checks.set(checks.get() + 1);
         checks.get() > 1
     })
     .expect("package");
+    let no_script = cargo_package_includes(&lib, &|| false).expect("package");
+    fs::write(package.join("build.rs"), b"fn main() {}").expect("build.rs");
+    let with_script = cargo_package_includes(&lib, &|| false).expect("package");
     let outside = vec![outer.join("contract/types.rs")];
     assert_eq!(no_script.generated, Vec::<PathBuf>::new());
     assert_eq!(no_script.outside, outside);
