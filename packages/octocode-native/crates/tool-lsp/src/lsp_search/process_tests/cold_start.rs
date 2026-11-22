@@ -135,10 +135,11 @@ fn a_cold_start_adds_no_warning_and_the_next_call_reuses_the_server() {
     runtime.block_on(pool.clear_all());
 }
 
-/// A pool holding more resident memory than its budget says so on the call
-/// that acquired from it; a pool within its budget says nothing.
+/// The overrun warning is for a busy server the pool will stop as its request
+/// ends: the one server a call leased, alone over even the smallest budget, is
+/// kept by design and reported by neither a tight nor a roomy pool.
 #[test]
-fn a_pool_over_its_memory_budget_is_disclosed_and_one_within_it_is_not() {
+fn a_lone_leased_server_over_its_memory_budget_is_not_reported_as_an_overrun() {
     if !require_node() {
         return;
     }
@@ -178,26 +179,18 @@ fn a_pool_over_its_memory_budget_is_disclosed_and_one_within_it_is_not() {
             .map(str::to_owned)
             .collect::<Vec<_>>()
     };
-    // The smallest budget: the one server the call leased cannot fit.
-    let tight = LspClientPool::new(LspPoolOptions {
-        max_resident_bytes: 1,
-        ..LspPoolOptions::default()
-    });
-    // The server's resident memory is sampled by a watchdog some seconds
-    // after the start, so warm calls on the same pool wait for the sample.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    let mut warnings = overflow_warnings(&tight);
-    while warnings.is_empty() && std::time::Instant::now() < deadline {
-        std::thread::sleep(std::time::Duration::from_millis(250));
-        warnings = overflow_warnings(&tight);
+    // The smallest budget, which the one leased server cannot fit, and the
+    // default (half the host's memory).
+    for max_resident_bytes in [1, LspPoolOptions::default().max_resident_bytes] {
+        let pool = LspClientPool::new(LspPoolOptions {
+            max_resident_bytes,
+            ..LspPoolOptions::default()
+        });
+        assert!(overflow_warnings(&pool).is_empty());
+        // The watchdog samples the server's memory after its start: a warm
+        // call sees the sample.
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        assert!(overflow_warnings(&pool).is_empty());
+        runtime.block_on(pool.clear_all());
     }
-    assert_eq!(warnings.len(), 1, "{warnings:?}");
-    assert!(warnings[0].contains("never stopped"), "{warnings:?}");
-    runtime.block_on(tight.clear_all());
-    // The default budget is half the host's memory.
-    let roomy = LspClientPool::new(LspPoolOptions::default());
-    assert!(overflow_warnings(&roomy).is_empty());
-    std::thread::sleep(std::time::Duration::from_secs(3));
-    assert!(overflow_warnings(&roomy).is_empty());
-    runtime.block_on(roomy.clear_all());
 }

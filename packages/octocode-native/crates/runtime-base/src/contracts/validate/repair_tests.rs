@@ -1388,6 +1388,48 @@ fn a_scalar_repair_names_only_forms_that_validate() {
     assert!(url.contains(r#""tool":"localFetch""#), "{url}");
 }
 
+#[test]
+fn a_one_field_scalar_repair_is_valid_json_and_preserves_the_value() {
+    for field in ["name", "quoted\"field"] {
+        let schema = json!({
+            "type": "object",
+            "properties": {(field): {"type": "string"}},
+            "additionalProperties": false
+        });
+        let mut received = json!("chosen\"value");
+        let error = super::schema::validate_schema(&schema, &schema, &mut received, &mut vec![])
+            .expect_err("a scalar is not an object");
+        let message = &error.issues[0].message;
+        let repair = message.split_once("; send ").expect("one exact repair").1;
+        let mut repaired: Value = serde_json::from_str(repair)
+            .unwrap_or_else(|error| panic!("{message}: {error}"));
+        assert_eq!(repaired, json!({(field): received}));
+        super::schema::validate_schema(&schema, &schema, &mut repaired, &mut vec![])
+            .expect("the offered object is accepted");
+    }
+}
+
+#[test]
+fn a_one_field_scalar_repair_does_not_offer_an_incomplete_object() {
+    for constraint in [
+        json!({"required": ["name", "count"]}),
+        json!({"minProperties": 2}),
+    ] {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {"name": {"type": "string"}, "count": {"type": "integer"}},
+            "additionalProperties": false
+        });
+        schema.as_object_mut().unwrap().extend(constraint.as_object().unwrap().clone());
+        let mut received = json!("chosen");
+        let error = super::schema::validate_schema(&schema, &schema, &mut received, &mut vec![])
+            .expect_err("a scalar is not an object");
+        let message = &error.issues[0].message;
+        assert!(!message.contains("; send "), "{message}");
+        assert!(message.contains(r#"field "name""#), "{message}");
+    }
+}
+
 /// R10: a renamed field that then needs another the row lacks is still shown
 /// holding the value sent, beside a value the missing field accepts.
 #[test]

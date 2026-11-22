@@ -1,5 +1,5 @@
 //! What a search page says beside its rows: the skipped-path ledger and
-//! the calls an empty or refused page offers; what the page could not cover
+//! window reads and the calls an empty or refused page offers; what the page could not cover
 //! is in `coverage`, the empty page's recovery in `probes`.
 
 use super::local_search_query;
@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 
 mod reads;
 mod skipped;
+pub(super) use reads::add_window_reads;
 
 /// What a page's leads disclosed of the paths its walk skipped.
 pub(super) struct Disclosed {

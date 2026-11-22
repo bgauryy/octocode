@@ -21,8 +21,9 @@
 //! - image provenance, except the pixel sizes a `box` maps to;
 //! - a section's `id`, `kind`, `name`, `context` and byte range, and the
 //!   `status` wrapper of an answered cell;
-//! - quiet units, which stay counted in `coverage.quiet` and named in a
-//!   warning, so each can be asked about by its key;
+//! - quiet units in rows without predicates, which stay counted in
+//!   `coverage.quiet` and named in a warning. A predicate summary keeps its
+//!   scores so using them costs no further requests;
 //! - a `sections` lead that is longer than the source it would split.
 use octocode_contract_types::ClasifyChannel;
 use octocode_runtime_base::id::ToolId;
@@ -66,7 +67,7 @@ pub(super) fn carry_details(row: &mut Value) {
 }
 
 /// Cut `row` to its summary, in place.
-pub(super) fn summarize(row: &mut Value, _keep_quiet: bool) {
+pub(super) fn summarize(row: &mut Value, keep_quiet: bool) {
     let Some(fields) = row.as_object_mut() else {
         return;
     };
@@ -78,7 +79,7 @@ pub(super) fn summarize(row: &mut Value, _keep_quiet: bool) {
     }
     fields.shift_remove("model");
     if fields.contains_key("units") || fields.contains_key("files") {
-        units(fields);
+        units(fields, keep_quiet);
     } else if fields.contains_key("answers") {
         evaluation(fields);
     } else if let Some(Value::Object(resources)) = fields.get_mut("resources") {
@@ -282,13 +283,15 @@ const PLAN_USAGE: [&str; 8] = [
     "requestsCeiling",
 ];
 
-/// A units row: quiet units leave (they stay counted), cells unwrap.
-fn units(fields: &mut Map<String, Value>) {
+/// A units row: cells unwrap, and a row without predicates hides quiet units.
+fn units(fields: &mut Map<String, Value>, keep_quiet: bool) {
     let mut left_out = Vec::new();
     if let Some(Value::Object(files)) = fields.get_mut("files") {
         for (path, lines) in files.iter_mut() {
             if let Some(lines) = lines.as_object_mut() {
-                shown_units(lines, &mut left_out, |line| format!("{path}:{line}"));
+                shown_units(lines, keep_quiet, &mut left_out, |line| {
+                    format!("{path}:{line}")
+                });
             }
         }
         files.retain(|_, lines| lines.as_object().is_some_and(|lines| !lines.is_empty()));
@@ -297,7 +300,7 @@ fn units(fields: &mut Map<String, Value>) {
         }
     }
     if let Some(Value::Object(units)) = fields.get_mut("units") {
-        shown_units(units, &mut left_out, str::to_owned);
+        shown_units(units, keep_quiet, &mut left_out, str::to_owned);
     }
     if !left_out.is_empty() {
         octocode_runtime_base::response::paging::push_warnings(
@@ -317,16 +320,19 @@ fn units(fields: &mut Map<String, Value>) {
 /// leaves out (by `key`) in `left_out`, and cuts each cell to its summary.
 fn shown_units(
     units: &mut Map<String, Value>,
+    keep_quiet: bool,
     left_out: &mut Vec<String>,
     key: impl Fn(&str) -> String,
 ) {
-    units.retain(|name, cells| {
-        let quiet = super::units::is_quiet(cells);
-        if quiet {
-            left_out.push(key(name));
-        }
-        !quiet
-    });
+    if !keep_quiet {
+        units.retain(|name, cells| {
+            let quiet = super::units::is_quiet(cells);
+            if quiet {
+                left_out.push(key(name));
+            }
+            !quiet
+        });
+    }
     for value in units
         .values_mut()
         .filter_map(Value::as_object_mut)

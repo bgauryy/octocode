@@ -133,8 +133,8 @@ pub(super) fn read_page(
 pub const RERUN_HINT: &str = "Run the same read directly to inspect it.";
 
 /// The reader's error row as the capture's failure: its code (when
-/// declared), its message, and its own recovery. The reader's leads
-/// (`findFile`, `viewTree`, `repair`, ...) are kept by name. A missing path,
+/// declared), its message, and its own recovery. The reader's retry is a
+/// fresh source check shown in `related`; other leads are kept by name. A missing path,
 /// a refusal or an invalid input fails the same way on a re-run, so its own
 /// hints say what to do (else the code's shared recovery); any other failure
 /// also offers the re-run.
@@ -143,13 +143,22 @@ pub fn reader_failure(
     data: &Value,
 ) -> ClassificationError {
     use octocode_runtime_base::id::error_codes::{ErrorClass, class};
+    use octocode_runtime_base::response::result::Continuation;
     let declared = octocode_runtime_base::id::error_code_of(data).map(|code| (code, class(code)));
     let leads: Vec<(String, Value)> = data["next"]
         .as_object()
         .into_iter()
         .flatten()
         .filter(|(_, lead)| octocode_runtime_base::contracts::envelope::is_call(lead))
-        .map(|(name, lead)| (name.clone(), lead.clone()))
+        .filter_map(|(name, lead)| {
+            let call = if name == "retry" {
+                let tool = ToolId::from_name(lead["tool"].as_str()?)?;
+                Continuation::related_input(tool, lead["input"].clone()).build()
+            } else {
+                lead.clone()
+            };
+            Some((name.clone(), call))
+        })
         .chain(
             data["related"]
                 .as_array()

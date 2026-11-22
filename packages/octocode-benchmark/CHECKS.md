@@ -231,7 +231,8 @@ Behavior, judged by reading, on both surfaces. The per-tool sections below list 
   `sort:{"by":"matchCount","order":"desc"}` (sorted by count); `matchOnly` with a regex; `contextLines`; `wholeWord`; `include`/`exclude`; a term that only matches
   as a regex (expect a hint).
 - Look for: hits grouped by file with line numbers, in walk (name) order; on a content page that has more, no `pagination.total` and no `matchCount` are stated; a hit in a line over 4 KB shows a window with its column.
-  To read the whole line, pass the file path and a one-line range at the hit's line number to `localFetch`.
+  Follow the related `localFetch` call to read the whole line. Expect one range per clipped line, grouped by file,
+  and no full-line read for ordinary hits.
   Empty rows carry `files: []` and `filesScanned`, no zero counters.
 - Compare: the expert command and what "better" means are in [COMPARISONS.md](COMPARISONS.md#localsearch).
 

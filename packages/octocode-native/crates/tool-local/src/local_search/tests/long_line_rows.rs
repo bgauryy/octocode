@@ -1,6 +1,6 @@
 //! S4a: a hit in a line past `LONG_LINE_BYTES` is a window of that line: the row
-//! states its column and where the window starts, and its value is the line's
-//! own text there. The row is evidence: it states no hint and offers no call.
+//! states its column, and its value is the line's own text there. It offers
+//! the complete line as a separate read.
 use super::*;
 use octocode_engine::security::LONG_LINE_BYTES;
 use octocode_test_support::json_fixture;
@@ -35,23 +35,25 @@ fn a_hit_in_a_line_past_a_whole_read_is_a_window_with_its_column() {
         Some(before.len() as u64 + 2),
         "the hit's 1-based column"
     );
-    assert_evidence_row_guides_nothing(&row);
+    assert!(row.get("hints").is_none(), "{row}");
+    assert_eq!(related_calls(&row).len(), 1, "{row}");
 }
 
-/// A window row says so on its row: its column marks the window, which no
-/// warning restates; the tool description names the read of the whole line
-/// (localFetch with the same matchString), so the response keeps no extra
-/// lead for it on a complete row.
+/// Clipped lines get targeted reads even after response guidance filtering.
+/// Multiple windows and multiple lines in one file share one file query.
 #[test]
-fn a_window_row_is_marked_by_its_column_alone() {
+fn window_rows_offer_one_read_per_file_with_one_range_per_clipped_line() {
     let root = tempfile::tempdir().expect("fixture");
     fs::create_dir_all(root.path().join("src")).expect("dir");
-    let line = format!(
-        "{} NEEDLE {}",
-        "z".repeat(LONG_LINE_BYTES),
-        "z".repeat(LONG_LINE_BYTES)
-    );
-    fs::write(root.path().join("src/one.txt"), format!("short\n{line}\n")).expect("fixture");
+    let filler = "z".repeat(LONG_LINE_BYTES);
+    let line = format!("{filler} NEEDLE {filler} NEEDLE {filler}");
+    fs::write(
+        root.path().join("src/one.txt"),
+        format!("ordinary NEEDLE\n{line}\nseparator\n{line}\n"),
+    )
+    .expect("fixture");
+    fs::write(root.path().join("src/two.txt"), &line).expect("fixture");
+    fs::write(root.path().join("outside.txt"), &line).expect("fixture");
     let (policy, security) = policy_for(root.path());
     let request = ls_query(
         json_fixture(r#"{"path": "src", "matchString": ["NEEDLE"]}"#),
@@ -61,11 +63,14 @@ fn a_window_row_is_marked_by_its_column_alone() {
         .expect("search")
         .to_row()
         .expect("row");
-    let hit = &row["files"][0]["matches"][0];
-    assert_eq!(hit["line"], 2, "{row}");
+    let hits = row["files"][0]["matches"].as_array().expect("hits");
+    assert!(hits[0].get("column").is_none(), "{row}");
     assert!(
-        hit["column"].as_u64().is_some(),
-        "the window is marked: {row}"
+        hits.iter()
+            .filter(|hit| hit["line"] == 2 && hit["column"].is_number())
+            .count()
+            > 1,
+        "the fixture must give multiple windows on one line: {row}"
     );
     let mut output = serde_json::json!({"results": [{"index": 0, "data": row}]});
     octocode_runtime_base::response::workflow_lead::retain_guidance(
@@ -74,11 +79,20 @@ fn a_window_row_is_marked_by_its_column_alone() {
         &serde_json::json!({"queries": [request]}),
     );
     let data = &output["results"][0]["data"];
-    let path = data["files"][0]["path"].as_str().expect("a path");
     assert_eq!(
-        data.to_string().matches(path).count(),
-        1,
-        "the row names its file once: {data}"
+        data["related"].as_array().map(Vec::len),
+        Some(1),
+        "the file queries share one related call: {data}"
+    );
+    let read = &data["related"][0];
+    assert_eq!(read["tool"], "localFetch", "{read}");
+    assert_eq!(
+        read["input"]["queries"],
+        serde_json::json!([
+            {"path":"src/one.txt","ranges":[{"startLine":2,"endLine":2},{"startLine":4,"endLine":4}]},
+            {"path":"src/two.txt","ranges":[{"startLine":1,"endLine":1}]},
+        ]),
+        "{read}"
     );
 }
 

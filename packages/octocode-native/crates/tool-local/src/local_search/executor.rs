@@ -217,6 +217,7 @@ pub(super) fn page_of(
             .workspace_relative(&absolute)
             .unwrap_or_else(|| absolute.to_string_lossy().into_owned());
     }
+    super::leads::add_window_reads(&mut result);
     result.warnings.extend(shaped.notes);
     result.unique_values = shaped.tally.map(|tally| tally.values);
     result.source_snapshot = Some(scan.identity);

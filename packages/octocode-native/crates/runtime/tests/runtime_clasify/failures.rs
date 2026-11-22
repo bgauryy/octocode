@@ -7,6 +7,49 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
 #[tokio::test]
+async fn a_failed_github_source_keeps_its_transport_error_and_fresh_read() {
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_BETA", "true".into()),
+        ("OCTOCODE_CLASSIFICATION_API", "fixture-only".into()),
+        (
+            "OCTOCODE_CLASSIFICATION_API_HOST",
+            crate::support::UNMOCKED_GITHUB_API_URL
+                .trim_end_matches("/api/v3")
+                .into(),
+        ),
+    ]);
+    // The fixture's GitHub endpoint is a closed loopback port.
+    let source = json!({"operation":"search","keywords":["fixture"]});
+    let out = clasify(
+        &runtime,
+        vec![json!({"operation":"evaluate","maxRequests":1,
+            "source":{"tool":"ghSearchRepo","query":source},
+            "questions":{"q":noul("Does this repository mention the fixture?")}
+        })],
+    )
+    .await;
+    let row = &out["results"][0];
+    let data = &row["data"];
+    assert_eq!(row["status"], "error", "{out}");
+    assert_eq!(data["errorCode"], "transport", "{out}");
+    assert_eq!(data["errorClass"], "transient", "{out}");
+    assert!(data["next"].get("retry").is_none(), "{out}");
+    assert!(data.get("usage").is_none(), "no request was judged: {out}");
+    let read = &data["related"][0];
+    assert_eq!(read["tool"], "ghSearchRepo", "{out}");
+    assert_eq!(read["input"], json!({"queries":[source]}), "{out}");
+    let retried = runtime
+        .run("read".into(), "ghSearchRepo".into(), read["input"].clone())
+        .await
+        .expect("the exported read runs as a public request")
+        .structured_content
+        .into_value();
+    assert_eq!(retried["results"][0]["data"]["errorCode"], "transport");
+    runtime.close().await;
+}
+
+#[tokio::test]
 async fn a_provider_failure_fails_the_row_and_the_runtime_recovers() {
     let server = MockServer::builder().start().await;
     let attempts = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
