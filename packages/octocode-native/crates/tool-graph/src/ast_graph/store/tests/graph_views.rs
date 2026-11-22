@@ -920,3 +920,49 @@ fn a_runtime_route_outranks_a_shorter_types_only_route() {
         .unwrap_or_else(|| panic!("{}", impact.value));
     assert!(top.get("typesOnly").is_none(), "{}", impact.value);
 }
+
+/// `hubs` and `find` name no edge kind, and `hubs` counts the connection
+/// once (`fanIn`) with every occurrence behind it (`sites`), whichever way
+/// the parallel edges of a mixed `import { type B, b }` are stored.
+#[test]
+fn hubs_and_find_count_a_connection_once_and_every_occurrence() {
+    for (name, source, _) in B_IMPORTS {
+        let dir = git_app(&[("a.ts", source), ("b.ts", B_SOURCE)]);
+        let root = dir.0.as_path();
+        let built = ingest_root(root, &root.join("app"), None, false);
+        assert_eq!(built.class, ExitClass::Success, "{name}: {}", built.value);
+
+        let witnesses = ask(root, "witnesses", Some("a.ts"), |_| {});
+        let occurrences = witnesses.value["rows"]
+            .as_array()
+            .expect("witness rows")
+            .iter()
+            .filter(|row| row["edge"] == "imports" && row["to"] == "app/b.ts")
+            .count() as u64;
+        assert!(occurrences > 0, "{name}: {}", witnesses.value);
+
+        let hubs = ask(root, "hubs", None, |_| {});
+        let hub = hubs.value["rows"]
+            .as_array()
+            .expect("hub rows")
+            .iter()
+            .find(|row| row["id"] == "app/b.ts")
+            .unwrap_or_else(|| panic!("{name} hubs: {}", hubs.value));
+        assert_eq!(hub["fanIn"], 1, "{name} hubs: {}", hubs.value);
+        assert_eq!(hub["sites"], occurrences, "{name} hubs: {}", hubs.value);
+        for field in ["via", "typesOnly", "edge"] {
+            assert!(hub.get(field).is_none(), "{name} hubs: {}", hubs.value);
+        }
+
+        let found = ask(root, "find", Some("b.ts"), |_| {});
+        let hit = found.value["rows"]
+            .as_array()
+            .expect("find rows")
+            .iter()
+            .find(|row| row["id"] == "app/b.ts")
+            .unwrap_or_else(|| panic!("{name} find: {}", found.value));
+        for field in ["via", "typesOnly", "edge", "sites"] {
+            assert!(hit.get(field).is_none(), "{name} find: {}", found.value);
+        }
+    }
+}

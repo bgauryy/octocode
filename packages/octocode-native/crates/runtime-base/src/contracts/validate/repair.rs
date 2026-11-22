@@ -74,47 +74,93 @@ pub(super) fn string(received: &Value, row_field: bool) -> String {
     }
 }
 
-/// For an object field sent a scalar: every required property set to it,
-/// when each takes a value of that type; a JSON string's object unquoted.
-pub(super) fn object(schema: &Value, defs: &Value, received: &Value) -> Option<String> {
-    if holds_json(received, Value::is_object) {
-        return Some(SEND_ITSELF.to_owned());
-    }
-    let fields = required_properties(super::super::resolve_ref(schema, defs), defs, received)?;
-    Some(format!(
-        "send {}, not {}",
-        Value::Object(fields),
-        shown(received)
-    ))
+/// For an object field sent a JSON string holding its object: unquote it.
+pub(super) fn object_text(received: &Value) -> Option<String> {
+    holds_json(received, Value::is_object).then(|| SEND_ITSELF.to_owned())
 }
 
-/// Every required property of an object `schema` set to the scalar `received`,
-/// when each takes a value of that type.
-fn required_properties(
-    schema: &Value,
-    defs: &Value,
+/// The object form `schema` filled from the scalar `received`: a required
+/// property pinned to a constant takes the constant, a scalar one takes
+/// `received` when it is of that type, an object one is filled the same
+/// way. `None` when a required property takes neither, or when none takes
+/// `received` (constants alone would drop the value sent). Only the type is
+/// matched here: the caller validates the candidate against the form.
+pub(super) fn filled(schema: &Value, defs: &Value, received: &Value) -> Option<Value> {
+    let mut placed = false;
+    let candidate = fill_object(schema, defs, received, &mut placed, &mut Vec::new())?;
+    placed.then_some(candidate)
+}
+
+/// `schema`'s required properties, each filled ([`fill`]). `open` holds the
+/// object schemas being filled, so a schema requiring itself ends the fill.
+fn fill_object<'a>(
+    schema: &'a Value,
+    defs: &'a Value,
     received: &Value,
-) -> Option<serde_json::Map<String, Value>> {
+    placed: &mut bool,
+    open: &mut Vec<&'a Value>,
+) -> Option<Value> {
+    let schema = super::super::resolve_ref(schema, defs);
+    if open.iter().any(|filling| std::ptr::eq(*filling, schema)) {
+        return None;
+    }
     let required = schema.get("required")?.as_array()?;
     let properties = schema.get("properties")?.as_object()?;
+    open.push(schema);
     let mut fields = serde_json::Map::new();
     for name in required.iter().filter_map(Value::as_str) {
-        let property = super::super::resolve_ref(properties.get(name)?, defs);
-        let takes = match property.get("type").and_then(Value::as_str)? {
-            "integer" => received
-                .as_f64()
-                .is_some_and(|number| number.fract() == 0.0),
-            "number" => received.is_number(),
-            "string" => received.is_string(),
-            "boolean" => received.is_boolean(),
-            _ => false,
-        };
-        if !takes {
+        let Some(value) = properties
+            .get(name)
+            .and_then(|property| fill(property, defs, received, placed, open))
+        else {
+            open.pop();
             return None;
-        }
-        fields.insert(name.to_owned(), received.clone());
+        };
+        fields.insert(name.to_owned(), value);
     }
-    (!fields.is_empty()).then_some(fields)
+    open.pop();
+    (!fields.is_empty()).then_some(Value::Object(fields))
+}
+
+/// One required property's value: its constant, `received` when it is of
+/// the property's scalar type, or its object filled.
+fn fill<'a>(
+    property: &'a Value,
+    defs: &'a Value,
+    received: &Value,
+    placed: &mut bool,
+    open: &mut Vec<&'a Value>,
+) -> Option<Value> {
+    let property = super::super::resolve_ref(property, defs);
+    if let Some(constant) = property.get("const") {
+        return Some(constant.clone());
+    }
+    let takes = match property.get("type").and_then(Value::as_str)? {
+        "object" => return fill_object(property, defs, received, placed, open),
+        "integer" => received
+            .as_f64()
+            .is_some_and(|number| number.fract() == 0.0),
+        "number" => received.is_number(),
+        "string" => received.is_string(),
+        "boolean" => received.is_boolean(),
+        _ => false,
+    };
+    *placed |= takes;
+    takes.then(|| received.clone())
+}
+
+/// The repair for a scalar sent for an object: every object it completes
+/// into a valid value ([`filled`], validated by the caller).
+pub(super) fn send_instead(candidates: &[Value], received: &Value) -> Option<String> {
+    if candidates.is_empty() {
+        return None;
+    }
+    let objects = candidates
+        .iter()
+        .map(Value::to_string)
+        .collect::<Vec<_>>()
+        .join(" or ");
+    Some(format!("send {objects}, not {}", shown(received)))
 }
 
 /// A filter selection: `{include, exclude}` and nothing else. A row may declare
@@ -164,7 +210,7 @@ pub(crate) fn lenient_value(schema: &Value, defs: &Value, received: &Value) -> O
 /// The value an error's example shows for `received` where `schema` takes
 /// another type: its lenient reading ([`lenient_value`]), else the fix the
 /// error line names, which the caller makes: a selection's values as its
-/// `include`, a scalar as every required property of an object, a scalar's
+/// `include`, a scalar as the object it fills ([`filled`]), a scalar's
 /// text, a one-item list's item.
 pub(super) fn repaired_value(schema: &Value, defs: &Value, received: &Value) -> Option<Value> {
     if let Some(read) = lenient_value(schema, defs, received) {
@@ -184,7 +230,7 @@ pub(super) fn repaired_value(schema: &Value, defs: &Value, received: &Value) -> 
                 };
                 return Some(serde_json::json!({"include": values}));
             }
-            required_properties(schema, defs, received).map(Value::Object)
+            filled(schema, defs, received)
         }
         "string" => match received {
             Value::Number(_) | Value::Bool(_) => Some(Value::String(received.to_string())),

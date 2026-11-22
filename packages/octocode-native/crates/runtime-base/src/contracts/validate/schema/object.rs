@@ -135,6 +135,42 @@ fn one_field_value(
     )))
 }
 
+/// For an object sent a scalar: each of `forms` the scalar completes
+/// ([`super::super::repair::filled`]) into a value that form accepts, so a
+/// repair never names an object the same validation would refuse. `None`
+/// when no form takes it.
+fn completed_forms(
+    root: &Value,
+    forms: &[&Value],
+    received: &Value,
+) -> Result<Option<String>, ContractValidationError> {
+    if !(received.is_string() || received.is_number() || received.is_boolean()) {
+        return Ok(None);
+    }
+    let defs = &root["$defs"];
+    let _speculation = union::Speculation::enter();
+    let mut candidates: Vec<Value> = Vec::new();
+    for form in forms {
+        let Some(candidate) = super::super::repair::filled(form, defs, received) else {
+            continue;
+        };
+        if candidates.contains(&candidate) {
+            continue;
+        }
+        let accepted = super::probe(validate_with_mode(
+            root,
+            form,
+            &mut candidate.clone(),
+            &mut Vec::new(),
+            ValidationMode::ReadOnly,
+        ))?;
+        if accepted {
+            candidates.push(candidate);
+        }
+    }
+    Ok(super::super::repair::send_instead(&candidates, received))
+}
+
 /// The message for a value that is no object: the expected shape, then the
 /// one repair that reads it. `forms` are the object schemas the value may
 /// take: `schema` alone, or every form of the union `schema` composes, so
@@ -154,12 +190,12 @@ fn not_an_object(
         Some(shape) => format!("Expected object {shape}"),
         None => "Expected object".to_owned(),
     };
-    let repair = match forms
-        .iter()
-        .find_map(|form| super::super::repair::object(form, &root["$defs"], received))
-    {
+    let repair = match super::super::repair::object_text(received) {
         Some(fix) => Some(fix),
-        None => one_field_value(root, forms, received)?,
+        None => match completed_forms(root, forms, received)? {
+            Some(fix) => Some(fix),
+            None => one_field_value(root, forms, received)?,
+        },
     };
     Ok(match repair {
         Some(repair) => format!("{message}; {repair}"),

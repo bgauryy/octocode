@@ -1,5 +1,4 @@
 //! `operation: "commit"`: one commit's header and its changed-file page.
-use super::axis::Axis;
 use super::file_page::{
     DiffSides, FilePage, Lead, empty_scope_warning, first_page, lead_first, patch_needle,
     shape_file_page,
@@ -136,13 +135,9 @@ pub(super) async fn commit(
     let scope_removed_all = unmatched.is_some();
     push_warnings(&mut out, unmatched);
     let page = if summary && !continued {
-        // The summary lists no file: the section states how many there are
-        // (when the count is exact) with none shown, and `next.files` opens
-        // the list from its first page.
-        if listed > 0 && exact {
-            out["sectionPagination"][Axis::Files.key()] =
-                octocode_runtime_base::response::pages::PageFacts::unshown(listed).to_value();
-        }
+        // The summary lists no file: `changedFileCount` states how many
+        // there are (when the count is exact) and `next.files` opens the
+        // list from its first page.
         FilePage {
             cursors: DiffCursors {
                 file_page: (listed > 0).then_some(1),

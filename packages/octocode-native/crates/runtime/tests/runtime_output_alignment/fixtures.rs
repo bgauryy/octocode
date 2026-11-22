@@ -400,6 +400,15 @@ pub(super) async fn recorded(name: &str, state: &'static str, with_paged: bool) 
         cases.push(case(tool, state, Value::Object(summary)));
     }
     if with_paged {
+        // A commit's summary fits any page; the read that pages is its
+        // file list.
+        let mut row = row;
+        if tool == "ghGetHistoryItem"
+            && row["operation"] == "commit"
+            && row.get("sections").is_none()
+        {
+            row["sections"] = json!(["files"]);
+        }
         cases.push(paged(tool, row));
     }
     World {

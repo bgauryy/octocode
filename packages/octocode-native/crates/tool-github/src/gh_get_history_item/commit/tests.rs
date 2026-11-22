@@ -60,7 +60,11 @@ fn a_continuation_page_names_the_commit_and_states_none_of_it_again() {
     let first = commit_header(&facts, "main", Header::Section, 900);
     let later = commit_header(&facts, "main", Header::Continuation, 900);
     let later_keys = later.as_object().expect("row").keys().collect::<Vec<_>>();
-    assert_eq!(later_keys, ["ref", "commitSha", "changedFileCount"], "{later}");
+    assert_eq!(
+        later_keys,
+        ["ref", "commitSha", "changedFileCount"],
+        "{later}"
+    );
     for key in &later_keys {
         assert_eq!(later[key.as_str()], first[key.as_str()], "{key}");
     }
@@ -105,7 +109,11 @@ fn a_differing_committer_is_stated_on_every_read() {
         "author":{"login":"ada"},"committer":{"login":"bob"}});
     let facts = CommitFacts::of(&raw);
     for summary in [false, true] {
-        let read = if summary { Header::Summary } else { Header::Section };
+        let read = if summary {
+            Header::Summary
+        } else {
+            Header::Section
+        };
         let header = commit_header(&facts, "main", read, 1);
         assert_eq!(header["committer"]["login"], "bob", "summary {summary}");
         assert!(
@@ -127,7 +135,11 @@ fn every_read_preserves_upstream_parent_provenance() {
         ] {
             let raw = json!({"sha":"head", "parents":parents});
             let facts = CommitFacts::of(&raw);
-            let read = if summary { Header::Summary } else { Header::Section };
+            let read = if summary {
+                Header::Summary
+            } else {
+                Header::Section
+            };
             let out = commit_header(&facts, "head", read, 0);
             let expected = parents
                 .as_array()
@@ -140,7 +152,11 @@ fn every_read_preserves_upstream_parent_provenance() {
         }
         let raw = json_fixture(r#"{"sha": "head"}"#);
         let facts = CommitFacts::of(&raw);
-        let read = if summary { Header::Summary } else { Header::Section };
+        let read = if summary {
+            Header::Summary
+        } else {
+            Header::Section
+        };
         let mut out = commit_header(&facts, "head", read, 0);
         remove_nulls(&mut out);
         assert!(out.get("parentCommitShas").is_none());

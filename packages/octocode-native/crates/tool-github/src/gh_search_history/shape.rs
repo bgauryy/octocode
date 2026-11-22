@@ -472,9 +472,6 @@ fn disclose_provider_limits(
         && route.stated_on(paging.page, paging.more)
     {
         value["calls"]["narrowScope"] = lead;
-        octocode_runtime_base::response::paging::push_warnings(
-            value,
-            [route.warning().to_owned()],
-        );
+        octocode_runtime_base::response::paging::push_warnings(value, [route.warning().to_owned()]);
     }
 }

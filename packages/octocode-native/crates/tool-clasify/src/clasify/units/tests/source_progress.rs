@@ -102,7 +102,10 @@ fn a_page_with_a_next_page_says_its_next_bills() {
     let note = billed_next_note("artifactSearch", 1, 20, &counted, true);
     assert!(note.contains("bills again"), "{note}");
     assert!(note.contains("1 judge request for 20 rows"), "{note}");
-    assert!(note.contains("139 of artifactSearch's rows remain"), "{note}");
+    assert!(
+        note.contains("139 of artifactSearch's rows remain"),
+        "{note}"
+    );
     assert!(note.starts_with("The reply's next "), "{note}");
     for uncounted in [
         json!({}),
@@ -113,7 +116,10 @@ fn a_page_with_a_next_page_says_its_next_bills() {
     ] {
         let note = billed_next_note("ghSearchCode", 3, 12, &uncounted, false);
         assert!(note.contains("3 judge requests for 12 rows"), "{note}");
-        assert!(note.contains("more of ghSearchCode's rows remain"), "{uncounted}: {note}");
+        assert!(
+            note.contains("more of ghSearchCode's rows remain"),
+            "{uncounted}: {note}"
+        );
         // Without saved work the page's call is the row's related call.
         assert!(note.starts_with("The related[] call "), "{note}");
     }

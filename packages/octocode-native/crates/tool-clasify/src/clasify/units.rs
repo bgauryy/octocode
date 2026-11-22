@@ -369,6 +369,7 @@ pub(super) fn judge_source(
     reads(&mut judged.output, tool, query, &data, &ranked, can_resume);
     repository(&mut judged.output, tool, query, &data);
     judged.offer_retry(row, can_resume);
+    let calls = page_calls(&judged);
     let output = &mut judged.output;
     // The tool's own next page, as the same row over it; a retry re-asks
     // units of a page whose next page its first call offered.
@@ -381,7 +382,7 @@ pub(super) fn judge_source(
             Some(NextPage::Call(call)) => {
                 // The next page is judged like this one: it bills, and the
                 // reply's continuation is otherwise read as a free page.
-                let note = billed_next_note(name, page_calls(output), page_rows, &data, can_resume);
+                let note = billed_next_note(name, calls, page_rows, &data, can_resume);
                 octocode_runtime_base::response::paging::push_warnings(output, [note]);
                 if can_resume {
                     octocode_runtime_base::response::collection::insert_walk(
@@ -424,10 +425,14 @@ pub(super) fn judge_source(
     RowOutcome::Units(Ok(judged))
 }
 
-/// The judge requests this page's reply states (`usage.calls`); 0 when the
-/// page asked none (every row quiet or answered from saved work).
-fn page_calls(output: &Value) -> u64 {
-    output["usage"]["calls"].as_u64().unwrap_or(0)
+/// The judge requests this page sent, summed from what each request spent:
+/// the row's `usage` is stated only when it finishes. 0 when the page asked
+/// none (every row quiet or answered from saved work).
+fn page_calls(judged: &UnitsOutcome) -> u64 {
+    judged
+        .spends
+        .iter()
+        .fold(0_u64, |sum, spend| sum.saturating_add(spend.calls))
 }
 
 /// What running the reply's `next` costs, on a page of `tool`'s rows that

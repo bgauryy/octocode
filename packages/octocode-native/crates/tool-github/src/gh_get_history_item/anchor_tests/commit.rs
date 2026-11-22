@@ -230,13 +230,12 @@ async fn a_commit_read_without_sections_is_a_summary_that_lists_no_file() {
     );
     assert_eq!(summary["pullRequest"], 12, "{summary}");
     assert!(
-        summary["message"].as_str().is_some_and(|message| message.contains("Why it broke")),
+        summary["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("Why it broke")),
         "{summary}"
     );
-    assert_eq!(
-        summary["sectionPagination"]["files"]["total"], files.len(),
-        "the section counts its files with none shown: {summary}"
-    );
+    assert!(summary.get("sectionPagination").is_none(), "{summary}");
     // The list is one call away, as a `files` read of the same commit.
     let open = &summary["next"]["files"]["input"]["queries"][0];
     assert_eq!(open["sections"], json!(["files"]), "{summary}");
@@ -248,7 +247,10 @@ async fn a_commit_read_without_sections_is_a_summary_that_lists_no_file() {
         "{listed}"
     );
     // The summary is smaller than the read that lists the files.
-    assert!(summary.to_string().len() < listed.to_string().len(), "{summary}");
+    assert!(
+        summary.to_string().len() < listed.to_string().len(),
+        "{summary}"
+    );
     // A file filter asks about files: it answers with them, sections or not.
     let mut scoped = row;
     scoped["include"] = json!(["f07.rs"]);
@@ -268,7 +270,12 @@ async fn a_files_walk_states_the_commit_on_its_first_page_only() {
     let mut raw = commit_raw(HEAD, &message);
     raw["parents"] = json!([{"sha":BASE}]);
     raw["stats"] = json!({"additions": 7, "deletions": 7});
-    raw["files"] = json!(names.iter().map(|name| changed_file(name)).collect::<Vec<_>>());
+    raw["files"] = json!(
+        names
+            .iter()
+            .map(|name| changed_file(name))
+            .collect::<Vec<_>>()
+    );
     mount_json(
         &server,
         format!("/api/v3/repos/o/r/commits/{HEAD}"),
@@ -291,16 +298,35 @@ async fn a_files_walk_states_the_commit_on_its_first_page_only() {
     }
     assert_eq!(pages.len(), 3, "7 files, 3 per page");
     let first = &pages[0];
-    for key in ["message", "author", "parentCommitShas", "additions", "deletions"] {
-        assert!(first.get(key).is_some(), "the first page states {key}: {first}");
+    for key in [
+        "message",
+        "author",
+        "parentCommitShas",
+        "additions",
+        "deletions",
+    ] {
+        assert!(
+            first.get(key).is_some(),
+            "the first page states {key}: {first}"
+        );
     }
     for later in &pages[1..] {
         assert_eq!(later["commitSha"], HEAD, "{later}");
         for key in [
-            "message", "author", "committer", "parentCommitShas", "additions", "deletions",
-            "pullRequest", "warnings", "related",
+            "message",
+            "author",
+            "committer",
+            "parentCommitShas",
+            "additions",
+            "deletions",
+            "pullRequest",
+            "warnings",
+            "related",
         ] {
-            assert!(later.get(key).is_none(), "a later page repeats {key}: {later}");
+            assert!(
+                later.get(key).is_none(),
+                "a later page repeats {key}: {later}"
+            );
         }
         // A later page costs its rows, not the commit's message again.
         assert!(later.to_string().len() < message.len(), "{later}");
@@ -308,7 +334,14 @@ async fn a_files_walk_states_the_commit_on_its_first_page_only() {
     let walked = pages
         .iter()
         .flat_map(|page| page["files"].as_array().expect("files").clone())
-        .map(|row| row.as_str().expect("file row").rsplit(' ').next().expect("path").to_owned())
+        .map(|row| {
+            row.as_str()
+                .expect("file row")
+                .rsplit(' ')
+                .next()
+                .expect("path")
+                .to_owned()
+        })
         .collect::<Vec<_>>();
     assert_eq!(walked, names, "every file exactly once, in order");
 }

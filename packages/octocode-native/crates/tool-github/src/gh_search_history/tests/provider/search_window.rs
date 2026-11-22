@@ -429,14 +429,28 @@ async fn a_capped_search_says_what_its_related_call_does() {
     let first = read(relevance(1)).await;
     let call = related(&first).expect("the first page offers the re-sorted search");
     let row = &call["input"]["queries"][0];
-    assert_eq!(row["sort"], json!({"by": "createdAt", "order": "desc"}), "{first}");
-    assert!(row["filters"].get("createdAt").is_none(), "it narrows nothing yet: {first}");
-    assert!(says(&first, "re-runs the search newest first from its first row"), "{first}");
+    assert_eq!(
+        row["sort"],
+        json!({"by": "createdAt", "order": "desc"}),
+        "{first}"
+    );
+    assert!(
+        row["filters"].get("createdAt").is_none(),
+        "it narrows nothing yet: {first}"
+    );
+    assert!(
+        says(&first, "re-runs the search newest first from its first row"),
+        "{first}"
+    );
     assert!(!says(&first, "bounded at this page's last row"), "{first}");
     // A page between carries no call that would restart the walk, and still
     // says the search is capped.
     let middle = read(relevance(3)).await;
-    assert_eq!(middle["partialReasons"], json!(["providerResultCap"]), "{middle}");
+    assert_eq!(
+        middle["partialReasons"],
+        json!(["providerResultCap"]),
+        "{middle}"
+    );
     assert_eq!(related(&middle), None, "{middle}");
     assert!(!says(&middle, "re-runs the search"), "{middle}");
     // The last reachable page states it again: the reader who walked needs it.
@@ -445,16 +459,21 @@ async fn a_capped_search_says_what_its_related_call_does() {
     assert!(says(&last, "re-runs the search newest first"), "{last}");
     // A date order continues from each page's own last row, and says the
     // boundary instant is included.
-    let dated = read(json!({"operation": "pullRequest", "owner": "o", "repo": "r",
+    let dated = read(
+        json!({"operation": "pullRequest", "owner": "o", "repo": "r",
         "keywords": ["fix"], "limit": 100, "page": 3,
-        "sort": {"by": "createdAt", "order": "desc"}}))
+        "sort": {"by": "createdAt", "order": "desc"}}),
+    )
     .await;
     let call = related(&dated).expect("a date-ordered page continues from its last row");
     assert_eq!(
         call["input"]["queries"][0]["filters"]["createdAt"]["to"], "2026-03-01T09:30:00Z",
         "{dated}"
     );
-    assert!(says(&dated, "bounded at this page's last row's date"), "{dated}");
+    assert!(
+        says(&dated, "bounded at this page's last row's date"),
+        "{dated}"
+    );
     assert!(says(&dated, "is included"), "{dated}");
 }
 

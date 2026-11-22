@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+mod billed_walk;
 mod concurrency;
 mod resources;
 mod resume;

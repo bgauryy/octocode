@@ -204,7 +204,10 @@ fn only_a_moved_anchor_warns() {
     assert!(anchor(1).warning.is_none());
     let moved = anchor(3);
     let warning = moved.warning.expect("a moved anchor warns");
-    assert!(warning.contains("line 3") && warning.contains("line 1"), "{warning}");
+    assert!(
+        warning.contains("line 3") && warning.contains("line 1"),
+        "{warning}"
+    );
     assert!(!warning.contains("alternatives"), "{warning}");
 }
 
@@ -222,8 +225,7 @@ fn a_line_past_the_end_is_refused_naming_the_length_and_the_spellings() {
         "file:///w/a.rs",
         Some(source),
     )
-    .err()
-    .expect("a line outside the file anchors nothing");
+    .expect_err("a line outside the file anchors nothing");
     assert!(refused.contains(&asked.to_string()), "{refused}");
     assert!(refused.contains(&format!("{length} lines")), "{refused}");
     for line in 1..=length {
@@ -232,7 +234,13 @@ fn a_line_past_the_end_is_refused_naming_the_length_and_the_spellings() {
     // The file's last line is still a line of it.
     let last = u32::try_from(length).expect("lines");
     assert!(
-        resolve_anchor(&line_query("check", last), "/w/a.rs", "file:///w/a.rs", Some(source)).is_ok()
+        resolve_anchor(
+            &line_query("check", last),
+            "/w/a.rs",
+            "file:///w/a.rs",
+            Some(source)
+        )
+        .is_ok()
     );
 }
 

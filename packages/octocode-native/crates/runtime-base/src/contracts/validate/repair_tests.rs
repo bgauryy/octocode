@@ -1331,6 +1331,29 @@ fn an_example_never_names_an_address_the_runtime_refuses() {
     }
 }
 
+/// A scalar sent for an object is repaired only into objects the schema
+/// accepts, each filled through its required fields: a glob for a clasify
+/// resource becomes the localFetch form (its `tool` constant and its
+/// `query.path`), never a `url` the https pattern refuses; a URL completes
+/// more than one form, and the repair names each.
+#[test]
+fn a_scalar_repair_names_only_forms_that_validate() {
+    let row = |value: &str| {
+        json!({"queries": [{
+            "operation": "evaluate",
+            "resources": {"docs": value},
+            "questions": {"q": {"type": "noul", "instructions": "x"}}
+        }]})
+    };
+    let glob = first_line("clasify", row("docs/*.md"));
+    assert!(glob.contains(r#""tool":"localFetch""#), "{glob}");
+    assert!(glob.contains(r#""query":{"path":"docs/*.md"}"#), "{glob}");
+    assert!(!glob.contains(r#"{"url":"#), "{glob}");
+    let url = first_line("clasify", row("https://example.com/a"));
+    assert!(url.contains(r#"{"url":"https://example.com/a"}"#), "{url}");
+    assert!(url.contains(r#""tool":"localFetch""#), "{url}");
+}
+
 /// R10: a renamed field that then needs another the row lacks is still shown
 /// holding the value sent, beside a value the missing field accepts.
 #[test]

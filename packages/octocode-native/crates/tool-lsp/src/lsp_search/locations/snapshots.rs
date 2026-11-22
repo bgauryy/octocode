@@ -153,7 +153,7 @@ pub(super) fn document_symbols_payload(
                 + 1
         })
         .collect::<Vec<_>>();
-    let (window, pagination, next_page) = page_window(
+    let (window, mut pagination, next_page) = page_window(
         lsp_search_query::page(query).unwrap_or(1),
         &Pages::of(query, budget, &sizes, &snapshot),
     );
@@ -162,6 +162,23 @@ pub(super) fn document_symbols_payload(
     } else {
         symbols[spans[window.start].start..spans[window.end - 1].end].to_vec()
     };
+    // A page is cut at top-level rows, but the outline serves each with its
+    // members: the block counts the rows served, members included (as an
+    // astSearch outline does), so a stated total is what the walk delivers.
+    if let Some(block) = pagination.as_object_mut() {
+        let before = spans
+            .get(window.start)
+            .map_or(symbols.len(), |span| span.start);
+        for (key, rows) in [
+            ("offset", before),
+            ("length", page.len()),
+            ("total", symbols.len()),
+        ] {
+            if let Some(stated) = block.get_mut(key) {
+                *stated = json!(rows);
+            }
+        }
+    }
     let mut row = json!({
         "operation": lsp_search_query::operation(query),
         "symbols": document_symbol_rows(&page, &symbols),

@@ -416,8 +416,17 @@ fn a_miss_beside_skipped_paths_claims_no_absence_in_them() {
     assert!(hint.contains("absence is proven"), "{whole}");
     let partial = run(&with_withheld, term, SourceLimits::REAL);
     assert_eq!(listed(&partial), Vec::<String>::new(), "{partial}");
-    assert!(partial["skippedPaths"]["entries"].as_array().is_some_and(|entries| !entries.is_empty()), "{partial}");
-    assert_eq!(partial["hints"].as_array().map(Vec::len), Some(1), "{partial}");
+    assert!(
+        partial["skippedPaths"]["entries"]
+            .as_array()
+            .is_some_and(|entries| !entries.is_empty()),
+        "{partial}"
+    );
+    assert_eq!(
+        partial["hints"].as_array().map(Vec::len),
+        Some(1),
+        "{partial}"
+    );
     let hint = partial["hints"][0].as_str().unwrap_or_default();
     assert!(hint.contains("maskedSpans"), "{partial}");
     assert!(hint.contains("skippedPaths"), "{partial}");

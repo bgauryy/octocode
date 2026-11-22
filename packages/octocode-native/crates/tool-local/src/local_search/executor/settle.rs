@@ -201,10 +201,7 @@ pub(super) fn settle_row(
                 && skips.generated.is_empty()
                 && skips.hidden.is_empty()
                 && skips.ignored.is_empty());
-        recovery.offer(
-            super::super::coverage::masked_hint(masked, left_out),
-            None,
-        );
+        recovery.offer(super::super::coverage::masked_hint(masked, left_out), None);
     }
     // Binaries beside hits change nothing; they qualify an empty or
     // partial answer.

@@ -53,8 +53,21 @@ async fn summary_and_patch_walks_terminate_without_requiring_each_other() {
         summary.structured_content
     );
     assert_eq!(row_data(&summary)["message"], message);
+    // The summary is finished: the reply has no continuation and lists no
+    // file. Its file list is a branch one call away, a `files` read.
     assert!(
-        row_data(&summary).get("next").is_none(),
+        summary.structured_content.get("next").is_none(),
+        "{}",
+        summary.structured_content
+    );
+    assert!(
+        row_data(&summary).get("files").is_none(),
+        "{}",
+        summary.structured_content
+    );
+    assert_eq!(
+        row_data(&summary)["next"]["files"]["tool"],
+        "ghGetHistoryItem",
         "{}",
         summary.structured_content
     );
