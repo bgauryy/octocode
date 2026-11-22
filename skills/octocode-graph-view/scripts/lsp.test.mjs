@@ -12,13 +12,13 @@ async function probe(t, { partial = false, sameIndex = false } = {}) {
 const input = JSON.parse(json ?? '{}');
 const row = (index, name = 'target') => ({index, data: {kind: 'matches', ${partial ? "isPartial: true, partialReasons: ['buildScriptsOff']," : ''} files: [{path: ${JSON.stringify(join(root, 'target.ts'))}, matches: [{symbolName: name, line: 1, sites: [{line: 3}]}]}]}});
 if(tool==='schema') console.log(JSON.stringify({queries:{maxItems:2}}));
-else if(input.queries?.[0]?.operation === 'documentSymbols') console.log(JSON.stringify({results:[{index:0,data:{symbols:[]}}]}));
+else if(input.queries?.[0]?.operation === 'documentSymbols') { console.error('outline unavailable'); process.exit(5); }
 else if(input.cursor) console.log(JSON.stringify({results:[row(${sameIndex ? "0, 'other'" : '1'})]}));
 else console.log(JSON.stringify({results:[row(0)], next:{kind:'continue',tool:'lspSearch',input:{cursor:'tail'}}}));
 `);
   const D = { files: [{id:'source.ts'}, {id:'target.ts'}], symbols: [{id:'source.ts#first',file:'source.ts',name:'first',kind:'function',line:1},{id:'source.ts#second',file:'source.ts',name:'second',kind:'function',line:4},{id:'target.ts#target',file:'target.ts',name:'target',kind:'function',line:1}], calls:[], hubFiles:['source.ts'], coverage:{} };
   if (sameIndex) D.symbols.splice(1, 1);
-  const source = `import { lspPhase } from ${JSON.stringify(new URL('./lsp.mjs', import.meta.url).href)}; const D = ${JSON.stringify(D)}; const result = await lspPhase(D, {root:${JSON.stringify(root)},emit:()=>{},jobs:2}); console.log(JSON.stringify({D,result}));`;
+  const source = `import { lspPhase } from ${JSON.stringify(new URL('./lsp.mjs', import.meta.url).href)}; const D = ${JSON.stringify(D)}; const result = await lspPhase(D, {root:${JSON.stringify(root)},emit:()=>{},jobs:2,batchSize:2}); console.log(JSON.stringify({D,result}));`;
   const child = spawnSync(process.execPath, ['--input-type=module', '-e', source], { encoding: 'utf8', env: {...process.env, OCTOCODE_CLI: `${process.execPath} ${script}`} });
   assert.equal(child.status, 0, child.stderr);
   return JSON.parse(child.stdout);

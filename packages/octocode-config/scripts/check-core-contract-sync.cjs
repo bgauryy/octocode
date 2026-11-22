@@ -7,7 +7,7 @@
 //
 // Downloads the npm-published core version pinned in octocode-config's
 // package.json and checks contract/ against THAT — what a clean install of the
-// released packages delivers. (Freshness against the workspace core is
+// released packages delivers. (Freshness against the installed core is
 // `check:tool-contract`.) Run it before publishing native.
 
 const { execFileSync } = require('node:child_process');

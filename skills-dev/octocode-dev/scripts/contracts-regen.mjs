@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `contracts:regen`: regenerate the tool contract from the sibling core, one run at a time.
+// `contracts:regen`: regenerate the tool contract from the installed core package, one run at a time.
 //
 // Two sessions that regenerate at once race on core's `dist/` (one deletes it while the
 // other reads it), and a regeneration over a core that does not typecheck publishes a
@@ -23,7 +23,7 @@ const { REGEN_KIND, exitOnSignals, withSlot } = createRequire(import.meta.url)(
 export const STEPS = [
   ['core typecheck', 'yarn', ['typecheck'], CORE],
   ['core build', 'node', [path.join(HERE, 'core-build.mjs')], ROOT],
-  ['refresh the copy of core', 'yarn', ['install'], ROOT],
+  ['install pinned dependencies', 'yarn', ['install'], ROOT],
   ['generate the tool contract', 'yarn', ['workspace', '@octocodeai/config', 'generate:tool-contract'], ROOT],
   ['tool-flow route table', 'node', [path.join(ROOT, 'skills', 'common', 'tool-flow.mjs')], ROOT],
 ];

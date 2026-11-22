@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import { join, relative, resolve } from 'node:path';
-import { onToolCall } from './lib.mjs';
+import { onToolCall, prepareGraphRun } from './lib.mjs';
 import { planChunks, refine, name } from './plan.mjs';
 import { buildSection } from './section.mjs';
 import { chunkOf, packageKey, stitch } from './stitch.mjs';
@@ -89,12 +89,12 @@ export async function buildChunk(c, ctx) {
   try {
     const others = ctx.chunks.filter((x) => x !== c);
     const crossPackages = others.length ? new Set(others.filter((x) => x.package).map((x) => packageKey(x.package))) : null;
-    const d = await buildSection(join(root, c.path), { out: join(out, 'chunks', c.id), jobs: opts.jobs, exclude: [...opts.exclude, ...(c.exclude ?? [])], emit: onRows, crossPackages });
+    const d = await buildSection(join(root, c.path), { out: join(out, 'chunks', c.id), ...ctx.contract, jobs: opts.jobs, exclude: [...opts.exclude, ...(c.exclude ?? [])], emit: onRows, crossPackages });
     ctx.datas.set(c.id, d);
     emit({ type: 'chunk', id: c.id, state: 'done', ms: Date.now() - t0, counts: d.coverage });
     return [];
   } catch (error) {
-    const parts = /scopeTooBroad/.test(error.message) ? refine(c, ctx.files) : null;
+    const parts = /scopeTooBroad/.test(error.message) ? refine(c, ctx.files, ctx.contract.extensions) : null;
     if (!parts) {
       c.error = error.message.split('\n')[0];
       emit({ type: 'chunk', id: c.id, state: 'error', ms: Date.now() - t0, error: c.error });
@@ -164,7 +164,7 @@ export function stitchPhase(ctx) {
   // One chunk: keep its section-wide health, which stitching cannot merge across chunks.
   if (datas.size === 1) D.insights.health = [...datas.values()][0].insights.health;
   D.uncoveredFiles = files.filter((p) => !chunkOf(p, chunks));
-  D.chunks = chunks.map(({ id, path, files: n, loose, package: pkg, error }) => ({ id, path, files: n, loose, package: pkg, built: datas.has(id), error }));
+  D.chunks = chunks.map(({ id, path, files: n, loose, exclude, package: pkg, error }) => ({ id, path, files: n, loose, exclude, package: pkg, built: datas.has(id), error }));
   packageManifests(D, chunks, root);
   emit({ type: 'stitched', imports: D.imports.filter((e) => e.crossChunk), calls: D.calls.filter((e) => e.crossChunk), packages: D.files.filter((f) => f.kind === 'package').map(({ id, label, chunk, manifest }) => ({ id, label, chunk, manifest })), unresolved: s.unresolved, uncovered: D.uncoveredFiles });
   return D;
@@ -179,8 +179,8 @@ export async function finishRun(D, ctx, phase, lsp) {
     phase('lsp', 'skipped', { note: signal?.aborted ? 'cancelled' : lsp.note });
   } else {
     phase('lsp', 'start', lsp.start ? { note: lsp.start } : {});
-    D.callStats = await lspPhase(D, { root, emit, signal, jobs: opts.jobs });
-    phase('lsp', D.callStats.lsp === 'ok' ? 'done' : 'skipped', { note: D.callStats.lsp });
+    D.callStats = await lspPhase(D, { root, emit, signal, jobs: opts.jobs, batchSize: ctx.contract.lspBatch });
+    phase('lsp', D.callStats.probed ? 'done' : 'skipped', { note: D.callStats.lsp });
   }
   phase('verify', 'start', { total: D.files.length });
   const checked = await verifyPhase(D, { root, chunks: ctx.chunks, datas: ctx.datas, emit, jobs: opts.jobs });
@@ -213,21 +213,22 @@ export async function runPipeline({ root, out, opts, emit, signal }) {
   reportTools(emit);
   mkdirSync(out, { recursive: true });
   emit({ type: 'run', root, name: root.split('/').pop(), out, options: opts, startedAt: new Date().toISOString() });
+  const contract = await prepareGraphRun();
   phase('list', 'start');
   // --exclude prunes directory names everywhere, as ingest does, so excluded trees are never planned.
   const excluded = new Set(opts.exclude);
   const files = (await listFiles(root, emit)).filter((p) => !p.split('/').slice(0, -1).some((d) => excluded.has(d)));
   phase('list', 'done', { files: files.length });
   phase('plan', 'start');
-  const chunks = planChunks(files, { whole: opts.whole });
+  const chunks = planChunks(files, { whole: opts.whole, extensions: contract.extensions });
   for (const c of chunks) c.package = manifestName(root, c.path);
   emit({ type: 'plan', chunks: chunks.map(({ id, path, files: n, loose, package: pkg }) => ({ id, path, files: n, loose, package: pkg })), whole: opts.whole });
   phase('plan', 'done', { chunks: chunks.length });
-  const ctx = { root, out, opts, emit, signal, files, chunks, datas: new Map(), used: new Set(chunks.map((c) => c.id)) };
+  const ctx = { root, out, opts, emit, signal, files, chunks, contract, datas: new Map(), used: new Set(chunks.map((c) => c.id)) };
   phase('graph', 'start', { total: chunks.length });
   await buildAll(ctx);
   phase('graph', 'done', { built: ctx.datas.size, total: chunks.length });
-  if (!ctx.datas.size) throw new Error(`No chunk was built: ${chunks.map((c) => `${c.id}: ${c.error}`).join('; ')}`);
+  if (chunks.length && !ctx.datas.size) throw new Error(`No chunk was built: ${chunks.map((c) => `${c.id}: ${c.error}`).join('; ')}`);
   phase('stitch', 'start');
   const D = stitchPhase(ctx);
   phase('stitch', 'done', { crossImports: D.coverage.crossChunkImports, crossCalls: D.coverage.crossChunkCalls });

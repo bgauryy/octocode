@@ -137,6 +137,14 @@ function nextResponseCall(page, call) {
   return next?.input ? { tool: next.tool ?? call.tool, input: next.input } : null;
 }
 
+// A batch can state nested fields common to all rows in shared.data on that page.
+function withShared(shared, own) {
+  if (own === undefined) return shared;
+  if (!shared || !own || typeof shared !== 'object' || typeof own !== 'object' || Array.isArray(shared) || Array.isArray(own)) return own;
+  const inherited = Object.entries(shared).map(([key, value]) => [key, withShared(value, Object.hasOwn(own, key) ? own[key] : undefined)]);
+  return { ...own, ...Object.fromEntries(inherited) };
+}
+
 // Follow the reply's `next` to its end before following any row branch. All consumers
 // share this join so long strings and nested rows are never mistaken for extra results.
 // Each later page of a row keeps the row's index and remains a separate slice.
@@ -151,7 +159,9 @@ export async function readResponse(tool, input, { run = runTool, onPage = () => 
     const page = await run(call.tool, call.input);
     onPage(page, call);
     combined ??= { ...structuredClone(page), results: fragments.rows };
-    for (const row of page.results ?? []) await fragments.add(row);
+    for (const row of page.results ?? []) {
+      await fragments.add(page.shared?.data && row.data ? { ...row, data: withShared(page.shared.data, row.data) } : row);
+    }
     call = nextResponseCall(page, call);
   }
   fragments.finish();
@@ -201,7 +211,7 @@ export function describeCall(args) {
   try { input = json ? JSON.parse(json) : {}; } catch { /* the call is still logged with its raw args */ }
   if (input.cursor) return { tool, detail: 'cursor', page: `cursor ${String(input.cursor).slice(-10)}` };
   const q = input.queries ?? [];
-  if (tool === 'graphBuild' || tool === 'graphQuery') {
+  if (q.length <= 1 && (tool === 'graphBuild' || tool === 'graphQuery')) {
     const x = q[0] ?? {};
     const targets = [x.target].flat().filter(Boolean);
     const target = targets.length > 1 ? `${targets.length} targets` : targets[0];

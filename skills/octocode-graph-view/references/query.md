@@ -2,6 +2,8 @@ Load when answering a structural question from a built graph (who depends on a f
 
 # Ask the graph
 
+For queries against a native snapshot, use the operation table in the `octocode-graph` skill. The commands here query the saved viewer result, including LSP and stitched edges.
+
 One query language answers over the whole stitched, weighted file graph of a result (`data.json`: every chunk, cross-chunk imports and calls, the weight rule of [graph-model.mjs](../scripts/graph-model.mjs)). Production edges only unless `--tests`. Walks (`impact`, `deps`, `dependents`, `path`, `cycle`) follow strong edges: an import or a call with full evidence (LSP-resolved or high confidence). Metrics count every production edge, so a walk can be empty for a file the metrics place in a cycle; its summary and `stats.weakAdds` (`weakSize` for `cycle`, `weakHops` for `path`) state what `--weak` would add, which is edges backed only by calls bound by name (graph confidence medium or low). `--imports` walks import edges only. Rows are complete: nothing is cut to a page size; the viewer pages them.
 
 | Query | Answer |

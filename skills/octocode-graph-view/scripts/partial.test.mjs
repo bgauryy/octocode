@@ -16,6 +16,10 @@ test('query partial metadata survives section projection, stitching and both bri
       console.log(JSON.stringify({querySchema:{properties:{target:{type:'array',maxItems:100}}}}));
     } else {
       const query = JSON.parse(process.argv.at(-1)).queries[0];
+      if (tool === 'graphQuery') {
+        const { appendFileSync } = await import('node:fs');
+        appendFileSync(${JSON.stringify(join(folder, 'queries'))}, query.operation + '\\n');
+      }
       const data = tool === 'graphBuild'
         ? {graph:'snapshot',root:query.path,counts:{nodes:1,edges:0},linkage:{ratio:null}}
         : {graph:{id:'snapshot',root:query.path,isPartial:true,partialReasons:['filesSkipped']},rows:query.operation === 'find' ? [{id:'a.ts',kind:'file',language:'typescript'}] : []};
@@ -32,6 +36,10 @@ test('query partial metadata survives section projection, stitching and both bri
   });
   assert.equal(built.status, 0, built.stderr);
   const section = JSON.parse(built.stdout);
+  const operations = readFileSync(join(folder, 'queries'), 'utf8').trim().split('\n');
+  for (const operation of ['witnesses', 'symbols']) {
+    assert.equal(operations.filter((op) => op === operation).length, 1, 'a complete single page needs one walk');
+  }
   assert.equal(section.snapshot.isPartial, true);
   assert.deepEqual(section.snapshot.partialReasons, ['filesSkipped']);
   assert.equal(section.coverage.isPartial, true);

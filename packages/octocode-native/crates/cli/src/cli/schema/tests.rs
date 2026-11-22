@@ -32,6 +32,20 @@ fn every_catalog_view_names_one_query_command() {
 }
 
 #[test]
+fn full_catalog_exposes_each_tools_batch_limit() {
+    use octocode_runtime_base::{contracts::batch_limit, id::ToolId};
+    let full = catalog(&machine(&[]), Some("full")).expect("catalog");
+    for entry in super::tools(&full) {
+        let id = ToolId::from_name(entry["name"].as_str().expect("name")).expect("tool");
+        assert_eq!(entry["maxQueries"], json!(batch_limit(id)), "{id:?}");
+    }
+    assert_eq!(
+        full["executable"],
+        json!(std::env::current_exe().expect("running CLI"))
+    );
+}
+
+#[test]
 fn catalog_lists_only_enabled_tools() {
     let value = catalog(&machine(&["clasify"]), None).expect("catalog");
     let names: Vec<&str> = value["tools"]

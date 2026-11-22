@@ -7,7 +7,7 @@
  *   link/portal entries for managed packages. Publishing with local resolutions
  *   active causes Yarn to rewrite consumer deps via the local registry,
  *   producing incorrect pinned versions in published tarballs. These entries
- *   are added by `node skills-dev/octocode-dev/scripts/dev.mjs setup` for local development and must be removed
+ *   can persist in older development checkouts and must be removed
  *   before publishing.
  *
  *   PUBLISHED DEPENDENCIES CHECK (--package <name>) — every public workspace
@@ -189,9 +189,6 @@ function main() {
   for (const name of resolutionIssues) {
     console.error(`    resolutions.${name}: "${rootPkg.resolutions?.[name]}"`);
   }
-  console.error(
-    `\n  These were added by \`node skills-dev/octocode-dev/scripts/dev.mjs setup\` for local development.`
-  );
   console.error(
     `  Remove them before publishing: \`node ./skills-dev/octocode-dev/scripts/prepublish.mjs --fix\`\n`
   );

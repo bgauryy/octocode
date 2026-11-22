@@ -11,9 +11,9 @@ import { accept, decoder, encode, parseFrame } from './ws.mjs';
 import { continuations, describeCall, pagedTool } from './tools.mjs';
 import { planChunks, refine } from './plan.mjs';
 import { chunkOf } from './stitch.mjs';
-import { foldEdges, groupWalk } from './section.mjs';
+import { foldEdges } from './section.mjs';
 import { localCli } from './lib.mjs';
-import { tempDir } from './test-tmp.mjs';
+import { tempDir, fakeCatalog } from './test-tmp.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -164,26 +164,18 @@ test('a chunk refused as too broad splits one level and keeps every file', () =>
   assert.equal(refine({ path: 'src/big', files: 12 }, files), null);
 });
 
-const fileOf = (id) => id.split('#')[0];
-test('witness and symbol groups are walked concurrently and must add up to the whole walk, else the single walk runs', async () => {
-  const W = [{ id: 'w1', from: 'a.ts' }, { id: 'w2', from: 'a.ts#f' }, { id: 'w3', from: 'b.ts' }, { id: 'w4', from: 'c.ts' }];
-  const calls = [];
-  const q = async (_stream, row) => {
-    calls.push(row.target ?? 'all');
-    return { rows: row.target ? W.filter((w) => row.target.includes(fileOf(w.from))) : W };
-  };
-  const fields = { operation: 'witnesses' };
-  const grouped = await groupWalk(q, 'witnesses', ['c.ts', 'a.ts', 'b.ts'], { jobs: 1, fields, total: async () => 4, max: 2 });
-  assert.deepEqual([grouped.grouped, grouped.groups, grouped.rows.map((w) => w.id).toSorted()], [true, 3, ['w1', 'w2', 'w3', 'w4']]);
-  assert.deepEqual(calls, [['a.ts'], ['b.ts'], ['c.ts']], 'about four groups per worker, of sorted files');
-  calls.length = 0;
-  const many = Array.from({ length: 12 }, (_, i) => `f${String(i).padStart(2, '0')}.ts`);
-  await groupWalk(async (_s, row) => (calls.push(row.target), { rows: [] }), 'witnesses', many, { jobs: 1, fields, total: async () => 0, max: 2 });
-  assert.ok(calls.every((t) => t.length <= 2) && calls.flat().length === 12, 'no group exceeds the schema list maximum');
-  // A witness from a file outside every group (here b.ts is missing) makes the union short: the single walk answers.
-  calls.length = 0;
-  const fallback = await groupWalk(q, 'witnesses', ['a.ts', 'c.ts'], { jobs: 2, fields, total: async () => 4, max: 1 });
-  assert.deepEqual([fallback.grouped, fallback.rows.length, calls.at(-1)], [false, 4, 'all']);
+test('a refusal can split small directory siblings deep under a single parent', () => {
+  const files = ['src/deep/a/x.ts', 'src/deep/b/y.ts'];
+  const chunks = refine({ path: '.', files: files.length }, files);
+  assert.deepEqual(chunks?.map((c) => c.path).sort(), ['src/deep/a', 'src/deep/b']);
+});
+
+test('the planner uses published graph extensions and retains source-bearing fixtures', () => {
+  const files = ['npm/a/package.json', 'npm/a/README.md', 'fixtures/package.json', 'fixtures/example.Custom', 'notes.md'];
+  const extensions = new Set(['custom']);
+  const chunks = planChunks(files, { extensions });
+  assert.deepEqual(chunks.map((c) => c.path), ['fixtures']);
+  assert.deepEqual(planChunks(['notes.md'], { extensions, whole: true }), []);
 });
 
 test('folded edges keep every witness line, the strongest confidence and test-only marks', () => {
@@ -210,7 +202,9 @@ function fakeRepo() {
   ];
   const nodes = { file: [{ id: 'a.ts', kind: 'file', language: 'typescript' }, { id: 'b.ts', kind: 'file', language: 'typescript' }], symbol: [{ id: 'a.ts#f', path: 'a.ts', symbolName: 'f', kind: 'function', line: 2, endLine: 5, exported: true }, { id: 'b.ts#g', path: 'b.ts', symbolName: 'g', kind: 'function', line: 1, endLine: 3, exported: true }] };
   const cli = join(base, 'cli.mjs');
-  writeFileSync(cli, `const a = process.argv.slice(2), print = (v) => console.log(JSON.stringify(v));
+  writeFileSync(cli, `#!/usr/bin/env node
+${fakeCatalog}
+const a = process.argv.slice(2), print = (v) => console.log(JSON.stringify(v));
 const out = (data, next) => print({ results: [{ index: 0, data }], ...(next ? { next } : {}) });
 const W = ${JSON.stringify(witnesses)}, N = ${JSON.stringify(nodes)}, root = ${JSON.stringify(root)};
 const input = JSON.parse(a.find((x) => x.startsWith('{')) ?? '{}'), row = input.queries?.[0] ?? {};
@@ -223,16 +217,44 @@ const witnessPage = (o, target) => {
   const pagination = more || o > 0 ? { pagination: { unit: "items", offset: o, length: list.slice(o, o + 1).length, total: list.length } } : {};
   out({ graph: { id: 'snap' }, ...pagination, rows: list.slice(o, o + 1) }, next);
 };
-if (a[0] === 'schema') print({ querySchema: { properties: { target: { anyOf: [{ type: 'string' }, { type: 'array', maxItems: 100 }] } } } });
+if (a[0] === 'schema') print({ querySchema: { $defs: { targets: { type: 'array', maxItems: 100 } }, properties: { target: { anyOf: [{ type: 'string' }, { $ref: '#/$defs/targets' }] } } } });
 else if (a[0] === 'structureSearch') out({ files: [{ dir: root, files: ['a.ts', 'b.ts', 'notes.md'] }], summary: { files: 3 } });
 else if (a[0] === 'graphBuild') { console.error('# graphBuild: parsing 2 files'); out({ graph: 'snap', root: row.path, counts: { nodes: 4, edges: 3 } }); }
 else if (input.cursor) { const [o, t] = input.cursor.slice(1).split('|'); witnessPage(Number(o), t ? t.split(',') : undefined); }
 else if (row.operation === 'witnesses') witnessPage(0, row.target);
 else if (row.operation === 'find') out({ graph: { id: 'snap' }, rows: N[row.kind] });
 else if (row.operation === 'symbols') out({ graph: { id: 'snap' }, rows: N.symbol.filter((x) => !row.target || row.target.includes(x.file)) });
-else out({ graph: { id: 'snap' }, rows: [], summary: { health: {}, byDetector: {} } });`);
+else out({ graph: { id: 'snap' }, rows: [], summary: { health: {}, byDetector: {} } });`, { mode: 0o755 });
   return { root, cli };
 }
+
+test('an incompatible CLI stops before listing files or building a chunk', () => {
+  const root = tempDir('graph-schema-error-');
+  const cli = join(root, 'cli.mjs');
+  writeFileSync(cli, `console.log(JSON.stringify({error:'incompatible schema',errorCode:'invalidInput'}));`);
+  const r = spawnSync(process.execPath, [join(here, 'build.mjs'), root, '--out', root], {
+    encoding: 'utf8', env: { ...process.env, OCTOCODE_CLI: `${process.execPath} ${cli}` },
+  });
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /incompatible schema/);
+  const events = readFileSync(join(root, 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+  assert.ok(!events.some((e) => e.type === 'chunk' || e.tool === 'structureSearch'));
+});
+
+test('runs reuse one frozen image and replacing the source cannot change a running image', async () => {
+  const { freezeExecutable } = await import('./lib/pin-cli.mjs');
+  const folder = tempDir('graph-pin-');
+  const source = join(folder, 'octocode');
+  writeFileSync(source, 'first');
+  const cache = join(folder, 'cache');
+  const first = await freezeExecutable(source, cache);
+  assert.equal(await freezeExecutable(source, cache), first);
+  writeFileSync(source, 'second');
+  const second = await freezeExecutable(source, cache);
+  assert.notEqual(second, first);
+  assert.equal(readFileSync(first, 'utf8'), 'first');
+  assert.equal(readFileSync(second, 'utf8'), 'second');
+});
 
 test('the headless run streams rows whose fold is data.json, and every node and edge has a location', () => {
   const { root, cli } = fakeRepo();
@@ -260,7 +282,7 @@ test('the headless run streams rows whose fold is data.json, and every node and 
   const metrics = events.find((e) => e.type === 'metrics');
   assert.equal(metrics.columns.pagerank.length, metrics.ids.length);
   assert.deepEqual(D.fileEdges.map((e) => [e.source, e.target, e.weight]), [['a.ts', 'b.ts', 3]]);
-  assert.ok(events.some((e) => e.type === 'tool' && e.page === 'cursor w2|a.ts'), 'graph continuation pages are logged as tool calls');
+  assert.ok(events.some((e) => e.type === 'tool' && e.page === 'cursor w2|'), 'graph continuation pages are logged as tool calls');
   assert.ok(events.some((e) => e.type === 'chunk' && e.state === 'ingesting' && e.build === 'parsing 2 files'), 'build progress reaches the viewer per chunk');
   assert.ok(existsSync(join(out, 'brief.txt')));
   // One chunk: no other chunk to bind calls into, so no unresolved query runs at all.

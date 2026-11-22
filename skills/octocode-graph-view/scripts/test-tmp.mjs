@@ -13,3 +13,13 @@ export function tempDir(prefix) {
   made.add(dir);
   return dir;
 }
+
+// Source for the fake CLI scripts. They advertise themselves so tests exercise binary pinning as well.
+export const fakeCatalog = `if (process.argv.includes('full')) {
+  console.log(JSON.stringify({
+    executable: process.argv[1],
+    tools: [{ name: 'graphQuery', maxQueries: 1 }, { name: 'lspSearch', maxQueries: 2 }],
+    grammarCapabilities: [{ graphFacts: true, extensions: ['ts'] }],
+  }));
+  process.exit(0);
+}`;

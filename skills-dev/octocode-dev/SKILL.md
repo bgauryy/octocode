@@ -34,7 +34,7 @@ Treat every request as a feature, whatever its size: a question, a fix, a doc ed
 
 | When | Run |
 |---|---|
-| First checkout | `dev setup` then `yarn install` |
+| First checkout | `yarn install` (use `dev setup --install` to clear legacy local resolutions in an existing checkout) |
 | Building locally | `dev build:dev` for the host (native `build` is the release-mode host build). Rebuild affected launchers. |
 | Testing one package or tool | `yarn workspace <pkg> <script>`; after a local build, check the tool on CLI and MCP per [tool checks](../../packages/octocode-benchmark/CHECKS.md) |
 | A skill or documentation changed | `dev skills:check` or `dev docs:verify`, respectively. Run both when both surfaces changed. |

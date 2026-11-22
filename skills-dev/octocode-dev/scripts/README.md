@@ -6,13 +6,13 @@ Root automation. Call a script directly only for a flag `dev.mjs` does not expos
 - [tool-inventory.mjs](tool-inventory.mjs): per-tool audit map `[tool] [--json]`.
 - [workspace-health.mjs](workspace-health.mjs): runs workspace scripts in build order (`build`, `test`, `verify`, `health:report`, `health:check`, `check-outputs`).
 - [prepublish.mjs](prepublish.mjs): publish guard for local `workspace:`/`file:`/`link:`/`portal:` resolutions; `--fix` removes them, `--package <name>` also fails while a public workspace dependency is not on npm.
-- [dev-setup.mjs](dev-setup.mjs): `dev setup` resolves workspaces and sibling `octocode-core` locally; `--dry-run`, `--install`, `--reset`.
-- [dev-resolution-contract.mjs](dev-resolution-contract.mjs): local resolutions shared by dev-setup and prepublish.
+- [dev-setup.mjs](dev-setup.mjs): `dev setup` removes legacy local overrides so each package uses its declared dependencies; `--dry-run`, `--install`, `--reset`.
+- [dev-resolution-contract.mjs](dev-resolution-contract.mjs): legacy local resolutions checked by prepublish.
 - [dedupe-deps.mjs](dedupe-deps.mjs): `deps:dedupe [--fix]`, one version range per external dependency, no runtime dependency repeated in `devDependencies`.
 - [oxlint-baseline.mjs](oxlint-baseline.mjs): shrink-only `.oxlintrc.baseline.json` check; `--write` removes stale entries.
 - [core-lint-sync.mjs](core-lint-sync.mjs): fails when the sibling core's lint setup drifts from this repo's; skips if `../octocode-mcp-host` is absent.
 - [core-build.mjs](core-build.mjs): builds the sibling core before `contracts:regen`.
-- [contracts-regen.mjs](contracts-regen.mjs): `contracts:regen` under the machine-wide regeneration lock (one run at a time across sessions); beside a sibling core it refuses unless core typechecks, then builds core, refreshes its copy and generates the contract.
+- [contracts-regen.mjs](contracts-regen.mjs): `contracts:regen` under the machine-wide regeneration lock (one run at a time across sessions); beside a sibling core it refuses unless core typechecks, then builds the sibling, installs the pinned npm release and generates the contract from that release.
 - [gates.mjs](gates.mjs): `gates`, the release gate set as one run: `build:dev` first; then `check`, the contract check, config tests, `docs:verify`, `skills:check` and `test:rust` side by side (cargo work queues on the build slots); then the sibling core's tests and typecheck alone. One log per gate, one summary table, exit 1 on any failure ([plan test](gates.test.mjs)).
 - [rust-lint.mjs](rust-lint.mjs): `lint:rust`, clippy ratchet against shrink-only `clippy-baseline.json`; `--write` lowers, `--adopt` adds a newly listed lint.
 - [profile/profile.py](profile/profile.py): `dev profile`, instructions, peak footprint, samply flamegraph, top frames; `--heap`.

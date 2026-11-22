@@ -1,10 +1,8 @@
-import { execFileSync } from 'node:child_process';
 import { posix, relative, resolve, sep } from 'node:path';
-import { cliCommand, octocode } from './lib.mjs';
+import { octocode } from './lib.mjs';
 import { readResponse } from './tools.mjs';
 
-// Bulk reads let the row `limit` end a page, not the response budget: the budget has no maximum (the default
-// 20,000 suits an agent's context; this skill writes pages to disk), and 1,000 lean rows stay well under it.
+// Bulk walks save evidence to disk. The page budget bounds each reply and every continuation is consumed.
 export const RESPONSE_CHARS = 1_000_000;
 
 // The row data of a graphBuild or graphQuery response; a tool error rejects with its code and message, so a caller
@@ -21,33 +19,11 @@ export function dataOf(tool, response) {
 export const graphCall = (tool, input, { onStderr } = {}) => octocode([tool, '--json', JSON.stringify(input)], { partial: true, onStderr });
 export const envelope = (row) => ({ queries: [row], responseChars: RESPONSE_CHARS });
 
-// How many sources one `witnesses` or `unresolved` query takes: the contract's list maximum, read once per
-// operation from the CLI's schema.
-const listMaximum = new Map();
-export function sourcesPerQuery(operation) {
-  if (listMaximum.has(operation)) return listMaximum.get(operation);
-  const [cmd, ...pre] = cliCommand();
-  const out = execFileSync(cmd, [...pre, 'schema', 'graphQuery', '--view', 'query', '--select', `operation=${operation}`], { encoding: 'utf8', maxBuffer: Infinity });
-  const target = JSON.parse(out).querySchema?.properties?.target;
-  const max = (target?.anyOf ?? [target]).find((s) => s?.type === 'array')?.maxItems;
-  if (!Number.isInteger(max)) throw new Error(`graphQuery ${operation} schema declares no target list maximum`);
-  listMaximum.set(operation, max);
-  return max;
-}
-
 // The rows a graphQuery row holds in all: `pagination.total` (stated only when exact), which a complete single
 // page omits (its rows are then the whole answer). `more`: the reply carries a `next`, so its rows are not all.
 export function totalOf(data, more = false) {
   const total = data.pagination?.total ?? (more ? undefined : data.rows?.length);
   return Number.isInteger(total) ? total : undefined;
-}
-
-// The exact total of a graphQuery row from its first reply alone (no walk).
-export async function graphTotal(row, { run = graphCall } = {}) {
-  const reply = await run('graphQuery', envelope({ ...row, limit: 1 }));
-  const total = totalOf(dataOf('graphQuery', reply), reply?.next !== undefined);
-  if (total === undefined) throw new Error(`graphQuery ${row.operation} returned no total`);
-  return total;
 }
 
 // A build's stderr progress notes (`# graphBuild: parsed 120/400 files`) reach `onProgress` without the note mark and tool prefix.
@@ -68,12 +44,13 @@ export async function graphBuild(row, { run = graphCall, onProgress = () => {} }
 // reference field that holds a file or directory, and each `path:line` mention. This skill keys files by their
 // snapshot key, relative to the snapshot's root (`graph.root`). Each `path` and mention is restated in that key
 // space, in place (a config file above the root as `../package.json`), and so is every reference under the root;
-// ids that are not paths (a symbol's `file#name`, `pkg:` keys, finding ids) never lie under it and stay. Calls
-// (`next`, `related`) keep theirs.
+// file-qualified symbol ids keep their suffix. Package keys and finding ids stay intact.
+// Executable continuations and related calls keep their original arguments.
 const REFERENCE_FIELDS = new Set(['id', 'subject', 'from', 'to', 'target', 'members', 'dirs', 'nodes', 'rows', 'files', 'reachedFrom', 'affectedEntrypoints', 'testsToRun']);
 const MENTION_FIELDS = new Set(['mentionedIn', 'textMentions']);
 export function scopePaths(data, queryRoot) {
-  const root = data?.graph?.root ?? queryRoot;
+  const scopeRoot = data?.graph?.root ?? queryRoot;
+  const root = scopeRoot && relative(process.cwd(), resolve(scopeRoot)).split(sep).join('/');
   if (!root || root === '.') return data;
   const underRoot = (text) => text === root || text.startsWith(`${root}/`);
   const reference = (item) => {
@@ -134,40 +111,54 @@ function listOf(name, first, rows, pageStart) {
 // checked by count: a list's rows, the ones already shown included, must end equal to its `total`. A repeated
 // input, a count mismatch or a missing continuation rejects: the result is complete or there is none. The result
 // is the first page's data with `rows` holding every row and no `pagination` or `next`.
-export async function readGraph(row, { run = graphCall, save = () => {}, onPage = () => {}, snapshotRoot, collectionPaths, collectionRefs } = {}) {
+export async function readGraph(row, options) {
+  const [answer] = await readGraphs([row], options);
+  return answer;
+}
+
+export async function readGraphs(queries, { run = graphCall, save, onPage = () => {}, snapshotRoot, collectionPaths, collectionRefs } = {}) {
   const seen = new Set();
-  const root = snapshotRoot ?? (row.path && relative(process.cwd(), resolve(row.path)).split(sep).join('/'));
-  const scoped = (reply) => scopePaths(structuredClone(dataOf('graphQuery', reply)), root);
-  async function read(input) {
+  const scoped = (result, index) => scopePaths(structuredClone(dataOf('graphQuery', { results: [result] })), snapshotRoot ?? queries[index].path);
+  async function read(input, branch) {
     const key = JSON.stringify(input);
     if (seen.has(key)) throw new Error('Repeated graph continuation; evidence is incomplete');
     seen.add(key);
-    const response = await readResponse('graphQuery', input, { run, collectionPaths, collectionRefs, onPage: (raw, call) => save(call.input, raw, scoped(raw)) });
-    return response.results.map((result) => {
-      const data = scoped({ results: [result] });
-      // A page can state the common witness source once beside its rows.
+    const response = await readResponse('graphQuery', input, {
+      run, collectionPaths, collectionRefs,
+      onPage: save && ((raw, call) => {
+        const first = raw.results?.[0];
+        save(call.input, raw, first && scoped(first, branch ?? first.index ?? 0));
+      }),
+    });
+    const slices = new Map();
+    for (const result of response.results) {
+      const index = branch ?? result.index ?? (queries.length === 1 ? 0 : undefined);
+      if (!queries[index]) throw new Error(`Unexpected graph query result index ${index}`);
+      const data = scoped(result, index);
       if (typeof data.from === 'string' && Array.isArray(data.rows)) {
         for (const edge of data.rows) edge.from ??= data.from;
       }
-      onPage(data);
-      return data;
-    });
+      onPage(data, index);
+      if (!slices.has(index)) slices.set(index, []);
+      slices.get(index).push(data);
+    }
+    return slices;
   }
-  async function extras(data, first, rows, pageStart) {
+  async function extras(data, first, rows, pageStart, index) {
     for (const [name, call] of Object.entries(data.next ?? {})) {
       if (name === 'retry' || name === 'restart') continue;
       if (call?.tool !== 'graphQuery' || !call.input) throw new Error(`Missing graph continuation for ${name}`);
       const count = first.summary?.[name];
       const list = listOf(name, first, rows, pageStart);
-      const tail = await collect(call.input, list.length);
-      list.push(...tail.rows);
+      const pages = await read(call.input, index);
+      const tail = await collect(pages.get(index), index, list.length);
+      for (const row of tail.rows) list.push(row);
       if (Number.isInteger(count) && list.length !== count) throw new Error(`Incomplete graph evidence list: ${name}`);
     }
   }
   // `shown`: rows of this list an earlier page already carried (a summary list or a cycle's first members).
-  async function collect(input, shown = 0) {
-    // One read follows the reply's `next` to its end: every page of the row is a slice.
-    const slices = await read(input);
+  async function collect(slices, index, shown = 0) {
+    if (!slices?.length) throw new Error(`Missing graph query result at index ${index}`);
     const first = slices[0];
     const total = slices.map((data) => data.pagination?.total).find(Number.isInteger);
     const rows = [];
@@ -175,9 +166,9 @@ export async function readGraph(row, { run = graphCall, save = () => {}, onPage 
     for (const data of slices) {
       if (!Array.isArray(data.rows)) throw new Error(`graphQuery page has no rows array: ${Object.keys(data).join(',')}`);
       const pageStart = rows.length;
-      rows.push(...data.rows);
+      for (const row of data.rows) rows.push(row);
       if (Number.isInteger(total) && shown + rows.length > total) throw new Error('Graph pages repeat rows: more rows than pagination.total');
-      await extras(data, first, rows, pageStart);
+      await extras(data, first, rows, pageStart, index);
     }
     if (Number.isInteger(total) && shown + rows.length !== total) throw new Error('Graph evidence ends without a required continuation');
     first.rows = rows;
@@ -185,5 +176,6 @@ export async function readGraph(row, { run = graphCall, save = () => {}, onPage 
     delete first.pagination;
     return first;
   }
-  return collect(envelope(row));
+  const pages = await read({ queries, responseChars: RESPONSE_CHARS });
+  return Promise.all(queries.map((_, index) => collect(pages.get(index), index)));
 }

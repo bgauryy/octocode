@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { RESPONSE_CHARS, readGraph, scopePaths } from './graph-pages.mjs';
 import { requireCompleteToolResponse } from './lib.mjs';
-import { tempDir } from './test-tmp.mjs';
+import { tempDir, fakeCatalog } from './test-tmp.mjs';
 
 // A graphQuery response as the CLI prints it: one result row whose data carries the page and its continuations.
 const response = (data) => ({ results: [{ index: 0, data: { graph: { id: 'snapshot' }, ...data } }] });
@@ -77,12 +77,28 @@ test('a fresh query carries the response budget; continuations go back unchanged
 
 test('a scoped query with only a snapshot id rebases every page, including shared witness sources', async () => {
   const path = 'packages/example';
-  const from = path + '/a.ts#run';
-  const to = path + '/b.ts#work';
+  const from = `${path}/a.ts#run`;
+  const to = `${path}/b.ts#work`;
   const first = response({ from, rows: [{ to }], next: { nextPage: more('tail') } });
   const tail = response({ rows: [{ from, to }] });
   const data = await readGraph({ operation: 'witnesses', path }, { run: fake(first, { tail }) });
   assert.deepEqual(data.rows, [{ from: 'a.ts#run', to: 'b.ts#work' }, { from: 'a.ts#run', to: 'b.ts#work' }]);
+});
+
+test('a batched graph walk preserves the row index through cursors and nested evidence', async () => {
+  const { readGraphs } = await import('./graph-pages.mjs');
+  const queries = [{ operation: 'symbols' }, { operation: 'cycles' }];
+  const first = { shared: { data: { graph: { isPartial: true, partialReasons: ['filesSkipped'] } } }, results: [
+    { index: 0, data: { rows: ['symbol'] } },
+    { index: 1, data: { rows: [{ nodes: ['a'], nodesTruncated: true }], next: { cycle0: more('members') } } },
+  ], next: more('second') };
+  const second = { results: [{ index: 1, data: { rows: [{ nodes: ['c'] }] } }] };
+  const calls = [];
+  const answers = await readGraphs(queries, { run: fake(first, { second, members: response({ rows: ['b'] }) }, calls) });
+  assert.deepEqual(answers.map((a) => a.rows), [['symbol'], [{ nodes: ['a', 'b'] }, { nodes: ['c'] }]]);
+  assert.ok(answers.every((a) => a.graph?.isPartial && a.graph.partialReasons.includes('filesSkipped')));
+  assert.deepEqual(calls.map((c) => c.input), [{ queries, responseChars: RESPONSE_CHARS }, { cursor: 'second' }, { cursor: 'members' }]);
+  await assert.rejects(readGraphs(queries, { run: fake(response({ rows: [] }), {}) }), /missing.*1/i);
 });
 
 test('a split row and its later page are read through the reply\'s one next', async () => {
@@ -154,7 +170,9 @@ test('a frozen snapshot retains large source files inside the result workspace',
   const source = '🙂'.repeat(300_000);
   writeFileSync(join(folder, 'large.ts'), source);
   const fakeCli = join(folder, 'cli.mjs');
-  writeFileSync(fakeCli, `const [,,tool,,json] = process.argv;
+  writeFileSync(fakeCli, `#!/usr/bin/env node
+${fakeCatalog}
+const [,,tool,,json] = process.argv;
 const out = (data) => console.log(JSON.stringify({results:[{index:0,data}]}));
 const row = tool === 'schema' ? {} : JSON.parse(json ?? '{}').queries?.[0] ?? {};
 if(tool==='schema') console.log(JSON.stringify({querySchema:{properties:{target:{anyOf:[{type:'string'},{type:'array',maxItems:100}]}}}}));
@@ -162,7 +180,7 @@ else if(tool==='graphBuild') {
   if(row.path === ${JSON.stringify(folder)}) { out({errorCode:'executionFailed',error:'the tree changed during graph analysis'}); process.exit(5); }
   out({graph:'frozen',root:row.path,counts:{nodes:0,edges:0,nodesByKind:{file:1}}});
 } else if(tool==='structureSearch') out({files:[{dir:${JSON.stringify(folder)},files:['large.ts']}]});
-else out({graph:{id:'frozen'},rows:[],summary:{health:{},byDetector:{}}});`);
+else out({graph:{id:'frozen'},rows:[],summary:{health:{},byDetector:{}}});`, { mode: 0o755 });
   const out = join(folder, '.octocode', 'result');
   const script = join(dirname(fileURLToPath(import.meta.url)), 'build.mjs');
   const result = spawnSync(process.execPath, [script, folder, '--out', out, '--lsp', 'off'], { encoding: 'utf8', env: { ...process.env, OCTOCODE_CLI: `${process.execPath} ${fakeCli}` } });
@@ -192,4 +210,29 @@ test('graph answers restate workspace-relative file references as snapshot keys,
   assert.deepEqual(scoped.rows[3].evidence, { members: ['src/a.ts', 'src/b.ts'], witness: [{ from: 'src/a.ts', to: 'src/b.ts' }], dirs: ['.'], mentionedIn: { a: ['docs/README.md:3'] } });
   assert.equal(scoped.rows[4].path, '../package.json');
   assert.deepEqual(scoped.related, data.related);
+});
+
+test('large sections page disjoint file groups concurrently and keep every occurrence', async () => {
+  const { readSectionRows } = await import('./section.mjs');
+  const files = ['a.ts', 'b.ts', 'c.ts'];
+  let active = 0, peak = 0;
+  const targets = [];
+  const walk = async (fields) => {
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise(resolve => setImmediate(resolve));
+    active--;
+    return fields.map(row => {
+      if (row.operation === 'find') return {rows: files.map(id => ({id}))};
+      if (!row.target) return {rows: []};
+      targets.push([row.operation, row.target]);
+      return {rows: row.target.flatMap(id => [id, id])};
+    });
+  };
+  const { pages, groups } = await readSectionRows({counts:{nodes:9,edges:6,nodesByKind:{file:3}}, jobs:2, graphBatch:5, fileGroup:2, walk});
+  assert.equal(groups, 2);
+  assert.equal(peak, 2);
+  assert.deepEqual(pages[4].rows, files.flatMap(id => [id, id]));
+  assert.deepEqual(pages[5].rows, pages[4].rows);
+  assert.deepEqual(targets.filter(([op]) => op === 'witnesses').map(([,f]) => f).flat(), files);
 });

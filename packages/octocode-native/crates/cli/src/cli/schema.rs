@@ -80,12 +80,19 @@ pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, Sche
         .filter_map(|tool| {
             let name = tool["name"].as_str()?;
             let entry = tool_entry(machine, name).filter(|_| enabled(machine, name))?;
-            Some(json!({
+            let mut row = json!({
                 "name": name,
                 "title": tool["title"],
                 "when": octocode_runtime_base::contracts::cli_tool_trigger(name),
                 "fields": entry.get("fields").cloned().unwrap_or_else(|| json!("[]")),
-            }))
+            });
+            if view.is_some()
+                && let Some(limit) = octocode_runtime_base::id::ToolId::from_name(name)
+                    .and_then(octocode_runtime_base::contracts::batch_limit)
+            {
+                row["maxQueries"] = json!(limit);
+            }
+            Some(row)
         })
         .collect();
     let mut value = json!({
@@ -114,6 +121,9 @@ pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, Sche
         value["grammars"] = Value::String(grammars);
     }
     if view.is_some() {
+        if let Ok(executable) = std::env::current_exe() {
+            value["executable"] = json!(executable);
+        }
         value["grammarCapabilities"] = machine["grammarCapabilities"].clone();
         value["sourceDecoding"] = machine["sourceDecoding"].clone();
     }

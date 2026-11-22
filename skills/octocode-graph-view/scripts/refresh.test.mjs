@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { tempDir } from './test-tmp.mjs';
+import { tempDir, fakeCatalog } from './test-tmp.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -12,7 +12,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 // each and every snapshot is its own file.
 // A fake CLI whose graph follows the files on disk: a snapshot id is the hash of its directory's files, `stale`
 // compares that snapshot's file hashes with the disk, and `b.ts` declaring `h` adds a call from h to a.ts#f.
-const FAKE = String.raw`
+const FAKE = String.raw`#!/usr/bin/env node
+${fakeCatalog}
+
 const { createHash } = require('node:crypto');
 const { appendFileSync, existsSync, readFileSync, readdirSync, writeFileSync } = require('node:fs');
 const { join, relative } = require('node:path');
@@ -44,12 +46,13 @@ else if (a[0] === 'graphBuild') {
 } else if (row.operation === 'stale') {
   const before = existsSync(snapFile(row.graph)) ? JSON.parse(readFileSync(snapFile(row.graph), 'utf8')) : {}, now = hashes(row.path);
   const rows = [...Object.keys(before).filter((p) => now[p] !== before[p]).map((p) => ({ path: p, status: now[p] ? 'changed' : 'missing' })), ...Object.keys(now).filter((p) => !before[p]).map((p) => ({ path: p, status: 'added' }))];
+  for (const entry of rows) entry.path = relative(process.cwd(), join(row.path, entry.path));
   out({ graph: { id: row.graph }, rows, freshness: { fresh: rows.length === 0, analysisCurrent: true } });
 } else {
   const g = graph(row.path);
   if (row.operation === 'find') page(g.files.map((id) => ({ id, kind: 'file', language: 'typescript' })));
   else if (row.operation === 'witnesses') page(g.W.filter((w) => inTarget(w.from.split('#')[0])));
-  else if (row.operation === 'symbols') page(g.S.filter((s) => inTarget(s.file)));
+  else if (row.operation === 'symbols') page(g.S.filter((s) => inTarget(s.file)).map((s) => ({ ...s, path: relative(process.cwd(), join(row.path, s.path)) })));
   else out({ graph: { id: row.graph }, rows: [], summary: { health: {}, byDetector: {} } });
 }`;
 
@@ -65,7 +68,7 @@ function fakeRepo() {
     writeFileSync(join(root, name), text);
   }
   const cli = join(base, 'cli.cjs');
-  writeFileSync(cli, FAKE);
+  writeFileSync(cli, FAKE, { mode: 0o755 });
   const env = { OCTOCODE_CLI: `${process.execPath} ${cli}`, FAKE_ROOT: root, FAKE_STATE: join(base, 'state.json') };
   Object.assign(process.env, env);
   const out = join(base, 'result');

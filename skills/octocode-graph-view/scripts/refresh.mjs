@@ -6,8 +6,9 @@
 // whole root runs again. Stateless: everything comes from <out> and the repository.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
+import { planChunks } from './plan.mjs';
 import { readGraph } from './graph-pages.mjs';
-import { pool } from './lib.mjs';
+import { pool, prepareGraphRun } from './lib.mjs';
 import { buildChunk, defaults, finishRun, listFiles, manifestName, readEvents, reportTools, runPipeline, stitchPhase } from './pipeline.mjs';
 import { chunkOf } from './stitch.mjs';
 
@@ -22,7 +23,7 @@ const ids = (chunks) => chunks.map((c) => c.id);
 // which data.json's chunk rows do not record.
 function withExcludes(chunks) {
   return chunks.map((c) => {
-    if (!c.loose) return { ...c };
+    if (c.exclude || !c.loose) return { ...c };
     const prefix = prefixOf(c.path);
     const names = new Set(chunks.filter((o) => o !== c && o.path !== '.' && o.path.startsWith(prefix)).map((o) => o.path.slice(prefix.length).split('/')[0]));
     return { ...c, exclude: [...names] };
@@ -45,7 +46,7 @@ function loadResult(out, opts) {
   const run = events.findLast((e) => e.type === 'run');
   const options = { ...defaults(), ...run?.options, ...opts };
   const plan = D.chunks ?? events.findLast((e) => e.type === 'plan')?.chunks ?? [];
-  const chunks = withExcludes(plan.map(({ id, path, files, loose, package: pkg }) => ({ id, path, files, loose, package: pkg })));
+  const chunks = withExcludes(plan.map(({ id, path, files, loose, exclude, package: pkg }) => ({ id, path, files, loose, exclude, package: pkg })));
   const datas = new Map();
   for (const c of plan.filter((x) => x.built !== false)) {
     const file = join(out, 'chunks', c.id, 'data.json');
@@ -58,10 +59,10 @@ function loadResult(out, opts) {
 // Root-relative files one chunk's snapshot reports changed, added or missing; `reasons` says why a chunk is
 // rebuilt without a file list (an older analysis, a frozen copy, or a failed query).
 async function staleOf(c, data) {
-  const { id, root } = data.snapshot;
+  const { id, root, queryRoot } = data.snapshot;
   if (data.frozen) return { files: [], reason: 'built from a frozen copy, whose snapshot cannot see later edits' };
   try {
-    const r = await readGraph({ operation: 'stale', path: root, graph: id, limit: 1000 });
+    const r = await readGraph({ operation: 'stale', path: root, graph: id, limit: 1000 }, { snapshotRoot: queryRoot });
     const rows = r.rows.filter((row) => typeof row.path === 'string');
     const files = rows.map((row) => ({ file: prefixOf(c.path) + row.path, status: row.status ?? 'changed' }));
     return { files, reason: r.freshness?.analysisCurrent === false ? 'the graph analysis changed since the snapshot' : '' };
@@ -85,7 +86,12 @@ async function detect(state, { root, emit, jobs }) {
     if (stale[i].reason) { mark(c); emit({ type: 'note', level: 'warn', text: `refresh: ${c.path} is rebuilt: ${stale[i].reason}` }); }
   });
   for (const p of [...added, ...removed]) mark(chunkOf(p, state.chunks), p);
-  const plan = [...added, ...removed].filter((p) => MANIFESTS.has(basename(p)));
+  const changes = [...added, ...removed];
+  const plan = changes.filter((p) => MANIFESTS.has(basename(p)));
+  if (changes.length && !plan.length) {
+    const boundaries = (listing) => planChunks(listing, { whole: state.options.whole, extensions: state.extensions }).map((c) => [c.path, c.exclude]);
+    if (JSON.stringify(boundaries(state.files).sort()) !== JSON.stringify(boundaries(files).sort())) plan.push(...changes);
+  }
   const editedFiles = [...new Set([...changed.values()].flat())].filter((p) => !added.includes(p) && !removed.includes(p));
   return { files, added, removed, changed, plan, editedFiles };
 }
@@ -163,7 +169,9 @@ async function restitch(state, found, ctx, t0) {
 export async function refreshRun({ root, out, opts = {}, emit, signal }) {
   const t0 = Date.now();
   reportTools(emit);
+  const contract = await prepareGraphRun();
   const state = loadResult(out, opts);
+  state.extensions = contract.extensions;
   const options = state.options;
   const found = await detect(state, { root, emit, jobs: options.jobs });
   const summary = { changed: found.editedFiles, added: found.added, removed: found.removed };
@@ -182,7 +190,7 @@ export async function refreshRun({ root, out, opts = {}, emit, signal }) {
   for (const c of found.targets) emit({ type: 'chunk-reset', id: c.id, files: resetFiles(c, state, found.removed) });
   // `changed` reaches the wiki (pipeline.mjs finishRun): pages holding these files get their notes marked stale.
   const changed = [...new Set([...found.editedFiles, ...found.added, ...found.removed])];
-  const ctx = { root, out, opts: options, emit, signal, files: found.files, chunks: state.chunks, datas: state.datas, used: new Set(ids(state.chunks)), changed };
+  const ctx = { root, out, opts: options, emit, signal, contract, files: found.files, chunks: state.chunks, datas: state.datas, used: new Set(ids(state.chunks)), changed };
   const D = await restitch(state, found, ctx, t0);
   emit({ type: 'refreshed', ms: Date.now() - t0, chunks: found.rebuilt, ...summary });
   return D;

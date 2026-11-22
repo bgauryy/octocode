@@ -4,10 +4,9 @@
 import { basename, posix } from 'node:path';
 
 const MANIFESTS = new Set(['package.json', 'Cargo.toml']);
-// Refinement on scopeTooBroad keeps directories under this many files with their parent's loose files.
-const MIN_CHUNK = 10;
-
-export function tree(files) {
+export function tree(files, extensions) {
+  const manifests = files.filter((p) => MANIFESTS.has(basename(p)) && p.includes('/'));
+  if (extensions) files = files.filter((p) => extensions.has(posix.extname(p).slice(1).toLowerCase()));
   const size = new Map();
   const kids = new Map();
   for (const p of files) {
@@ -20,7 +19,7 @@ export function tree(files) {
       kids.get(parent).add(dir);
     }
   }
-  const packages = new Set(files.filter((p) => MANIFESTS.has(basename(p)) && p.includes('/')).map((p) => posix.dirname(p)));
+  const packages = new Set(manifests.map((p) => posix.dirname(p)).filter((dir) => size.has(dir)));
   return { files, size, kids, packages, count: (dir) => (dir ? size.get(dir) ?? 0 : files.length), children: (dir) => [...(kids.get(dir) ?? [])] };
 }
 
@@ -37,26 +36,35 @@ function planDir(t, dir, split) {
 }
 
 // The whole root as one chunk (`whole`), or one chunk per package and per loose remainder.
-export function planChunks(files, { whole = false } = {}) {
-  const t = tree(files);
-  const chunks = whole ? [{ path: '.', files: files.length }] : planDir(t, '', (k) => containsPackage(t, k));
+export function planChunks(files, { whole = false, extensions } = {}) {
+  const t = tree(files, extensions);
+  if (!t.files.length) return [];
+  const chunks = whole ? [{ path: '.', files: t.files.length }] : planDir(t, '', (k) => containsPackage(t, k));
   return name(chunks.toSorted((a, b) => b.files - a.files));
 }
 
-// A chunk the graph refused, split one level: a directory into its children of a useful size and its own
-// files; a loose chunk into its remaining children and the files directly in it. null: nothing left to split.
-export function refine(c, files) {
-  const t = tree(files);
-  const dir = c.path === '.' ? '' : c.path;
-  if (!c.loose) {
-    const parts = planDir(t, dir, (k) => t.count(k) >= MIN_CHUNK);
-    return parts.length > 1 ? parts : null;
+// Split a refused scope at its first real branch. The largest children build separately;
+// smaller siblings stay together until the engine itself refuses that remainder.
+export function refine(c, files, extensions) {
+  let dir = c.path === '.' ? '' : c.path;
+  const prefix = dir ? `${dir}/` : '';
+  const exclude = c.exclude ?? [];
+  const inside = files.filter((p) => p.startsWith(prefix) && !p.slice(prefix.length).split('/').slice(0, -1).some((part) => exclude.includes(part)));
+  const t = tree(inside, extensions);
+  for (;;) {
+    const kids = t.children(dir);
+    if (!kids.length) return null;
+    const largest = Math.max(...kids.map(t.count));
+    if (kids.length === 1 && largest === t.count(dir)) {
+      [dir] = kids;
+      continue;
+    }
+    const split = kids.filter((k) => t.count(k) === largest);
+    const remaining = t.count(dir) - split.length * largest;
+    const chunks = split.map((path) => ({ path, files: largest, ...(exclude.length && { exclude }) }));
+    if (remaining) chunks.unshift({ path: dir || '.', files: remaining, loose: true, exclude: [...exclude, ...split.map((k) => basename(k))] });
+    return chunks;
   }
-  const all = t.children(dir);
-  const kids = all.filter((k) => !c.exclude.includes(basename(k)));
-  if (!kids.length) return null;
-  const direct = t.count(dir) - all.reduce((a, k) => a + t.count(k), 0);
-  return [...(direct > 0 ? [{ path: c.path, files: direct, loose: true, exclude: all.map((k) => basename(k)) }] : []), ...kids.map((k) => ({ path: k, files: t.count(k) }))];
 }
 
 const slug = (p) => p.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'root';

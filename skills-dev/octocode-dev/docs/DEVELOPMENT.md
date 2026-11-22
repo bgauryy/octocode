@@ -34,7 +34,7 @@ Under `packages/octocode-native/`: contracts are authored in core `src/toolContr
 ## Contract pipeline
 
 1. Author in core (Zod schema, description, instructions, limits) and build core.
-2. `node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen` at the repo root refreshes the `file:` copy of core (yarn install), then runs `@octocodeai/config generate:tool-contract`, the only generator. Output is `packages/octocode-config/contract/`: committed, never hand-edited; `check:tool-contract` fails when stale.
+2. `node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen` at the repo root installs the published core version pinned in `packages/octocode-config/package.json`, then runs `@octocodeai/config generate:tool-contract`, the only generator. Output is `packages/octocode-config/contract/`: committed, never hand-edited; `check:tool-contract` fails when stale.
 3. Rebuild native (`yarn workspace @octocodeai/octocode-native build:dev`): `crates/runtime-base/build.rs` embeds `contract/`. Before replacing a runnable host executable, staging checks its public `--version` against the package version and the first eight characters of the generated contract fingerprint. A mismatch leaves the existing executable in place.
 
 Regeneration needs `cargo install cargo-typify --version 0.8.0 --locked`. `tool_types.rs` holds only the generated types native source names and what they reach; after a native edit that starts or stops naming one, regenerate. The binary embeds the contract it serves (CLI and `octocode mcp`), so there is no runtime override.

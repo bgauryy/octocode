@@ -68,3 +68,5 @@ What stays text-level:
 ## Adding a case
 
 Add a row to the table above: the clone directory, the ingest dir, a probe function with callers in several files, the oracle extensions, and `exclude` globs for vendored or amalgamated copies. Prefer a probe with one definition. Run the new row twice to confirm it is stable, then add it to the CODE_GRAPH.md evaluation table.
+
+For graph-view timing, count one start per tool ID in `events.jsonl`. A chunk’s paging event confirms a native snapshot. Its done event confirms the viewer consumed the graph pages. For subsection builds, verify each saved file location against disk before comparing timings or LSP coverage.

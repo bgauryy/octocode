@@ -3,7 +3,8 @@ import { execFile, execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { randomUUID } from 'node:crypto';
-import { join, resolve } from 'node:path';
+import { freezeExecutable } from './lib/pin-cli.mjs';
+import { isAbsolute, join, resolve } from 'node:path';
 
 // Directories a graph build never reads; the frozen copy skips the same ones.
 export const SKIPPED_DIRS = ['target', 'node_modules', '.git', 'dist', 'build', '.octocode'];
@@ -54,10 +55,65 @@ export function localCli(root, env = process.env) {
 }
 // Repo rule: the local build inside the checkout (its launcher, or that launcher's verified binary); OCTOCODE_CLI
 // overrides; otherwise `octocode` on PATH.
-const cli = process.env.OCTOCODE_CLI
-  ? process.env.OCTOCODE_CLI.split(' ')
+let cli = process.env.OCTOCODE_CLI
+  ? (existsSync(process.env.OCTOCODE_CLI) ? [process.env.OCTOCODE_CLI] : process.env.OCTOCODE_CLI.split(' '))
   : existsSync(resolve('packages/octocode/out/octocode.js')) ? localCli(resolve('.')) : ['octocode'];
 export const cliCommand = () => [...cli];
+
+// Ask the selected launcher which executable served the catalog. Read the contract again from
+// its private copy: a package install or rebuild can replace the source between discovery and copy.
+let contract;
+export function prepareGraphRun() {
+  contract ??= loadGraphContract().catch((error) => { contract = undefined; throw error; });
+  return contract;
+}
+
+async function loadGraphContract() {
+  const schema = (command, args) => {
+    let raw;
+    try {
+      raw = execFileSync(command[0], [...command.slice(1), 'schema', ...args], { encoding: 'utf8', maxBuffer: Infinity });
+    } catch (error) {
+      throw new Error(parseOutput(error.stdout)?.error ?? error.message, { cause: error });
+    }
+    const value = JSON.parse(raw);
+    if (value.error) throw new Error(value.error);
+    return value;
+  };
+  const full = ['--view', 'full'];
+  const source = schema(cli, full).executable;
+  if (typeof source !== 'string' || !isAbsolute(source)) throw new Error('The CLI catalog must identify its native executable. Update Octocode and retry.');
+  const pinned = [await freezeExecutable(source)];
+  const catalog = schema(pinned, full);
+  const limit = (name) => {
+    const max = catalog.tools?.find((t) => t.name === name)?.maxQueries;
+    if (!Number.isSafeInteger(max) || max < 1) throw new Error(`${name} schema declares no positive queries maximum`);
+    return max;
+  };
+  const targetLimit = (operation) => {
+    const query = schema(pinned, ['graphQuery', '--select', `operation=${operation}`]).querySchema;
+    const dereference = (node) => {
+      const seen = new Set();
+      while (node?.$ref?.startsWith('#/$defs/') && !seen.has(node)) {
+        seen.add(node);
+        node = query.$defs?.[node.$ref.slice('#/$defs/'.length)];
+      }
+      return node;
+    };
+    const target = dereference(query?.properties?.target);
+    const maxTargets = (target?.anyOf ?? [target]).map(dereference).find((s) => s?.type === 'array')?.maxItems;
+    if (!Number.isSafeInteger(maxTargets) || maxTargets < 1) throw new Error(`graphQuery ${operation} schema declares no positive target list maximum`);
+    return maxTargets;
+  };
+  if (!Array.isArray(catalog.grammarCapabilities)) throw new Error('The CLI catalog is missing grammarCapabilities');
+  const limits = {
+    graphBatch: limit('graphQuery'), lspBatch: catalog.tools.some((t) => t.name === 'lspSearch') ? limit('lspSearch') : 1,
+    maxTargets: targetLimit('unresolved'), fileGroup: Math.min(targetLimit('witnesses'), targetLimit('symbols')),
+    extensions: new Set(catalog.grammarCapabilities.filter((g) => g.graphFacts).flatMap((g) => g.extensions)),
+  };
+  cli = pinned;
+  return limits;
+}
 
 let evidenceRoot;
 export function captureEvidence(directory) {

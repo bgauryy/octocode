@@ -97,7 +97,7 @@ Tool wire types are generated, never hand-written:
 `@octocodeai/octocode-native` embeds `contract/` (enforcement contract,
 fixtures, and Rust types) directly at build time, and TypeScript consumers use
 the core Zod schemas from `@octocodeai/config/schema`. Change the Zod schema in
-`@octocodeai/octocode-core`, then run `node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen` — that one step
+`@octocodeai/octocode-core`, pin its published release in this package, then run `node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen` — that one step
 updates every consumer. See [ARCHITECTURE.md](./ARCHITECTURE.md#tool-types).
 
 See the repository [configuration reference](../../docs/CONFIGURATION.md),

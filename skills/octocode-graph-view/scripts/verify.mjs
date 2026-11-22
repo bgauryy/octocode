@@ -14,8 +14,8 @@ async function staleFiles(chunks, datas, jobs) {
   const stale = new Map();
   const built = chunks.filter((c) => datas.has(c.id));
   await pool(built, jobs, async (c) => {
-    const { id, root } = datas.get(c.id).snapshot;
-    const r = await readGraph({ operation: 'stale', path: root, graph: id, limit: 1000 });
+    const { id, root, queryRoot } = datas.get(c.id).snapshot;
+    const r = await readGraph({ operation: 'stale', path: root, graph: id, limit: 1000 }, { snapshotRoot: queryRoot });
     for (const row of r.rows) {
       const path = row.path ?? row.id;
       if (typeof path === 'string') stale.set(prefixOf(c.path) + path, row.status ?? row.reason ?? row.change ?? 'changed');

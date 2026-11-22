@@ -2,24 +2,13 @@
 // files and of every call bound between chunks by name. Each graph call it probes is labelled `both` or
 // `graph`; callees only the server reports join as `lsp` edges. Results stream as `lsp` events per batch.
 import { relative, resolve, join } from 'node:path';
-import { octocode, pool } from './lib.mjs';
+import { pool } from './lib.mjs';
 import { continuations, pagedTool, readResponse } from './tools.mjs';
 
 const fileOf = (id) => id.split('#')[0];
 const lastName = (name) => String(name ?? '').split('.').pop().replace(/@\d+$/, '');
 const keyOf = (file, name) => `${file}#${lastName(name)}`;
 const symbolName = (id) => id.split('#')[1] ?? '';
-
-// The server's own batch limit (`queries.maxItems` in the published schema); one query per call otherwise.
-async function batchLimit() {
-  try {
-    const schema = await octocode(['schema', 'lspSearch', '--json'], { partial: true });
-    const find = (v) => (v && typeof v === 'object' ? (v.queries?.maxItems ?? Object.values(v).map(find).find(Boolean)) : undefined);
-    return Math.max(1, Number(find(schema)) || 1);
-  } catch {
-    return 1;
-  }
-}
 
 // Callees of one probed symbol: definition file and name per match, or null when the server gave no answer.
 // One probe's answer: `{ callees }` (definition file, name and line per callee, plus the call-site lines in the probed
@@ -80,7 +69,7 @@ function applyCallees(D, x, L, { index, stats }) {
   return { update, added };
 }
 
-export async function lspPhase(D, { root, emit, signal, jobs = 8 }) {
+export async function lspPhase(D, { root, emit, signal, jobs = 8, batchSize = 1 }) {
   // Every probe the server left unanswered is listed (never only counted), so it can be retried or reported.
   const stats = { lsp: 'pending', probed: 0, resolved: 0, both: 0, graphOnly: 0, lspOnly: 0, unanswered: [], scope: 'functions in hub files and sources of calls bound between chunks' };
   const hubs = new Set(D.hubFiles);
@@ -88,15 +77,9 @@ export async function lspPhase(D, { root, emit, signal, jobs = 8 }) {
   const probe = D.symbols.filter((s) => s.line && ['function', 'method'].includes(s.kind) && (hubs.has(s.file) || cross.has(s.id)));
   emit({ type: 'progress', phase: 'lsp', done: 0, total: probe.length });
   if (!probe.length) return { ...stats, lsp: 'skipped: no functions to probe in hub files or between chunks' };
-  try {
-    // A warm-up answer proves a server exists for this language before the batch fan-out.
-    await octocode(['lspSearch', '--json', JSON.stringify({ queries: [{ operation: 'documentSymbols', path: join(root, probe[0].file) }] })]);
-  } catch (error) {
-    return { ...stats, lsp: `skipped: the language server did not answer (${error.message.split('\n')[0].slice(0, 300)})` };
-  }
   stats.lsp = 'ok';
   const index = { files: new Set(D.files.map((f) => f.id)), byKey: new Map(D.symbols.map((s) => [keyOf(s.file, symbolName(s.id)), s.id])), symbolIds: new Set(D.symbols.map((s) => s.id)) };
-  const size = await batchLimit();
+  const size = batchSize;
   const batches = [];
   for (let i = 0; i < probe.length; i += size) batches.push(probe.slice(i, i + size));
   await pool(batches, Math.max(1, Math.floor(jobs / 2)), async (batch) => {
@@ -116,5 +99,6 @@ export async function lspPhase(D, { root, emit, signal, jobs = 8 }) {
     emit({ type: 'progress', phase: 'lsp', done: stats.probed, total: probe.length });
   });
   D.coverage.calls = D.calls.length;
+  if (stats.probed && !stats.resolved) stats.lsp = 'unanswered';
   return { mode: 'both', ...stats };
 }

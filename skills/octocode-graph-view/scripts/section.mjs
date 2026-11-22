@@ -5,13 +5,13 @@ import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { basename, dirname, join, resolve } from 'node:path';
-import { graphBuild, graphTotal, readGraph, sourcesPerQuery, totalOf } from './graph-pages.mjs';
-import { SKIPPED_DIRS, degrees, pool, topGroup } from './lib.mjs';
+import { graphBuild, readGraphs, totalOf } from './graph-pages.mjs';
+import { SKIPPED_DIRS, degrees, pool, prepareGraphRun, topGroup } from './lib.mjs';
 import { packageKey } from './stitch.mjs';
 
 const RANK = { high: 3, medium: 2, low: 1 };
 const fileOf = (id) => id.split('#')[0];
-const STREAMED = { find: true, witnesses: true, symbols: true };
+const STREAMED = { find: 'files', witnesses: 'witnesses', symbols: 'symbols' };
 const group = topGroup;
 
 // graphBuild refuses a tree that changes while it runs; the frozen copy lives under the result directory.
@@ -89,16 +89,25 @@ function symbolRows(symbolNodes, fileIds, calls) {
   return { declarations, symbols: [...symbols.values()] };
 }
 
+async function batchedWalk(queries, max, jobs, walk) {
+  const batches = [];
+  for (let i = 0; i < queries.length; i += max) batches.push(queries.slice(i, i + max));
+  return (await pool(batches, jobs, walk)).flat();
+}
+
 // Call gaps of the files that import another chunk (past this root, or another chunk's workspace package): the
 // only sites stitching can bind (stitch.mjs bindCalls binds through those imports). The engine keeps only the
-// `not-declared-in-repo` call sites of those files, before paging, in concurrent file groups ([`fileGroups`]).
+// `not-declared-in-repo` call sites of those files, before paging, in concurrent file groups.
 // With no other chunk (`crossPackages` null) there is nothing to bind.
-async function crossCallGaps(q, { outsideRoot, externals, crossPackages, jobs }) {
+async function crossCallGaps(walk, { outsideRoot, externals, crossPackages, jobs, maxTargets, graphBatch }) {
   if (!crossPackages) return [];
   const files = [...new Set([...outsideRoot.map((o) => o.file), ...externals.filter((x) => crossPackages.has(packageKey(x.id))).flatMap((x) => x.files)])];
   if (!files.length) return [];
-  const groups = fileGroups(files, jobs, sourcesPerQuery('unresolved'));
-  const pages = await pool(groups, jobs, (target) => q(null, { operation: 'unresolved', target, edges: ['calls'], reasons: ['not-declared-in-repo', 'external-package'], limit: 1000 }));
+  const max = maxTargets ?? (await prepareGraphRun()).maxTargets;
+  const groups = [];
+  for (let i = 0; i < files.length; i += max) groups.push(files.slice(i, i + max));
+  const queries = groups.map((target) => ({ operation: 'unresolved', target, edges: ['calls'], reasons: ['not-declared-in-repo', 'external-package'], limit: 1000 }));
+  const pages = await batchedWalk(queries, graphBatch, jobs, walk);
   return pages.flatMap((p) => p.rows)
     .filter((u) => u.targetName)
     .map((u) => ({ from: u.from, file: u.path, targetName: u.targetName, line: u.line, reason: u.reason }));
@@ -123,36 +132,38 @@ function insightsOf(files, imports, cyc, iss) {
   };
 }
 
-// Sorted source files cut into groups for concurrent multi-target walks: a page is bounded by the response budget,
-// so one cursor chain over a large scope is hundreds of calls in a row. About four groups per worker, each at most
-// `max` (the schema's target list), so a heavy group does not hold the tail.
-export function fileGroups(files, jobs, max) {
-  const size = Math.max(1, Math.min(max, Math.ceil(files.length / (jobs * 4))));
-  const sorted = files.toSorted();
-  const groups = [];
-  for (let i = 0; i < sorted.length; i += size) groups.push(sorted.slice(i, i + size));
-  return groups;
-}
-
-// Every row of a whole-snapshot `witnesses` or `symbols` walk, read as concurrent [`fileGroups`] with the files as
-// `target`: a witness belongs to the file holding its source, a symbol to the file containing it, so the groups are
-// disjoint. The union is checked against the whole walk's total and each id once; on any mismatch the single walk
-// runs instead. `stream` names the rows event the pages feed.
-export async function groupWalk(q, stream, files, { jobs, fields, total = graphTotal, max = sourcesPerQuery(fields.operation) }) {
-  const whole = await total(fields);
-  const groups = fileGroups(files, jobs, max);
-  const pages = await pool(groups, jobs, (target) => q(stream, { ...fields, target }));
-  const rows = pages.flatMap((p) => p.rows);
-  const ids = new Set(rows.map((w) => w.id ?? JSON.stringify(w)));
-  if (rows.length === whole && ids.size === whole) return { rows, total: whole, groups: groups.length, grouped: true };
-  const single = await q(stream, fields);
-  return { rows: single.rows, total: single.rows.length, groups: 1, grouped: false, groupedRows: rows.length };
+// A target is a source file in both evidence operations. Each group owns its native continuation chain.
+export async function readSectionRows({ counts, jobs, graphBatch, fileGroup, walk }) {
+  const fields = [
+    { operation: 'find', kind: 'file' }, { operation: 'diagnostics' }, { operation: 'cycles' },
+    { operation: 'issues' }, { operation: 'witnesses', edges: ['imports', 'calls'], confidence: 'low' },
+    { operation: 'symbols' },
+  ].map((row) => ({ ...row, limit: Math.max(1, counts.nodes, counts.edges) }));
+  const count = counts.nodesByKind?.file;
+  if (!(count > fileGroup && jobs > 1)) return { pages: await batchedWalk(fields, graphBatch, jobs, walk), groups: 1 };
+  const overview = await batchedWalk(fields.slice(0, 4), graphBatch, jobs, walk);
+  const files = [...new Set(overview[0].rows.map(f => f.id))];
+  const evidence = fields.slice(4);
+  if (files.length !== count) return { pages: [...overview, ...await batchedWalk(evidence, graphBatch, jobs, walk)], groups: 1 };
+  const batches = [];
+  for (let i = 0; i < files.length; i += fileGroup) {
+    const target = files.slice(i, i + fileGroup);
+    const queries = evidence.map(row => ({ ...row, target }));
+    for (let j = 0; j < queries.length; j += graphBatch) batches.push(queries.slice(j, j + graphBatch));
+  }
+  const results = await pool(batches, jobs, walk);
+  const combined = new Map(evidence.map(row => [row.operation, { rows: [] }]));
+  for (const [index, pages] of results.entries()) for (const [k, page] of pages.entries()) {
+    const output = combined.get(batches[index][k].operation);
+    for (const row of page.rows) output.rows.push(row);
+  }
+  return { pages: [...overview, ...combined.values()], groups: Math.ceil(files.length / fileGroup) };
 }
 
 // emit(kind, rows, page): kind is `files`, `witnesses` or `symbols` (rows keep the graph's own fields), `build` (one
 // graphBuild progress line in page.line) or `snapshot`.
 // crossPackages: package keys of the other chunks (null when this section is the only chunk).
-export async function buildSection(section, { out, jobs = 8, exclude = [], emit = () => {}, crossPackages = null }) {
+export async function buildSection(section, { out, jobs = 8, exclude = [], emit = () => {}, crossPackages = null, graphBatch = 1, maxTargets, fileGroup }) {
   const evidence = join(out, 'tmp', 'evidence');
   mkdirSync(evidence, { recursive: true });
   const t0 = Date.now();
@@ -161,37 +172,22 @@ export async function buildSection(section, { out, jobs = 8, exclude = [], emit 
   // Evidence is kept whole and gzipped (lossless; read with `gzip -dc`): raw pages run to hundreds of MB.
   writeFileSync(join(evidence, 'ingest.json.gz'), gzipSync(JSON.stringify(snap)));
   // Every query repeats the build's path and pins its snapshot id.
-  const q = (stream, fields) => {
-    const row = { ...fields, path, graph: snap.graph };
-    const file = join(evidence, `${createHash('sha256').update(JSON.stringify(row)).digest('hex')}.jsonl.gz`);
-    // The call count of this walk: a page states where it starts (`pagination.offset`), not its number.
+  const walk = (fields) => {
+    const queries = fields.map((row) => ({ ...row, path, graph: snap.graph }));
+    const file = join(evidence, `${createHash('sha256').update(JSON.stringify(queries)).digest('hex')}.jsonl.gz`);
     let pages = 0;
     const save = (input, response) => {
-      pages += 1;
-      // One gzip member per page: concatenated members are one valid gzip stream of JSON lines.
+      pages++;
       appendFileSync(file, gzipSync(`${JSON.stringify({ input, response })}\n`));
     };
-    return readGraph(row, { save, snapshotRoot: snap.root, onPage: (page) => {
-      if (stream && STREAMED[row.operation] && page.rows?.length) emit(stream, page.rows, { page: pages, total: totalOf(page) });
+    return readGraphs(queries, { save, snapshotRoot: snap.root, onPage: (page, index) => {
+      const stream = STREAMED[queries[index].operation];
+      if (stream && page.rows?.length) emit(stream, page.rows, { page: pages, total: totalOf(page) });
     } });
   };
   emit('snapshot', [], { id: snap.graph, ingestMs, frozen, counts: snap.counts, linkage: snap.linkage?.ratio });
-  // Walks that need nothing else start at once, so their cursor chains overlap the witness groups.
-  const outsideWalk = q(null, { operation: 'diagnostics', limit: 1000 });
-  const independent = Promise.all([
-    q(null, { operation: 'cycles', limit: 1000 }),
-    q(null, { operation: 'issues', limit: 1000 }),
-  ]);
-  // Awaited below; a failure surfaces there, not as an unhandled rejection while the witnesses run.
-  for (const walk of [outsideWalk, independent]) walk.catch(() => {});
-  const found = await q('files', { operation: 'find', kind: 'file', limit: 1000 });
-  // Every confidence: each edge keeps its strongest, so a reader filters instead of losing medium and low links.
-  const fileList = found.rows.map((n) => n.id);
-  const witnessFields = { operation: 'witnesses', path, graph: snap.graph, edges: ['imports', 'calls'], confidence: 'low', limit: 1000 };
-  const symbolWalk = groupWalk(q, 'symbols', fileList, { jobs, fields: { operation: 'symbols', path, graph: snap.graph, limit: 1000 } });
-  symbolWalk.catch(() => {});
-  const rel = await groupWalk(q, 'witnesses', fileList, { jobs, fields: witnessFields });
-  const outside = await outsideWalk;
+  const { pages, groups } = await readSectionRows({ counts: snap.counts, jobs, graphBatch, fileGroup, walk });
+  const [found, outside, cyc, iss, rel, sym] = pages;
   const fileIds = new Set(found.rows.map((n) => n.id));
   const importEdges = foldEdges(rel.rows, 'imports');
   const imports = importEdges.filter((e) => fileIds.has(e.source) && fileIds.has(e.target));
@@ -200,16 +196,16 @@ export async function buildSection(section, { out, jobs = 8, exclude = [], emit 
   const outsideRoot = outside.rows.filter((d) => d.code === 'unresolved-internal' || d.code === 'outside-root').map((d) => ({ file: d.path, line: d.line, specifier: d.message.match(/"(.*)"/)?.[1] ?? null, message: d.message }));
   const callEdges = foldEdges(rel.rows, 'calls');
   const calls = callEdges.filter((e) => fileIds.has(fileOf(e.source)) && fileIds.has(fileOf(e.target))).map((e) => ({ ...e, via: 'graph' }));
-  const [[cyc, iss], sym, unresolvedCalls] = await Promise.all([independent, symbolWalk, crossCallGaps(q, { outsideRoot, externals, crossPackages, jobs })]);
+  const unresolvedCalls = await crossCallGaps(walk, { outsideRoot, externals, crossPackages, jobs, graphBatch, maxTargets });
   const { declarations, symbols } = symbolRows(sym.rows, fileIds, calls);
   const linked = new Set(imports.flatMap((e) => [e.source, e.target]));
-  const snapshot = { ...found.graph, id: snap.graph, root: resolve(snap.root), counts: snap.counts, linkage: snap.linkage?.ratio };
+  const snapshot = { ...found.graph, id: snap.graph, root: resolve(path), queryRoot: snap.root, counts: snap.counts, linkage: snap.linkage?.ratio };
   const partialReasons = snapshot.partialReasons ?? [];
   snapshot.isPartial = snapshot.isPartial === true || partialReasons.length > 0;
   const data = {
     section: resolve(section),
     evidence: 'tmp/evidence',
-    groupWalks: Object.fromEntries([['witnesses', rel], ['symbols', sym]].map(([op, w]) => [op, { groups: w.groups, grouped: w.grouped, rows: w.rows.length, total: w.total }])),
+    groupWalks: Object.fromEntries([['witnesses', rel], ['symbols', sym]].map(([op, w]) => [op, { groups, grouped: groups > 1, rows: w.rows.length, total: w.rows.length }])),
     coverage: { isPartial: snapshot.isPartial, partialReasons, files: files.length, isolated: files.filter((n) => !linked.has(n.id)).length, imports: imports.length, calls: calls.length, callsOutside: callEdges.length - calls.length, outsideRoot: outsideRoot.length, declarations: declarations.length, symbolsInCalls: symbols.length },
     frozen,
     ms: { ingest: ingestMs, total: Date.now() - t0 },

@@ -57,7 +57,7 @@ Contract changes also need `../octocode-mcp-host` and `cargo install cargo-typif
 ```bash
 DEV='node skills-dev/octocode-dev/scripts/dev.mjs'   # repo tasks: $DEV --help
 OCTO='node packages/octocode/out/octocode.js'        # local CLI
-corepack enable && $DEV setup && yarn install        # workspace packages + sibling core
+corepack enable && yarn install        # workspace packages + published core
 $DEV build:dev                                       # this machine's native target only
 $OCTO auth status                                    # GitHub tools need `auth login` or `gh auth login`
 $OCTO schema [<tool> --view query]; $OCTO <tool> '{"queries":[…]}'
@@ -69,7 +69,7 @@ $DEV gates                                           # every release gate in one
 - Build only the host target (`build:dev`); `--all`, `build:all`, `build:publish` are for requested release work.
 - Local MCP server: `node packages/octocode-mcp/dist/index.js` (stdio). Restart it after a native rebuild: it
   serves the contract it started with.
-- Without `setup`, core resolves from npm at the version pinned in `packages/octocode-config/package.json`.
+- Core resolves from npm at the version pinned in `packages/octocode-config/package.json`.
 - Full checks without native: `$DEV lint:ci`, `$DEV typecheck:ci`, `$DEV test:ci`; run `$DEV skills:check` after
   editing `skills/`.
 - End-to-end checks are agent prompts: [tool checks](packages/octocode-benchmark/CHECKS.md).
