@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { tempDir } from './test-tmp.mjs';
 
-async function probe(t, { roles = [], declarations = [], partial = '', partialIndex, sameIndex = false, calls = [], symbols = [], batchSize = 2 } = {}) {
+async function probe(t, { mode, category, resolvedSymbol, roles = [], declarations = [], partial = '', partialIndex, sameIndex = false, calls = [], symbols = [], batchSize = 2 } = {}) {
   const root = tempDir('graph-lsp-pages-');
   const script = join(root, 'fake.mjs');
   writeFileSync(script, `const [tool,,json] = process.argv.slice(2);
@@ -13,16 +13,18 @@ if (tool === 'config') { console.log(JSON.stringify({key:'WORKSPACE_ROOT',value:
 const input = JSON.parse(json ?? '{}');
 const reason = ${JSON.stringify(partial)};
 const partialIndex = ${JSON.stringify(partialIndex)};
-const row = (index, name = 'target') => ({index, data: {kind: 'matches', ...(reason && (partialIndex === undefined || index === partialIndex) ? {isPartial: true, partialReasons: [reason]} : {}), files: [{path: ${JSON.stringify(join(root, 'target.ts'))}, matches: [{symbolName: name, line: 1, sites: [{line: 3}]}]}]}});
+const row = (index, name = 'target') => ({index, data: {kind: 'matches', resolvedSymbol: ${JSON.stringify(resolvedSymbol)}, ...(reason && (partialIndex === undefined || index === partialIndex) ? {isPartial: true, partialReasons: [reason]} : {}), files: [{path: ${JSON.stringify(join(root, 'target.ts'))}, matches: [{symbolName: name, line: 1, sites: [{line: 3}]}]}]}});
 if(tool==='schema') console.log(JSON.stringify({queries:{maxItems:2}}));
 else if(input.queries?.[0]?.operation === 'documentSymbols') { console.error('outline unavailable'); process.exit(5); }
+else if (${JSON.stringify(category ?? '')}) console.log(JSON.stringify({results:input.queries.map((_,index)=>({index,status:'empty',data:{category:${JSON.stringify(category ?? '')},reason:'definition outside scope'}}))}));
+else if (${JSON.stringify(mode === 'all')}) console.log(JSON.stringify({results:input.queries.map((_, index)=>row(index))}));
 else if(input.cursor) console.log(JSON.stringify({results:[row(${sameIndex ? "0, 'other'" : '1'})]}));
 else console.log(JSON.stringify({results:[row(0)], next:{kind:'continue',tool:'lspSearch',input:{cursor:'tail'}}}));
 `);
   const D = { files: [{id:'source.ts', roles}, {id:'target.ts', roles:['test']}], symbols: [{id:'source.ts#first',file:'source.ts',name:'first',kind:'function',line:1},{id:'source.ts#second',file:'source.ts',name:'second',kind:'function',line:4},{id:'target.ts#target',file:'target.ts',name:'target',kind:'function',line:1}], calls, hubFiles:['source.ts'], coverage:{} };
   D.symbols.push(...symbols);
   if (sameIndex) D.symbols.splice(1, 1);
-  const source = `import { lspPhase } from ${JSON.stringify(new URL('../skills/octocode-graph/scripts/lsp.mjs', import.meta.url).href)}; const D = ${JSON.stringify(D)}; const events = []; const result = await lspPhase(D, {root:${JSON.stringify(root)},emit:e=>events.push(e),declarations:${JSON.stringify(declarations)},jobs:2,batchSize:${batchSize}}); console.log(JSON.stringify({D,result,events}));`;
+  const source = `import { lspPhase } from ${JSON.stringify(new URL('../src/runtime/lsp.mjs', import.meta.url).href)}; const D = ${JSON.stringify(D)}; const events = []; const result = await lspPhase(D, {root:${JSON.stringify(root)},emit:e=>events.push(e),mode:${JSON.stringify(mode)},declarations:${JSON.stringify(declarations)},jobs:2,batchSize:${batchSize}}); console.log(JSON.stringify({D,result,events}));`;
   const child = spawnSync(process.execPath, ['--input-type=module', '-e', source], { encoding: 'utf8', env: {...process.env, OCTOCODE_CLI: `${process.execPath} ${script}`} });
   assert.equal(child.status, 0, child.stderr);
   return JSON.parse(child.stdout);
@@ -114,4 +116,30 @@ test('duplicate observations of one declaration agree, but a same-line name coll
     assert.deepEqual(unanswered.reasons,['ambiguousDefinition']);
     assert.deepEqual(unanswered.ambiguousDefinitions,[{file:'target.ts',name:'target',line:1,sites:[{line:3}]}]);
   }
+});
+
+test('all probes declaration-only callers exactly once and records their source nodes', async t => {
+  const only = {id:'source.ts#leaf',file:'source.ts',name:'leaf',kind:'function',line:10};
+  const {D,result} = await probe(t, {mode:'all', declarations:[only,only]});
+  assert.equal(result.probed,4);
+  assert.ok(D.calls.some(c=>c.source===only.id));
+  assert.ok(D.symbols.some(s=>s.id===only.id));
+  assert.ok(D.calls.some(c=>c.source===c.target));
+});
+
+test('withheld-only LSP answers retain their reason and never confirm absence', async t => {
+  const {result} = await probe(t,{category:'locationsWithheld'});
+  assert.equal(result.resolved,0);
+  assert.ok(result.unanswered.length && result.unanswered.every(x=>x.reasons.includes('locationsWithheld')));
+});
+
+test('a moved anchor or two same-line caller declarations cannot confirm outgoing edges', async t => {
+  const moved = await probe(t, { mode:'all', resolvedSymbol:{lineDeviation:1} });
+  assert.equal(moved.D.calls.length, 0);
+  assert.ok(moved.result.unanswered.every(x => x.reasons.includes('movedSource')));
+  const rival = {id:'source.ts#Other.first',file:'source.ts',name:'first',kind:'method',line:1};
+  const collision = await probe(t, {mode:'all', declarations:[rival]});
+  assert.deepEqual(collision.result.unanswered.map(x=>x.id).sort(), [rival.id,'source.ts#first'].sort());
+  assert.ok(collision.result.unanswered.every(x=>x.reasons.includes('ambiguousSource')));
+  assert.ok(collision.D.calls.every(c=>c.source !== rival.id && c.source !== 'source.ts#first'));
 });

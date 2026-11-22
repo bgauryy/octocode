@@ -10,6 +10,8 @@ npx octocode-graph-build . --out .octocode/first-run
 npx octocode-graph-serve --replay .octocode/first-run
 ```
 
+The default `--lsp smart` checks outgoing calls from declarations in hub files and callers linked across chunks. Choose `--lsp all` for every indexed function, method and constructor with a declaration line, or `--lsp off` for a static export. The saved run records unanswered declarations and their reasons.
+
 The package exports two native tools, `graphBuild` to create a snapshot and `graphQuery` to query it. Run them through the graph CLI from your project directory.
 
 ```sh

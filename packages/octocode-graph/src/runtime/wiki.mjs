@@ -168,7 +168,8 @@ function saveNotes(out, { slug, map, markdown, notes }, logLine) {
 // Replaces a page's agent notes; the members' current content becomes the baseline they are fresh against.
 export function writeNotes({ out, slug, text }) {
   const { map, entry, markdown } = pageEntry(out, slug);
-  const notes = String(text ?? '').trim();
+  if (typeof text !== 'string') throw new Error('Provide note text, or an explicit empty string to clear notes');
+  const notes = text.trim();
   entry.notes = notes ? { at: new Date().toISOString(), hashes: memberHashes(map.root, entry) } : null;
   entry.stale = [];
   saveNotes(out, { slug, map, markdown, notes }, notes ? `notes written [[${slug}]]: ${notes.length} characters, fresh against ${entry.members.length} members` : `notes cleared [[${slug}]]`);
@@ -194,14 +195,16 @@ const USAGE = `usage: wiki.mjs <command> <out> ...
   read <out> <slug|index|log>       print a page; read <out> --file <path> prints the page holding that file
   note <out> <slug> <text|->        replace the page's agent notes (- reads stdin; --from <file> reads a file)
   promote <out> <slug> <text|-> --source <where it came from>   append to the notes with source and date
-  lint <out> [--root <dir>] [--top N] [--json]   citations, links, missing/orphaned pages, stale or empty notes
+  lint <out> [--root <dir>] [--top N] [--json]   check citations, links, pages and stale notes; --top also checks N ranked pages for empty notes
 Conventions: references/wiki.md.`;
 
 const say = (text) => process.stdout.write(`${text}\n`);
 const argText = (arg, from) => (from ? readFileSync(resolve(from), 'utf8') : arg === '-' ? readFileSync(0, 'utf8') : arg);
 const option = (args, name) => {
   const i = args.indexOf(`--${name}`);
-  return i < 0 ? undefined : args.splice(i, 2)[1];
+  if (i < 0) return undefined;
+  if (!args[i + 1] || args[i + 1].startsWith('--')) throw new Error(`--${name} needs a value`);
+  return args.splice(i, 2)[1];
 };
 
 function lintCommand(out, args) {

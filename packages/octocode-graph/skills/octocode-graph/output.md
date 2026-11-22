@@ -4,7 +4,7 @@ Use `loc` on a saved node or edge to cite its source. The `via`, `resolution` an
 
 ## Saved result
 
-One result directory at `<workspace>/.octocode/octocode-graph/<YYYY-MM-DD>-<slug>-<random>/` unless the user names `--out`. Workspace means the target project, never the skill installation.
+Builds create a fresh directory under `.octocode/octocode-graph/` in the current working directory. Pass `--out <dir>` to choose the destination.
 
 | Artifact | Consumer and meaning |
 |---|---|
@@ -18,4 +18,4 @@ Report the coverage gaps that limit a reported claim, beside that claim: failed 
 
 ## Viewer delivery
 
-When a person will look at the graph, run `serve.mjs` and give the printed URL; say it stays live for AST and LSP questions until stopped, and that `--replay` reopens a finished run. Report generation and any browser check separately.
+For a file delivery, return the result directory or export a standalone page with the package CLI, `octocode-graph html <saved-run> <new.html>`. For live queries and chat, share the URL printed by `serve.mjs`. Use `--replay <result-dir>` to revisit a saved run.

@@ -6,11 +6,11 @@ import { cliOk, octocode } from './lib.mjs';
 
 const has = (cmd, args) => { try { execFileSync(cmd, args, { stdio: 'ignore' }); return true; } catch { return false; } };
 const HINTS = {
-  cli: 'build the checkout (`node skills-dev/octocode-dev/scripts/dev.mjs build:dev`), set OCTOCODE_CLI, or install `octocode`',
+  cli: 'install `octocode` on PATH or set OCTOCODE_CLI to an installed executable',
   graph: 'the octocode CLI lacks `graphBuild`/`graphQuery`: rebuild or update it',
-  structureSearch: 'listing falls back to `git ls-files`; check `octocode structureSearch` for this workspace (WORKSPACE_ROOT, allowed roots)',
+  structureSearch: 'check `octocode structureSearch` for this workspace (WORKSPACE_ROOT, allowed roots); a refused listing stops the run',
   astSearch: 'AST outlines in the viewer stay empty until `octocode astSearch` works here',
-  lspSearch: 'calls stay graph-only (labelled `graph`); the run probes a language server per language and reports why it skipped',
+  lspSearch: 'static calls are available without LSP confirmation',
   rsync: 'install rsync: a tree that changes during ingest is graphed from a frozen copy',
   opener: 'open the printed URL by hand (no `open`/`xdg-open`)',
 };
@@ -31,7 +31,7 @@ export async function preflight() {
   r.graph = await cliOk(['schema', 'graphBuild']) && await cliOk(['schema', 'graphQuery']) ? 'ok' : 'missing';
   r.structureSearch = await tool('structureSearch', { queries: [{ operation: 'files', path: here, entryType: 'file', view: 'paths', limit: 1 }] });
   r.astSearch = await cliOk(['schema', 'astSearch']) ? 'ok' : 'missing';
-  r.lspSearch = await cliOk(['schema', 'lspSearch']) ? 'ok (servers are probed per language during the run)' : 'missing';
+  r.lspSearch = await cliOk(['schema', 'lspSearch']) ? 'ok (tool advertised; confirmation depends on the language server)' : 'missing';
   r.rsync = has('rsync', ['--version']) ? 'ok' : 'missing';
   r.opener = process.platform === 'darwin' || process.platform === 'win32' || has('which', ['xdg-open']) ? 'ok' : 'missing';
   return r;

@@ -10,7 +10,7 @@ Load when a person wants to ask the agent about graph nodes from the viewer, or 
 | Render | Replies support code spans/fences; `path:line` mentions select matching graph nodes. |
 | Point | Reply `nodes` are resolved IDs. Newest reply highlights and frames them; each retains **Show on graph (N)**. |
 
-Answer from the graph and the wiki, not memory: read the community's wiki page, prove structural claims with graph queries (impact, path, cycle, community, callers) and source or LSP reads, reply with the files as `nodes`, and promote an answer worth keeping. Queries, pointing and the wiki: [query](query.md).
+Reply with the message’s `chat_id`. Add `nodes` to highlight a file or cite `path:line` when a source location helps. The viewer can answer structural questions directly from the [saved graph](query.md). Community notes can supply context for architecture questions.
 
 Only the token-authenticated browser socket (page token plus same-server `Origin`) can submit a message; that socket is the sender gate. `POST /reply`, `/refresh`, `/query` and `/wiki` need the token in `?t=` and accept no foreign `Origin`. `<out>/server.json` (`url`, `token`, `port`, `pid`, mode 600) exists while the server runs.
 
@@ -19,13 +19,13 @@ Only the token-authenticated browser socket (page token plus same-server `Origin
 1. Start the viewer: `node <skill>/scripts/serve.mjs <section>` (or `--replay <result-dir>`); its stdout line names `out`.
 2. Watch `<out>/chat-inbox.jsonl`; each message is one line `{chat_id, text, file, line, metrics?, at}`. In Claude Code, a Monitor on `tail -n 0 -F <out>/chat-inbox.jsonl` turns each line into a notification.
 3. Answer with [reply.mjs](../scripts/reply.mjs): `node <skill>/scripts/reply.mjs <out> "text" --chat <chat_id> [--nodes a.ts,src/b.ts]` (`-` reads the text from stdin; without `--chat` it answers the latest unanswered message; `--nodes` points at files on the graph). Ask the graph with `reply.mjs query <out> "impact a.ts"`; read or write the wiki with `reply.mjs wiki <out> read|note|promote|lint` ([query](query.md)).
-4. After editing code: add `--refresh` to the reply, or run `node <skill>/scripts/reply.mjs <out> --refresh`. Refreshes run one at a time; a request during a run queues one follow-up that later requests join.
+4. To show edits in the viewer, add `--refresh` to the reply, or run `node <skill>/scripts/reply.mjs <out> --refresh`. Refreshes run one at a time; a request during a run queues one follow-up that later requests join.
 
 `reply.mjs` prints one JSON line; exit 1 means the server refused, the refresh failed or a query failed (stderr says why; an ambiguous query or node lists candidates), 2 a usage error, 3 no running server for `<out>` (no or stale `server.json`, or unreachable).
 
 ## Channel mode (messages pushed into the session)
 
-[channel.mjs](../scripts/channel.mjs) is a Claude Code [channel](https://code.claude.com/docs/en/channels-reference.md), a research-preview feature: an MCP server over stdio that pushes each viewer message into the open session as `<channel source="graph-view" chat_id="…" file="…" line="…">text</channel>` and gives Claude these tools: `open_graph({ path, whole?, lsp?, result? })` (build and show a repository, or reopen a result directory; reuses an open viewer), `reply({ chat_id, text, nodes? })`, `query_graph({ query, path? })`, `wiki_read({ slug?, file? })`, `wiki_note({ slug, text })`, `wiki_promote({ slug?, chat_id?, text? })`, `wiki_lint()` and `refresh_graph({ path? })`. Its instructions ask Claude to read the wiki page, prove with `query_graph` and LSP, answer with `reply` and `nodes`, promote good answers, and refresh after edits.
+[channel.mjs](../scripts/channel.mjs) is a Claude Code [channel](https://code.claude.com/docs/en/channels-reference.md), a research-preview feature: an MCP server over stdio that pushes each viewer message into the open session as `<channel source="graph-view" chat_id="…" file="…" line="…">text</channel>` and gives Claude these tools: `open_graph({ path, whole?, lsp?, result? })` (build and show a repository, or reopen a result directory; reuses an open viewer), `reply({ chat_id, text, nodes? })`, `query_graph({ query, path? })`, `wiki_read({ slug?, file? })`, `wiki_note({ slug, text })`, `wiki_promote({ slug?, chat_id?, text? })`, `wiki_lint()` and `refresh_graph({ path? })`.
 
 Setup, done by the user:
 

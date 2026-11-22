@@ -1,7 +1,7 @@
 // Incremental refresh of an existing result directory after code edits: each built chunk's snapshot answers
 // graphQuery `stale`, a fresh structureSearch listing names added and removed files, and only the chunks holding a
 // change are rebuilt (graphBuild reuses unchanged snapshots). Every chunk is then stitched again and the LSP pass
-// (only with `lsp: 'on'`), the file check and graph metrics run over the whole graph, with the same events a full
+// (in the selected scope), the file check and graph metrics run over the whole graph, with the same events a full
 // run emits, so an open viewer changes in place. A package manifest added or removed changes the chunk plan: the
 // whole root runs again. Stateless: everything comes from <out> and the repository.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -142,7 +142,7 @@ async function restitch(state, found, ctx, t0) {
   phase('stitch', 'start');
   const D = stitchPhase(ctx);
   phase('stitch', 'done', { crossImports: D.coverage.crossChunkImports, crossCalls: D.coverage.crossChunkCalls });
-  const lsp = opts.lsp === 'on'
+  const lsp = opts.lsp !== 'off'
     ? { run: true, start: 'refresh: LSP rerun over the whole graph' }
     : { run: false, note: `refresh: LSP not rerun (lsp ${opts.lsp}); calls are graph-only` };
   await finishRun(D, ctx, phase, lsp);

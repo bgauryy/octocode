@@ -5,7 +5,7 @@ import { cell, num } from './wiki-facts.mjs';
 
 export const HEADER = /^> \*\*Notes:\*\*.*$/m;
 const FACTS_NOTE = '<!-- facts: regenerated from data.json on every build; edit only the agent notes below -->';
-const NOTES_HINT = '<!-- agent notes: purpose, how it works, invariants, gotchas; every claim cites path:line. Write them with `wiki.mjs note` or `promote` (references/wiki.md); they are kept verbatim across builds. -->';
+const NOTES_HINT = '<!-- Optional notes survive rebuilds. Use `wiki.mjs note` or `promote` to record a finding and its source. -->';
 
 export function notesState(entry) {
   if (!entry.notes) return 'none';

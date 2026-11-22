@@ -14,13 +14,13 @@ import { chunkDeclarations, chunkOf, packageKey, stitch } from './stitch.mjs';
 import { computeMetrics } from './metrics.mjs';
 import { describeCall, pagedTool, responseShape, rowsOf } from './tools.mjs';
 import { writeBriefs } from './render.mjs';
-import { lspPhase } from './lsp.mjs';
+import { lspPhase, lspReasons } from './lsp.mjs';
 import { verifyPhase } from './verify.mjs';
 import { buildWiki } from './wiki.mjs';
 
 // `jobs`: concurrent tool calls per chunk. The warm server runs graph pages in parallel: on 12 cores one page took
 // 0.065 s alone and 0.015 s of wall time each at 12 concurrent calls, so throughput follows the cores.
-export const defaults = () => ({ jobs: availableParallelism(), ingestJobs: Math.max(1, Math.floor(availableParallelism() / 4)), lsp: 'on', whole: false, exclude: [] });
+export const defaults = () => ({ jobs: availableParallelism(), ingestJobs: Math.max(1, Math.floor(availableParallelism() / 4)), lsp: 'smart', whole: false, exclude: [] });
 
 const prefixOf = (path) => (path === '.' ? '' : `${path}/`);
 const fileOf = (id) => id.split('#')[0];
@@ -56,6 +56,7 @@ export async function listFiles(root, emit, file) {
       },
     });
   } catch (error) {
+    if (error.errorClass === 'refused') throw error;
     // git lists the same tracked and unignored files when structureSearch is unavailable.
     emit({ type: 'note', level: 'warn', text: `structureSearch listing failed, using git ls-files: ${error.message}` });
     const rows = execFileSync('git', ['-C', root, 'ls-files', '--cached', '--others', '--exclude-standard'], { encoding: 'utf8', maxBuffer: Infinity }).split('\n').filter((p) => p && existsSync(join(root, p)));
@@ -193,8 +194,11 @@ export function writeGraph(path, data) {
 // The checkpoint answers immediately. Live queries derive a new index only after the graph changes.
 export async function finishRun(D, ctx, phase, lsp) {
   const { root, out, opts, emit, signal, publish } = ctx;
-  const active = lsp.run && !signal?.aborted;
-  D.callStats = { mode: 'graph', lsp: signal?.aborted ? 'cancelled' : active ? 'pending' : 'off', probed: 0, resolved: 0, both: 0, graphOnly: 0, lspOnly: 0 };
+  let status = 'pending';
+  if (signal?.aborted) status = 'cancelled';
+  else if (!lsp.run) status = 'off';
+  else if (ctx.contract.lspBatch === null) status = 'lspSearch unavailable';
+  D.callStats = { mode: 'graph', lsp: status, probed: 0, resolved: 0, both: 0, graphOnly: 0, lspOnly: 0 };
   let current;
   function readLive() {
     if (!current) {
@@ -209,12 +213,12 @@ export async function finishRun(D, ctx, phase, lsp) {
   publish?.(readLive);
   try {
     emit({ ...metricsEvent(readLive()), type: 'graph-ready', data: checkpoint });
-    if (!active) {
-      phase('lsp', 'skipped', { note: signal?.aborted ? 'cancelled' : lsp.note });
+    if (status !== 'pending') {
+      phase('lsp', 'skipped', { note: status === 'off' ? lsp.note : status });
     } else {
       phase('lsp', 'start', lsp.start ? { note: lsp.start } : {});
       const unanswered = [];
-      D.callStats = await lspPhase(D, { root, signal, declarations: chunkDeclarations(ctx.chunks, ctx.datas), jobs: opts.jobs, batchSize: ctx.contract.lspBatch, emit(event) {
+      D.callStats = await lspPhase(D, { root, signal, mode: opts.lsp, declarations: chunkDeclarations(ctx.chunks, ctx.datas), jobs: opts.jobs, batchSize: ctx.contract.lspBatch, emit(event) {
         if (event.type === 'lsp') {
           unanswered.push(...event.unansweredAdded);
           D.callStats = { ...event.stats, unanswered };
@@ -322,7 +326,9 @@ export async function lspQuery(root, { file, symbolName, line, operation }) {
   const pages = await pagedTool('lspSearch', { queries: [{ operation, path: join(root, file), symbolName, line }] });
   const rows = rowsOf(pages, 'files').flatMap((g) => (g.matches ?? []).map((m) => ({ path: relative(root, resolve(base, m.path ?? g.path)), symbolName: m.symbolName, kind: m.kind, line: m.line, endLine: m.endLine, sites: m.sites })));
   const error = pages.flatMap((p) => p.results ?? []).find((r) => r?.data?.errorCode)?.data;
-  return { rows, error: error ? `${error.errorCode}: ${error.error ?? ''}` : undefined };
+  const notes = [...new Set(pages.flatMap(p => (p.results ?? []).flatMap(({ data }) =>
+    [...lspReasons(data), ...(data.reason ? [data.reason] : []), ...(data.warnings ?? [])])))];
+  return { rows, notes, error: error ? `${error.errorCode}: ${error.error ?? ''}` : undefined };
 }
 
 // Saved events of a finished run, for replay without recomputing.

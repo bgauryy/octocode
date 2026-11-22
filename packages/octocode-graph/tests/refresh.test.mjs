@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { tempDir, fakeCatalog } from './test-tmp.mjs';
 
-const here = fileURLToPath(new URL('../skills/octocode-graph/scripts/', import.meta.url));
+const here = fileURLToPath(new URL('../src/runtime/', import.meta.url));
 
 // Parallel chunk builds run several fakes at once, so state is never read-modify-written: builds append one line
 // each and every snapshot is its own file.
@@ -85,7 +85,7 @@ const collect = () => {
 test('a refresh rebuilds only the edited chunk, streams its rows again and writes the new edge', async () => {
   const { root, out, builds } = fakeRepo();
   // lib.mjs reads OCTOCODE_CLI when it loads, so the module loads after the fake is in place.
-  const { refreshRun } = await import('../skills/octocode-graph/scripts/refresh.mjs');
+  const { refreshRun } = await import('../src/runtime/refresh.mjs');
   assert.deepEqual(builds().toSorted(), ['pkg/a', 'pkg/c']);
   writeFileSync(join(root, 'pkg/a/b.ts'), 'export function b() {}\nexport function h() { a(); }\n');
   const run = collect();

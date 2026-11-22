@@ -236,6 +236,11 @@ opt-level = 3
 [profile.dev.package."memchr"]
 opt-level = 3
 
+# Edited graph builds inflate cached extraction records and the previous snapshot's
+# evidence dictionary. Keep the DEFLATE codec optimized in the local development binary.
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+
 # Contract validation, row shaping and every tool result move `serde_json::Value`
 # trees (clone, drop, hash-map lookups), and large-source reads hash megabytes
 # per page. Unoptimised, those loops set the tail of `cargo nextest` (the union

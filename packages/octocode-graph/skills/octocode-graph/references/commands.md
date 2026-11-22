@@ -9,10 +9,12 @@ Pass a file to build or serve a graph of that file alone. Pass its enclosing dir
 | Goal | Command |
 |---|---|
 | What runs here | `node <skill>/scripts/preflight.mjs [--json]` |
-| Live viewer | `node <skill>/scripts/serve.mjs <section> [--out <dir>] [--whole] [--lsp on\|off] [--jobs N] [--ingest-jobs N] [--exclude a,b] [--port N] [--no-open] [--exit-when-done]` |
+| Live viewer | `node <skill>/scripts/serve.mjs <section> [--out <dir>] [--whole] [--lsp smart\|all\|off] [--jobs N] [--ingest-jobs N] [--exclude a,b] [--port N] [--no-open] [--exit-when-done]` |
 | Headless result | `node <skill>/scripts/build.mjs <section> [same flags] [--progress]` |
 | Reopen a finished run | `node <skill>/scripts/serve.mjs --replay <result-dir>` |
 | Briefs again (after `model.json`) | `node <skill>/scripts/render.mjs --data <dir>/data.json` |
+
+Use `--lsp smart` (default) for callable declarations in hub files and callers crossing a chunk boundary. Use `--lsp all` to probe every indexed function, method and constructor with a declaration line, including those with no static calls. `off` skips confirmation. The saved probe totals and unanswered reasons describe coverage.
 
 ## Pipeline
 
@@ -24,7 +26,7 @@ During a large build the live map groups files by folder. Folder labels show par
 
 After stitching the pipeline atomically publishes `stitched.json` and emits `graph-ready`. The live query endpoint reads the current graph, including completed LSP batches. Each answer labels pending confirmation until the LSP phase finishes. The final `data.json` is published atomically after verification and metrics.
 
-5. **LSP**: callees of every function in the hub files and of every stitched call source, batched by the published `lspSearch` limit, continuations followed per query. Graph calls it confirms become `both`, unconfirmed probed ones stay `graph`, callees only the server reports join as `lsp`. A language without a server is reported and skipped; no step has a fixed timeout. When the only gap is `locationsWithheld`, a returned definition can confirm a call by file, name and declaration line. The probe stays incomplete. Each batch streams newly incomplete probes, and `callStats.unanswered` in the final graph lists all of them.
+5. **LSP**: the selected callable declarations are batched by the published `lspSearch` limit, with continuations followed per query. Same-line declaration collisions and moved anchors remain unanswered. Graph calls it confirms become `both`, unconfirmed probed ones stay `graph`, callees only the server reports join as `lsp`. A language without a server is reported and skipped; no step has a fixed timeout. When the only gap is `locationsWithheld`, a returned definition can confirm a call by file, name and declaration line. The probe stays incomplete. Each batch streams newly incomplete probes, and `callStats.unanswered` in the final graph lists all of them.
 6. **Verify** each file against its declarations, recorded edge lines and the snapshot. For status and line problems, read the `check` object on each saved file. Freshness queries share batches up to the native limit. A failed batch is retried by snapshot. Files with unknown freshness are marked `unverified` unless a disk or line check has already found a problem. Insights shows affected files and the reason.
 7. **Metrics**: the production file graph weights imports and call sites by binding evidence; [graph-model.mjs](../scripts/graph-model.mjs) owns that formula. [algorithms.mjs](../scripts/algorithms.mjs) computes cycles, dependency depth, PageRank, betweenness, communities, k-core and package coupling. Values land on `files[].metrics`, sets on `metrics`, weighted edges on `fileEdges`, then in the briefs. They measure structure, not runtime frequency.
 

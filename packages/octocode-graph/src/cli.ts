@@ -1,4 +1,9 @@
 import { delegateToNative, resolveNativeBin } from 'octocode/native';
+import { fileURLToPath } from 'node:url';
+
+const runtimeCommands = new Set([
+  'build', 'query', 'serve', 'channel', 'wiki', 'reply', 'render', 'preflight',
+]);
 
 const usage = {
   html: 'octocode-graph html <saved-run> <new.html>',
@@ -7,6 +12,14 @@ const usage = {
 
 export async function runGraphCli(args: readonly string[]): Promise<number> {
   const topic = args[0] === 'help' ? args[1] : args[0];
+  if (runtimeCommands.has(topic)) {
+    if (topic === 'channel' && (args[0] === 'help' || args.includes('--help') || args.includes('-h'))) {
+      process.stdout.write('Usage: octocode-graph channel (stdio MCP server for saved graphs and the viewer)\n');
+      return 0;
+    }
+    const entry = fileURLToPath(import.meta.resolve(`#graph-runtime/${topic}`));
+    return delegateToNative(process.execPath, [entry, ...(args[0] === 'help' ? ['--help'] : args.slice(1))]);
+  }
   if (
     (topic === 'html' || topic === 'enrich') &&
     args.length === 2 &&
@@ -42,7 +55,7 @@ export async function runGraphCli(args: readonly string[]): Promise<number> {
     ['--help', '-h', 'help'].includes(args[0])
   ) {
     process.stdout.write(
-      `\nSaved graph commands\n  ${usage.html}\n  ${usage.enrich}\n`
+      `\nSaved graph commands\n  octocode-graph <${[...runtimeCommands].join('|')}>\n  ${usage.html}\n  ${usage.enrich}\n`
     );
   }
   return code;

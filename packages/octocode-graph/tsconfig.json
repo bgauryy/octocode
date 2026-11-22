@@ -8,5 +8,5 @@
     "allowJs": true,
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "skills/octocode-graph/scripts/**/*.mjs"]
+  "include": ["src/**/*.ts", "src/runtime/**/*.mjs"]
 }

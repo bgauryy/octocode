@@ -1,9 +1,9 @@
 // Graph questions over the weighted file graph of one data.json (query-index.mjs): who depends on a file, what it
 // depends on, the strongest path between two files, its cycle and community, symbol callers and callees, rankings
 // and text search. Every op returns complete rows; nothing is cut to a page size.
-import { QueryError, edgeOf, evidenceLine, evidenceOf, fileOf, indexOf, resolveFile, resolveSymbol } from './query-index.mjs';
-import { PatternError, traceRelations } from './relations.mjs';
-import { prerequisiteOrder } from './algorithms.mjs';
+import { QueryError, edgeOf, evidenceLine, evidenceOf, fileOf, indexOf, resolveFile, resolveLocation, resolveSymbol } from './query-index.mjs';
+import { PatternError, traceRelations } from '#graph-core/relations';
+import { prerequisiteOrder } from '#graph-core/algorithms';
 const byText = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
 const round = (x, digits = 3) => Number(x.toFixed(digits));
@@ -25,12 +25,11 @@ function countBy(rows, key) {
 
 // Breadth-first walk to maxDepth along dependencies (out) or dependents (in). A node reached at depth d keeps the
 // heaviest edge from depth d-1 that reaches it.
-function walk(I, start, { dir, maxDepth }) {
+function walk(I, seeds, { dir, maxDepth }) {
   const adj = dir === 'in' ? I.G.in : I.G.out;
-  const s = I.G.index.get(start);
-  const depth = new Map([[s, 0]]);
+  let frontier = seeds.map(id => I.G.index.get(id));
+  const depth = new Map(frontier.map(v => [v, 0]));
   const via = new Map();
-  let frontier = [s];
   for (let d = 1; frontier.length && d <= maxDepth; d++) {
     const next = [];
     for (const u of frontier) for (let k = adj.offsets[u]; k < adj.offsets[u + 1]; k++) {
@@ -46,8 +45,8 @@ function walk(I, start, { dir, maxDepth }) {
 
 // Rows of a walk: depth, the weight of the edge that reached the file, the file it reached through, and that edge's
 // evidence line in the depending file.
-function walkRows(I, start, { dir, maxDepth }) {
-  const { depth, via } = walk(I, start, { dir, maxDepth });
+function walkRows(I, seeds, { dir, maxDepth }) {
+  const { depth, via } = walk(I, seeds, { dir, maxDepth });
   const found = [];
   const edges = [];
   for (const [v, [u, w]] of via) {
@@ -57,7 +56,7 @@ function walkRows(I, start, { dir, maxDepth }) {
     found.push(fileRow(I, id, { depth: depth.get(v), weight: round(w), through, line: dir === 'in' ? evidenceLine(I, from, to) : undefined }));
   }
   const rows = found.toSorted((a, b) => a.depth - b.depth || b.weight - a.weight || byId(a, b));
-  return { rows, edges, nodes: [start, ...rows.map((r) => r.id)] };
+  return { rows, edges, nodes: [...seeds, ...rows.map((r) => r.id)] };
 }
 
 // Default walks follow strong edges, while metrics count every production edge. So an answer states what `--weak` would
@@ -65,9 +64,9 @@ function walkRows(I, start, { dir, maxDepth }) {
 function weakView(I) {
   return I.weak || I.imports ? null : indexOf(I.D, { tests: I.tests, weak: true });
 }
-function weakAdds(I, id, { dir, maxDepth }, found) {
+function weakAdds(I, seeds, { dir, maxDepth }, found) {
   const W = weakView(I);
-  return W ? walk(W, id, { dir, maxDepth }).via.size - found : 0;
+  return W ? walk(W, seeds, { dir, maxDepth }).via.size - found : 0;
 }
 const weakNote = (n) => (n > 0 ? `; --weak adds ${plural(n, 'file')} reached only through name-bound calls` : '');
 
@@ -75,27 +74,55 @@ function depthText(byDepth) {
   return Object.entries(byDepth).map(([d, n]) => `depth ${d}: ${n}`).join(', ');
 }
 
+function seedFiles(I, args) {
+  if (!args.length) throw new QueryError('missing file argument');
+  return [...new Set(args.map(arg => resolveFile(I, arg)))];
+}
+
+// File records carry the saved metadata. A source anchor selects a line in the working file.
+export function fileRecords(I, { args }) {
+  if (!args.length) throw new QueryError('files needs one or more file paths');
+  const reads = new Map();
+  const rows = args.map(arg => {
+    const { id, line, column } = resolveLocation(I, arg);
+    const file = I.file.get(id);
+    const loc = { path: file.manifest ?? id, ...file.loc, line: line ?? file.loc?.line ?? 1, ...(column && { column }) };
+    const sourcePath = loc.abs ?? loc.path;
+    if (!reads.has(sourcePath)) reads.set(sourcePath, new Set());
+    if (line) reads.get(sourcePath)?.add(loc.line);
+    else reads.set(sourcePath, null); // A whole-file request already includes every cited line.
+    return { ...file, loc };
+  });
+  const nodes = [...new Set(rows.map(row => row.id))];
+  const sourceQueries = Array.from(reads, ([sourcePath, lines]) => lines
+    ? { path: sourcePath, ranges: Array.from(lines, line => ({ startLine: line, endLine: line })) }
+    : { path: sourcePath });
+  return { rows, nodes, sourceQueries, summary: `${plural(nodes.length, 'file')} in the snapshot` };
+}
+
 export function impact(I, { args, depth }) {
-  const id = resolveFile(I, args[0]);
-  const r = walkRows(I, id, { dir: 'in', maxDepth: depth ?? Infinity });
-  const weak = weakAdds(I, id, { dir: 'in', maxDepth: depth ?? Infinity }, r.rows.length);
+  const seeds = seedFiles(I, args);
+  const label = seeds.join(', ');
+  const r = walkRows(I, seeds, { dir: 'in', maxDepth: depth ?? Infinity });
+  const weak = weakAdds(I, seeds, { dir: 'in', maxDepth: depth ?? Infinity }, r.rows.length);
   const stats = { byDepth: countBy(r.rows, 'depth'), byChunk: countBy(r.rows, 'chunk'), weakAdds: weak };
   const chunks = Object.keys(stats.byChunk).length;
   const summary = r.rows.length
-    ? `${plural(r.rows.length, 'file')} ${r.rows.length === 1 ? 'depends' : 'depend'} on ${id}${depth ? ` within depth ${depth}` : ' transitively'} (${depthText(stats.byDepth)}) across ${plural(chunks, 'chunk')}`
-    : `nothing depends on ${id}`;
+    ? `${plural(r.rows.length, 'file')} ${r.rows.length === 1 ? 'depends' : 'depend'} on ${label}${depth ? ` within depth ${depth}` : ' transitively'} (${depthText(stats.byDepth)}) across ${plural(chunks, 'chunk')}`
+    : `nothing depends on ${label}`;
   return { ...r, stats, summary: `${summary}${weakNote(weak)}` };
 }
 
 function neighbors(I, { args, depth }, dir) {
-  const id = resolveFile(I, args[0]);
+  const seeds = seedFiles(I, args);
+  const label = seeds.join(', ');
   const maxDepth = depth ?? 1;
-  const r = walkRows(I, id, { dir, maxDepth });
+  const r = walkRows(I, seeds, { dir, maxDepth });
   const one = r.rows.length === 1;
   const what = dir === 'in' ? (one ? 'depends on' : 'depend on') : one ? 'is a dependency of' : 'are dependencies of';
-  const weak = weakAdds(I, id, { dir, maxDepth }, r.rows.length);
+  const weak = weakAdds(I, seeds, { dir, maxDepth }, r.rows.length);
   const stats = { byDepth: countBy(r.rows, 'depth'), byChunk: countBy(r.rows, 'chunk'), weakAdds: weak };
-  return { ...r, stats, summary: `${plural(r.rows.length, 'file')} ${what} ${id} within depth ${maxDepth === Infinity ? 'all' : maxDepth}${weakNote(weak)}` };
+  return { ...r, stats, summary: `${plural(r.rows.length, 'file')} ${what} ${label} within depth ${maxDepth === Infinity ? 'all' : maxDepth}${weakNote(weak)}` };
 }
 export const deps = (I, q) => neighbors(I, q, 'out');
 export const dependents = (I, q) => neighbors(I, q, 'in');

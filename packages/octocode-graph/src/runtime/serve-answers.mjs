@@ -1,26 +1,22 @@
 // The server's answers over the finished graph: graph queries (query.mjs) on the in-memory data.json, node
 // resolution for replies that point at the graph, and the wiki (wiki.mjs, optional: a clear 501 until it exists).
 // Each answer is an event, so the viewer highlights it and a replay shows it again.
-import { existsSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import * as wiki from './wiki.mjs';
 import { resolveNodes, runQuery } from './query.mjs';
-
-const here = dirname(fileURLToPath(import.meta.url));
-const WIKI_API = ['readPage', 'pageOf', 'writeNotes', 'promote', 'lintWiki'];
 
 export const httpError = (status, message, detail) => Object.assign(new Error(message), { status, ...(detail ? { detail } : {}) });
 
 // data.json, reloaded when the file changes (a run's end, a refresh); one load at a time.
-function dataLoader(ctx) {
+export function dataLoader(ctx) {
   let cached = null;
   let loading = null;
   const file = join(ctx.out, 'data.json');
   async function load() {
-    const s = await stat(file).catch(() => null);
+    const s = await stat(file, { bigint: true }).catch(() => null);
     if (!s) throw httpError(409, ctx.building ? 'the graph is still building: queries open as soon as the chunks are stitched' : `no data.json in ${ctx.out}: build or refresh the result first`);
-    const key = `${s.mtimeMs}:${s.size}`;
+    const key = `${s.dev}:${s.ino}:${s.mtimeNs}:${s.ctimeNs}:${s.size}`;
     if (cached?.key !== key) cached = { key, D: JSON.parse(await readFile(file, 'utf8')) };
     return cached.D;
   }
@@ -29,14 +25,6 @@ function dataLoader(ctx) {
     loading ??= load().finally(() => { loading = null; });
     return loading;
   };
-}
-
-async function wikiModule() {
-  const unavailable = 'wiki unavailable: this copy of the skill has no scripts/wiki.mjs with readPage, pageOf, writeNotes, promote and lintWiki';
-  if (!existsSync(join(here, 'wiki.mjs'))) throw httpError(501, unavailable);
-  const m = await import('./wiki.mjs');
-  if (!WIKI_API.every((k) => typeof m[k] === 'function')) throw httpError(501, unavailable);
-  return m;
 }
 
 function needText(t) {
@@ -101,7 +89,7 @@ function createWiki(ctx, data) {
   return async (body = {}) => {
     const act = actions[body.action];
     if (!act) throw httpError(400, `wiki action must be one of ${Object.keys(actions).join(', ')}`);
-    return { ok: true, ...(await act(body, await wikiModule())) };
+    return { ok: true, ...(await act(body, wiki)) };
   };
 }
 

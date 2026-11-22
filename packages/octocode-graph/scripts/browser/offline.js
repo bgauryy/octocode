@@ -1,5 +1,5 @@
 // A file:// replay uses the same event fold and query engine as the loopback viewer.
-import { openSavedGraph } from '../../skills/octocode-graph/assets/live.js';
+import { openSavedGraph } from '../../src/assets/live.js';
 
 function takeBytes(id) {
   const node = document.getElementById(id);

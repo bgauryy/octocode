@@ -1,4 +1,4 @@
-import { runQuery } from '../../skills/octocode-graph/scripts/query-api.mjs';
+import { runQuery } from '../../src/runtime/query-api.mjs';
 
 let graph;
 self.addEventListener('message', async ({ data }) => {

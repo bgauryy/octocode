@@ -1,30 +1,31 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, readFileSync, readdirSync, realpathSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, realpathSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import test from 'node:test';
-import { accept, decoder, encode, parseFrame } from '../skills/octocode-graph/scripts/ws.mjs';
-import { continuations, describeCall, pagedTool } from '../skills/octocode-graph/scripts/tools.mjs';
-import { planChunks, refine } from '../skills/octocode-graph/scripts/plan.mjs';
-import { chunkOf } from '../skills/octocode-graph/scripts/stitch.mjs';
-import { foldEdges } from '../skills/octocode-graph/scripts/section.mjs';
+import { accept, decoder, encode, parseFrame } from '../src/runtime/ws.mjs';
+import { continuations, describeCall, pagedTool } from '../src/runtime/tools.mjs';
+import { planChunks, refine } from '../src/runtime/plan.mjs';
+import { chunkOf } from '../src/runtime/stitch.mjs';
+import { foldEdges } from '../src/runtime/section.mjs';
 import { tempDir, fakeCatalog } from './test-tmp.mjs';
 
-const here = fileURLToPath(new URL('../skills/octocode-graph/scripts/', import.meta.url));
+const here = fileURLToPath(new URL('../src/runtime/', import.meta.url));
 
-for (const [script, args] of Object.entries({ 'preflight.mjs': ['--json'], 'wiki.mjs': ['--help'], 'render.mjs': ['--help'] })) {
-  test(`a symlinked skill dispatches ${script} like the canonical path`, () => {
+for (const [script, args] of Object.entries({ 'preflight.mjs': ['--json'], 'wiki.mjs': ['--help'], 'query.mjs': ['--help'], 'serve.mjs': ['--help'], 'render.mjs': ['--help'] })) {
+  test(`a symlinked runtime dispatches ${script} like the canonical path`, () => {
     const cwd = tempDir('graph-view-install-');
     const installed = join(cwd, 'installed');
     symlinkSync(dirname(here), installed, 'junction');
     // Preflight must report a missing CLI even when no Octocode build is installed.
     const options = { cwd, encoding: 'utf8', env: { ...process.env, OCTOCODE_CLI: join(cwd, 'absent-cli') } };
     const direct = spawnSync(process.execPath, [join(here, script), ...args], options);
-    const linked = spawnSync(process.execPath, [join(installed, 'scripts', script), ...args], options);
+    const linked = spawnSync(process.execPath, [join(installed, 'runtime', script), ...args], options);
+    if (args.includes('--help')) assert.equal(direct.status, 0, direct.stderr);
     assert.ok(direct.stdout, direct.stderr);
     assert.equal(linked.status, direct.status, linked.stderr);
     assert.equal(linked.stdout, direct.stdout);
@@ -190,6 +191,7 @@ const witnessPage = (o, target) => {
   out({ graph: { id: 'snap' }, ...pagination, rows: list.slice(o, o + 1) }, next);
 };
 if (a[0] === 'schema') print({ querySchema: { $defs: { targets: { type: 'array', maxItems: 100 } }, properties: { target: { anyOf: [{ type: 'string' }, { $ref: '#/$defs/targets' }] } } } });
+else if (a[0] === 'structureSearch' && process.env.TEST_REFUSE_LIST) out({errorCode:'outsideAllowedRoots', errorClass:'refused', error:'scope is outside the workspace'});
 else if (a[0] === 'structureSearch') out({ files: [{ dir: root, files: ['a.ts', 'b.ts', 'notes.md'] }], summary: { files: 3 } });
 else if (a[0] === 'graphBuild') { console.error('# graphBuild: parsing 2 files'); out({ graph: 'snap', root: row.path, counts: { nodes: 4, edges: 3 } }); }
 else if (input.cursor) { const [o, t] = input.cursor.slice(1).split('|'); witnessPage(Number(o), t ? t.split(',') : undefined); }
@@ -216,8 +218,20 @@ test('an incompatible CLI stops before listing files or building a chunk', () =>
   assert.ok(!events.some((e) => e.type === 'chunk' || e.tool === 'structureSearch'));
 });
 
+test('a refused file listing stops with the native cause', () => {
+  const { root, cli } = fakeRepo();
+  const out = join(root, '.octocode', 'result');
+  const run = spawnSync(process.execPath, [join(here, 'build.mjs'), root, '--out', out], {
+    cwd: root, encoding: 'utf8', env: { ...process.env, OCTOCODE_CLI: cli, TEST_REFUSE_LIST: '1' },
+  });
+  assert.notEqual(run.status, 0);
+  assert.match(run.stderr, /outsideAllowedRoots/);
+  const events = readFileSync(join(out, 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+  assert.ok(!events.some(e => e.tool === 'graphBuild' || e.text?.includes('git ls-files')));
+});
+
 test('runs reuse one frozen image and replacing the source cannot change a running image', async () => {
-  const { freezeExecutable } = await import('../skills/octocode-graph/scripts/lib/pin-cli.mjs');
+  const { freezeExecutable } = await import('../src/runtime/lib/pin-cli.mjs');
   const folder = tempDir('graph-pin-');
   const source = join(folder, 'octocode');
   writeFileSync(source, 'first');
@@ -229,6 +243,22 @@ test('runs reuse one frozen image and replacing the source cannot change a runni
   assert.notEqual(second, first);
   assert.equal(readFileSync(first, 'utf8'), 'first');
   assert.equal(readFileSync(second, 'utf8'), 'second');
+});
+
+test('a graph without an advertised LSP tool keeps its calls and skips confirmation', () => {
+  const { root, cli } = fakeRepo();
+  const out = join(root, '.octocode', 'result');
+  const run = spawnSync(process.execPath, [join(here, 'build.mjs'), root, '--out', out], {
+    cwd: root, encoding: 'utf8', env: { ...process.env, OCTOCODE_CLI: cli, TEST_NO_LSP: '1' },
+  });
+  assert.equal(run.status, 0, run.stderr);
+  const graph = JSON.parse(readFileSync(join(out, 'data.json'), 'utf8'));
+  assert.deepEqual(graph.calls[0].lines, [3, 4]);
+  assert.match(graph.callStats.lsp, /lspSearch unavailable/);
+  assert.equal(graph.callStats.probed, 0);
+  const events = readFileSync(join(out, 'events.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  assert.ok(events.some(e => e.id === 'lsp' && e.state === 'skipped' && e.note === graph.callStats.lsp));
+  assert.ok(!events.some(e => e.tool === 'lspSearch'));
 });
 
 test('the headless run streams rows whose fold is data.json, and every node and edge has a location', () => {
@@ -278,8 +308,8 @@ test('the stitched graph answers a query before the first LSP probe and publishe
   const source = `
     import assert from 'node:assert/strict';
     import {existsSync, readFileSync} from 'node:fs';
-    import {runPipeline, defaults} from ${JSON.stringify(new URL('../skills/octocode-graph/scripts/pipeline.mjs', import.meta.url).href)};
-    import {runQuery} from ${JSON.stringify(new URL('../skills/octocode-graph/scripts/query.mjs', import.meta.url).href)};
+    import {runPipeline, defaults} from ${JSON.stringify(new URL('../src/runtime/pipeline.mjs', import.meta.url).href)};
+    import {runQuery} from ${JSON.stringify(new URL('../src/runtime/query.mjs', import.meta.url).href)};
     let live, ready = false, batches = 0;
     const out = ${JSON.stringify(out)};
     const data = await runPipeline({root: ${JSON.stringify(root)}, out, opts: defaults(), publish: read => { live = read; }, emit(e) {
@@ -350,7 +380,7 @@ test('replay refuses an old event stream containing two run headers', () => {
 });
 
 test('a full refresh can repeat its run header while event numbers advance', async () => {
-  const { readEvents } = await import('../skills/octocode-graph/scripts/pipeline.mjs');
+  const { readEvents } = await import('../src/runtime/pipeline.mjs');
   const dir = tempDir('graph-refresh-log-');
   const events = [0, 1].map(seq => ({ seq, type: 'run', root: '/original' }));
   writeFileSync(join(dir, 'events.jsonl'), events.map(e => JSON.stringify(e)).join('\n'));
@@ -366,7 +396,7 @@ test('the graph package resolves its engine through the declared octocode depend
   writeFileSync(bin, '#!/bin/sh\necho graph-package-test\n', { mode: 0o755 });
   const env = { ...process.env, NODE_ENV: 'development', OCTOCODE_NATIVE_BIN: bin };
   delete env.OCTOCODE_CLI;
-  const code = `import { cliOk } from ${JSON.stringify(new URL('../skills/octocode-graph/scripts/lib.mjs', import.meta.url))}; process.exit(await cliOk(['--version']) ? 0 : 1)`;
+  const code = `import { cliOk } from ${JSON.stringify(new URL('../src/runtime/lib.mjs', import.meta.url))}; process.exit(await cliOk(['--version']) ? 0 : 1)`;
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], { cwd: root, env: { ...env, PATH: root }, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
 });
@@ -376,7 +406,7 @@ test('concurrent builds record complete tool events in their own result director
   const source = `
     import assert from 'node:assert/strict';
     import { join } from 'node:path';
-    import { defaults, runPipeline } from ${JSON.stringify(new URL('../skills/octocode-graph/scripts/pipeline.mjs', import.meta.url).href)};
+    import { defaults, runPipeline } from ${JSON.stringify(new URL('../src/runtime/pipeline.mjs', import.meta.url).href)};
     const root = process.cwd();
     const logs = [[], []];
     await Promise.all(logs.map((events, i) => runPipeline({
@@ -394,7 +424,7 @@ test('concurrent builds record complete tool events in their own result director
 });
 
 test('a failed listen leaves the requested result directory available for a retry', async t => {
-  const { startServer } = await import('../skills/octocode-graph/scripts/serve.mjs');
+  const { startServer } = await import('../src/runtime/serve.mjs');
   const listener = createServer();
   await new Promise(resolve => listener.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise(resolve => listener.close(resolve)));
@@ -420,27 +450,8 @@ for (const script of ['build.mjs', 'serve.mjs']) {
   });
 }
 
-test('the standalone skill uses the CLI on PATH even beside an unrelated MCP installation', () => {
-  const root = tempDir('graph-standalone-engine-');
-  const scripts = join(root, 'skill', 'scripts');
-  cpSync(here, scripts, { recursive: true });
-  const mcp = join(root, 'node_modules', 'octocode-mcp');
-  mkdirSync(mcp, { recursive: true });
-  writeFileSync(join(mcp, 'package.json'), JSON.stringify({name:'octocode-mcp', exports:{}}));
-  const bin = join(root, 'bin');
-  mkdirSync(bin);
-  if (process.platform === 'win32') cpSync(process.execPath, join(bin, 'octocode.exe'));
-  else symlinkSync(process.execPath, join(bin, 'octocode'));
-  const env = { ...process.env, PATH: bin };
-  delete env.OCTOCODE_CLI;
-  const r = spawnSync(process.execPath, ['--input-type=module', '-e',
-    "import {cliOk} from './skill/scripts/lib.mjs'; process.exit(await cliOk(['--version']) ? 0 : 1)"],
-    { cwd: root, env, encoding: 'utf8' });
-  assert.equal(r.status, 0, r.stderr);
-});
-
 test('a backpressured viewer resumes from the log while another drains normally', async () => {
-  const {eventStream} = await import('../skills/octocode-graph/scripts/lib/event-stream.mjs');
+  const {eventStream} = await import('../src/runtime/lib/event-stream.mjs');
   const log = [{seq:0, text:'one indivisible event'.repeat(30)}, {seq:4}, {seq:7}];
   const stream = eventStream(log);
   const turn = () => new Promise(resolve => setImmediate(resolve));
@@ -468,7 +479,7 @@ test('a backpressured viewer resumes from the log while another drains normally'
 });
 
 test('a failed or closed socket cannot apply queued pages past the last good batch', async () => {
-  const {orderedInbox} = await import('../skills/octocode-graph/assets/live-connection.js');
+  const {orderedInbox} = await import('../src/assets/live-connection.js');
   const applied = [], errors = [];
   const reader = orderedInbox(JSON.parse, n=>applied.push(n), e=>errors.push(e));
   await Promise.all(['1','incomplete','3'].map(s=>reader.push(s)));
@@ -486,7 +497,7 @@ test('a failed or closed socket cannot apply queued pages past the last good bat
 });
 
 test('a file input keeps its own graph scope and uses its directory for evidence paths', async () => {
-  const { runOptions } = await import('../skills/octocode-graph/scripts/lib/run-options.mjs');
+  const { runOptions } = await import('../src/runtime/lib/run-options.mjs');
   const project = tempDir('file-graph-');
   const file = join(project, 'main.ts');
   writeFileSync(file, 'export const main = 1;\n');
@@ -495,7 +506,7 @@ test('a file input keeps its own graph scope and uses its directory for evidence
   const options = runOptions([file, '--out', out]);
   assert.equal(options.root, realpathSync(project));
   assert.equal(options.opts.file, 'main.ts');
-  const { listFiles } = await import('../skills/octocode-graph/scripts/pipeline.mjs');
+  const { listFiles } = await import('../src/runtime/pipeline.mjs');
   const events = [];
   assert.deepEqual(await listFiles(project, event => events.push(event), options.opts.file), ['main.ts']);
   assert.deepEqual(events[0].files, ['main.ts']);

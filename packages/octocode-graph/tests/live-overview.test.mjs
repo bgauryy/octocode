@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildView } from '../skills/octocode-graph/assets/live-overview.js';
+import { buildView } from '../src/assets/live-overview.js';
 
 test('a growing folder preserves all files, edge directions and weights through expansion', () => {
   const paths = ['crates/cli/a.rs', 'crates/cli/b.rs', 'crates/core/lib.rs', 'README.md'];

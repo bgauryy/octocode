@@ -216,8 +216,9 @@ answer's `related` holds that call.
 
 `find` ranks every node whose name or key matches, in three tiers. `exact`: the
 whole text equals a key, name or qualified member, key first. Both
-`Owner.method` and `Owner::method` match the graph's qualified symbol. Omit the
-`@number` suffix to find all overloads of that member. `words`: the text and every name and
+`Owner.method` and `Owner::method` match the graph's qualified symbol,
+including in paths containing `#` (for example, `lib#v2/reader.ts#Reader.read`).
+Omit the `@number` suffix to find all overloads of that member. `words`: the text and every name and
 key split into identifier words (case changes and any separator: space, `_`,
 `-`, `/`, `.`, `#`, `::`; letters and digits stay together), and each query word
 must start a word of the name or key (each whole alphanumeric run also counts,

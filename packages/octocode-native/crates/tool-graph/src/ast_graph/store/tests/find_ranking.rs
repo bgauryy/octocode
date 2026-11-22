@@ -80,6 +80,46 @@ fn find_splits_case_separators_and_qualified_names() {
 }
 
 #[test]
+fn qualified_member_is_exact_when_its_file_path_contains_a_hash() {
+    let dir = fixture();
+    write_under(
+        &dir,
+        "app/src/lib#v2",
+        &[(
+            "reader.ts",
+            "export class Reader { read() { return 42; } }\n",
+        )],
+    );
+    assert_eq!(ingest_fixture(&dir.0, None).class, ExitClass::Success);
+    for target in ["Reader.read", "Reader::read"] {
+        let out = find(&dir, target);
+        let row = &out.value["rows"][0];
+        assert_eq!(row["id"], "app/src/lib#v2/reader.ts#Reader.read", "{row}");
+        assert_eq!(row["match"], "exact", "{row}");
+    }
+}
+
+#[test]
+fn find_recognizes_its_returned_file_and_symbol_ids_as_exact() {
+    let dir = words_fixture();
+    for (query, expected) in [
+        (
+            "SnapshotReader.read",
+            "app/src/snapshot.ts#SnapshotReader.read",
+        ),
+        ("src/snapshot.ts", "app/src/snapshot.ts"),
+    ] {
+        let initial = find(&dir, query);
+        let id = initial.value["rows"][0]["id"].as_str().unwrap();
+        assert_eq!(id, expected);
+        let again = find(&dir, id);
+        let row = &again.value["rows"][0];
+        assert_eq!(row["id"], id);
+        assert_eq!(row["match"], "exact", "{row}");
+    }
+}
+
+#[test]
 fn find_ranks_the_qualified_member_as_exact() {
     let dir = words_fixture();
     let expected = "app/src/snapshot.ts#SnapshotReader.read";

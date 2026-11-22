@@ -123,6 +123,18 @@ impl Terms {
     }
 }
 
+/// File prefix of a key ending in `#Owner.member`, optionally followed by an overload number.
+fn member_file<'a>(key: &'a str, member: &str) -> Option<&'a str> {
+    let file = |key: &'a str| key.strip_suffix(member)?.strip_suffix('#');
+    file(key).or_else(|| {
+        let (base, suffix) = key.rsplit_once('@')?;
+        if suffix.is_empty() || !suffix.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        file(base)
+    })
+}
+
 /// Every matching node in rank order: tier, word strength, fewest unmatched
 /// name words, damped incoming calls and imports, then key.
 pub(super) fn ranked(
@@ -132,6 +144,11 @@ pub(super) fn ranked(
     cancel: &dyn octocode_runtime_base::execution::cancel::CancellationCheck,
 ) -> Result<Vec<Hit>, GraphOutput> {
     let lower = text.to_lowercase();
+    // Returned IDs can be workspace-relative while the table keys are snapshot-relative.
+    let reference_id = g
+        .reference_keys(text, false)
+        .iter()
+        .find_map(|key| g.t.by_key(key));
     let member = (lower.contains('.') || lower.contains("::")).then(|| lower.replace("::", "."));
     let mut words = identifier_words(text);
     let mut seen = std::collections::BTreeSet::new();
@@ -164,17 +181,19 @@ pub(super) fn ranked(
         };
         // A member's owner is stored in its symbol key. Keep the original word
         // counts for quorum so promoting an exact member retains the other hits.
-        let exact_member = member.as_deref().is_some_and(|query| {
-            g.t.nodes[id as usize].kind == NodeKind::Symbol
-                && key.split_once('#').is_some_and(|(_, qualified)| {
-                    let base = qualified.rsplit_once('@').and_then(|(base, suffix)| {
-                        (!suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()))
-                            .then_some(base)
-                    });
-                    qualified == query || base == Some(query)
-                })
-        });
-        let whole = if exact_member {
+        let exact_member = if g.t.nodes[id as usize].kind == NodeKind::Symbol
+            && let Some(query) = member.as_deref()
+            && let Some(file) = member_file(&key, query)
+        {
+            // A single separator identifies the owner without another disk read.
+            // When either side contains '#', confirm the boundary from the symbol record.
+            (!file.contains('#') && !query.contains('#'))
+                || file == g.key(g.node_record(id, cancel)?.file).to_lowercase()
+        } else {
+            false
+        };
+        let exact_reference = reference_id == Some(id);
+        let whole = if exact_member || exact_reference {
             Some(Tier::Exact)
         } else if name.starts_with(&lower) {
             Some(Tier::Prefix)
@@ -184,7 +203,7 @@ pub(super) fn ranked(
             key.contains(&lower).then_some(Tier::Path)
         };
         if count.0 > 0 || whole.is_some() {
-            found.push((id, whole, count, 0));
+            found.push((id, whole, count, u32::from(exact_reference)));
         }
     }
     let quorum = |of: fn(&(usize, usize)) -> usize| {

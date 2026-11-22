@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { betweenness, depths, kcore, louvain, pagerank, scc } from '../skills/octocode-graph/scripts/algorithms.mjs';
-import { csr, fileEdges, undirected } from '../skills/octocode-graph/scripts/graph-model.mjs';
-import { computeMetrics } from '../skills/octocode-graph/scripts/metrics.mjs';
+import { betweenness, depths, kcore, louvain, pagerank, scc } from '#graph-core/algorithms';
+import { csr, fileEdges, undirected } from '#graph-core/graph-model';
+import { computeMetrics } from '../src/runtime/metrics.mjs';
 
 // A graph from [source, target, weight] triples over node names.
 function graph(names, triples) {

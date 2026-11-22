@@ -3,8 +3,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
-import { stitch } from '../skills/octocode-graph/scripts/stitch.mjs';
-import { writeBriefs } from '../skills/octocode-graph/scripts/render.mjs';
+import { stitch } from '../src/runtime/stitch.mjs';
+import { writeBriefs } from '../src/runtime/render.mjs';
 import { tempDir } from './test-tmp.mjs';
 
 test('query partial metadata survives section projection, stitching and both briefs', () => {
@@ -29,7 +29,7 @@ test('query partial metadata survives section projection, stitching and both bri
     }
   `);
   const source = `
-    import { buildSection } from ${JSON.stringify(new URL('../skills/octocode-graph/scripts/section.mjs', import.meta.url).href)};
+    import { buildSection } from ${JSON.stringify(new URL('../src/runtime/section.mjs', import.meta.url).href)};
     const data = await buildSection(${JSON.stringify(folder)}, {out:${JSON.stringify(join(folder, 'section'))},jobs:1});
     console.log(JSON.stringify(data));
   `;

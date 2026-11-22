@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { pagedTool, rowsOf } from '../skills/octocode-graph/scripts/tools.mjs';
-import { graphBuild, readGraph } from '../skills/octocode-graph/scripts/graph-pages.mjs';
+import { pagedTool, rowsOf } from '../src/runtime/tools.mjs';
+import { graphBuild, readGraph } from '../src/runtime/graph-pages.mjs';
 
 const next = (cursor, tool = 'lspSearch') => ({ kind: 'continue', tool, input: { cursor } });
 const response = (results, cursor, tool) => ({ results, ...(cursor ? { next: next(cursor, tool) } : {}) });

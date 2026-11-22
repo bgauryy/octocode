@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { buildWiki, lintWiki, pageOf, promote, readPage, writeNotes } from '../skills/octocode-graph/scripts/wiki.mjs';
-import { today } from '../skills/octocode-graph/scripts/wiki-store.mjs';
+import { buildWiki, lintWiki, pageOf, promote, readPage, writeNotes } from '../src/runtime/wiki.mjs';
+import { today } from '../src/runtime/wiki-store.mjs';
 import { tempDir } from './test-tmp.mjs';
 
 const SOURCES = {
@@ -129,6 +129,30 @@ test('a refresh with one changed member marks only that page stale and rewrites 
   rmSync(root, { recursive: true, force: true });
 });
 
+test('omitting note text preserves existing notes while explicit empty text clears them', () => {
+  const { root, out } = fixture();
+  buildWiki({ D: makeD(root, [A, B, C]), out });
+  writeNotes({ out, slug: 'src-a', text: 'Keep this finding.' });
+  const before = page(out, 'src-a');
+  assert.throws(() => writeNotes({ out, slug: 'src-a' }), /note text/);
+  assert.equal(page(out, 'src-a'), before);
+  writeNotes({ out, slug: 'src-a', text: '' });
+  assert.ok(!page(out, 'src-a').includes('Keep this finding.'));
+});
+
+test('lint reports missing wiki inputs even when there are no notes to check', () => {
+  const { root, out } = fixture();
+  const graph = makeD(root, [A, B, C]);
+  buildWiki({ D: graph, out });
+  writeFileSync(join(out, 'data.json'), JSON.stringify(graph));
+  assert.deepEqual(lintWiki({ out }).issues, []);
+  rmSync(join(out, 'wiki/index.md'));
+  rmSync(join(out, 'data.json'));
+  assert.deepEqual(lintWiki({ out }).issues.map(i => i.slug).sort(), ['data.json', 'index']);
+  rmSync(join(out, 'wiki/map.json'));
+  assert.ok(lintWiki({ out }).issues.some(i => i.slug === 'map.json'));
+});
+
 test('lint finds a bad citation, a missing file, a broken link, a missing page and empty top notes', () => {
   const { root, out } = fixture();
   const D = makeD(root, [A, B, C]);
@@ -138,7 +162,9 @@ test('lint finds a bad citation, a missing file, a broken link, a missing page a
   writeFileSync(join(out, 'data.json'), JSON.stringify(extra));
   const { issues } = lintWiki({ out, root });
   const kinds = issues.map((i) => `${i.kind} ${i.slug}`).toSorted();
-  assert.deepEqual(kinds, ['broken-link src-b', 'citation-file src-b', 'citation-line src-b', 'empty-notes src-a', 'missing-page -']);
+  assert.deepEqual(kinds, ['broken-link src-b', 'citation-file src-b', 'citation-line src-b', 'missing-page -']);
+  const notes = lintWiki({ out, root, top: 1 }).issues.filter(i => i.kind === 'empty-notes');
+  assert.deepEqual(notes.map(i => i.slug), ['src-a']);
   assert.match(issues.find((i) => i.kind === 'citation-line').detail, /src\/b\/p\.ts:40: src\/b\/p\.ts has 3 lines/);
   rmSync(root, { recursive: true, force: true });
 });

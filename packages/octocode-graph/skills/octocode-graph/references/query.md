@@ -8,8 +8,9 @@ One query language answers over the whole stitched, weighted file graph of a res
 
 | Query | Answer |
 |---|---|
-| `impact <file> [depth N]` | Every file that transitively depends on it (reverse breadth-first), each with its depth, the heaviest edge that reached it (`weight`, `through`) and that edge's line; counts per depth and per chunk |
-| `deps <file> [depth N]` / `dependents <file> [depth N]` | Forward / reverse neighbors; adjacent by default (`depth all` walks everything) |
+| `files <file> [file ...]` | Saved file records and source locations in input order. JSON includes `sourceQueries` for native `localFetch`. Plain paths request the whole source file. A `path:line` requests that line. Multiple lines in one file share one source query. |
+| `impact <file...> [depth N]` | Every file that transitively depends on it (reverse breadth-first), each with its depth, the heaviest edge that reached it (`weight`, `through`) and that edge's line; counts per depth and per chunk |
+| `deps <file...> [depth N]` / `dependents <file...> [depth N]` | Forward / reverse neighbors; adjacent by default (`depth all` walks everything) |
 | `path <a> <b> [--hops]` | The strongest dependency path a → b (Dijkstra, cost Σ 1/weight); add `--hops` for a minimum-hop path on the same edges (BFS). Both return the weight, import lines and symbol calls at each hop. In the viewer, **Compare fewest hops** reruns the weighted query with its filters. No path: says so and checks b → a |
 | `order <file>` | Prerequisite-first order for the seed and its reachable dependencies. Files in a strongly connected component share a group. `crossings` contains the evidence for every edge between groups. Add `--imports` for an import-only order. |
 | `trace <seed> <pattern>` | Match typed walks from a file, symbol, or provider entity. Juxtaposition or `·` means sequence, `\|` means choice, `*` includes zero steps and `+` requires at least one. Parentheses group expressions. Add `--depth N` to bound the whole pattern to N relationships, including zero. Example: `trace src/main.ts DEFINES (CALLS)+`. Native export relations are `DEFINES`, `IMPORTS` and `CALLS`. JSON returns each matching endpoint and every witness on an accepting walk. [Additional provider relations](providers.md) |
@@ -18,6 +19,17 @@ One query language answers over the whole stitched, weighted file graph of a res
 | `callers <sym>` / `callees <sym>` | Symbol-level calls with the saved `via` value, confidence and lines. Look in `data.json` for `resolution: ["stitched-import"]` to identify calls bound by name across chunks. Use `file#name` (any file form) or a bare symbol name. |
 | `top <metric> [n\|all]` | Files ranked by `pagerank`, `betweenness`, `inWeight`, `outWeight`, `core` or `depth`; use `all` for the full ranking and check the summary's coverage |
 | `find <text>` | Files whose path and symbols whose name contain the text |
+
+For a change spanning several files, pass the paths to one `impact`, `deps` or `dependents` query. Each reached file appears once, at its minimum depth from any input. Seeds stay in the highlight and are excluded from result rows. Ask separate queries when you need attribution for every seed.
+
+For several independent questions, keep one saved snapshot open. Blank input lines are ignored. Each other line produces a complete result. A failed question sets a nonzero exit status while later questions still run.
+
+```sh
+printf '%s\n' 'files src/main.ts:18 src/lib.ts:42' 'impact src/main.ts src/lib.ts depth 2' 'top pagerank 3' |
+  octocode-graph-query ./saved-run --stdin --json
+```
+
+For known source paths, ask `localFetch` directly. Batch several paths in its `queries` array and combine ranges from one file in a single item. To resolve unfamiliar filenames first, use the `sourceQueries` returned by `files`, grouped up to the limit in the local tool schema. Source reads reflect the current checkout. Follow its continuation to retrieve remaining lines.
 
 A file is a root-relative path, an absolute path under the root, `path:line`, a unique suffix (`pipeline.mjs`) or a node id. An ambiguous or unknown argument is an error with every candidate as a re-runnable query (`impact b/util.mjs`, `impact c/util.mjs`); nothing is guessed.
 

@@ -24,7 +24,7 @@ if (graphPackage) process.argv.splice(2, 1);
 if (process.argv.includes('full')) {
   console.log(JSON.stringify({
     executable: process.argv[1],
-    tools: graphPackage ? [{ name: 'graphQuery', maxQueries: 1 }] : [{ name: 'lspSearch', maxQueries: 2 }],
+    tools: graphPackage ? [{ name: 'graphQuery', maxQueries: 1 }] : process.env.TEST_NO_LSP ? [] : [{ name: 'lspSearch', maxQueries: 2 }],
     grammarCapabilities: [{ graphFacts: true, extensions: ['ts'] }],
   }));
   process.exit(0);

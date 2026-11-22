@@ -29,9 +29,9 @@ export function readText(file) {
   try { return readFileSync(file, 'utf8'); } catch { return null; }
 }
 
-export function readMap(out) {
+export function readMap(out, fallback = { version: 1, root: '', pages: {}, isolated: [] }) {
   const text = readText(wikiPaths(out).map);
-  return text ? JSON.parse(text) : { version: 1, root: '', pages: {}, isolated: [] };
+  return text ? JSON.parse(text) : fallback;
 }
 
 export function writeMap(out, map) {

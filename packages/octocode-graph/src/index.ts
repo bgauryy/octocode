@@ -1,4 +1,4 @@
-import { octocode } from '../skills/octocode-graph/scripts/lib.mjs';
+import { octocode } from './runtime/lib.mjs';
 
 import type {
   GraphBuildInput,

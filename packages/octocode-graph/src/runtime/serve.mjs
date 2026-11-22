@@ -6,10 +6,11 @@
 import { createServer } from 'node:http';
 import { open as openFile } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
-import { appendFileSync, existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { dirname, extname, join } from 'node:path';
+import { isMainModule } from './lib/entrypoint.mjs';
 import { fileURLToPath } from 'node:url';
 import { eventStream } from './lib/event-stream.mjs';
 import { graphInput, runOptions } from './lib/run-options.mjs';
@@ -18,7 +19,7 @@ import { accept } from './ws.mjs';
 import { astOutline, defaults, lspQuery, readEvents, reportTools, runPipeline } from './pipeline.mjs';
 import { createAnswers } from './serve-answers.mjs';
 
-const USAGE = `usage: serve.mjs <file-or-directory> [--out <dir>] [--whole] [--lsp on|off] [--jobs N] [--ingest-jobs N] [--exclude a,b]
+const USAGE = `usage: serve.mjs <file-or-directory> [--out <dir>] [--whole] [--lsp smart|all|off] [--jobs N] [--ingest-jobs N] [--exclude a,b]
                  [--port N] [--no-open] [--exit-when-done]
        serve.mjs --replay <result-dir> [--port N] [--no-open]
   Builds <root> chunk by chunk and streams every graph, LSP and AST page to the viewer as it arrives.
@@ -27,7 +28,7 @@ const USAGE = `usage: serve.mjs <file-or-directory> [--out <dir>] [--whole] [--l
   Graph queries and the wiki: reply.mjs query|wiki <out> ... (references/query.md).`;
 
 const here = dirname(fileURLToPath(import.meta.url));
-const ASSETS = join(here, '..', 'assets');
+const ASSETS = dirname(fileURLToPath(import.meta.resolve('#graph-assets/live.html')));
 const TYPES = { '.txt': 'text/plain; charset=utf-8', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
 const STATIC = new Set(['renderer.generated.js', 'renderer.generated.LICENSE.txt', 'live.html', 'live.js', 'live-connection.js', 'live-graph.js', 'live-panels.js', 'live-chat.js', 'live-overview.js', 'live-query.js', 'live-wiki.js', 'live.css', 'live-chat.css', 'live-query.css', 'live-wiki.css']);
 // A request body larger than this is refused whole (never cut): replies are text, not files.
@@ -402,7 +403,4 @@ async function main(argv) {
   if (o.exitWhenDone) setTimeout(stop(process.exitCode ?? 0), 200);
 }
 
-const isMain = () => {
-  try { return Boolean(process.argv[1]) && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)); } catch { return false; }
-};
-if (isMain()) void main(process.argv.slice(2));
+if (isMainModule(import.meta.url)) void main(process.argv.slice(2));

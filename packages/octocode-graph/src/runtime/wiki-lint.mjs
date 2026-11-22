@@ -1,6 +1,4 @@
-// Wiki health check (the LLM Wiki "lint" operation): notes citing a file that is gone or a line past its end,
-// [[links]] to no page, communities in data.json without a page, orphaned pages, stale notes, and the pages holding
-// most of the PageRank that still have no notes. Reads the cited files under the repository root.
+// Check graph pages, links, source citations and the freshness of any authored notes.
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { ISOLATED, RESERVED, notesOf, pageFile, readMap, readText, staleMembers, wikiPaths } from './wiki-store.mjs';
 
@@ -46,7 +44,7 @@ function readData(out) {
 // Each community of more than one file in data.json needs a live page with the same id and members.
 function missingPages(out, live) {
   const D = readData(out);
-  if (!D?.metrics?.communities) return [];
+  if (!D?.metrics?.communities) return [{ slug: 'data.json', kind: 'missing-graph', detail: 'data.json with community metrics is required to check wiki coverage' }];
   const byCommunity = new Map(live.map(([slug, e]) => [e.community, { slug, e }]));
   return D.metrics.communities.filter((c) => c.size > 1).flatMap((c) => {
     const p = byCommunity.get(c.id);
@@ -55,21 +53,6 @@ function missingPages(out, live) {
     const detail = p ? `community ${c.id} (${c.label}) changed since [[${p.slug}]] was built: run wiki.mjs build` : `community ${c.id} (${c.label}, ${c.size} files) has no page: run wiki.mjs build`;
     return [{ slug: p?.slug ?? '-', kind: 'missing-page', detail }];
   });
-}
-
-// The pages that together hold half the PageRank of all pages (or the first `top`), highest first.
-function topPages(live, top) {
-  const ranked = live.filter(([s]) => s !== ISOLATED).toSorted((a, b) => b[1].pagerank - a[1].pagerank);
-  if (Number.isInteger(top)) return ranked.slice(0, top);
-  const total = ranked.reduce((a, [, e]) => a + e.pagerank, 0);
-  const picked = [];
-  let sum = 0;
-  for (const row of ranked) {
-    if (picked.length && sum >= total / 2) break;
-    picked.push(row);
-    sum += row[1].pagerank;
-  }
-  return picked;
 }
 
 function pageIssues(slug, e, { out, root, lines, known }) {
@@ -83,8 +66,10 @@ function pageIssues(slug, e, { out, root, lines, known }) {
 }
 
 // { issues: [{ slug, kind, detail }] }; `root` defaults to the repository the wiki was built from.
-export function lintWiki({ out, root, top }) {
-  const map = readMap(out);
+export function lintWiki({ out, root, top = 0 }) {
+  if (!Number.isSafeInteger(top) || top < 0) throw new Error('--top needs a nonnegative integer');
+  const map = readMap(out, null);
+  if (!map) return { issues: [{ slug: 'map.json', kind: 'missing-file', detail: 'wiki/map.json is unavailable: run wiki.mjs build' }] };
   const base = resolve(root ?? map.root ?? '.');
   const entries = Object.entries(map.pages);
   const known = new Set([...entries.map(([s]) => s), ...RESERVED]);
@@ -92,9 +77,16 @@ export function lintWiki({ out, root, top }) {
   const issues = entries.flatMap(([slug, e]) => pageIssues(slug, e, ctx));
   // index.md repeats each page's first notes sentence: a broken link there is reported once, on its page.
   const reported = new Set(issues.filter((i) => i.kind === 'broken-link').map((i) => i.detail));
-  issues.push(...linkIssues('index', readText(wikiPaths(out).index) ?? '', known).filter((i) => !reported.has(i.detail)));
+  const index = readText(wikiPaths(out).index);
+  if (index === null) issues.push({ slug: 'index', kind: 'missing-file', detail: 'wiki/index.md is unavailable: run wiki.mjs build' });
+  else issues.push(...linkIssues('index', index, known).filter((i) => !reported.has(i.detail)));
   const live = entries.filter(([, e]) => !e.orphaned);
   issues.push(...missingPages(out, live));
-  for (const [slug, e] of topPages(live, top)) if (!e.notes) issues.push({ slug, kind: 'empty-notes', detail: `one of the pages holding most of the PageRank (${e.pagerank}) has no agent notes` });
+  if (top > 0) {
+    const ranked = live.filter(([slug]) => slug !== ISOLATED).toSorted((a, b) => b[1].pagerank - a[1].pagerank);
+    for (const [slug, page] of ranked.slice(0, top)) {
+      if (!page.notes) issues.push({ slug, kind: 'empty-notes', detail: `top-ranked page (PageRank ${page.pagerank}) has no notes` });
+    }
+  }
   return { issues };
 }

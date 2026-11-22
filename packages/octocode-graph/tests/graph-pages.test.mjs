@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { RESPONSE_CHARS, readGraph, scopePaths } from '../skills/octocode-graph/scripts/graph-pages.mjs';
-import { requireCompleteToolResponse } from '../skills/octocode-graph/scripts/lib.mjs';
+import { RESPONSE_CHARS, readGraph, scopePaths } from '../src/runtime/graph-pages.mjs';
+import { requireCompleteToolResponse } from '../src/runtime/lib.mjs';
 import { tempDir, fakeCatalog } from './test-tmp.mjs';
 
 // A graphQuery response as the CLI prints it: one result row whose data carries the page and its continuations.
@@ -86,7 +86,7 @@ test('a scoped query with only a snapshot id rebases every page, including share
 });
 
 test('a batched graph walk preserves the row index through cursors and nested evidence', async () => {
-  const { readGraphs } = await import('../skills/octocode-graph/scripts/graph-pages.mjs');
+  const { readGraphs } = await import('../src/runtime/graph-pages.mjs');
   const queries = [{ operation: 'symbols' }, { operation: 'cycles' }];
   const first = { shared: { data: { graph: { isPartial: true, partialReasons: ['filesSkipped'] } } }, results: [
     { index: 0, data: { rows: ['symbol'] } },
@@ -136,7 +136,7 @@ test('brief-only rendering retains long evidence and does not write HTML or alte
   const source = JSON.stringify({ section: '/repo', coverage: { files: 2, imports: 1, calls: 0 }, files: [{ id: long }, { id: 'b.ts' }], imports: [{ source: 'b.ts', target: long }], symbols: [], calls: [] });
   const data = join(folder, 'data.json');
   writeFileSync(data, source);
-  const script = fileURLToPath(new URL('../skills/octocode-graph/scripts/render.mjs', import.meta.url));
+  const script = fileURLToPath(new URL('../src/runtime/render.mjs', import.meta.url));
   const result = spawnSync(process.execPath, [script, '--data', data], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(existsSync(join(folder, 'report.html')), false);
@@ -153,7 +153,7 @@ test('the brief leads with communities ranked by summed PageRank, before any fil
   const imports = [edge('a/x.ts', 'a/y.ts'), edge('a/y.ts', 'a/z.ts'), edge('a/z.ts', 'a/x.ts'), edge('b/p.ts', 'b/q.ts'), edge('b/q.ts', 'b/r.ts'), edge('b/r.ts', 'b/p.ts'), edge('a/x.ts', 'b/p.ts')];
   const data = join(folder, 'data.json');
   writeFileSync(data, JSON.stringify({ section: '/repo', coverage: { files: 6, imports: imports.length, calls: 0 }, files, imports, symbols: [], calls: [] }));
-  const result = spawnSync(process.execPath, [fileURLToPath(new URL('../skills/octocode-graph/scripts/render.mjs', import.meta.url)), '--data', data], { encoding: 'utf8' });
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL('../src/runtime/render.mjs', import.meta.url)), '--data', data], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   const lines = readFileSync(join(folder, 'brief.txt'), 'utf8').split('\n');
   const at = lines.findIndex((l) => l.startsWith('COMMUNITIES by summed PageRank: '));
@@ -182,7 +182,7 @@ else if(tool==='graphBuild') {
 } else if(tool==='structureSearch') out({files:[{dir:${JSON.stringify(folder)},files:['large.ts']}]});
 else out({graph:{id:'frozen'},rows:[],summary:{health:{},byDetector:{}}});`, { mode: 0o755 });
   const out = join(folder, '.octocode', 'result');
-  const script = fileURLToPath(new URL('../skills/octocode-graph/scripts/build.mjs', import.meta.url));
+  const script = fileURLToPath(new URL('../src/runtime/build.mjs', import.meta.url));
   const result = spawnSync(process.execPath, [script, folder, '--out', out, '--lsp', 'off'], { encoding: 'utf8', env: { ...process.env, OCTOCODE_CLI: `${process.execPath} ${fakeCli}` } });
   assert.equal(result.status, 0, result.stderr);
   const data = JSON.parse(readFileSync(join(out, 'chunks', 'root', 'data.json'), 'utf8'));
@@ -213,7 +213,7 @@ test('graph answers restate workspace-relative file references as snapshot keys,
 });
 
 test('large sections page disjoint file groups concurrently and keep every occurrence', async () => {
-  const { readSectionRows } = await import('../skills/octocode-graph/scripts/section.mjs');
+  const { readSectionRows } = await import('../src/runtime/section.mjs');
   const files = ['a.ts', 'b.ts', 'c.ts'];
   let active = 0, peak = 0;
   const targets = [];
@@ -238,7 +238,7 @@ test('large sections page disjoint file groups concurrently and keep every occur
 });
 
 test('a partial file inventory uses complete untargeted symbol and witness walks', async () => {
-  const { readSectionRows } = await import('../skills/octocode-graph/scripts/section.mjs');
+  const { readSectionRows } = await import('../src/runtime/section.mjs');
   const calls = [];
   const walk = async fields => fields.map(row => {
     calls.push(row);

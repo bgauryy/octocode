@@ -8,8 +8,7 @@ import { join, resolve } from 'node:path';
 const USAGE = `usage: reply.mjs <result-dir> "text" [--chat <chat_id>] [--nodes a,b,c] [--refresh]
        reply.mjs <result-dir> - [--chat <chat_id>] [--nodes a,b,c] [--refresh]   (text from stdin)
        reply.mjs <result-dir> --refresh                                          (refresh only)
-       reply.mjs query <result-dir> "<query>"                  (impact, deps, dependents, path, cycle, community,
-                                                               callers, callees, top, find; references/query.md)
+       reply.mjs query <result-dir> "<query>"                  (saved queries: references/query.md)
        reply.mjs wiki <result-dir> read <slug> | read --file <file>
        reply.mjs wiki <result-dir> note <slug> "text"|-
        reply.mjs wiki <result-dir> promote [<slug>] (--chat <chat_id> | "text"|-) [--file <file>]

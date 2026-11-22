@@ -2,9 +2,9 @@
 // tests), per-pair evidence (import lines, symbol calls) and the symbol table, built once per D and mode. Argument
 // resolution lives here too: a file is a root-relative path, a unique suffix or a node id; a symbol is file#name or
 // a bare name. Ambiguity is an error carrying every candidate, never a guess.
-import { RelationIndex } from './relations.mjs';
-import { callEvidence, csr, fileEdges } from './graph-model.mjs';
-import { scc } from './algorithms.mjs';
+import { RelationIndex } from '#graph-core/relations';
+import { callEvidence, csr, fileEdges } from '#graph-core/graph-model';
+import { scc } from '#graph-core/algorithms';
 const byText = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
 export const fileOf = (id) => String(id).split('#')[0];
@@ -102,6 +102,8 @@ function buildIndex(D, { tests, imports, weak }) {
   const calls = new Map();
   return {
     D, tests, imports, weak, ids, file,
+    byBasename: memo(() => Map.groupBy(ids, id => id.slice(id.lastIndexOf('/') + 1))),
+    byAbsolutePath: memo(() => new Map(files.filter(f => f.loc?.abs && f.kind !== 'package').map(f => [f.loc.abs, f.id]))),
     get G() { return graph(); },
     get edge() { return pairs(); },
     root: typeof D.section === 'string' ? D.section.replace(/\/+$/, '') : '',
@@ -141,27 +143,48 @@ export function evidenceLine(I, u, v) {
   return earliest === Infinity ? 1 : earliest;
 }
 
-function normalizePath(I, raw) {
-  let p = raw.replace(/^\.\//, '');
-  if (I.root && p.startsWith(`${I.root}/`)) p = p.slice(I.root.length + 1);
-  if (I.file.has(p)) return p;
-  return fileOf(p).replace(/(?::\d+){1,2}$/, '');
+function matchFile(I, path, raw, anchor = '') {
+  if (I.file.has(path)) return path;
+  if (path.startsWith('/')) return I.byAbsolutePath().get(path);
+  const sameName = I.byBasename().get(path.slice(path.lastIndexOf('/') + 1)) ?? [];
+  const hits = sameName.filter(id => id.endsWith(`/${path}`));
+  if (hits.length <= 1) return hits[0];
+  const error = new QueryError(`${raw} is ambiguous: ${hits.length} files end with it`, { candidates: hits, arg: raw });
+  error.anchor = anchor;
+  throw error;
 }
 
-/** A file argument → its node id. Throws QueryError with every candidate when it is ambiguous or unknown. */
-export function resolveFile(I, arg) {
+/** Prefer literal paths, including names containing '#' or ':', before interpreting source anchors. */
+export function resolveLocation(I, arg) {
   const raw = String(arg ?? '').trim();
   if (!raw) throw new QueryError('missing file argument');
-  if (I.file.has(raw)) return raw;
-  const p = normalizePath(I, raw);
-  if (I.file.has(p)) return p;
-  const hits = I.ids.filter((id) => id.endsWith(`/${p}`));
-  if (hits.length === 1) return hits[0];
-  if (hits.length > 1) throw new QueryError(`${raw} is ambiguous: ${hits.length} files end with it`, { candidates: hits, arg: raw });
-  const lower = p.toLowerCase();
-  const near = I.ids.filter((id) => id.toLowerCase().includes(lower));
-  throw new QueryError(`no file is ${raw}${near.length ? `; ${near.length} contain it` : ''}`, { candidates: near, arg: raw });
+  let path = raw.replace(/^\.\//, '');
+  if (I.root && path.startsWith(`${I.root}/`)) path = path.slice(I.root.length + 1);
+  let id = matchFile(I, path, raw);
+  if (id) return { id };
+  const anchor = /:(\d+)(?::(\d+))?$/.exec(path);
+  if (anchor) {
+    path = path.slice(0, anchor.index);
+    id = matchFile(I, path, raw, anchor[0]);
+    if (id) {
+      const line = Number(anchor[1]), column = anchor[2] && Number(anchor[2]);
+      if (![line, column ?? 1].every(n => Number.isSafeInteger(n) && n > 0)) throw new QueryError(`invalid source location in ${raw}`);
+      return { id, line, ...(column && { column }) };
+    }
+  }
+  if (path.includes('#')) {
+    path = fileOf(path);
+    id = matchFile(I, path, raw);
+    if (id) return { id };
+  }
+  const lower = path.toLowerCase();
+  const near = I.ids.filter(candidate => candidate.toLowerCase().includes(lower));
+  const error = new QueryError(`no file is ${raw}${near.length ? `; ${near.length} contain it` : ''}`, { candidates: near, arg: raw });
+  error.anchor = anchor?.[0];
+  throw error;
 }
+
+export const resolveFile = (I, arg) => resolveLocation(I, arg).id;
 
 function symbolsInFile(I, fileArg, name) {
   const file = resolveFile(I, fileArg);

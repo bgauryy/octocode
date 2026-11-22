@@ -8,6 +8,12 @@ const string = { type: 'string' };
 const boolean = { type: 'boolean' };
 const common = { out: string, jobs: string, 'ingest-jobs': string, lsp: string, exclude: string, whole: boolean };
 
+export const lspModes = ['smart', 'all', 'off', 'on'];
+export function lspMode(value = defaults().lsp) {
+  if (!lspModes.includes(value)) throw new Error('--lsp must be smart, all or off (on selects smart)');
+  return value === 'on' ? 'smart' : value;
+}
+
 // Evidence keys stay relative to a directory, including when only one file was requested.
 export function graphInput(path) {
   const input = resolve(path);
@@ -39,11 +45,10 @@ export function runOptions(argv, viewer = false) {
     if (!Number.isSafeInteger(n) || n < 1) throw new Error(`--${name} requires a positive integer`);
     opts[key] = n;
   }
-  if (values.lsp !== undefined && !['on', 'off'].includes(values.lsp)) throw new Error('--lsp must be on or off');
   const port = Number(values.port ?? 0);
   if (values.port !== undefined && (!/^\d+$/.test(values.port) || port > 65535)) throw new Error('--port requires an integer from 0 to 65535');
   opts.whole = Boolean(values.whole);
-  opts.lsp = values.lsp ?? opts.lsp;
+  opts.lsp = lspMode(values.lsp);
   opts.exclude = (values.exclude ?? '').split(',').filter(Boolean);
   const input = values.replay ? null : resolve(positionals[0]);
   const { root, file } = input ? graphInput(input) : { root: null };

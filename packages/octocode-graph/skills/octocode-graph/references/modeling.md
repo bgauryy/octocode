@@ -1,22 +1,10 @@
-Load when writing or fixing `model.json`. Why: the graph shows files, imports and calls; only the modeler can name layers, runtime boundaries and flows, and each needs evidence a reader can open.
-
 # Modeling
 
-`model.json` is an optional overlay keyed by file ids from `data.json`. Schema: [model.json](../scheme/model.json). `render.mjs --model` validates it and prints every problem; treat each warning as a model bug.
+Use this optional overlay to name architectural boundaries and document runtime flows. It uses file IDs from `data.json`. Validate the overlay with `render.mjs --model` and the [model schema](../scheme/model.json).
 
-## Layer taxonomy (suggested ids)
+## Layers
 
-| Layer | Put here | Rule the brief checks |
-|---|---|---|
-| `clients` | people, IDEs, agents, browsers (`actor:*` nodes) | callers only |
-| `interface` | UI, CLI, MCP server, HTTP routes, extensions | translate and delegate; no business rules |
-| `application` | use-case orchestration, pipelines, tool implementations | depends down only |
-| `domain` | models, contracts, schemas, policy, pure logic | depends on nothing above |
-| `infrastructure` | DB access, HTTP and SDK clients, FFI bindings, process spawners | adapters for the layers above |
-| `data` | databases, caches, queues, third-party APIs (`store:*`, `ext:*` nodes) | sinks |
-| `tooling` | tests, benchmarks, scripts (`exempt: true`) | ignored by the upward rule |
-
-Match the repo's own layer vocabulary when a doc declares one. Declare `layers` top (callers) to bottom with an `order`, and give each `match` globs (`*` one segment, `**` any) over file ids; the first layer in `order` whose glob matches wins. An import from a larger `order` to a smaller one is derived as `upward`, unless the layer is `exempt` or the pair is listed in `allowed`.
+Use the repository’s vocabulary and model the boundary being investigated. Unmatched files show the scope the overlay leaves uncovered. Declare `layers` top (callers) to bottom with an `order`, and give each `match` globs (`*` one segment, `**` any) over file ids; the first layer in `order` whose glob matches wins. An import from a larger `order` to a smaller one is derived as `upward`, unless the layer is `exempt` or the pair is listed in `allowed`.
 
 ## Evidence recipes by edge kind
 
@@ -32,14 +20,14 @@ Match the repo's own layer vocabulary when a doc declares one. Declare `layers` 
 | `event` | publish and subscribe on the same channel name | two `localSearch` hits sharing the literal |
 | `config` / `file` | read site of the config, cache or state path | `localSearch` for the path or env key |
 
-Load live tool schemas through `octocode-research` before calling a tool. Import edges alone never prove a runtime flow.
+A static import establishes a dependency. A runtime flow also needs evidence of the action at that boundary.
 
 ## Overlay moves
 
 - Name a layer for a group of files with `layers[].match`; confirm borderline files with an `assign` entry (`{"id": "<file>", "layer": "<layer>"}`), which wins over globs.
 - Add actors, stores and externals as `nodes` with `actor:`, `store:` and `ext:` ids, then link them with `edges` of a runtime `kind`. The brief lists them with the model; the live viewer draws the graph's own nodes only.
 - Record a runtime edge the imports cannot show: `{source, target, kind, action, evidence: {path, line}}`.
-- Before allowing an upward import, test its strongest rival against exact source and the declared boundary rule using the [evidence rules](evidence.md). For a legitimate callback, plugin registration or codegen input, add it to `allowed` with the verified `reason`.
+- For an intended callback, plugin registration or codegen dependency that crosses the declared layer order, use `allowed` with the source-backed reason. [Evidence](evidence.md)
 
 ## Flows
 
@@ -47,4 +35,4 @@ Pick the scenarios the requested scope contains, for example the main request pa
 
 ## Summary and findings
 
-Use `meta.summary` to explain: what the system does, the main runtime path, how the layers split responsibilities, where state lives, and the top risks. Findings use `confidence`: `confirmed` (exact code read, `evidence` required), `likely` (strong structural signal) or `candidate` (heuristic until a distinguishing source or runtime check confirms it). Only `confirmed` findings should drive action.
+Use `meta.summary` to explain the modeled boundary. Findings take `confidence` values of `confirmed` (source evidence required), `likely` (structural evidence) or `candidate` (a hypothesis to investigate).

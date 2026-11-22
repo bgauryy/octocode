@@ -5,19 +5,22 @@ description: "Query code relationships or explore a repository map. Find callers
 
 # Octocode Graph
 
-Use the `octocode-graph` MCP server or the graph CLI. Run `octocode-graph schema` to list the native tools. The separate `octocode` engine supplies the local research tools used for source checks.
+For a relationship question, query the smallest scope that contains both endpoints and the consumers you care about. For example, to see what a file imports in the current project:
 
-| Need | Entry point |
-| --- | --- |
-| Find who imports a file, how two modules connect, or what a change affects | Send a scoped `graphQuery`. With no graph ID it selects the newest snapshot for that path. [Native operations](references/operations.md) |
-| Create or update a snapshot | Use `graphBuild` for a missing, stale or insufficient scope. Pin the returned ID for historical comparisons. [Snapshots and rows](references/build-and-read.md) |
-| Identify the exact callee or caller | Use `lspSearch` at the declaration or call site. For a syntax pattern alone, use `astSearch`. |
-| Explore a repository interactively | `node <skill>/scripts/serve.mjs <file-or-directory>` prints a local viewer URL. [Viewer commands](references/commands.md) |
-| Save a stitched graph and brief | `node <skill>/scripts/build.mjs <file-or-directory>`. The run publishes `stitched.json` before LSP confirmation finishes, then writes `data.json`. |
-| Use an existing export | `node <skill>/scripts/query.mjs <result-dir> "deps src/main.ts"` uses the [saved-graph query language](references/query.md). Reopen the viewer with `node <skill>/scripts/serve.mjs --replay <result-dir>`. |
+```sh
+octocode-graph graphQuery '{"queries":[{"path":".","operation":"deps","target":"src/main.ts"}]}'
+```
 
-Choose a scope containing the relevant files and consumers. A returned call site can establish a relationship even when another location was withheld. For an absence or deletion claim, check freshness, unresolved sites and consumers beyond that scope. Follow continuations when the answer needs all rows. [Evidence](references/evidence.md)
+The graph MCP server accepts the same `graphQuery` and `graphBuild` inputs as the CLI. With no graph ID, the query uses the newest snapshot for that path. Build when the snapshot is missing or the question needs fresher or wider coverage. Pin the returned ID for comparisons. [Native operations](references/operations.md) · [Builds and pagination](references/build-and-read.md)
 
-For a change review, route comparison, migration, architecture review, or a question about runtime or test coverage, follow the [question-to-evidence flows](references/analysis-flows.md). Choose the edge type and direction before interpreting a rank or weight.
+| If you have or need | Use |
+|---|---|
+| Source text from one or several known files | Batch paths and line ranges in `localFetch`. For uncertain filenames in a saved graph, `files <file...>` resolves locations and returns source queries. |
+| A saved export | `node <skill>/scripts/query.mjs <result-dir> "deps src/main.ts"` works offline. [Saved queries](references/query.md) |
+| Graph files and a brief | `node <skill>/scripts/build.mjs <file-or-directory>`. Use a directory for cross-file relationships. [Output files and HTML](output.md) |
+| An interactive map | `node <skill>/scripts/serve.mjs <file-or-directory>` streams the build. Use `--replay <result-dir>` to reopen an export. [Viewer commands](references/commands.md) |
+| The exact target of an ambiguous call | Use `lspSearch` at the call site or inspect the deciding source span. For a syntax pattern, use `astSearch`. [Evidence](references/evidence.md) |
 
-Viewer [chat and refresh](references/chat.md), [wiki notes](references/wiki.md) and [architecture overlays](references/modeling.md) are available when the task calls for them. [Saved artifacts](output.md)
+`<skill>` is the directory containing this file. A standalone installation needs Node to query an export and an Octocode executable on PATH or in `OCTOCODE_CLI` to build one.
+
+For impact, cycles, rankings, migration order or runtime evidence, choose the [flow that matches the question](references/analysis-flows.md). Use [chat](references/chat.md) for viewer questions, [community notes](references/wiki.md) for durable findings, or an [architecture overlay](references/modeling.md) to annotate the brief.

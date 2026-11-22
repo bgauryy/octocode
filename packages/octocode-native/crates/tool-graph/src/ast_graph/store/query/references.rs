@@ -151,7 +151,7 @@ impl Graph {
     /// root-relative when it is a path under the snapshot root. Live aliases
     /// are only an initial exact-key convenience: continuations enumerate the
     /// immutable snapshot using the normalized reference.
-    fn reference_keys(&self, normalized: &str, live_alias: bool) -> Vec<String> {
+    pub(super) fn reference_keys(&self, normalized: &str, live_alias: bool) -> Vec<String> {
         let root = Path::new(self.manifest["root"].as_str().unwrap_or_default());
         let path = Path::new(normalized);
         let mut spellings = vec![path.to_path_buf()];

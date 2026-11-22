@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { bindCalls, chunkOf, packageKey, resolveImport, resolveRustPath, stitch } from '../skills/octocode-graph/scripts/stitch.mjs';
+import { bindCalls, chunkOf, packageKey, resolveImport, resolveRustPath, stitch } from '../src/runtime/stitch.mjs';
 import { tempDir } from './test-tmp.mjs';
 
 const has = (p) => ['lib/a.ts', 'lib/b/index.js', 'c.mjs'].includes(p);

@@ -3,7 +3,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 export async function buildRenderer(root, update) {
-  const assets = join(root, 'skills/octocode-graph/assets');
+  const assets = join(root, 'dist/assets');
   const result = await build({
     absWorkingDir: root,
     entryPoints: ['src/renderer.ts'],

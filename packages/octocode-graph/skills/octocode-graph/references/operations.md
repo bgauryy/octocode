@@ -3,7 +3,8 @@
 | Question | Operation |
 |---|---|
 | Size, coverage, unresolved reasons | `stats` (`view:"details"` for the breakdown) |
-| Find a node ID | `find` with `target` words, then `node` |
+| Search for a file or symbol by name | `find` with `target` words returns ranked IDs |
+| Inspect a known ID | Pass the ID directly to `node` for details, or to `callers`, `callees` or `dependents` for the relationship |
 | What a file imports / who imports it | `deps` / `dependents` (`depth`, `view:"files"\|"modules"`) |
 | Who calls / what it calls | `callers` / `callees` on a symbol ID |
 | How A reaches B | `path` with `target` and `to` |

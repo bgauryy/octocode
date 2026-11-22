@@ -7,7 +7,9 @@ import { createInterface } from 'node:readline';
 import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { defaults } from './pipeline.mjs';
-import { HINT, formatResult } from './query.mjs';
+import { lspMode, lspModes } from './lib/run-options.mjs';
+import { HINT, formatResult, runQuery } from './query-api.mjs';
+import { dataLoader } from './serve-answers.mjs';
 import { openBrowser, startServer } from './serve.mjs';
 
 // Claude Code does not register a channel that negotiates MCP revision 2026-07-28 (it cannot carry channel
@@ -16,15 +18,10 @@ const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const SOURCE = 'graph-view';
 
 const INSTRUCTIONS = [
-  `Messages from the octocode graph viewer arrive as <channel source="${SOURCE}" chat_id="..." file="..." line="...">text</channel>:`,
-  'a person clicked a node in the live code graph and asked about it. file and line name the selected node (repository-relative);',
-  'metrics, when present, are the node\'s graph metrics.',
-  'Before answering, read the wiki page of the node\'s community (wiki_read with file) and the code.',
-  'Prove structural claims with query_graph (impact, deps, dependents, path, cycle, community, callers, callees, top, find) and LSP or source reads; a graph label alone is a lead.',
-  'Answer with the reply tool, passing the chat_id from the tag and nodes (file paths) to point at on the graph; mention files as path:line so the viewer links them.',
-  'Promote an answer worth keeping with wiki_promote (chat_id), or record notes with wiki_note.',
-  'After you edit code, call refresh_graph so the viewer and the wiki show the updated graph.',
-  'Call open_graph with a repository path to show it in the viewer (it opens the browser and returns the URL).',
+  `Viewer messages arrive as <channel source="${SOURCE}" chat_id="...">text</channel>. A selection can include a repository-relative file, line and metrics.`,
+  'Send the answer with reply using that chat_id. Include nodes to highlight relevant files, or use path:line for a source link.',
+  'Use query_graph for structural questions. Check source or LSP when the answer depends on an uncertain binding.',
+  'wiki_read provides community context. Use wiki_promote to save a reply when requested, and refresh_graph when the viewer needs to reflect edits.',
 ].join(' ');
 
 const TOOLS = [
@@ -36,7 +33,7 @@ const TOOLS = [
       properties: {
         path: { type: 'string', description: 'Source file or directory to graph (absolute, or relative to the session working directory).' },
         whole: { type: 'boolean', description: 'Ingest one snapshot instead of chunking at package manifests (cross-package linkage over early feedback).' },
-        lsp: { type: 'string', enum: ['on', 'off'], description: 'LSP call cross-check (default on).' },
+        lsp: { type: 'string', enum: lspModes, description: 'Cross-check hub and cross-chunk functions (smart, default), all callable declarations, or none (off). on selects smart.' },
         result: { type: 'string', description: 'An existing result directory to reopen without rebuilding (replay); path is then optional.' },
       },
     },
@@ -60,7 +57,8 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'For example: impact src/pipeline.mjs · path a.ts b.ts · cycle x.rs · top pagerank 10 · callers parseArgs' },
+        result: { type: 'string', description: 'Search this saved result directory directly without opening a viewer. Use result or path.' },
+        query: { type: 'string', description: 'For example: files src/main.ts:18 · impact src/pipeline.mjs · path a.ts b.ts · cycle x.rs · top pagerank 10 · callers parseArgs' },
         path: { type: 'string', description: 'Which open graph (its repository path or result directory); default: the most recently used viewer.' },
       },
       required: ['query'],
@@ -124,7 +122,10 @@ function deliverer(viewer) {
 
 function viewerFor(path) {
   if (path) {
-    const v = viewers.get(resolve(path)) ?? [...viewers.values()].find((x) => x.server.root() === resolve(path));
+    const target = resolve(path);
+    const available = [...viewers.values()].toReversed();
+    const v = available.find(x => x.server.out === target) ??
+      [lastViewer, ...available].find(x => x && (x.key === target || x.server.root() === target));
     if (!v) throw new Error(`no graph is open for ${resolve(path)}; call open_graph first`);
     return v;
   }
@@ -143,17 +144,18 @@ async function openGraph(args) {
   const replay = Boolean(args.result);
   const root = replay ? null : resolve(args.path);
   const key = replay ? directory(args.result, 'result') : root;
+  const opts = { ...defaults(), whole: Boolean(args.whole), lsp: lspMode(args.lsp) };
+  const buildKey = JSON.stringify(replay ? [key] : [key, opts.whole, opts.lsp]);
   const open = process.env.GRAPH_VIEW_NO_OPEN !== '1';
-  const known = viewers.get(key);
+  const known = viewers.get(buildKey);
   if (known) {
     if (open) openBrowser(known.server.url);
     lastViewer = known;
     return { url: known.server.url, out: known.server.out, reused: true };
   }
   const viewer = { n: nextViewer++, key, server: null };
-  const opts = { ...defaults(), whole: Boolean(args.whole), lsp: args.lsp === 'off' ? 'off' : 'on' };
   viewer.server = await startServer({ root, out: replay ? key : undefined, opts, replay, open, transport: deliverer(viewer) });
-  viewers.set(key, viewer);
+  viewers.set(buildKey, viewer);
   lastViewer = viewer;
   void viewer.server.finished.then((r) => log(`${key}: build ${r.ok ? 'done' : `failed: ${r.error}`}`));
   log(`viewer for ${key}: ${viewer.server.url}`);
@@ -161,16 +163,23 @@ async function openGraph(args) {
 }
 
 async function reply(args) {
-  const chat = chats.get(args.chat_id);
-  if (!chat) throw new Error(`unknown chat_id ${args.chat_id}: pass the chat_id attribute of the <channel> message`);
+  const chat = chatOf(args.chat_id);
   lastViewer = chat.viewer;
   const r = await chat.viewer.server.reply({ text: args.text, chat_id: chat.id, nodes: args.nodes });
   return r.nodes ? `sent; pointing at ${r.nodes.length} node${r.nodes.length > 1 ? 's' : ''}: ${r.nodes.join(', ')}` : 'sent';
 }
 
+let saved;
 async function queryGraph(args) {
+  if (args.result !== undefined) {
+    if (args.path !== undefined) throw new Error('query_graph takes result or path');
+    const out = directory(args.result, 'result');
+    if (saved?.out !== out) saved = { out, read: dataLoader({ out }) };
+    const r = runQuery(await saved.read(), args.query);
+    return { ...text(r), ...(r.ok ? {} : { isError: true }) };
+  }
   const r = await viewerFor(args.path).server.query(args.query);
-  return { ...text(formatResult(r)), ...(r.ok ? {} : { isError: true }) };
+  return { ...text(r.ok && r.op === 'files' ? r : formatResult(r)), ...(r.ok ? {} : { isError: true }) };
 }
 
 // A wiki chat_id is the channel's; the server knows the viewer's own message id.

@@ -13,14 +13,15 @@ import { QueryError, indexOf, resolveFile } from './query-index.mjs';
 import * as ops from './query-ops.mjs';
 
 export const OPS = {
-  impact: ops.impact, deps: ops.deps, dependents: ops.dependents, path: ops.path, cycle: ops.cycle,
+  files: ops.fileRecords, impact: ops.impact, deps: ops.deps, dependents: ops.dependents, path: ops.path, cycle: ops.cycle,
   order: ops.dependencyOrder, trace: ops.trace, community: ops.community, callers: ops.callers, callees: ops.callees, top: ops.top, find: ops.find,
 };
-export const HINT = 'impact <file> [depth N] · deps|dependents <file> [depth N] · path <a> <b> [--hops] · cycle <file> · order <file> · trace <file|file#symbol> <pattern> · community <file|id> · callers|callees <file#symbol|name> · top <metric> [n|all] · find <text> · --tests · --imports · --weak';
+export const HINT = 'files <file...> · impact <file...> [depth N] · deps|dependents <file...> [depth N] · path <a> <b> [--hops] · cycle <file> · order <file> · trace <file|file#symbol> <pattern> · community <file|id> · callers|callees <file#symbol|name> · top <metric> [n|all] · find <text> · --tests · --imports · --weak';
 
 // Words, with "double" or 'single' quotes keeping spaces.
 export function tokenize(text) {
-  return [...String(text ?? '').matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)].map((m) => m[1] ?? m[2] ?? m[3]);
+  return [...String(text ?? '').matchAll(/"((?:\\["\\]|[^"])*)"|'([^']*)'|(\S+)/g)]
+    .map(m => m[1]?.replace(/\\(["\\])/g, '$1') ?? m[2] ?? m[3]);
 }
 
 const DEPTH = /^(?:--)?depth(?:=(.+))?$/i;
@@ -54,7 +55,10 @@ export function parseArgs(tokens, { walk = true, path = false, trace = false } =
 
 // Each candidate as the same query with the ambiguous argument replaced, so a viewer or agent can re-run it.
 function candidateRows(tokens, error) {
-  return error.candidates.map((id) => ({ id, query: tokens.map((t) => (t === error.arg ? (/\s/.test(id) ? `"${id}"` : id) : t)).join(' ') }));
+  const quote = t => /[\s"']/.test(t) ? `"${t.replace(/["\\]/g, '\\$&')}"` : t;
+  return error.candidates.map(id => ({
+    id, query: tokens.map(t => quote(t === error.arg ? id + (error.anchor ?? '') : t)).join(' '),
+  }));
 }
 
 const empty = { nodes: [], edges: [], rows: [] };

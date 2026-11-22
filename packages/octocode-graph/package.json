@@ -9,13 +9,16 @@
   },
   "bin": {
     "octocode-graph": "bin/octocode-graph.mjs",
-    "octocode-graph-build": "skills/octocode-graph/scripts/build.mjs",
-    "octocode-graph-query": "skills/octocode-graph/scripts/query.mjs",
-    "octocode-graph-serve": "skills/octocode-graph/scripts/serve.mjs"
+    "octocode-graph-build": "dist/runtime/build.mjs",
+    "octocode-graph-query": "dist/runtime/query.mjs",
+    "octocode-graph-serve": "dist/runtime/serve.mjs"
   },
   "imports": {
     "#graph-engine": "octocode/native",
-    "#graph-browser/*": "./dist/browser/*"
+    "#graph-browser/*": "./dist/browser/*",
+    "#graph-assets/*": "./dist/assets/*",
+    "#graph-core/*": "./dist/*.js",
+    "#graph-runtime/*": "./dist/runtime/*.mjs"
   },
   "exports": {
     ".": {
@@ -34,7 +37,8 @@
     "./analysis": {
       "types": "./dist/analysis.d.ts",
       "default": "./dist/analysis.js"
-    }
+    },
+    "./model-schema": "./dist/scheme/model.json"
   },
   "files": [
     "dist",
@@ -47,7 +51,7 @@
     "build": "node scripts/build.mjs",
     "prepack": "yarn build",
     "format": "prettier --write \"src/**/*.ts\" \"scripts/**/*.{mjs,js}\"",
-    "lint:own": "prettier --check \"src/**/*.ts\" \"scripts/**/*.{mjs,js}\" && node scripts/build.mjs --check-skill && node scripts/lint.mjs skills/octocode-graph",
+    "lint:own": "prettier --check \"src/**/*.ts\" \"scripts/**/*.{mjs,js}\" && node scripts/build.mjs --check-generated && node scripts/lint.mjs skills/octocode-graph",
     "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
     "lint": "yarn lint:own && yarn lint:oxlint",
     "typecheck": "yarn run -T tsgo -p tsconfig.json",

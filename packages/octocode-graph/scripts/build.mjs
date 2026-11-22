@@ -23,20 +23,7 @@ const options = {
   target: 'node24',
   logLevel: 'silent',
 };
-const check = process.argv.includes('--check-skill');
-
-// A copied Agent Skill must run on its own. Emit the same typed algorithms it uses
-// in the workspace as portable JavaScript, with no runtime build dependencies.
-const skill = await build({
-  ...options,
-  entryPoints: ['src/algorithms.ts', 'src/graph-model.ts', 'src/relations.ts'],
-  outdir: 'skills/octocode-graph/scripts',
-  outExtension: { '.js': '.mjs' },
-  banner: {
-    js: '// Generated from packages/octocode-graph/src by scripts/build.mjs.',
-  },
-  write: false,
-});
+const check = process.argv.includes('--check-generated');
 async function update(path, contents) {
   const current = await readFile(path).catch(error => {
     if (error.code === 'ENOENT') return null;
@@ -45,10 +32,10 @@ async function update(path, contents) {
   if (current?.equals(contents)) return;
   if (check)
     throw new Error(`Stale generated file: ${path}. Run the package build.`);
+  await mkdir(dirname(path), { recursive: true });
   await writeFile(path, contents);
 }
-for (const file of skill.outputFiles) await update(file.path, file.contents);
-await buildRenderer(root, update);
+
 const contractPath = join(root, 'src/contract.generated.d.ts');
 await update(contractPath, Buffer.from(await graphDeclarations()));
 if (!check) {
@@ -73,6 +60,9 @@ if (!check) {
         'src/cli.ts',
         'src/mcp.ts',
         'src/analysis.ts',
+        'src/algorithms.ts',
+        'src/graph-model.ts',
+        'src/relations.ts',
       ],
       bundle: true,
       packages: 'external',
@@ -93,20 +83,40 @@ if (!check) {
         offline: 'scripts/browser/offline.js',
         worker: 'scripts/browser/worker.js',
       },
+      alias: Object.fromEntries(
+        ['algorithms', 'graph-model', 'relations'].map(name => [
+          `#graph-core/${name}`, `./src/${name}.ts`,
+        ])
+      ),
       external: ['./renderer.generated.js'],
       outdir: 'dist/browser',
       write: false,
     });
     const files = new Set();
+    await buildRenderer(root, async (path, contents) => {
+      files.add(relative(dst, path));
+      await update(path, contents);
+    });
+    for (const dir of ['runtime', 'assets', 'scheme']) {
+      const source = join(root, 'src', dir);
+      for (const entry of await readdir(source, { recursive:true, withFileTypes:true })) {
+        if (!entry.isFile()) continue;
+        const path = join(entry.parentPath, entry.name);
+        const name = join(dir, relative(source, path));
+        files.add(name);
+        await mkdir(dirname(join(dst, name)), { recursive:true });
+        await cp(path, join(dst, name));
+      }
+    }
     for (const file of [...built.outputFiles, ...browser.outputFiles]) {
       files.add(relative(dst, file.path));
       await mkdir(dirname(file.path), { recursive: true });
       await update(file.path, file.contents);
     }
-    for (const name of await readdir(join(declarations, 'src'))) {
-      if (name === 'renderer.d.ts') continue; // Browser internals have no Node export.
+    for (const name of await readdir(declarations)) {
+      if (!name.endsWith('.d.ts') || name === 'renderer.d.ts') continue; // Browser internals have no Node export.
       files.add(name);
-      await cp(join(declarations, 'src', name), join(dst, name));
+      await cp(join(declarations, name), join(dst, name));
     }
     files.add('contract.generated.d.ts');
     await cp(contractPath, join(dst, 'contract.generated.d.ts'));

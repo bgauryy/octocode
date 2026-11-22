@@ -181,7 +181,7 @@ export async function readResponse(tool, input, { run = runTool, onPage = () => 
     const page = await run(call.tool, call.input);
     onPage(page, call);
     if (page.errorCode || page.error || page.isError || page.status === 'error') {
-      throw new Error(`${call.tool} ${page.errorCode ?? 'error'}: ${page.error ?? 'tool result failed'}`);
+      throw Object.assign(new Error(`${call.tool} ${page.errorCode ?? 'error'}: ${page.error ?? 'tool result failed'}`), { errorClass: page.errorClass });
     }
     if (!Array.isArray(page.results)) throw new Error(`${call.tool} response is missing its results array`);
     if (!combined) {
@@ -222,7 +222,7 @@ export async function pagedTool(tool, input, { onPage = () => {}, run = runTool,
     const failure = page.results.find((value) => value.errorCode || value.error || value.isError || value.status === 'error' || value.data?.errorCode || value.data?.error);
     if (failure) {
       const detail = failure.data ?? failure;
-      throw new Error(`${call.tool} ${detail.errorCode ?? 'error'}: ${detail.error ?? 'tool result failed'}; discard this evidence walk before restarting`);
+      throw Object.assign(new Error(`${call.tool} ${detail.errorCode ?? 'error'}: ${detail.error ?? 'tool result failed'}; discard this evidence walk before restarting`), { errorClass: detail.errorClass });
     }
     pages.push(page);
     onPage(page, pages.length, call);

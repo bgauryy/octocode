@@ -178,8 +178,9 @@ function lspAnswer(r) {
   if (!r) return '';
   if (r.state !== 'done') return '<div class="note">asking the language server…</div>';
   if (r.error) return `<div class="note bad">${esc(r.error)}</div>`;
-  if (!r.rows.length) return '<div class="note">none</div>';
-  return `<div class="note">${r.rows.map((x) => `${x.symbolName ? `${esc(x.symbolName)} ` : ''}${at(x.path, x.line ?? 1)} <span class="k" data-select="${esc(x.path)}">→</span>`).join('<br>')}</div>`;
+  const notes = (r.notes ?? []).map(n => `<div class="note">${esc(n)}</div>`).join('');
+  if (!r.rows.length) return notes || '<div class="note">none</div>';
+  return `${notes}<div class="note">${r.rows.map((x) => `${x.symbolName ? `${esc(x.symbolName)} ` : ''}${at(x.path, x.line ?? 1)} <span class="k" data-select="${esc(x.path)}">→</span>`).join('<br>')}</div>`;
 }
 
 function symbolCounts(symbols) {
@@ -199,7 +200,15 @@ function symbolRow(file, s, { out, inn }) {
 }
 
 function astTree(file, list, depth) {
-  return list.map((s) => `<div style="padding-left:${depth * 14}px">${at(file, s.line)} <b>${esc(s.symbolName)}</b> <span class="badge">${esc(s.kind)}</span>${s.endLine ? `<span class="note">–${s.endLine}</span>` : ''}</div>${astTree(file, s.members ?? [], depth + 1)}`).join('');
+  return list.map((s) => {
+    if (typeof s === 'string') {
+      const tab = s.indexOf('\t');
+      const line = tab > 0 ? Number(s.slice(0, tab)) : NaN;
+      if (!Number.isSafeInteger(line) || line < 1) return `<pre>${esc(s)}</pre>`;
+      return `<div>${at(file, line)} <code style="white-space:pre-wrap">${esc(s.slice(tab + 1))}</code></div>`;
+    }
+    return `<div style="padding-left:${depth * 14}px">${at(file, s.line)} <b>${esc(s.symbolName)}</b> <span class="badge">${esc(s.kind)}</span>${s.endLine ? `<span class="note">–${s.endLine}</span>` : ''}</div>${astTree(file, s.members ?? [], depth + 1)}`;
+  }).join('');
 }
 function astBlock(id) {
   const a = P.S.ast.get(id);

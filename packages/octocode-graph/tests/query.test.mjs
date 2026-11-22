@@ -2,8 +2,8 @@
 // make one route stronger, a test-only edge, and names that resolve ambiguously.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { computeMetrics } from '../skills/octocode-graph/scripts/metrics.mjs';
-import { formatResult, parseArgs, resolveNodes, runQuery, tokenize } from '../skills/octocode-graph/scripts/query.mjs';
+import { computeMetrics } from '../src/runtime/metrics.mjs';
+import { formatResult, parseArgs, resolveNodes, runQuery, tokenize } from '../src/runtime/query.mjs';
 
 const file = (id, chunk) => ({ id, label: id.split('/').pop(), chunk, language: 'javascript', loc: { path: id, line: 1 } });
 const imp = (source, target, line, extra = {}) => ({ source, target, line, lines: [line], confidence: 'high', test: false, ...extra });
@@ -277,4 +277,61 @@ test('cycle weight and identity describe the selected component', () => {
   assert.equal(result.stats.size, 2);
   assert.equal(result.stats.weight, 2);
   assert.equal(result.stats.cycle, null);
+});
+
+test('file-set traversal gives the shortest depth from any seed and validates every seed', () => {
+  for (const op of ['impact', 'deps', 'dependents']) {
+    const seeds = ['b/util.mjs', 'a/y.mjs'];
+    const parts = seeds.map(id => runQuery(D, `${op} ${id} depth 2`));
+    const expected = new Map();
+    for (const row of parts.flatMap(r => r.rows)) {
+      if (!seeds.includes(row.id)) expected.set(row.id, Math.min(expected.get(row.id) ?? Infinity, row.depth));
+    }
+    const grouped = runQuery(D, `${op} ${seeds.join(' ')} y.mjs depth 2`);
+    assert.equal(grouped.ok, true);
+    assert.deepEqual(new Map(grouped.rows.map(r => [r.id,r.depth])), expected);
+    assert.equal(new Set(grouped.nodes).size, grouped.nodes.length);
+    assert.equal(runQuery(D, `${op} y.mjs unknown.mjs`).ok, false);
+  }
+});
+
+test('files returns saved metadata and requested source lines without traversing edges', () => {
+  const data = { section:'/repo', files:fixture().files, get calls() { throw Error('unneeded calls'); } };
+  const r = runQuery(data, 'files /repo/a/x.mjs:11 b/p.mjs x.mjs:19');
+  assert.equal(r.ok,true);
+  assert.deepEqual(r.rows.map(f=>[f.id,f.loc.line,f.language]), [['a/x.mjs',11,'javascript'],['b/p.mjs',1,'javascript'],['a/x.mjs',19,'javascript']]);
+  assert.deepEqual(r.nodes,['a/x.mjs','b/p.mjs']);
+  assert.deepEqual(r.sourceQueries,[{path:'a/x.mjs',ranges:[{startLine:11,endLine:11},{startLine:19,endLine:19}]},{path:'b/p.mjs'}]);
+  assert.deepEqual(runQuery(data,'files x.mjs:19 x.mjs x.mjs:11').sourceQueries,[{path:'a/x.mjs'}]);
+  assert.equal(runQuery(data,'files util.mjs').candidates.length,2);
+});
+
+test('candidate retries keep every quoted path and the selected source location', () => {
+  const data = {files:['a/weird "dir"/unit.js','b/unit.js','src/my file.js','a/literal:42','a/#file.js'].map(id=>file(id,'a'))};
+  const r = runQuery(data, 'files "my file.js" unit.js:12:4');
+  assert.equal(r.candidates.length,2);
+  for (const choice of r.candidates) {
+    const selected = runQuery(data,choice.query);
+    assert.deepEqual(selected.rows.map(f=>f.id), ['src/my file.js',choice.id]);
+    assert.equal(selected.rows[1].loc.line,12);
+    assert.equal(selected.rows[1].loc.column,4);
+  }
+  assert.deepEqual(runQuery(data,'files literal:42').sourceQueries,[{path:'a/literal:42'}]);
+  assert.equal(runQuery(data,'files #file.js:42').rows[0].loc.line,42);
+  assert.equal(runQuery(data,'files b/unit.js:0').ok,false);
+});
+
+test('offline stdin returns one result per question and continues after a query error', async () => {
+  const {spawnSync} = await import('node:child_process');
+  const {writeFileSync} = await import('node:fs');
+  const {join} = await import('node:path');
+  const {fileURLToPath} = await import('node:url');
+  const {tempDir} = await import('./test-tmp.mjs');
+  const out = tempDir('graph-query-stdin-');
+  writeFileSync(join(out,'data.json'), JSON.stringify(D));
+  const cli = fileURLToPath(new URL('../src/runtime/query.mjs',import.meta.url));
+  const q = ['files x.mjs','unknown','impact x.mjs y.mjs'];
+  const proc = spawnSync(process.execPath,[cli,out,'--stdin','--json'],{input:q.join('\r\n\r\n'),encoding:'utf8'});
+  assert.equal(proc.status,1,proc.stderr);
+  assert.deepEqual(proc.stdout.trim().split('\n').map(s=>JSON.parse(s)),q.map(s=>runQuery(D,s)));
 });

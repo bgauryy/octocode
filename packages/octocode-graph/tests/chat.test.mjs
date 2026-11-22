@@ -11,11 +11,11 @@ import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import test from 'node:test';
-import { parseFrame } from '../skills/octocode-graph/scripts/ws.mjs';
-import { startServer } from '../skills/octocode-graph/scripts/serve.mjs';
-import { computeMetrics } from '../skills/octocode-graph/scripts/metrics.mjs';
+import { parseFrame } from '../src/runtime/ws.mjs';
+import { startServer } from '../src/runtime/serve.mjs';
+import { computeMetrics } from '../src/runtime/metrics.mjs';
 
-const here = fileURLToPath(new URL('../skills/octocode-graph/scripts/', import.meta.url));
+const here = fileURLToPath(new URL('../src/runtime/', import.meta.url));
 
 // A finished result to replay: one run event over a one-file repository.
 function fixture() {
@@ -149,6 +149,25 @@ test('the channel declares claude/channel, an earlier protocol revision and its 
   const [code] = await new Promise((ok) => c.child.on('exit', (...a) => ok(a)));
   assert.equal(code, 0);
   assert.ok(c.lines.every((m) => m.jsonrpc === '2.0'), 'stdout carries only JSON-RPC');
+});
+
+test('the channel reuses only viewers with the requested LSP and build scope', async t => {
+  const f = fixture();
+  const c = channel(f.dir);
+  t.after(() => { c.child.kill(); rmSync(f.dir, {recursive:true, force:true}); });
+  const open = async options => {
+    const reply = await c.call('tools/call', {name:'open_graph', arguments:{path:f.dir, ...options}});
+    assert.ok(!reply.result.isError, reply.result.content[0].text);
+    return JSON.parse(reply.result.content[0].text);
+  };
+  const smart = await open({});
+  assert.equal((await open({lsp:'on'})).url, smart.url);
+  const all = await open({lsp:'all'});
+  assert.notEqual(all.url, smart.url);
+  assert.equal((await open({lsp:'all'})).reused, true);
+  assert.notEqual((await open({whole:true, lsp:'all'})).url, all.url);
+  const invalid = await c.call('tools/call', {name:'open_graph', arguments:{path:f.dir,lsp:'invalid'}});
+  assert.equal(invalid.result.isError,true);
 });
 
 test('a viewer chat reaches the session as notifications/claude/channel and the reply tool answers it', { timeout: 30000 }, async (t) => {

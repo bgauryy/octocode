@@ -10,11 +10,11 @@ Ask for the relationship on the exact scope, for example:
 octocode-graph graphQuery '{"queries":[{"path":"packages/api","operation":"deps","target":"src/index.ts"}]}'
 ```
 
-The first page checks freshness. A current snapshot omits the freshness warning. A missing snapshot (`notFound` with a build suggestion) or `freshness.fresh: false` carries a related build. Use its scope and options, follow build continuations, then repeat the original query pinned to the new ID. For an exact call target, verify the selected symbol with `lspSearch` and read the deciding lines with `localFetch`.
+The first page checks freshness. A current snapshot omits the freshness warning. A missing snapshot (`notFound` with a build suggestion) or `freshness.fresh: false` carries a related build. Use its scope and options, follow build continuations, then repeat the original query pinned to the new ID. For an ambiguous call target, check the binding with `lspSearch` or read the deciding source span.
 
 ## Create
 
-Use `octocode-graph` from the target workspace. Check the operation’s inputs with `octocode-graph schema graphQuery`. To build over a `ghCloneRepo` checkout outside the workspace, configure `OCTOCODE_GRAPH_HOME` in the home environment first.
+Run from the target workspace. For unfamiliar inputs, `octocode-graph schema graphBuild` or `octocode-graph schema graphQuery` describes the installed version.
 
 ```bash
 octocode-graph graphBuild '{"queries":[{"path":"."}]}'

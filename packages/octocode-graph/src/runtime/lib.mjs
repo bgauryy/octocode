@@ -36,8 +36,7 @@ export function flags(argv, spec) {
   return out;
 }
 
-// Resolve lazily: replay and offline queries need no binary. Standalone skill installs
-// use the Octocode CLI on PATH. The package uses its octocode dependency's engine.
+// Resolve lazily so replay and offline queries need no binary.
 let cli;
 let resolving;
 async function selectedCli() {
@@ -49,15 +48,7 @@ async function selectedCli() {
 async function resolveCli() {
   const override = process.env.OCTOCODE_CLI;
   if (override) return existsSync(override) ? [override] : override.split(' ');
-  let engine;
-  try {
-    engine = import.meta.resolve('#graph-engine');
-  } catch (error) {
-    // Only the graph package defines this import. Standalone skill copies use PATH.
-    if (error.code === 'ERR_PACKAGE_IMPORT_NOT_DEFINED') return ['octocode'];
-    throw error;
-  }
-  const { resolveNativeBin } = await import(engine);
+  const { resolveNativeBin } = await import('octocode/native');
   const result = await resolveNativeBin();
   if (result.error) throw new Error(result.error);
   return [realpathSync(result.bin)];
@@ -112,7 +103,7 @@ async function loadGraphContract() {
   };
   if (!Array.isArray(catalog.grammarCapabilities)) throw new Error('The CLI catalog is missing grammarCapabilities');
   const limits = {
-    graphBatch: limit('graphQuery'), lspBatch: catalog.tools.some((t) => t.name === 'lspSearch') ? limit('lspSearch') : 1,
+    graphBatch: limit('graphQuery'), lspBatch: catalog.tools.some((t) => t.name === 'lspSearch') ? limit('lspSearch') : null,
     maxTargets: targetLimit('unresolved'), fileGroup: Math.min(targetLimit('witnesses'), targetLimit('symbols')),
     extensions: new Set(catalog.grammarCapabilities.filter((g) => g.graphFacts).flatMap((g) => g.extensions)),
   };

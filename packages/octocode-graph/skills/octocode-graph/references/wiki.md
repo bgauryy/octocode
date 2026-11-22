@@ -2,7 +2,7 @@ Load when reading, writing, promoting into or linting the code wiki of a graph r
 
 # Code wiki
 
-The wiki applies the LLM Wiki pattern to code. The repository and the tool evidence in `data.json` are the raw sources and stay read-only. Each Louvain community of the weighted file graph is one page. Scripts keep each page's facts exact; agents write the prose. `index.md` is the map: read it first, then the pages it points to. No embeddings are needed.
+Each multi-file community gets a page of generated facts and optional notes. Use `read <out> --file <path>` for a known file or browse the ranked pages in `index.md`.
 
 ```mermaid
 flowchart LR
@@ -52,16 +52,11 @@ Run from the workspace: `node <skill>/scripts/wiki.mjs <command> <out> ...`. In 
 
 ## Writing notes
 
-- Write purpose, how the page's code works, its invariants and its gotchas. Do not restate the facts table.
-- Start with one sentence that says what the page is. `index.md` shows that first sentence as the page summary.
-- Every claim cites `path:line` (or `path:start-end`) relative to the repository root, for example `scripts/pipeline.mjs:175`. Read the source before citing it: lint checks that the file exists and that the line is inside it, but not what the line says.
-- Label inferences as inferences. A graph or LSP edge is a lead; prove behavior with the evidence rules ([evidence](evidence.md)).
-- Link other pages with `[[slug]]`; `[[index]]`, `[[log]]` and `[[isolated]]` always exist.
-- Promote an answer when it is verified and will matter again, such as a chat reply or a proven caller set. Give `--source` the place it came from (`chat 12`, `lspSearch callers`).
+Notes can explain a design decision, invariant or verified finding. The first sentence becomes the index summary. Cite source locations such as `src/main.ts:12-16` for code claims and link neighboring pages with `[[slug]]`. Lint checks that the location exists. When saving a chat answer, `promote` records its source and date. [Evidence](evidence.md)
 
 ## Freshness and identity
 
-- **Stale notes.** When notes are written, map.json records a content hash of every member. A later build or lint compares the hashes with the files on disk. A member that changed, appeared or disappeared makes the notes stale, and the page header and `index.md` name the files. A refresh also passes the files it found changed. Revisit stale pages first: read the changed files, then rewrite the notes. Writing fresh notes resets the baseline.
+- **Stale notes.** When notes are written, map.json records a content hash of every member. A later build or lint compares the hashes with the files on disk. A member that changed, appeared or disappeared makes the notes stale, and the page header and `index.md` name the files. A refresh also passes the files it found changed. Read the changed files before relying on stale notes. Writing fresh notes resets the baseline.
 - **Stable slugs.** Communities can be renumbered after a build. The script matches them to previous pages by member overlap, preserving slugs and notes when a match qualifies; otherwise it creates a new page. [wiki-store.mjs](../scripts/wiki-store.mjs) owns matching thresholds.
 - **Orphans.** A previous page that no community takes stays as **orphaned** when it has notes, listing its last members. Without notes it is removed, and the log records it. Move what still holds into the pages that own those files now, then clear the orphan's notes with `note <out> <slug> ""`. The next build removes it.
 
@@ -72,11 +67,12 @@ Run from the workspace: `node <skill>/scripts/wiki.mjs <command> <out> ...`. In 
 | `citation-file` | A notes citation names no file under the root | Correct the path or drop the claim |
 | `citation-line` | The cited line is past the end of the file | Re-read the source and cite the current line |
 | `broken-link` | `[[slug]]` names no page | Use a slug from `index.md` |
+| `missing-graph` | data.json or its community metrics are missing | Use a completed graph export |
 | `missing-page` | A community in `data.json` has no page, or its page predates the current graph | `wiki.mjs build <out>` |
-| `missing-file` | map.json lists a page whose file is gone | `wiki.mjs build <out>` |
+| `missing-file` | A wiki page, index or map is missing | `wiki.mjs build <out>` |
 | `orphaned` | No community matches the page | Move the notes, then clear them |
 | `stale-notes` | A member changed since the notes were written | Revisit and rewrite the notes |
-| `empty-notes` | A page in the script's priority selection has no notes (`--top N` changes that selection) | Write notes when that page is in the requested scope; report unrelated suggestions separately |
+| `empty-notes` | Only with `--top N`, one of the N highest-PageRank live communities has no notes | Add notes if curating that community |
 
 ## Script owners
 

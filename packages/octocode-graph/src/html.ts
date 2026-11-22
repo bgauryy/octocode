@@ -1,5 +1,5 @@
 import { createInterface } from 'node:readline';
-import { checkRunHeaders } from '../skills/octocode-graph/scripts/lib/run-output.mjs';
+import { checkRunHeaders } from './runtime/lib/run-output.mjs';
 import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -19,10 +19,7 @@ async function* encoded(file: string) {
 
 const safeScript = (text: string) => text.replace(/<\/script/gi, '<\\/script');
 export async function exportHtml(run: string, output: string) {
-  const assets = new URL(
-    'assets/',
-    import.meta.resolve('@octocodeai/octocode-graph/skill')
-  );
+  const assets = new URL('.', import.meta.resolve('#graph-assets/live.html'));
   const asset = (file: string) => readFile(new URL(file, assets), 'utf8');
   const bundle = (file: string) =>
     readFile(new URL(import.meta.resolve(`#graph-browser/${file}`)), 'utf8');

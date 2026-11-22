@@ -1,8 +1,8 @@
 // Graph metrics for the representation: every number comes from a standard algorithm over the weighted file
 // graph (graph-model.mjs), never from prose rules. Per-file values land on D.files[i].metrics; sets (cycles,
 // communities, packages) and timings land on D.metrics; the weighted edges on D.fileEdges.
-import { csr, fileEdges, undirected } from './graph-model.mjs';
-import { betweenness, depths, kcore, louvain, pagerank, scc } from './algorithms.mjs';
+import { csr, fileEdges, undirected } from '#graph-core/graph-model';
+import { betweenness, depths, kcore, louvain, pagerank, scc } from '#graph-core/algorithms';
 
 const round = (x, digits = 6) => Number(x.toFixed(digits));
 const byText = (a, b) => a.localeCompare(b);
