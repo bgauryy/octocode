@@ -6,7 +6,7 @@ Octocode runs on your machine. The CLI and MCP server share one set of path, cre
 
 | Action | Sent to |
 |---|---|
-| Local research, graph builds | Nowhere. Snapshots stay under your home or workspace |
+| Local file search, reads and graph builds | Files are processed locally. Graph snapshots go to the configured directory. |
 | GitHub search, read, history, clone | GitHub or your Enterprise host, with that host's credential |
 | Package lookup | The package registry and its source host |
 | `securityCheck` | OSV, GitHub, public registries. [Advisory egress](#advisory-egress) |
@@ -41,9 +41,10 @@ Listing catalog tools sends nothing. A `clasify` call sends questions, context (
 
 | Operation | What is sent |
 |---|---|
-| `package` | OSV gets the name and any listed version; GitHub can get coordinates and repository. Other ecosystems send name and version to OSV directly |
+| `package` | OSV receives the name and version when supplied, including names missing from a registry. Registry and GitHub lookups can also receive package coordinates. |
+| `url` | Octocode extracts coordinates from a supported registry page URL or package URL (purl), then checks them as a package. |
 | `repository` | GitHub gets `owner/name`; OSV gets advisory IDs only after GitHub identifies the repository as public |
-| `commit` | OSV gets the full hash, even for private commits. With `repo`, GitHub gets both |
+| `commit` | OSV receives the full hash. Use a public commit. When you supply a repository, GitHub also receives the repository and hash. |
 | `advisory` | OSV gets the ID; for a GHSA, GitHub also gets the ID and any repository given |
 
 ## GitHub credentials

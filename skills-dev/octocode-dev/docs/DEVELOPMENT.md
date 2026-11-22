@@ -1,6 +1,6 @@
 # Developing Octocode
 
-Owns the native crate map, contract pipeline, build commands, development-only environment variables and ownership rules. Repo-wide rules: `<repo>/AGENTS.md`; tool concept: `<repo>/docs/OCTOCODE_PROTOCOL.md`.
+Owns the native crate map, contract pipeline, build commands, development-only environment variables and ownership rules. Repo-wide rules: `<repo>/AGENTS.md`; tool concept: [tool workflows](../../../README.md#how-an-agent-uses-octocode).
 
 Other dev docs: [ADDING_CONFIG.md](ADDING_CONFIG.md) (new settings), [TOOL_QUALITY.md](TOOL_QUALITY.md) (acceptance criteria), [scripts/README.md](../scripts/README.md) (root automation), and the [benchmark](../../../packages/octocode-benchmark/README.md) (behavioral docs; stored results stay local, indexed in `packages/octocode-benchmark/results/README.md`).
 

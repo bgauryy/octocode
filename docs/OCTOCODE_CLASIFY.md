@@ -1,10 +1,10 @@
 # Classify files and search results
 
-Use `clasify` to find passages by meaning. For example, a search for “test” can find many mentions. A classifier can pick out the ones that give a command you can run.
+Use `clasify` to answer a question about a file, image or web page, or to filter results by meaning. For example, search for “test”, then keep only passages that give a runnable test command.
 
 ## Quick start
 
-Save your provider key with `octocode config set OCTOCODE_CLASSIFICATION_API --stdin` and restart your MCP client. Run `octocode schema clasify --view variants` to see the available operations. Discovery is free. [Key setup](AUTHENTICATION.md#classification-key-clasify)
+Save your provider key with `octocode config set OCTOCODE_CLASSIFICATION_API --stdin` and restart your MCP client. Run `octocode schema clasify --view variants` to see the available operations. Discovery is free. [Key setup](AUTHENTICATION.md#classification-key-clasify) · [Change the provider](CONFIGURATION.md#change-the-classification-host)
 
 From a project containing a README, ask one question with a budget of one provider request.
 
@@ -78,11 +78,7 @@ git log -5 --oneline | octocode clasify --content - '{"queries":[{"operation":"e
 
 Use one query and let stdin supply its content. Save longer output in a workspace file and use it as a source when you need to revisit the underlying lines.
 
-## Availability
-
-A provider key enables `clasify` for the CLI and MCP. [Authentication](AUTHENTICATION.md#classification-key-clasify) · [Change the provider](CONFIGURATION.md#change-the-classification-host)
-
-### Billing
+## Billing
 
 Fresh evaluations can bill, including repeats. Reading saved answers with `next.details` or `next.quiet` makes no new provider requests. A continuation that reaches new source material can bill. A replay marked `replayed: true` can show historical usage.
 

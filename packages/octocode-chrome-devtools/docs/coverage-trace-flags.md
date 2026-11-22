@@ -1,7 +1,6 @@
 # Capture recipes and launch flags
 
-Run recipes with `check <name> --options JSON`. Each writes files under the run folder and prints
-`[ARTIFACT]` lines; stdout never holds file contents.
+In the typed CLI, run `/cli check --recipe <name> --options '<json>'`. Each recipe returns paths to files in the run folder.
 
 | Recipe | Options | Files | Stdout |
 |---|---|---|---|

@@ -4,7 +4,7 @@ Use `graphBuild` and `graphQuery` to find importers, trace dependencies or see w
 
 ## Turn it on
 
-The CLI includes both tools. For MCP, enable `local.beta` or set `OCTOCODE_BETA=true`, then restart the server. Snapshots go to `.octocode/graph` in the workspace. Set `local.graphHome` in your home configuration to store them elsewhere. [Configuration](CONFIGURATION.md#all-settings-and-defaults)
+The CLI includes both tools. For MCP, run `octocode config set local.beta true` with local tools enabled, then restart MCP. Builds save snapshots under the graph workspace’s `.octocode/graph/` by default. [Change the snapshot location](CONFIGURATION.md#all-settings-and-defaults)
 
 ## Build
 
@@ -12,7 +12,7 @@ The CLI includes both tools. For MCP, enable `local.beta` or set `OCTOCODE_BETA=
 octocode graphBuild '{"queries":[{"path":"src"}]}'
 ```
 
-Choose a directory that contains the files you want to connect. An unchanged directory reuses its snapshot. If a build pauses, follow `next.expandScan`.
+Replace `src` with a directory in your project. If the build pauses, follow `next.expandScan`. Keep the returned `graph` value to query that exact snapshot.
 
 ## Query
 
@@ -21,7 +21,7 @@ octocode graphQuery '{"queries":[{"operation":"hubs","path":"src","kind":"file",
 octocode graphQuery '{"queries":[{"operation":"impact","path":"src","target":"src/config.ts"}]}'
 ```
 
-Use the same `path` as the build. In the second example, replace `src/config.ts` with a file in your project. To pin a query to one snapshot, set `graph` to the build receipt's `graph` value.
+Use the build’s `path` in both queries. Replace `src/config.ts` with a file from the snapshot. You can also pass the saved `graph` value.
 
 | Question | Operation |
 |---|---|

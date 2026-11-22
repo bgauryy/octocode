@@ -13,7 +13,7 @@ The catalog has 17 tools. To see the ones available in your terminal, run `octoc
 | Find a package release or check it for known advisories | [Packages and advisories](#package-and-advisory-tools) |
 | Find passages by meaning | [Classification](#semantic-assessment-reference) |
 
-To see a request you can adapt, run `octocode schema <tool> --view variants`. Use `--select operation=<value>` to narrow a schema and `--view output` to look up a result field. [Read a paged answer](TOOL_DATA_CONTRACT.md#executable-continuations)
+For examples that connect multiple tools, see the [question-to-source workflows](../README.md#how-an-agent-uses-octocode). For a request you can adapt, run `octocode schema <tool> --view variants`. Use `--select operation=<value>` to narrow a schema and `--view output` to look up a result field. [Read a paged answer](TOOL_DATA_CONTRACT.md#executable-continuations)
 
 ## Local code tools reference
 
@@ -22,7 +22,7 @@ To see a request you can adapt, run `octocode schema <tool> --view variants`. Us
 List a directory with `operation: "tree"`. Use `"files"` to filter by name, size or date. This query finds the largest file in the scanned workspace.
 
 ```json
-{"queries":[{"operation":"files","entryType":"file","sort":{"by":"bytes"},"limit":1}]}
+{"queries":[{"operation":"files","path":".","entryType":"file","sort":{"by":"bytes","order":"desc"},"limit":1}]}
 ```
 
 ### `localSearch`
@@ -110,7 +110,7 @@ When the result includes a `ref`, read it with its `verification` field. `regist
 
 ### `securityCheck`
 
-Check a specific package version, repository, commit, advisory ID or package URL for known advisories. The summary reports affected versions and available upgrades when established. Details include the advisory sources and version ranges. An empty result means no known advisory matched the query. [What gets sent](SECURITY.md#advisory-egress)
+Check a specific package version, repository, commit, advisory ID or package URL for known advisories. The summary reports affected versions and available upgrades when established. Use `view: "details"` for advisory sources and version ranges, then use `artifactSearch` to inspect a proposed upgrade. An empty result means no known advisory matched the query. [What gets sent](SECURITY.md#advisory-egress)
 
 ## Semantic assessment reference
 

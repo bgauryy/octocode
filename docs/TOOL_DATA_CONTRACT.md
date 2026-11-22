@@ -27,7 +27,7 @@ If a row omits a repository, revision or other repeated field, look in the conta
 | `related` | Start a suggested follow-up query. |
 | `warnings`, `isPartial`, `skippedPaths` | Check what the tool could establish and which parts of the requested scope it missed. |
 
-For example, if `next.tool` is `localFetch`, pass the returned cursor as the entire input to `localFetch`. A later page can contain the first result for another query in the same batch. Use the row index to put it in the right place.
+For example, if `next.tool` is `localFetch`, call it with `{"cursor":"<returned cursor>"}`. A later page can contain the first result for another query in the same batch. Match it to the question by `index`.
 
 ## Pages and size
 

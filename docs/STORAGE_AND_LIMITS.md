@@ -8,9 +8,9 @@ The default home is `~/.octocode` on macOS and Linux or `%USERPROFILE%\.octocode
 
 | What you want to find | Where to look |
 |---|---|
-| User settings | `.octocoderc` and `.env` in the Octocode home. Project settings live in the workspace's `.octocode/` directory. |
+| User settings | `.octocoderc` and `.env` in the Octocode home. Project settings come from `.octocode/` under the launch directory. [Settings precedence](CONFIGURATION.md#where-every-value-comes-from) |
 | Saved GitHub login | `credentials.json` and its companion key in the home. Use `octocode auth logout` to clear the saved login. |
-| A cloned or downloaded file | Use the location returned by `ghCloneRepo` or `ghStructure`. |
+| A cloned or downloaded file | Use `ghCloneRepo`’s `location.path` for a checkout or the materialized paths returned by `ghStructure`. |
 | Code graphs | `.octocode/graph/` in the workspace, or the directory configured with `local.graphHome`. |
 
 <a id="materialize-git-store"></a>

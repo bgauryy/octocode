@@ -1,8 +1,6 @@
-# Intents
+# Choose a browser tool
 
-> MCP note: the default `--mcp` surface is the research preset. Outside it (`check` recipes, the `helper` tool for `measure-query` and the other saved-evidence helpers, and `cookies`), use `--mcp --preset full` or the typed `/cli` and `/raw` commands.
-
-Load when choosing what to capture or do. Why: Match the capture to the task. Use a ready check (`cdp-checks.md`) when it fits; combine checks or write a custom script for the evidence the task needs.
+Use `run` for page interactions. For specialized captures, add `check` to your MCP preset or use the typed CLI. [Capture recipes](cdp-checks.md) · [Tool availability](../README.md#tools-and-presets)
 
 ## Debug
 

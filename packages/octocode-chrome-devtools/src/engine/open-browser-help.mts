@@ -12,7 +12,7 @@ Options:
                           agreed to expose the browser's logged-in pages and cookies / spoof location
   --emulation <json>      Emulation kept for the browser: width, height, deviceScaleFactor, mobile,
                           userAgent, colorScheme, reducedMotion, timezone, locale, geolocation,
-                          cpuThrottle, touch; {"reset":true} clears (not implemented yet)
+                          cpuThrottle, touch; {"reset":true} clears the stored emulation
   --allow-origin <csv>    Origins plans and new tabs may navigate to on this port (a mistake
                           guard, not a security boundary); also updates a reused browser
   --no-sandbox            Launch Chrome without its sandbox (containers, kernels without user

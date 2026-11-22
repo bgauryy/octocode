@@ -2,7 +2,7 @@
   "name": "@octocodeai/octocode-chrome-devtools",
   "version": "0.4.0",
   "license": "MIT",
-  "description": "Chrome DevTools MCP server and CLI for browser plans, arbitrary CDP, and complete evidence.",
+  "description": "Control Chrome over MCP or CLI. Inspect pages, run browser plans, and save screenshots, network captures, and traces.",
   "type": "module",
   "bin": "./bin/octocode-chrome-devtools.mjs",
   "exports": {

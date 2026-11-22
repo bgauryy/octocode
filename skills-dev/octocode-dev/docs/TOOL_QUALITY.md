@@ -1,6 +1,6 @@
 # Tool quality and agent workflow acceptance
 
-How to evaluate the tools in the Octocode catalog. Owners: concept `<repo>/docs/OCTOCODE_PROTOCOL.md`; routing `<repo>/skills/octocode-research/references/tool-flow.md`; parameters `<repo>/docs/OCTOCODE_TOOLS.md` and live schemas; response fields, paths, pagination, handoffs and base-call rules `<repo>/docs/TOOL_DATA_CONTRACT.md`.
+How to evaluate the tools in the Octocode catalog. Owners: concept [tool workflows](../../../README.md#how-an-agent-uses-octocode); routing `<repo>/skills/octocode-research/references/tool-flow.md`; parameters `<repo>/docs/OCTOCODE_TOOLS.md` and live schemas; response fields, paths, pagination, handoffs and base-call rules `<repo>/docs/TOOL_DATA_CONTRACT.md`.
 
 Every acceptance run covers the shared contract and tool-specific behavior:
 

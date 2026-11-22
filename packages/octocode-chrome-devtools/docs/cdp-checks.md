@@ -1,8 +1,8 @@
-# Ready checks (`src/engine/cdp-checks/`)
+# Browser capture recipes
 
-> MCP note: the default `--mcp` surface is the research preset. Outside it (`check`, `script` and `cdp`), use `--mcp --preset full` or the typed `/cli` and `/raw` commands.
+Use `check` in the typed CLI, the full MCP preset, or a preset with `--tools capture`. List recipes with `/cli schema --command check`. Inspect one with `/cli schema --command check --recipe page-snapshot`. In the default MCP preset you can also capture a snapshot or screenshot as a step in `run`.
 
-Load when running a check, reading its artifacts, or capturing HAR. Why: Choose a check and read its full artifacts. Run `octocode-chrome-devtools /raw schema check [name]` to discover recipes; `check <name> --options JSON` sets their listed knobs. Dedicated commands: `snapshot`, `screenshot`, `run`, `query`, `artifact`. Artifacts: `.octocode/octocode-chrome-devtools/tmp/<timestamp>/`, printed as `[ARTIFACT]`.
+Recipes write artifacts under the workspace’s `.octocode/octocode-chrome-devtools/tmp/` directory. Use the paths returned in the reply.
 
 | Check | Does | Knobs |
 |---|---|---|

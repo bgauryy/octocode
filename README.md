@@ -12,7 +12,9 @@
 
 </div>
 
-Give your coding agent access to local files, GitHub repositories and package registries. It can find a symbol, read the lines that define it, trace a change through a pull request, or check the source of a dependency at the version you use.
+Octocode helps you answer questions about code and show where the answer came from. Trace a caller to its source line, find the pull request behind a change, or check whether an advisory affects the version in your lockfile. Use the same tools in your coding agent over MCP or from the terminal.
+
+[Install](#install) · [Tools](#tools) · [Workflows](#how-an-agent-uses-octocode) · [Configuration](#configuration) · [Skills](#skills)
 
 ## Install
 
@@ -21,7 +23,7 @@ The npm launchers require Node.js 22 or later. Prebuilt binaries cover macOS on 
 | Interface | Start here | Check that it works |
 |---|---|---|
 | MCP in your agent | Run `npx -y octocode install` to choose a client, or `npx -y octocode install --ide cursor` for Cursor. Restart the client. | Open a project with a README and ask “Use Octocode to read the first line of README.md.” |
-| CLI in a terminal or script | Run `npx -y octocode --help` from the project directory. | Run the same read from the terminal using the example below. |
+| CLI in a terminal or script | Run `npx -y octocode --help` from the project directory. | From a project with a README, run the command below. The result includes its first line. |
 
 ```bash
 npx -y octocode localFetch '{"queries":[{"path":"README.md","ranges":[{"startLine":1,"endLine":1}]}]}'
@@ -44,56 +46,72 @@ For GitHub code search or private repositories, sign in on the machine that runs
 
 ## Tools
 
-**17 tools.** With default settings you get 12 tools over MCP and 16 in the CLI. Both interfaces accept the same tool names and JSON inputs. Your MCP client lists its enabled tools. In the CLI, run `octocode schema` for the catalog and `octocode schema <tool> --view variants` for examples.
+**17 tools.** With default settings you get 12 tools over MCP and 16 in the CLI. Both interfaces use the same tool names and JSON inputs.
 
-| Where the answer lives | What the agent can do |
-|---|---|
-| [Local code](docs/OCTOCODE_TOOLS.md#local-code-tools-reference) | Find files with `structureSearch`, find text with `localSearch`, match syntax with `astSearch`, read lines with `localFetch`, and trace a symbol with `lspSearch`. Build and query a dependency graph with `graphBuild` and `graphQuery`. |
-| [GitHub](docs/OCTOCODE_TOOLS.md#github-tools-reference) | Find repositories and code with `ghSearchRepo` and `ghSearchCode`. Browse a revision with `ghStructure` and read it with `ghGetFileContent`. Find changes with `ghSearchHistory`, inspect them with `ghGetHistoryItem`, or get a local checkout with `ghCloneRepo`. |
-| [Packages](docs/OCTOCODE_TOOLS.md#package-and-advisory-tools) | Resolve a package version, dependencies and upstream source with `artifactSearch`. Look up known advisories and affected versions with `securityCheck`. |
-| [Classification](docs/OCTOCODE_CLASIFY.md) | Ask typed questions about unread sources with `clasify`, or give it a search or listing as `source` with `predicates` to keep rows by meaning. It requires a provider key. |
+| Task | Tools | Availability |
+|---|---|---|
+| Find and read local code | `structureSearch` finds files, `localSearch` finds text, and `localFetch` reads the matching lines. | Default |
+| Follow a symbol | `astSearch` matches code by syntax. `lspSearch` finds definitions, references and callers. | Default |
+| Read GitHub code | `ghSearchRepo` finds repositories. `ghSearchCode` finds code on the default branch. `ghStructure` browses a tree at a ref, and `ghGetFileContent` reads a file there. | Default |
+| Trace a change | `ghSearchHistory` finds commits, pull requests and issues. `ghGetHistoryItem` opens their patches or discussions and compares revisions. | Default |
+| Look up a package | `artifactSearch` resolves a package version to registry metadata, dependencies and upstream source when available. | Default |
+| Explore dependencies | `graphBuild` creates a snapshot. `graphQuery` finds importers, cycles and files a change could affect. | CLI default · MCP opt-in |
+| Search a GitHub repo locally | `ghCloneRepo` returns a checkout path for local tools. Requires Git and persistent storage. | CLI default · MCP opt-in |
+| Check known vulnerabilities | `securityCheck` looks up advisories for a package version, repository or commit and reports affected ranges and known fixes. | CLI default · MCP opt-in |
+| Read by meaning | `clasify` answers questions about files, images and web pages, or filters search results by meaning. | Provider key on both |
+
+Run `npx -y octocode schema` to list the tools available in your CLI. For a tool’s inputs and examples, try `npx -y octocode schema localFetch --view variants`. [Tool reference](docs/OCTOCODE_TOOLS.md)
 
 ## How an agent uses Octocode
 
-Ask **“Which change introduced this behavior in the version we depend on?”**
+| Ask your agent | How it can check the answer |
+|---|---|
+| “Who calls this function?” | Find its declaration with `localSearch` or `astSearch`. Give the file, line and symbol to `lspSearch`, then use `localFetch` to read a returned call site. |
+| “What could break if we change this module?” | Run `graphBuild` on the project, then `graphQuery` on that snapshot for importers or impact. Read the affected code before deciding what to test. |
+| “Which change introduced this behavior in our dependency?” | Give `artifactSearch` the locked version. For GitHub source, browse the release ref with `ghStructure`, read the file at the returned commit with `ghGetFileContent`, then follow `ghSearchHistory` to the patch in `ghGetHistoryItem`. |
+| “Does this advisory affect the version we ship?” | Pass the package ecosystem, name and locked version to `securityCheck`. Check the advisory’s affected range and any fixed version against the lockfile. |
+| “Which docs or screenshots explain retries?” | Give `clasify` a `localFetch` or `ghGetFileContent` source for a file or image, a URL for a web page, or a supported search query with a predicate. Follow `next.read` when offered to inspect the evidence. |
 
-```mermaid
-flowchart LR
-    accTitle: Find the change in a locked dependency
-    A["Lockfile<br/>Name and version"] --> B["artifactSearch<br/>Release and source ref"]
-    B --> C["Read the release<br/>Pin the file and lines"]
-    C --> D["Inspect GitHub history<br/>Cite the patch"]
-```
-
-GitHub code search uses the default-branch index. An agent checking an older release can browse its tree directly and pin its read to the returned commit. [More agent workflows](docs/OCTOCODE_PROTOCOL.md)
+For repeated searches across a remote repo, run `ghCloneRepo` once and give its returned path to local tools. For a paged result, follow the returned `next` call to reach the remaining evidence. [Graph examples](docs/OCTOCODE_GRAPH.md) · [Classification examples and request budgets](docs/OCTOCODE_CLASIFY.md) · [Reading paged results](docs/TOOL_DATA_CONTRACT.md#executable-continuations)
 
 ## Configuration
 
-Start with `npx -y octocode config list` to inspect effective settings, defaults and sources. On a terminal with a display, `npx -y octocode config` opens the local settings page. Restart the MCP server after changing its settings.
+Run `npx -y octocode config list` to see effective settings, defaults and sources. Octocode reads project settings from `.octocode/` in its launch directory. CLI and MCP share user settings in the Octocode home, normally `~/.octocode/`. Run `npx -y octocode config home` to see its location.
 
-| To enable | Setting |
+| To enable | Run once for your user |
 |---|---|
-| Graph tools in MCP | `local.beta=true` |
-| Repository cloning in MCP | `tools.enableClone=true` |
-| Advisory lookups in MCP | `tools.enableSecurityCheck=true` |
-| Classification on either interface | Set `OCTOCODE_CLASSIFICATION_API` with `octocode config set OCTOCODE_CLASSIFICATION_API --stdin`. |
+| Graph tools in MCP | `npx -y octocode config set local.beta true` |
+| Repository cloning in MCP | `npx -y octocode config set tools.enableClone true` |
+| Advisory lookups in MCP | `npx -y octocode config set tools.enableSecurityCheck true` |
+| Classification in CLI and MCP | `npx -y octocode config set OCTOCODE_CLASSIFICATION_API --stdin` |
 
-Local search and reads work with the defaults. GitHub permissions, path policy and storage mode still apply when you enable a tool. [All settings, defaults and scopes](docs/CONFIGURATION.md)
+Restart MCP after a settings change. For GitHub authentication, a process token takes precedence over a project or user `.env` token, followed by the host’s saved Octocode, OS or GitHub CLI login. [Settings, scopes and workspace permissions](docs/CONFIGURATION.md) · [GitHub token resolution](docs/AUTHENTICATION.md#github-token-resolution)
 
 ## Security
 
-Local tools enforce workspace and path rules and redact recognized secrets from text. GitHub and registry tools contact their respective services. Classification sends selected evidence to the configured provider, including images when you supply them. Check the data sent, storage and trust settings before opening a sensitive project. [Security](docs/SECURITY.md) · [Storage and cache controls](docs/STORAGE_AND_LIMITS.md) · [Privacy](PRIVACY.md)
+Local tools enforce workspace path rules and redact recognized secrets from text. GitHub and registry lookups contact their respective services. Classification sends selected evidence, including supplied image pixels, to your configured provider. Fresh evaluations can incur charges. [Security and advisory requests](docs/SECURITY.md) · [Storage and caches](docs/STORAGE_AND_LIMITS.md) · [Privacy](PRIVACY.md)
 
 ## Skills
 
-Install a guided workflow for an agent that supports skills. For example, `npx -y octocode skill install octocode-research --platform codex --project-dir .` installs the research skill for this project. Other skills cover pull request review, test plans, architecture, documentation and graph exploration. [Skill catalog](skills/README.md)
+Skills give your agent a workflow for a task. Run `npx -y octocode skill list` to see the bundled skills and their installation status. To add code research to a Codex project, run this from its root.
 
-## Benchmarks
+```bash
+npx -y octocode skill install octocode-research --platform codex --project-dir .
+```
 
-On 30 GitHub research questions, the v20 CLI used about 34% as many characters as plain `gh` (geometric mean). The runs used different dates and judges. On 30 local questions Octocode scored 10.0/10 against 9.6 for a lean shell, while the shell used fewer characters. The benchmark guide includes the tasks, versions, comparisons and method. [Benchmark results](packages/octocode-benchmark/README.md)
+| What you want to do | Public skills |
+|---|---|
+| Get set up and investigate code | [octocode-get-started](skills/octocode-get-started/SKILL.md), [octocode-research](skills/octocode-research/SKILL.md), [octocode-debugging](skills/octocode-debugging/SKILL.md) |
+| Explore dependencies and visualize a repository | [octocode-graph](skills/octocode-graph/SKILL.md), [octocode-graph-view](skills/octocode-graph-view/SKILL.md) |
+| Evaluate ideas and design changes | [octocode-brainstorming](skills/octocode-brainstorming/SKILL.md), [octocode-engineer](skills/octocode-engineer/SKILL.md), [octocode-rfc-generator](skills/octocode-rfc-generator/SKILL.md) |
+| Review, test and document code | [octocode-pr-review](skills/octocode-pr-review/SKILL.md), [octocode-test-plan](skills/octocode-test-plan/SKILL.md), [octocode-roast](skills/octocode-roast/SKILL.md), [octocode-clean-agentic-code](skills/octocode-clean-agentic-code/SKILL.md), [octocode-documentation](skills/octocode-documentation/SKILL.md) |
+| Research the web or operate a browser | [octocode-scraping](skills/octocode-scraping/SKILL.md), [octocode-chrome-devtools](packages/octocode-chrome-devtools/skills/octocode-chrome-devtools/SKILL.md) |
+| Build agent workflows and coordinate work | [octocode-agentic](skills/octocode-agentic/SKILL.md), [octocode-skills](skills/octocode-skills/SKILL.md), [octocode-workflows](skills/octocode-workflows/SKILL.md), [octocode-orchestrator](skills/octocode-orchestrator/SKILL.md), [octocode-messages-proxy](skills/octocode-messages-proxy/SKILL.md) |
+
+[Skill descriptions and installation options](skills/README.md)
 
 ## Documentation
 
 [User guides and reference](docs/README.md) · [CLI](docs/OCTOCODE_CLI.md) · [MCP client setup](docs/OCTOCODE_MCP.md) · [Tool catalog](docs/OCTOCODE_TOOLS.md) · [Language support](packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md)
 
-[VS Code extension](packages/octocode-vscode/README.md) · [Claude Code plugin](packages/octocode-claude-plugin/README.md) · [Codex plugin](packages/octocode-codex-plugin/README.md) · [Contributing](AGENTS.md) · [MIT license](LICENSE)
+[VS Code extension](packages/octocode-vscode/README.md) · [Claude Code plugin](packages/octocode-claude-plugin/README.md) · [Codex plugin](packages/octocode-codex-plugin/README.md) · [Benchmarks](packages/octocode-benchmark/README.md) · [Contributing](AGENTS.md) · [MIT license](LICENSE)

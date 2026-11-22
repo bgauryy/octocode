@@ -5,7 +5,7 @@ description: "Load this skill first when a live Chrome page must be driven: log 
 
 # Chrome DevTools
 
-Use the connected MCP tools, or run `npx -y @octocodeai/octocode-chrome-devtools /cli` from the workspace. The bare command serves the research preset (`open`, `cleanup`, `targets`, `run`, `cdp`, `protocol`, `flow`, `schema`, `artifact`, `query`, `skill`). `--preset slim` keeps five; `--preset full` adds `dev-check`, `check`, `script`, `cookies`, `session`, `proxy`, `helper`. Add single tools or groups (`data`, `devtools`, `capture`) to any preset with `--tools`; `/cli` has every command. Needs Chrome and Node 24.15+.
+Use the connected MCP tools, or run `npx -y @octocodeai/octocode-chrome-devtools /cli` from the workspace. The bare command serves the research preset (`open`, `group`, `cleanup`, `targets`, `run`, `cdp`, `protocol`, `flow`, `schema`, `artifact`, `query`, `skill`). `--preset slim` keeps five; `--preset full` adds `dev-check`, `check`, `script`, `cookies`, `session`, `proxy`, `helper`. Add single tools or groups (`data`, `devtools`, `capture`) to any preset with `--tools`; `/cli` has every command. Requires Chrome and Node.js 24.15.0 or later in the 24.x line.
 
 ## Quickstart
 

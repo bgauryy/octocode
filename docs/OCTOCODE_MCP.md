@@ -23,12 +23,7 @@ For a client that takes an `mcpServers` JSON object, add this entry by hand. Set
 
 ## Tools and opt-ins
 
-The contract has 17 tools. The MCP server starts with 12. Graph tools, cloning, `securityCheck` and classification need an opt-in. Your client's tool list shows what this server exposes. A listed GitHub tool still needs an account with access to the repository.
-
-[Availability and opt-ins](CONFIGURATION.md#tool-availability-cli-and-mcp) · [GitHub sign-in](AUTHENTICATION.md)
-
-
-The default result is JSON. To read more of a paged answer, pass the returned continuation's `input` to the tool it names. [Read tool results](TOOL_DATA_CONTRACT.md)
+The contract has 17 tools. MCP exposes 12 by default. Graph tools, cloning, advisory lookups and classification have separate opt-ins. Check your client’s tool list after a restart. GitHub code search and private repositories require authentication. [Availability and opt-ins](CONFIGURATION.md#tool-availability-cli-and-mcp) · [GitHub sign-in](AUTHENTICATION.md)
 
 If the same workspace appears twice in your client, check whether both a plugin and a manual entry connect it. Keep one entry for that workspace and configuration.
 
@@ -48,7 +43,7 @@ Keep the tools needed for follow-up reads as part of the list. For a project-lev
 
 ### Example: a localFetch call
 
-Pass these as the tool **arguments**. The CLI accepts the same JSON after the tool name.
+Pass this object as the tool arguments. The result contains the first line of the README. For paged answers, send the returned `next.input` to `next.tool`. [Read tool results](TOOL_DATA_CONTRACT.md)
 
 ```json
 {"queries":[{"path":"README.md","ranges":[{"startLine":1,"endLine":1}]}]}

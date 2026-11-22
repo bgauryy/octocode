@@ -9,19 +9,21 @@ npx -y octocode auth login
 npx -y octocode auth status --json
 ```
 
-Look for `verification: "verified"`, the expected `username` and `hostname`, and `tokenSource: "octocode-storage"`. If you already use GitHub CLI, `gh auth login` also works. To save a personal token locally, use `npx -y octocode config set GH_TOKEN --stdin`. In CI, pass a secret as `GH_TOKEN` or `GITHUB_TOKEN` to the process.
+Check for `verification: "verified"` and the expected account and host. A saved device login reports `tokenSource: "octocode-storage"` when selected. If you already use GitHub CLI, `gh auth login` also works. To save a personal token locally, use `npx -y octocode config set GH_TOKEN --stdin`. In CI, pass a secret as `GH_TOKEN` or `GITHUB_TOKEN` to the process.
 
 ## GitHub token resolution
 
-If the wrong account appears, check `tokenSource` and `hostname` in `octocode auth status --json`.
+Octocode selects credentials for the host named by `GITHUB_API_URL` or `github.apiUrl` (default `github.com`). Run `octocode auth status --json` to see the `hostname`, `username`, `tokenSource` and verification result.
 
-| Source | Credential |
-|---|---|
-| `env` | First matching token in the process, workspace `.octocode/.env`, or home `.env`, in that order. At the same source, `GH_TOKEN` wins over `GITHUB_TOKEN`. |
-| `octocode-storage` | The login saved by `octocode auth login` for this host. |
-| `platform` | An existing login in the OS credential store. |
-| `gh-cli` | Your GitHub CLI login for this host. |
-| `none` | Public endpoints may allow anonymous access. Private repositories and code search require sign-in. |
+| Priority | `tokenSource` | Where Octocode looks |
+|---:|---|---|
+| 1 | `env` | Process environment, then workspace `.octocode/.env`, then user `.env`. The first layer with a nonblank token wins. Within that layer, `GH_TOKEN` precedes `GITHUB_TOKEN`. |
+| 2 | `octocode-storage` | The host’s encrypted login in the Octocode home, saved by `octocode auth login`. |
+| 3 | `platform` | An existing Octocode entry for the host in macOS Keychain, Windows Credential Manager or Linux Secret Service. |
+| 4 | `gh-cli` | The saved login returned by `gh auth token --hostname <host>`. Octocode clears token environment variables for this lookup. |
+| 5 | `none` | Anonymous access where GitHub permits it. Code search and private repositories require authentication. |
+
+An explicit environment token that GitHub rejects stops the request. Replace it at its source to switch accounts. For a saved login that is due for refresh, a tool request tries to refresh it and can fall back to the host’s `gh` login. Inspecting status does not refresh the login. [Configuration file locations](CONFIGURATION.md#where-every-value-comes-from)
 
 ### Status and logout
 
@@ -42,7 +44,7 @@ npx -y octocode auth login
 npx -y octocode auth status --json
 ```
 
-For token-based access, set the same API root and supply a token for that host. `auth login --hostname <host>` overrides the hostname for one login. Set `GITHUB_API_URL` or home `github.apiUrl` so later requests, status, and logout target that host.
+For token-based access, set the same API root and supply `GH_TOKEN` or `GITHUB_TOKEN` for that host. Octocode ignores `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN`, including during the `gh` fallback. For a saved GitHub CLI account, use `gh auth login --hostname <host>`. `auth login --hostname <host>` overrides the hostname for one login. Set `GITHUB_API_URL` or home `github.apiUrl` so later requests, status, and logout target that host.
 
 ## MCP clients and the VS Code extension
 

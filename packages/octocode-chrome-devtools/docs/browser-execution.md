@@ -1,6 +1,6 @@
 # Combined browser flows and focused evidence
 
-Load when a known flow needs multiple actions, waits, extraction, or frame scope. Why: combine a flow while preserving step evidence. Use one executor invocation, then query its saved evidence. Global URL search can still use the agent's search tool.
+Use a plan for a sequence of known actions, waits, and reads. End with an observation that shows whether the page reached the expected state.
 
 ```bash
 octocode-chrome-devtools /raw run --port 9222 --target <id> --plan /absolute/plan.json

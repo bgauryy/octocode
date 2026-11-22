@@ -1,31 +1,54 @@
 ---
 name: octocode-get-started
-description: "Load this skill first when the user wants to install or set up Octocode (CLI, MCP server in an editor or agent, skills, GitHub login): it gives the install path and a first-call check."
+description: "Load this skill first when the user wants to install or configure the Octocode CLI, connect octocode-mcp to an agent, add skills, or sign in to GitHub. Verify setup with a real tool call."
 metadata:
   excluded-hosts: "octocode-code"
 ---
 
 # Get started with Octocode
 
-[Octocode](https://github.com/bgauryy/octocode) searches local code, GitHub history and package registries. The [CLI](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md) and [MCP connection](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md) expose the same research tools; [skills](https://github.com/bgauryy/octocode/blob/main/skills/README.md) guide tasks such as research or review. Identify the user's client and reuse an existing installation or plugin before adding anything.
+Use `octocode` for terminal commands, configuration, and GitHub sign-in. Use `octocode-mcp` when an editor or agent needs the tools over MCP. A skill teaches the agent a workflow. Check which client and project the user wants to set up and whether a plugin already provides the connection.
 
-## Install and verify
+## Try the CLI
 
-A plugin may already supply MCP and skills. npm launchers require Node.js 22+; the standalone native binary needs no Node, though optional skill scripts may.
+The npm launchers need Node.js 22 or later. The standalone native CLI runs without Node.js. From a project with a README, run:
 
-```bash
-npx -y octocode --help                       # run without a global install
-npm install -g octocode                      # optional global CLI
-npx -y octocode install --list               # check client IDs and existing MCP entries
-npx -y octocode install --ide cursor         # if missing, use a client ID that install --list shows
-npx -y octocode skill list                   # discover public skills
-npx -y octocode skill install octocode-research --platform codex --global
+```sh
+npx -y octocode --version
+npx -y octocode localFetch '{"queries":[{"path":"README.md","ranges":[{"startLine":1,"endLine":1}]}]}'
 ```
 
-Choose the actual skill platform. For a project install, replace `--global` with `--project-dir /absolute/project`. A globally enabled plugin still applies elsewhere. Reload the client's MCP connection and verify it by reading a known file **through that client**. For example, where `README.md` exists, call `localFetch` with `{"queries":[{"path":"README.md","ranges":[{"startLine":1,"endLine":1}]}]}` and check the returned line. Local reads require neither a GitHub login nor a provider key. If that call fails, confirm the entry with `install --list`, reload the client, check `node --version`, then report the exact error.
+The reply should contain the first line of that project’s README. Local reads work before sign-in. For a global CLI, use `npm install -g octocode`, then run the same commands as `octocode`. [CLI guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md)
 
-## Configure and deliver
+## Connect an MCP client
 
-Add only keys needed by the task. GitHub tools use `octocode auth login`; the user enters other secrets through `octocode config set <KEY> --stdin`. Keep secrets out of chat and version control. `octocode config list` shows values, sources and defaults; `config unset` restores defaults. Read [configure](references/configure.md) for folders, precedence and individual keys. [Configure](references/configure.md#add-and-configure-keys) sets the save scope and authority rules.
+1. Run `npx -y octocode install --list` to find the client ID. For Cursor, check its existing entry with `npx -y octocode install --ide cursor --check`.
+2. If the entry is missing, run `npx -y octocode install --ide cursor`, substituting the user’s client ID. For a project-specific entry, add `--scope workspace` on clients that support it. For manual setup, use the [stdio configuration](references/configure.md#manual-mcp-configuration).
+3. Restart the client, open the project, and ask **“Use Octocode to read the first line of README.md.”** Verify that the client calls `localFetch` and returns the same line as the CLI. If the files differ, inspect the MCP working directory and `WORKSPACE_ROOT`.
 
-Answer briefly with applicable commands, references, checks performed and gaps. Installation or listing alone does not prove a working connection; require a successful call through the client. Hand code questions to `octocode-research` afterward. Save a setup note only when requested, under `<workspace>/.octocode/octocode-get-started/` (scratch in `tmp/`) unless a path was named.
+## Sign in to GitHub through the CLI
+
+On the machine running Octocode, start the login from an interactive terminal.
+
+```sh
+npx -y octocode auth login
+npx -y octocode auth status --json
+```
+
+Have the user open the displayed URL and enter the one-time code there. Check for `verification: "verified"`, the expected `hostname`, and the expected `username`. A selected device login reports `tokenSource: "octocode-storage"`. MCP can use that login when it shares the CLI’s Octocode home and GitHub host. Code search and private repositories require authentication. For CI tokens, existing GitHub CLI accounts, or Enterprise, see [GitHub credential selection](references/configure.md#github-credential-selection).
+
+## Choose tools and skills
+
+| Task | Start here |
+|---|---|
+| Find and read local code | `structureSearch` or `localSearch` → `localFetch`. Use `astSearch` for syntax and `lspSearch` for callers or definitions. |
+| Read GitHub code or history | `ghSearchRepo` → `ghStructure` or `ghSearchCode` → `ghGetFileContent`. For a change, use `ghSearchHistory` → `ghGetHistoryItem`. |
+| Check a dependency | Resolve the lockfile version with `artifactSearch`. Use `securityCheck` for known advisories. |
+| Explore a repository locally | `ghCloneRepo` creates a checkout. `graphBuild` → `graphQuery` finds dependencies, cycles, and change impact. |
+| Filter results by meaning | `clasify` answers questions about local or GitHub reads, images, web pages, and supported search results. A fresh evaluation sends evidence to the configured provider and can incur charges. |
+
+MCP starts with 12 tools. The CLI starts with 16. Use `npx -y octocode schema` for the CLI catalog or the client’s tool list for MCP. [Enable optional tools](references/configure.md#optional-tools)
+
+Run `npx -y octocode skill list` to see the bundled workflows. For example, install code research in the current Codex project with `npx -y octocode skill install octocode-research --platform codex --project-dir .`. Use the user’s platform and requested scope. [Skill catalog](https://github.com/bgauryy/octocode/blob/main/skills/README.md)
+
+Report the interface, project, and checks that succeeded. For a failed check, give the failing command or tool, the error, and which part of setup it affects. Keep tokens and device codes out of the report.

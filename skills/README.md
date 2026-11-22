@@ -1,49 +1,36 @@
 # Octocode skills
 
-Start at the linked `SKILL.md` for the normal task; load references only for the branch needed. Results stay inline unless a separate output guide is useful. [Octocode Skills](octocode-skills/SKILL.md) provides the authoring template and placement rules.
+Choose a skill by the task you want your agent to complete. Run `npx -y octocode skill list` to see the bundled skills and which are installed.
 
-Saved skill output lives under the project's `.octocode/` folder: reports and authored artifacts (research reports, RFCs, briefs, reviews, eval runs) in `<workspace>/.octocode/<skill-name>/`, and runtime captures and scratch files in its `tmp/` subfolder, so every file a skill writes stays under its own folder. A path the user names takes precedence; edits to the project's own code, docs, prompts, or skills stay at their source paths.
-
-| Need | Owner / behavior |
+| Skill | Use it to |
 |---|---|
-| Report format, save trigger and destination | The skill's entry or linked output guide |
-| HTML report | Bundled `scripts/render-report.mjs`, no npm dependencies; Graph View has its own renderer. Generate only when requested or accepted; `--open` only when asked. |
-| Human reading | One report, folder or `.octocode/` collection becomes a local page with navigation, search, contents, sources, editor/doc links, Mermaid, light/dark and print styles; no automatic metadata card. |
-| Agent discovery | `--manifest`: query-filtered pages with continuations. `--all`: full catalog for file processing. |
-| Visual verification | `--json --strict` rejects validation warnings; generation remains browser-unverified. Run Render check and inspect readability. |
-| Shared guidance and templates | [Common package](common/README.md); edit canonical sources, regenerate consumers, check with `node skills/common/build.mjs --check`. |
+| [octocode-get-started](octocode-get-started/SKILL.md) | Install Octocode, connect your agent, sign in to GitHub, and verify a first tool call. |
+| [octocode-research](octocode-research/SKILL.md) | Answer how code works or why it changed, with citations to source files or commits. |
+| [octocode-debugging](octocode-debugging/SKILL.md) | Diagnose a crash, wrong result, hang, or slowdown using runtime evidence. |
+| [octocode-graph](octocode-graph/SKILL.md) | Find callers, importers, cycles, or the code a change could affect. |
+| [octocode-graph-view](octocode-graph-view/SKILL.md) | Explore a repository as an interactive dependency map or save a graph report. |
+| [octocode-brainstorming](octocode-brainstorming/SKILL.md) | Compare ideas or challenge a proposal using evidence from web sources. |
+| [octocode-engineer](octocode-engineer/SKILL.md) | Choose an implementation or architecture by comparing trade-offs against the workload. |
+| [octocode-rfc-generator](octocode-rfc-generator/SKILL.md) | Write or revise an RFC, design proposal, or migration plan. |
+| [octocode-pr-review](octocode-pr-review/SKILL.md) | Review a GitHub pull request and trace each finding to the changed code. |
+| [octocode-roast](octocode-roast/SKILL.md) | Get an explicitly requested blunt critique of code or design, with concrete fixes. |
+| [octocode-test-plan](octocode-test-plan/SKILL.md) | Write runnable test cases with setup, expected results, and pass criteria. |
+| [octocode-clean-agentic-code](octocode-clean-agentic-code/SKILL.md) | Remove verified dead code, duplicate helpers, and debug leftovers while preserving behavior. |
+| [octocode-documentation](octocode-documentation/SKILL.md) | Write, shorten, or review technical docs and check their commands and links. |
+| [octocode-scraping](octocode-scraping/SKILL.md) | Extract text, tables, or links from public pages, or save a site for repeated searches. |
+| [octocode-chrome-devtools](../packages/octocode-chrome-devtools/skills/octocode-chrome-devtools/SKILL.md) | Operate a live Chrome page, inspect console or network activity, or capture a screenshot or trace. |
+| [octocode-agentic](octocode-agentic/SKILL.md) | Evaluate an AI agent’s prompts, tools, context, or behavior and diagnose where it goes wrong. |
+| [octocode-skills](octocode-skills/SKILL.md) | Find, create, improve, validate, or install an Agent Skill. |
+| [octocode-workflows](octocode-workflows/SKILL.md) | Design or resume a multi-step process with handoffs, retries, and completion checks. |
+| [octocode-orchestrator](octocode-orchestrator/SKILL.md) | Coordinate several agents, track dependencies, and bring their results together. |
+| [octocode-messages-proxy](octocode-messages-proxy/SKILL.md) | Send a message to another agent and receive its reply. |
 
-| Skill | Use when |
-|---|---|
-| [Get started](octocode-get-started/SKILL.md) | Understand Octocode, install CLI/MCP and skills, configure scope and credentials, and verify a first task. |
-| [Research](octocode-research/SKILL.md) | A factual code, repository, dependency or change-impact question needs source evidence. |
-| [Debugging](octocode-debugging/SKILL.md) | Observe a runtime failure, hang, leak or slowdown with debuggers, profilers and traces, interpret an existing traceback, dump, profile or trace, and verify a fix. |
-| [PR Review](octocode-pr-review/SKILL.md) | A pull request, branch, or local diff needs a merge verdict with proven findings. |
-| [Test Plan](octocode-test-plan/SKILL.md) | A feature, change, PR or bug fix needs a test plan another agent will run: mapped code, runnable cases with oracles, and success criteria. |
-| [Messages proxy](octocode-messages-proxy/SKILL.md) | Message another agent (Claude Code, Codex, Cursor, Octocode, Grok, Pi, A2A) and get its reply: detects your CLI, picks the route and relays through a small proxy in one command. |
-| [Workflows](octocode-workflows/SKILL.md) | Select, design or resume an explicit workflow across agents, tools, services or artifacts; define handoffs and acceptance. |
-| [Orchestrator](octocode-orchestrator/SKILL.md) | Coordinate ongoing agent work: assign owners, manage dependencies, integrate evidence, recover stalled loops and resume execution. |
-| [Scraping](octocode-scraping/SKILL.md) | Public pages need fetching or a reusable source corpus. |
-| [Chrome DevTools](../packages/octocode-chrome-devtools/skills/octocode-chrome-devtools/SKILL.md) | A live browser is needed for rendering, interaction, or diagnostics. |
-| [Brainstorming](octocode-brainstorming/SKILL.md) | An open problem, idea or comparison needs checked sources and an evidence-based recommendation. |
-| [Graph](octocode-graph/SKILL.md) | Build a code graph and read its hubs, importers, callers, cycles, issues, impact or Git co-change, then prove the rows. |
-| [Graph View](octocode-graph-view/SKILL.md) | Map repository structure, retain graph evidence, and optionally render an interactive viewer. |
-| [Engineer](octocode-engineer/SKILL.md) | A technical choice or architecture needs trade-offs, failure modes and a check: data structures, storage, concurrency, memory, performance, reliability, APIs, security, testing, boundaries or refactors. |
-| [RFC Generator](octocode-rfc-generator/SKILL.md) | A consequential technical choice needs its decision, design, and plan in one RFC. |
-| [Roast](octocode-roast/SKILL.md) | A blunt, evidence-backed code critique is requested. |
-| [Clean Agentic Code](octocode-clean-agentic-code/SKILL.md) | Proven code or instruction redundancy should be removed. |
-| [Documentation](octocode-documentation/SKILL.md) | Technical documentation needs writing, repair, or review. |
-| [Agentic](octocode-agentic/SKILL.md) | Design, diagnose or measure agents, prompts, context, tools, delegation or activation. |
-| [Skills](octocode-skills/SKILL.md) | Find, create, improve, check, install or sync Agent Skills; tune descriptions and reference routes. |
+## Install a skill
 
-These are public skills. Repository-only development helpers live in [skills-dev](../skills-dev/) and are not part of the public selection catalog. A skill whose frontmatter sets `metadata.excluded-hosts` (space-separated host IDs) stays installable by the octocode CLI but is skipped by a listed host that honors it; Get started names `octocode-code`, whose own setup it would contradict.
+From your project directory, install the research skill for Codex. Substitute a skill name from the table and use `skill install --help` to see supported platforms.
 
-## Install and review
-
-```bash
-npx -y octocode skill list
-npx -y octocode skill install octocode-research
-node skills/octocode-skills/scripts/skill-review.mjs --collections skills skills-dev
+```sh
+npx -y octocode skill install octocode-research --platform codex --project-dir .
 ```
 
-The reviewer checks structure and local links. Test representative user requests to judge trigger quality; a structural pass cannot prove activation behavior.
+Use `--global` for all projects or `--dry-run` to preview the installation. When you ask for a saved report, the usual location is `<workspace>/.octocode/<skill-name>/`. You can also name a destination.

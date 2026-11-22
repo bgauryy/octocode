@@ -1,17 +1,14 @@
 # Octocode CLI
 
-Run research tools from your terminal or a script. The standalone `octocode` binary and the Node.js 22+ launcher `npx -y octocode` take the same arguments. Run commands from the project you want to research.
+Run these commands from your project directory. Use the standalone `octocode` binary or substitute `npx -y octocode` with Node.js 22 or later.
 
 ## Quick start
 
-In a project with a README, read its first line. Output is text by default. Add `--json` for output a script can parse.
+In a project with a README, read its first line as JSON. Omit `--json` for text output.
 
 ```bash
-octocode localFetch '{"queries":[{"path":"README.md","ranges":[{"startLine":1,"endLine":1}]}]}'
 octocode --json localFetch '{"queries":[{"path":"README.md","ranges":[{"startLine":1,"endLine":1}]}]}'
 ```
-
-The examples use `octocode`. Replace it with `npx -y octocode` if you use the launcher.
 
 ## Commands
 
@@ -103,4 +100,4 @@ Skills ship inside the binary. `skill install` links each one into the chosen ag
 octocode cache clear --json
 ```
 
-`cache clear` stops background tool servers after their running calls finish. It then removes saved pages, provider answers, URL captures, materialized files and this workspace's graph checkpoints. Cursors issued before the clear may stop working. Clones, published graphs, credentials and installed language servers are kept. [Storage and limits](STORAGE_AND_LIMITS.md)
+Run this from the workspace whose graph checkpoints you want to clear. It also clears cached results in the Octocode home and can invalidate saved cursors. [What the command removes and keeps](STORAGE_AND_LIMITS.md#clear-cached-work)
