@@ -85,7 +85,8 @@ if (!check) {
       },
       alias: Object.fromEntries(
         ['algorithms', 'graph-model', 'relations'].map(name => [
-          `#graph-core/${name}`, `./src/${name}.ts`,
+          `#graph-core/${name}`,
+          `./src/${name}.ts`,
         ])
       ),
       external: ['./renderer.generated.js'],
@@ -99,12 +100,15 @@ if (!check) {
     });
     for (const dir of ['runtime', 'assets', 'scheme']) {
       const source = join(root, 'src', dir);
-      for (const entry of await readdir(source, { recursive:true, withFileTypes:true })) {
+      for (const entry of await readdir(source, {
+        recursive: true,
+        withFileTypes: true,
+      })) {
         if (!entry.isFile()) continue;
         const path = join(entry.parentPath, entry.name);
         const name = join(dir, relative(source, path));
         files.add(name);
-        await mkdir(dirname(join(dst, name)), { recursive:true });
+        await mkdir(dirname(join(dst, name)), { recursive: true });
         await cp(path, join(dst, name));
       }
     }

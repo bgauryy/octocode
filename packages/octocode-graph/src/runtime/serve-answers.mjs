@@ -3,7 +3,7 @@
 // Each answer is an event, so the viewer highlights it and a replay shows it again.
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import * as wiki from './wiki.mjs';
+import * as wikiApi from './wiki.mjs';
 import { resolveNodes, runQuery } from './query.mjs';
 
 export const httpError = (status, message, detail) => Object.assign(new Error(message), { status, ...(detail ? { detail } : {}) });
@@ -89,7 +89,7 @@ function createWiki(ctx, data) {
   return async (body = {}) => {
     const act = actions[body.action];
     if (!act) throw httpError(400, `wiki action must be one of ${Object.keys(actions).join(', ')}`);
-    return { ok: true, ...(await act(body, wiki)) };
+    return { ok: true, ...(await act(body, wikiApi)) };
   };
 }
 

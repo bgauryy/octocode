@@ -21,7 +21,7 @@ async function main(argv) {
   const rest = argv.filter(a => a !== '--json' && a !== '--stdin');
   const help = argv.includes('--help') || argv.includes('-h');
   if ((stdin ? rest.length !== 1 : rest.length < 2) || help) {
-    (help ? process.stdout : process.stderr).write(`usage: query.mjs <result-dir|data.json> ("<query>" | --stdin) [--json]\n  --stdin reads one query per line against the same saved snapshot. --json writes one result per line.\n  ${HINT}\n`);
+    (help ? process.stdout : process.stderr).write(`usage: octocode-graph query <result-dir|data.json> ("<query>" | --stdin) [--json]\n  --stdin reads one query per line against the same saved snapshot. --json writes one result per line.\n  ${HINT}\n`);
     process.exitCode = help ? 0 : 2;
     return;
   }

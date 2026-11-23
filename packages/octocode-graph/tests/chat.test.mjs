@@ -151,6 +151,22 @@ test('the channel declares claude/channel, an earlier protocol revision and its 
   assert.ok(c.lines.every((m) => m.jsonrpc === '2.0'), 'stdout carries only JSON-RPC');
 });
 
+test('MCP searches a saved export without creating a viewer and reloads a changed graph', async t => {
+  const f = fixture();
+  const c = channel(f.dir);
+  t.after(() => { c.child.kill(); rmSync(f.dir, {recursive:true, force:true}); });
+  const ask = async query => (await c.call('tools/call', {name:'query_graph', arguments:{result:f.out, query}})).result;
+  const before = readFileSync(join(f.out,'events.jsonl'),'utf8');
+  const result = JSON.parse((await ask('files src/a.ts:9 src/b.ts')).content[0].text);
+  assert.deepEqual(result.sourceQueries, [{path:'src/a.ts',ranges:[{startLine:9,endLine:9}]},{path:'src/b.ts'}]);
+  assert.equal((await ask('files a.ts')).isError,true);
+  const data = graphData(f.repo);
+  data.files.push(file('new.ts'));
+  writeFileSync(join(f.out,'data.json'),JSON.stringify(data));
+  assert.equal(JSON.parse((await ask('files new.ts')).content[0].text).nodes[0],'new.ts');
+  assert.equal(readFileSync(join(f.out,'events.jsonl'),'utf8'),before);
+});
+
 test('the channel reuses only viewers with the requested LSP and build scope', async t => {
   const f = fixture();
   const c = channel(f.dir);

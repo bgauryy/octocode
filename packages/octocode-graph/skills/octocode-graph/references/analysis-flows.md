@@ -14,6 +14,14 @@ Use the native operations below with `graphQuery` on one pinned snapshot. For a 
 
 For an unresolved member call, `member-unknown-receiver-in-repo` means a matching name exists in the repository. Use `astSearch` to locate the call, then ask `lspSearch` for the definition at the receiver's method name and line (and occurrence for repeated names). A `locationsWithheld` answer can identify an external definition while keeping its source outside the read scope. Retain the reason alongside the open call site.
 
+## Choose a traversal
+
+For several changed files, `impact a.rs b.rs depth 2` seeds one reverse breadth-first search. Distance is the minimum hop count from any seed. Run each seed separately with `--stdin` when the question is which changes reach a particular consumer.
+
+For a route between two known files, use BFS (`path a.rs b.rs --hops`) for the fewest boundaries, or Dijkstra (`path a.rs b.rs`) to minimize the sum of reciprocal edge strengths. A strongly coupled route can be longer. Runtime latency needs timing evidence. [Shortest-path algorithms](https://networkx.org/documentation/stable/reference/algorithms/shortest_paths.html)
+
+For migration order, start with `cycle a.rs --imports` and `order a.rs --imports`. Condensation contracts each strongly connected component into a group and produces an acyclic dependency graph. Inspect the returned crossing witnesses before deciding which group to move. [SCC condensation](https://networkx.org/documentation/stable/reference/algorithms/generated/networkx.algorithms.components.condensation.html)
+
 ## Compare revisions
 
 Repeat the query with the same scope, direction and edge filters on each snapshot. For changed call bindings, compare the witness locations. For a change in ranking, inspect added or removed neighbors. Measure timings separately when the question is about performance.

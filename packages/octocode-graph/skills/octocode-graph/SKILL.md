@@ -16,11 +16,11 @@ The graph MCP server accepts the same `graphQuery` and `graphBuild` inputs as th
 | If you have or need | Use |
 |---|---|
 | Source text from one or several known files | Batch paths and line ranges in `localFetch`. For uncertain filenames in a saved graph, `files <file...>` resolves locations and returns source queries. |
-| A saved export | `node <skill>/scripts/query.mjs <result-dir> "deps src/main.ts"` works offline. [Saved queries](references/query.md) |
-| Graph files and a brief | `node <skill>/scripts/build.mjs <file-or-directory>`. Use a directory for cross-file relationships. [Output files and HTML](output.md) |
-| An interactive map | `node <skill>/scripts/serve.mjs <file-or-directory>` streams the build. Use `--replay <result-dir>` to reopen an export. [Viewer commands](references/commands.md) |
+| A saved export | `octocode-graph query <result-dir> "deps src/main.ts"` works offline. [Saved queries](references/query.md) |
+| Graph files and a brief | `octocode-graph build <file-or-directory>`. Use a directory for cross-file relationships. [Output files and HTML](output.md) |
+| An interactive map | `octocode-graph serve <file-or-directory>` streams the build. Use `--replay <result-dir>` to reopen an export. [Viewer commands](references/commands.md) |
 | The exact target of an ambiguous call | Use `lspSearch` at the call site or inspect the deciding source span. For a syntax pattern, use `astSearch`. [Evidence](references/evidence.md) |
 
-`<skill>` is the directory containing this file. A standalone installation needs Node to query an export and an Octocode executable on PATH or in `OCTOCODE_CLI` to build one.
+Install `@octocodeai/octocode-graph` in the workspace for the CLI. For MCP, `octocode-graph mcp` exposes native snapshots. Use `octocode-graph channel` for saved exports. Its `query_graph` accepts `{"result":"/path/to/saved-run","query":"impact src/main.ts src/lib.ts depth 2"}` without opening a browser.
 
 For impact, cycles, rankings, migration order or runtime evidence, choose the [flow that matches the question](references/analysis-flows.md). Use [chat](references/chat.md) for viewer questions, [community notes](references/wiki.md) for durable findings, or an [architecture overlay](references/modeling.md) to annotate the brief.

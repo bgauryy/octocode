@@ -6,7 +6,7 @@
 import { createServer } from 'node:http';
 import { open as openFile } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
-import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { dirname, extname, join } from 'node:path';
@@ -19,15 +19,14 @@ import { accept } from './ws.mjs';
 import { astOutline, defaults, lspQuery, readEvents, reportTools, runPipeline } from './pipeline.mjs';
 import { createAnswers } from './serve-answers.mjs';
 
-const USAGE = `usage: serve.mjs <file-or-directory> [--out <dir>] [--whole] [--lsp smart|all|off] [--jobs N] [--ingest-jobs N] [--exclude a,b]
+const USAGE = `usage: octocode-graph serve <file-or-directory> [--out <dir>] [--whole] [--lsp smart|all|off] [--jobs N] [--ingest-jobs N] [--exclude a,b]
                  [--port N] [--no-open] [--exit-when-done]
-       serve.mjs --replay <result-dir> [--port N] [--no-open]
+       octocode-graph serve --replay <result-dir> [--port N] [--no-open]
   Builds <root> chunk by chunk and streams every graph, LSP and AST page to the viewer as it arrives.
   Run it from the target workspace. Prints the viewer URL; Ctrl-C stops it (results stay in <out>).
-  Chat from the viewer lands in <out>/chat-inbox.jsonl; answer with reply.mjs (references/chat.md).
-  Graph queries and the wiki: reply.mjs query|wiki <out> ... (references/query.md).`;
+  Chat from the viewer lands in <out>/chat-inbox.jsonl; answer with octocode-graph reply (references/chat.md).
+  Graph queries and the wiki: octocode-graph reply query|wiki <out> ... (references/query.md).`;
 
-const here = dirname(fileURLToPath(import.meta.url));
 const ASSETS = dirname(fileURLToPath(import.meta.resolve('#graph-assets/live.html')));
 const TYPES = { '.txt': 'text/plain; charset=utf-8', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
 const STATIC = new Set(['renderer.generated.js', 'renderer.generated.LICENSE.txt', 'live.html', 'live.js', 'live-connection.js', 'live-graph.js', 'live-panels.js', 'live-chat.js', 'live-overview.js', 'live-query.js', 'live-wiki.js', 'live.css', 'live-chat.css', 'live-query.css', 'live-wiki.css']);
@@ -131,19 +130,12 @@ function createChat(ctx, transport) {
   return { fromBrowser, reply, system };
 }
 
-async function loadRefresh(ctx) {
-  const fn = existsSync(join(here, 'refresh.mjs')) ? (await import('./refresh.mjs')).refreshRun : undefined;
-  if (typeof fn === 'function') return fn;
-  ctx.chat.system('Refresh is unavailable: this copy of the skill has no scripts/refresh.mjs with refreshRun.');
-  throw new HttpError(501, 'refresh unavailable: scripts/refresh.mjs (refreshRun) is missing');
-}
-
 // Rebuilds the graph after code changes through refresh.mjs (`refreshRun`, which reads the run's options from
 // <out>); its events are saved even in a replay. A failure is an `error` event and a system chat line.
 async function runRefresh(ctx) {
   const root = runRoot(ctx);
   if (!root) throw new HttpError(409, 'this viewer has no run root to refresh');
-  const refreshRun = ctx.refreshRun ?? (await loadRefresh(ctx));
+  const refreshRun = ctx.refreshRun ?? (await import('./refresh.mjs')).refreshRun;
   const t = Date.now();
   ctx.refreshAbort = new AbortController();
   ctx.chat.system('Refreshing the graph from the files on disk…');

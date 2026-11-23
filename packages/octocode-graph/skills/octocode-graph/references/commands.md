@@ -1,18 +1,18 @@
-Load when building, serving or replaying a graph, reading events, or changing a script.
+Load when building, serving or replaying a graph, reading events, or interpreting build progress.
 
 # Commands
 
-Requires Node 24.15+ and a browser for the viewer; `rsync` supports the frozen-copy fallback. The viewer serves its [bundled WebGL renderer](../assets/renderer.generated.js) and [third-party licenses](../assets/renderer.generated.LICENSE.txt) from the local server. `preflight.mjs` reports available layers.
+Requires Node 24.15+ and a browser for the viewer; `rsync` supports the frozen-copy fallback. The viewer serves its bundled renderer locally. `octocode-graph preflight` reports available layers.
 
-Pass a file to build or serve a graph of that file alone. Pass its enclosing directory when you need cross-file imports and calls. Run from the target workspace, which defines paths and allowed roots. Each script's `--help` owns its flags. The graph package gets its engine from its `octocode` dependency. A standalone skill can use `octocode` on PATH. Set `OCTOCODE_CLI` to select a specific engine. The build and viewer validate options before starting work. In a channel with multiple viewers, each result directory records the tool calls for its own build and refreshes. Use a new output directory for each build and `--replay` to reopen a saved run. The selected CLI’s full catalog identifies the executable and each tool’s batch limit. The pipeline freezes that executable in a private directory under the OS temp directory, keyed by its SHA-256 digest. Runs can reuse the same image and warm language servers. An incompatible schema stops the build before file listing.
+Pass a file to build or serve a graph of that file alone. Pass its enclosing directory when you need cross-file imports and calls. Run from the target workspace, which defines paths and allowed roots. Use the command’s `--help` for options. The graph package gets its engine from its `octocode` dependency. Set `OCTOCODE_CLI` to select a specific engine. The build and viewer validate options before starting work. In a channel with multiple viewers, each result directory records the tool calls for its own build and refreshes. Use a new output directory for each build and `--replay` to reopen a saved run. The selected CLI’s full catalog identifies the executable and each tool’s batch limit. The pipeline freezes that executable in a private directory under the OS temp directory, keyed by its SHA-256 digest. Runs can reuse the same image and warm language servers. An incompatible schema stops the build before file listing.
 
 | Goal | Command |
 |---|---|
-| What runs here | `node <skill>/scripts/preflight.mjs [--json]` |
-| Live viewer | `node <skill>/scripts/serve.mjs <section> [--out <dir>] [--whole] [--lsp smart\|all\|off] [--jobs N] [--ingest-jobs N] [--exclude a,b] [--port N] [--no-open] [--exit-when-done]` |
-| Headless result | `node <skill>/scripts/build.mjs <section> [same flags] [--progress]` |
-| Reopen a finished run | `node <skill>/scripts/serve.mjs --replay <result-dir>` |
-| Briefs again (after `model.json`) | `node <skill>/scripts/render.mjs --data <dir>/data.json` |
+| What runs here | `octocode-graph preflight [--json]` |
+| Live viewer | `octocode-graph serve <section> [--out <dir>] [--whole] [--lsp smart\|all\|off] [--jobs N] [--ingest-jobs N] [--exclude a,b] [--port N] [--no-open] [--exit-when-done]` |
+| Headless result | `octocode-graph build <section> [same flags] [--progress]` |
+| Reopen a finished run | `octocode-graph serve --replay <result-dir>` |
+| Briefs again (after `model.json`) | `octocode-graph render --data <dir>/data.json` |
 
 Use `--lsp smart` (default) for callable declarations in hub files and callers crossing a chunk boundary. Use `--lsp all` to probe every indexed function, method and constructor with a declaration line, including those with no static calls. `off` skips confirmation. The saved probe totals and unanswered reasons describe coverage.
 
@@ -28,13 +28,13 @@ After stitching the pipeline atomically publishes `stitched.json` and emits `gra
 
 5. **LSP**: the selected callable declarations are batched by the published `lspSearch` limit, with continuations followed per query. Same-line declaration collisions and moved anchors remain unanswered. Graph calls it confirms become `both`, unconfirmed probed ones stay `graph`, callees only the server reports join as `lsp`. A language without a server is reported and skipped; no step has a fixed timeout. When the only gap is `locationsWithheld`, a returned definition can confirm a call by file, name and declaration line. The probe stays incomplete. Each batch streams newly incomplete probes, and `callStats.unanswered` in the final graph lists all of them.
 6. **Verify** each file against its declarations, recorded edge lines and the snapshot. For status and line problems, read the `check` object on each saved file. Freshness queries share batches up to the native limit. A failed batch is retried by snapshot. Files with unknown freshness are marked `unverified` unless a disk or line check has already found a problem. Insights shows affected files and the reason.
-7. **Metrics**: the production file graph weights imports and call sites by binding evidence; [graph-model.mjs](../scripts/graph-model.mjs) owns that formula. [algorithms.mjs](../scripts/algorithms.mjs) computes cycles, dependency depth, PageRank, betweenness, communities, k-core and package coupling. Values land on `files[].metrics`, sets on `metrics`, weighted edges on `fileEdges`, then in the briefs. They measure structure, not runtime frequency.
+7. **Metrics** weight production imports and call sites by binding evidence and compute cycles, dependency depth, PageRank, betweenness, communities, k-core and package coupling. Values land on `files[].metrics`, sets on `metrics`, weighted edges on `fileEdges`, then in the briefs. They measure structure, not runtime frequency.
 
 ## Viewer and server
 
-The viewer can chat with the agent that opened it (click a node, ask; the reply appears in the drawer) and refresh after code changes: `node <skill>/scripts/reply.mjs <dir> "answer" --chat <id> [--refresh]` or the channel's `reply`/`refresh_graph` tools. Details and the security notes: [chat](chat.md).
+The viewer can chat with the agent that opened it (click a node, ask; the reply appears in the drawer) and refresh after code changes: `octocode-graph reply <dir> "answer" --chat <id> [--refresh]` or the channel's `reply`/`refresh_graph` tools. Details and the security notes: [chat](chat.md).
 
-Event batches travel as lossless gzipped WebSocket frames, decoded in arrival order. `serve.mjs` binds 127.0.0.1 on a random (or `--port`) port, serves only its own assets, and requires the run token in the page and WebSocket URLs plus a same-server `Origin`. The pipeline starts with the server; a reconnecting page sends `hello {since}` to recover missed events. The server remains available after `done` for AST outlines (`astSearch symbols`) and LSP `callers`, `callees` or `references`; those answers are events too.
+Event batches travel as lossless gzipped WebSocket frames, decoded in arrival order. `octocode-graph serve` binds 127.0.0.1 on a random (or `--port`) port, serves only its own assets, and requires the run token in the page and WebSocket URLs plus a same-server `Origin`. The pipeline starts with the server; a reconnecting page sends `hello {since}` to recover missed events. The server remains available after `done` for AST outlines (`astSearch symbols`) and LSP `callers`, `callees` or `references`; those answers are events too.
 
 Each line of `events.jsonl` records an event with a sequence number and elapsed milliseconds. Count distinct tool IDs or start events for call volume. Use terminal events for summed tool time and phase boundaries for wall time.
 
@@ -48,28 +48,6 @@ Each line of `events.jsonl` records an event with a sequence number and elapsed 
 | `tool` | Every octocode call: tool, detail, page (first or cursor), rows, total, continues, ms, bytes, error |
 | `metrics`, `done`, `error`, `note` | Per-file metric columns aligned to one id list, weighted edges as index columns, cycles, communities, packages, timings; result paths; failures; warnings |
 | `ast`, `lspResult` | On-demand answers from the page |
-
-## Script owners
-
-| When | Read |
-|---|---|
-| Entry points and installed symlinks | [serve.mjs](../scripts/serve.mjs), [build.mjs](../scripts/build.mjs), [preflight.mjs](../scripts/preflight.mjs), [shared entry-point check](../scripts/lib/entrypoint.mjs) |
-| Chat with the agent from the viewer, Claude Code channel | [chat](chat.md), [channel.mjs](../scripts/channel.mjs), [reply.mjs](../scripts/reply.mjs) |
-| Ask the graph; answers over the stitched weighted graph | [query](query.md), [query.mjs](../scripts/query.mjs), [query-ops.mjs](../scripts/query-ops.mjs), [query-index.mjs](../scripts/query-index.mjs), [serve-answers.mjs](../scripts/serve-answers.mjs) |
-| Code wiki (Karpathy LLM Wiki pattern over communities) | [wiki](wiki.md), [wiki.mjs](../scripts/wiki.mjs) |
-| Refresh a result after edits (only changed chunks rebuild) | [refresh.mjs](../scripts/refresh.mjs) |
-| Event pipeline, phases, on-demand AST/LSP | [pipeline.mjs](../scripts/pipeline.mjs) |
-| CLI calls, tool-call hook, worker pool | [lib.mjs](../scripts/lib.mjs) |
-| One chunk's batched graph pages and data | [section.mjs](../scripts/section.mjs), [graph-pages.mjs](../scripts/graph-pages.mjs) |
-| Chunk boundaries and refinement | [plan.mjs](../scripts/plan.mjs) |
-| Joining chunks and preserving partial coverage | [stitch.mjs](../scripts/stitch.mjs), [coverage.mjs](../scripts/coverage.mjs) |
-| LSP cross-check | [lsp.mjs](../scripts/lsp.mjs) |
-| Each node checked against its file | [verify.mjs](../scripts/verify.mjs) |
-| Following tool continuations, tool-call summaries | [tools.mjs](../scripts/tools.mjs) |
-| Local server and WebSocket | [serve.mjs](../scripts/serve.mjs), [ws.mjs](../scripts/ws.mjs) |
-| Viewer | [live.html](../assets/live.html), [live.js](../assets/live.js) (store), [live-graph.js](../assets/live-graph.js) (canvas), [live-panels.js](../assets/live-panels.js) (panels) |
-| Weighted graph and its algorithms | [graph-model.mjs](../scripts/graph-model.mjs), [algorithms.mjs](../scripts/algorithms.mjs), [metrics.mjs](../scripts/metrics.mjs) |
-| Briefs (facts only), model overlay | [render.mjs](../scripts/render.mjs), [model.mjs](../scripts/model.mjs) |
 
 A viewer connection resumes after its last applied sequence number. Replay and live traffic use ordered gzip batches sized to the socket write target. A larger event travels whole. A slow connection resumes as its socket drains.
 

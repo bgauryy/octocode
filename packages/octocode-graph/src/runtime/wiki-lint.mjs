@@ -50,14 +50,14 @@ function missingPages(out, live) {
     const p = byCommunity.get(c.id);
     const same = p && p.e.size === c.size && p.e.members.every((id, i) => id === c.members[i]);
     if (same) return [];
-    const detail = p ? `community ${c.id} (${c.label}) changed since [[${p.slug}]] was built: run wiki.mjs build` : `community ${c.id} (${c.label}, ${c.size} files) has no page: run wiki.mjs build`;
+    const detail = p ? `community ${c.id} (${c.label}) changed since [[${p.slug}]] was built: run octocode-graph wiki build` : `community ${c.id} (${c.label}, ${c.size} files) has no page: run octocode-graph wiki build`;
     return [{ slug: p?.slug ?? '-', kind: 'missing-page', detail }];
   });
 }
 
 function pageIssues(slug, e, { out, root, lines, known }) {
   const markdown = readText(pageFile(out, slug));
-  if (markdown === null) return [{ slug, kind: 'missing-file', detail: `${pageFile(out, slug)} is missing: run wiki.mjs build` }];
+  if (markdown === null) return [{ slug, kind: 'missing-file', detail: `${pageFile(out, slug)} is missing: run octocode-graph wiki build` }];
   const issues = [...citationIssues(slug, notesOf(markdown), lines), ...linkIssues(slug, markdown, known)];
   if (e.orphaned) issues.push({ slug, kind: 'orphaned', detail: `no community matches this page since ${e.orphaned.slice(0, 10)}: move its notes to the pages holding ${e.members.length} former members, then clear them` });
   const stale = e.notes ? staleMembers(root, e, new Set()) : [];
@@ -69,7 +69,7 @@ function pageIssues(slug, e, { out, root, lines, known }) {
 export function lintWiki({ out, root, top = 0 }) {
   if (!Number.isSafeInteger(top) || top < 0) throw new Error('--top needs a nonnegative integer');
   const map = readMap(out, null);
-  if (!map) return { issues: [{ slug: 'map.json', kind: 'missing-file', detail: 'wiki/map.json is unavailable: run wiki.mjs build' }] };
+  if (!map) return { issues: [{ slug: 'map.json', kind: 'missing-file', detail: 'wiki/map.json is unavailable: run octocode-graph wiki build' }] };
   const base = resolve(root ?? map.root ?? '.');
   const entries = Object.entries(map.pages);
   const known = new Set([...entries.map(([s]) => s), ...RESERVED]);
@@ -78,7 +78,7 @@ export function lintWiki({ out, root, top = 0 }) {
   // index.md repeats each page's first notes sentence: a broken link there is reported once, on its page.
   const reported = new Set(issues.filter((i) => i.kind === 'broken-link').map((i) => i.detail));
   const index = readText(wikiPaths(out).index);
-  if (index === null) issues.push({ slug: 'index', kind: 'missing-file', detail: 'wiki/index.md is unavailable: run wiki.mjs build' });
+  if (index === null) issues.push({ slug: 'index', kind: 'missing-file', detail: 'wiki/index.md is unavailable: run octocode-graph wiki build' });
   else issues.push(...linkIssues('index', index, known).filter((i) => !reported.has(i.detail)));
   const live = entries.filter(([, e]) => !e.orphaned);
   issues.push(...missingPages(out, live));

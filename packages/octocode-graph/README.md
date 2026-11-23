@@ -71,3 +71,13 @@ npm pack
 ```
 
 Verification runs strict TypeScript checks, formatting checks, Oxlint, the skill checker and package tests. Packing runs the build. The tarball includes the CLI, ESM entry points, declarations and portable skill. The viewer loads its WebGL renderer from the local server, including during replay. The native executable resolves through the installed `octocode` dependency.
+
+
+The graph skill is a Markdown cookbook. The package CLI and saved-graph MCP server use the same search and traversal implementation under `src/runtime`.
+
+```sh
+octocode-graph query .octocode/first-run 'files src/main.ts:18 src/lib.ts:42' --json
+octocode-graph query .octocode/first-run 'impact src/main.ts src/lib.ts depth 2'
+```
+
+Start `octocode-graph channel` as a stdio MCP server and call `query_graph` with a saved result directory and the same query string. This works without a browser. Use `octocode-graph mcp` for the native `graphBuild` and `graphQuery` snapshot tools.

@@ -5,14 +5,14 @@
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-const USAGE = `usage: reply.mjs <result-dir> "text" [--chat <chat_id>] [--nodes a,b,c] [--refresh]
-       reply.mjs <result-dir> - [--chat <chat_id>] [--nodes a,b,c] [--refresh]   (text from stdin)
-       reply.mjs <result-dir> --refresh                                          (refresh only)
-       reply.mjs query <result-dir> "<query>"                  (saved queries: references/query.md)
-       reply.mjs wiki <result-dir> read <slug> | read --file <file>
-       reply.mjs wiki <result-dir> note <slug> "text"|-
-       reply.mjs wiki <result-dir> promote [<slug>] (--chat <chat_id> | "text"|-) [--file <file>]
-       reply.mjs wiki <result-dir> lint
+const USAGE = `usage: octocode-graph reply <result-dir> "text" [--chat <chat_id>] [--nodes a,b,c] [--refresh]
+       octocode-graph reply <result-dir> - [--chat <chat_id>] [--nodes a,b,c] [--refresh]   (text from stdin)
+       octocode-graph reply <result-dir> --refresh                                          (refresh only)
+       octocode-graph reply query <result-dir> "<query>"                  (saved queries: references/query.md)
+       octocode-graph reply wiki <result-dir> read <slug> | read --file <file>
+       octocode-graph reply wiki <result-dir> note <slug> "text"|-
+       octocode-graph reply wiki <result-dir> promote [<slug>] (--chat <chat_id> | "text"|-) [--file <file>]
+       octocode-graph reply wiki <result-dir> lint
   A reply goes to --chat, else the latest unanswered message; --nodes (paths, unique suffixes or node ids) light up
   and frame on the graph. --refresh rebuilds the graph after code changes. Prints one JSON line; exit 0 ok,
   1 refused or failed (a query error or ambiguity: the JSON lists candidates), 2 usage, 3 no running server.`;

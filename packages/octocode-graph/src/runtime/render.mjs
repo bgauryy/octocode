@@ -8,7 +8,7 @@ import { flags } from './lib.mjs';
 import { computeMetrics } from './metrics.mjs';
 import { resolveModel } from './model.mjs';
 
-const USAGE = `usage: render.mjs --data <data.json> [--model <model.json>]
+const USAGE = `usage: octocode-graph render --data <data.json> [--model <model.json>]
   Writes brief.txt and brief-full.txt beside data.json (computing graph metrics when data.json has none);
   --model (default: model.json beside it) adds the overlay and prints each problem to stderr.`;
 
@@ -81,7 +81,7 @@ export function writeBriefs(D, out, modelPath = join(out, 'model.json')) {
   if (!D.metrics) computeMetrics(D);
   if (existsSync(modelPath)) {
     D.model = resolveModel(D, JSON.parse(readFileSync(modelPath, 'utf8')));
-    for (const w of D.model.warnings) console.error(`model: ${w}`);
+    for (const w of D.model.warnings) process.stderr.write(`model: ${w}\n`);
   }
   const full = [...factLines(D, 10), `WEIGHT ${D.metrics.weightRule}`, ...(D.chunks ?? []).map((c) => `CHUNK ${c.path} files=${c.files} ${c.built ? 'built' : `not built${c.error ? `: ${c.error}` : ''}`}`), ...(D.model ? modelLines(D.model) : []), where];
   const brief = join(out, 'brief.txt'), briefFull = join(out, 'brief-full.txt');
@@ -91,11 +91,11 @@ export function writeBriefs(D, out, modelPath = join(out, 'model.json')) {
 }
 
 if (isMainModule(import.meta.url)) {
-  if (process.argv.includes('--help')) { console.log(USAGE); process.exit(0); }
+  if (process.argv.includes('--help')) { process.stdout.write(`${USAGE}\n`); process.exit(0); }
   const f = flags(process.argv.slice(2), { data: '', model: '' });
-  if (!f.data) { console.error(USAGE); process.exit(2); }
+  if (!f.data) { process.stderr.write(`${USAGE}\n`); process.exit(2); }
   const dataPath = resolve(f.data);
   const out = dirname(dataPath);
   const D = JSON.parse(readFileSync(dataPath, 'utf8'));
-  console.log(JSON.stringify(writeBriefs(D, out, f.model ? resolve(f.model) : undefined)));
+  process.stdout.write(`${JSON.stringify(writeBriefs(D, out, f.model ? resolve(f.model) : undefined))}\n`);
 }

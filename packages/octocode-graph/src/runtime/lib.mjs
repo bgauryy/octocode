@@ -28,7 +28,7 @@ export function flags(argv, spec) {
   for (const [name, dflt] of Object.entries(spec)) {
     const i = argv.indexOf(`--${name}`);
     if (i >= 0 && (argv[i + 1] === undefined || argv[i + 1].startsWith('--'))) {
-      console.error(`--${name} needs a value`);
+      process.stderr.write(`--${name} needs a value\n`);
       process.exit(2);
     }
     out[name] = i < 0 ? dflt : argv.splice(i, 2)[1];

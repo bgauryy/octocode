@@ -28,15 +28,15 @@ flowchart LR
 
 ## Operations
 
-Run from the workspace: `node <skill>/scripts/wiki.mjs <command> <out> ...`. In the live viewer, use the same operations through `reply.mjs wiki` or the channel's `wiki_*` tools ([chat](chat.md)), so the open drawer updates.
+Run from the workspace: `octocode-graph wiki <command> <out> ...`. In the live viewer, use the same operations through `octocode-graph reply wiki` or the channel's `wiki_*` tools ([chat](chat.md)), so the open drawer updates.
 
 | Operation | Command | Effect |
 |---|---|---|
-| Ingest | runs inside every build and refresh (`pipeline.mjs` finishRun); `wiki.mjs build <out> [--changed a,b]` reruns it from `data.json` | Recomputes FACTS for every page and rewrites only pages whose content changed; marks notes stale; emits a `wiki` event |
-| Query | `wiki.mjs read <out> index`, `read <out> <slug>`, `read <out> --file <path>` | Prints the page; `--file` finds the page that holds the file |
-| Write | `wiki.mjs note <out> <slug> "markdown"` (`-` reads stdin, `--from <file>` reads a file) | Replaces the AGENT NOTES and makes them fresh against the members' current content |
-| Promote | `wiki.mjs promote <out> <slug> "answer" --source "<where it came from>"` | Appends `**Promoted <date> from <source>:** answer`; keeps earlier notes and their freshness baseline |
-| Lint | `wiki.mjs lint <out> [--root <repo>] [--top N] [--json]` | Lists issues, one per line; exits 1 when it finds any |
+| Ingest | runs inside every build and refresh; `octocode-graph wiki build <out> [--changed a,b]` reruns it from `data.json` | Recomputes FACTS for every page and rewrites only pages whose content changed; marks notes stale; emits a `wiki` event |
+| Query | `octocode-graph wiki read <out> index`, `read <out> <slug>`, `read <out> --file <path>` | Prints the page; `--file` finds the page that holds the file |
+| Write | `octocode-graph wiki note <out> <slug> "markdown"` (`-` reads stdin, `--from <file>` reads a file) | Replaces the AGENT NOTES and makes them fresh against the members' current content |
+| Promote | `octocode-graph wiki promote <out> <slug> "answer" --source "<where it came from>"` | Appends `**Promoted <date> from <source>:** answer`; keeps earlier notes and their freshness baseline |
+| Lint | `octocode-graph wiki lint <out> [--root <repo>] [--top N] [--json]` | Lists issues, one per line; exits 1 when it finds any |
 
 ## Page layout
 
@@ -57,7 +57,7 @@ Notes can explain a design decision, invariant or verified finding. The first se
 ## Freshness and identity
 
 - **Stale notes.** When notes are written, map.json records a content hash of every member. A later build or lint compares the hashes with the files on disk. A member that changed, appeared or disappeared makes the notes stale, and the page header and `index.md` name the files. A refresh also passes the files it found changed. Read the changed files before relying on stale notes. Writing fresh notes resets the baseline.
-- **Stable slugs.** Communities can be renumbered after a build. The script matches them to previous pages by member overlap, preserving slugs and notes when a match qualifies; otherwise it creates a new page. [wiki-store.mjs](../scripts/wiki-store.mjs) owns matching thresholds.
+- **Stable slugs.** Communities can be renumbered after a build. The script matches them to previous pages by member overlap, preserving slugs and notes when a match qualifies; otherwise it creates a new page.
 - **Orphans.** A previous page that no community takes stays as **orphaned** when it has notes, listing its last members. Without notes it is removed, and the log records it. Move what still holds into the pages that own those files now, then clear the orphan's notes with `note <out> <slug> ""`. The next build removes it.
 
 ## Lint issue kinds
@@ -68,19 +68,8 @@ Notes can explain a design decision, invariant or verified finding. The first se
 | `citation-line` | The cited line is past the end of the file | Re-read the source and cite the current line |
 | `broken-link` | `[[slug]]` names no page | Use a slug from `index.md` |
 | `missing-graph` | data.json or its community metrics are missing | Use a completed graph export |
-| `missing-page` | A community in `data.json` has no page, or its page predates the current graph | `wiki.mjs build <out>` |
-| `missing-file` | A wiki page, index or map is missing | `wiki.mjs build <out>` |
+| `missing-page` | A community in `data.json` has no page, or its page predates the current graph | `octocode-graph wiki build <out>` |
+| `missing-file` | A wiki page, index or map is missing | `octocode-graph wiki build <out>` |
 | `orphaned` | No community matches the page | Move the notes, then clear them |
 | `stale-notes` | A member changed since the notes were written | Revisit and rewrite the notes |
 | `empty-notes` | Only with `--top N`, one of the N highest-PageRank live communities has no notes | Add notes if curating that community |
-
-## Script owners
-
-| When | Read |
-|---|---|
-| API (`buildWiki`, `readPage`, `pageOf`, `writeNotes`, `promote`, `lintWiki`) and the CLI | [wiki.mjs](../scripts/wiki.mjs) |
-| FACTS sections from data.json | [wiki-facts.mjs](../scripts/wiki-facts.mjs) |
-| Page, orphan and index markdown | [wiki-render.mjs](../scripts/wiki-render.mjs) |
-| map.json, slugs and matching, hashes, notes markers, log | [wiki-store.mjs](../scripts/wiki-store.mjs) |
-| Lint rules | [wiki-lint.mjs](../scripts/wiki-lint.mjs) |
-| Viewer drawer | [live-wiki.js](../assets/live-wiki.js), [live-wiki.css](../assets/live-wiki.css) |

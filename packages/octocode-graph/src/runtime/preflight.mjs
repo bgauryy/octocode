@@ -38,12 +38,16 @@ export async function preflight() {
 }
 
 if (isMainModule(import.meta.url)) {
+  if (process.argv.includes('--help')) {
+    process.stdout.write('usage: octocode-graph preflight [--json]\n');
+    process.exit(0);
+  }
   const r = await preflight();
   const todo = Object.entries(r).filter(([, v]) => !v.startsWith('ok')).map(([k, v]) => ({ layer: k, state: v, enable: HINTS[k] }));
-  if (process.argv.includes('--json')) console.log(JSON.stringify({ layers: r, todo }));
+  if (process.argv.includes('--json')) process.stdout.write(`${JSON.stringify({ layers: r, todo })}\n`);
   else {
-    for (const [k, v] of Object.entries(r)) console.log(`${v.startsWith('ok') ? 'ok     ' : 'MISSING'} ${k.padEnd(16)} ${v}`);
-    if (todo.length) console.log(`\nTo enable:\n${todo.map((t) => `- ${t.layer}: ${t.enable}`).join('\n')}`);
+    for (const [k, v] of Object.entries(r)) process.stdout.write(`${v.startsWith('ok') ? 'ok     ' : 'MISSING'} ${k.padEnd(16)} ${v}\n`);
+    if (todo.length) process.stdout.write(`\nTo enable:\n${todo.map((t) => `- ${t.layer}: ${t.enable}`).join('\n')}\n`);
   }
   process.exit(r.cli === 'ok' && r.graph === 'ok' ? 0 : 1);
 }

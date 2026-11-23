@@ -4,7 +4,7 @@ Load when answering a structural question from a built graph (who depends on a f
 
 For queries against a native snapshot, use the operation table in the `octocode-graph` skill. The commands here query the viewer graph, including stitched edges and available LSP confirmations. After the `graph-ready` event, ask the live viewer for the latest evidence or pass `<out>/stitched.json` to the shell query for the initial snapshot.
 
-One query language answers over the whole stitched, weighted file graph of a result (`data.json`: every chunk, cross-chunk imports and calls, the weight rule of [graph-model.mjs](../scripts/graph-model.mjs)). Production edges only unless `--tests`. Walks (`impact`, `deps`, `dependents`, `path`, `cycle`) follow strong edges: an import or a call with full evidence (LSP-resolved or high confidence). Metrics count every production edge, so a walk can be empty for a file the metrics place in a cycle; its summary and `stats.weakAdds` (`weakSize` for `cycle`, `weakHops` for `path`) state what `--weak` would add, which is edges backed only by calls bound by name (graph confidence medium or low). `--imports` walks import edges only. Rows are complete: nothing is cut to a page size; the viewer pages them.
+One query language answers over the whole stitched, weighted file graph of a result (`data.json`: every chunk, cross-chunk imports and calls, the weights recorded on file edges). Production edges only unless `--tests`. Walks (`impact`, `deps`, `dependents`, `path`, `cycle`) follow strong edges: an import or a call with full evidence (LSP-resolved or high confidence). Metrics count every production edge, so a walk can be empty for a file the metrics place in a cycle; its summary and `stats.weakAdds` (`weakSize` for `cycle`, `weakHops` for `path`) state what `--weak` would add, which is edges backed only by calls bound by name (graph confidence medium or low). `--imports` walks import edges only. Rows are complete: nothing is cut to a page size; the viewer pages them.
 
 | Query | Answer |
 |---|---|
@@ -40,18 +40,17 @@ Results include `scope` with the export root, snapshot label and known coverage 
 | From | How |
 |---|---|
 | Viewer | The bar in the graph toolbar: Enter asks, ↑/↓ walks the history, a row selects its file, candidates and linked communities re-run, Show / Hide (Esc) / Clear the highlight |
-| Shell, running viewer | `node <skill>/scripts/reply.mjs query <out> "impact pipeline.mjs"` prints the JSON result; the viewer highlights it. Exit 1 with the JSON when the query fails or is ambiguous |
-| Shell, no viewer | `node <skill>/scripts/query.mjs <out> "path a.ts b.ts" [--json]` reads `data.json` directly (text, or JSON with `--json`) |
-| Channel | `query_graph({ query })` returns every row as `path:line` text and highlights the answer |
+| Shell, running viewer | `octocode-graph reply query <out> "impact pipeline.mjs"` prints the JSON result; the viewer highlights it. Exit 1 with the JSON when the query fails or is ambiguous |
+| Shell, no viewer | `octocode-graph query <out> "path a.ts b.ts" [--json]` reads `data.json` directly (text, or JSON with `--json`) |
+| Saved graph MCP | `query_graph({ result, query })` reads a saved result directory directly and returns JSON. |
+| Viewer channel | `query_graph({ query })` returns every row as `path:line` text and highlights the answer |
 
 Every answer from the viewer, the shell or the channel is a `query` event (`{ type: 'query', id: 'q…', from: 'viewer'\|'agent', ...result }`), saved in `events.jsonl` also in a replay; a replay restores the bar's history without moving the camera. The server answers from `data.json` in memory and reloads it when a run or refresh rewrites it; during the first build a query says the graph is still building.
 
 ## Point at the graph
 
-A reply can name the files it is about: `reply.mjs <out> "text" --chat <id> --nodes a.ts,src/b.ts` or the channel's `reply({ chat_id, text, nodes })`. Nodes resolve like query arguments before anything is sent; an unknown or ambiguous one refuses the reply and lists candidates. The newest reply with nodes lights them up and frames them; every such reply keeps a **Show on graph (N)** action.
+A reply can name the files it is about: `octocode-graph reply <out> "text" --chat <id> --nodes a.ts,src/b.ts` or the channel's `reply({ chat_id, text, nodes })`. Nodes resolve like query arguments before anything is sent; an unknown or ambiguous one refuses the reply and lists candidates. The newest reply with nodes lights them up and frames them; every such reply keeps a **Show on graph (N)** action.
 
 ## Wiki
 
-Read, write, promote or lint community pages through `reply.mjs wiki <out> …` or the channel's `wiki_*` tools; [wiki operations](wiki.md#operations) owns the commands. `promote --chat <id>` takes the latest reply and, without a slug, the page holding the question's file. Writes update the viewer. Missing `scripts/wiki.mjs` returns HTTP 501, "wiki unavailable". `POST /query` and `/wiki` require the run token in `?t=` and refuse a foreign `Origin`.
-
-Owners: [query.mjs](../scripts/query.mjs) (CLI), [query-api.mjs](../scripts/query-api.mjs) (shared query language), [query-index.mjs](../scripts/query-index.mjs) (graph index, argument resolution), [query-ops.mjs](../scripts/query-ops.mjs) (answers), [relations.mjs](../scripts/relations.mjs) (typed-path traversal), [serve-answers.mjs](../scripts/serve-answers.mjs) (server: data in memory, `/query`, `/wiki`, reply nodes), [live-query.js](../assets/live-query.js) (bar).
+Read, write, promote or lint community pages through `octocode-graph reply wiki <out> …` or the channel's `wiki_*` tools; [wiki operations](wiki.md#operations) owns the commands. `promote --chat <id>` takes the latest reply and, without a slug, the page holding the question's file. Writes update the viewer. `POST /query` and `/wiki` require the run token in `?t=` and refuse a foreign `Origin`.

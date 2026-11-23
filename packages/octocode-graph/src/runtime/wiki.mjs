@@ -152,7 +152,7 @@ function pageEntry(out, slug) {
   const map = readMap(out);
   const entry = isSlug(slug) ? map.pages[slug] : null;
   const markdown = entry ? readText(pageFile(out, slug)) : null;
-  if (markdown === null) throw new Error(`no wiki page "${slug}" in ${wikiPaths(out).dir}: run wiki.mjs build first, or read index.md for the slugs`);
+  if (markdown === null) throw new Error(`no wiki page "${slug}" in ${wikiPaths(out).dir}: run octocode-graph wiki build first, or read index.md for the slugs`);
   return { map, entry, markdown };
 }
 
@@ -190,7 +190,7 @@ export function promote({ out, slug, text, source }) {
   return { slug, appended: true };
 }
 
-const USAGE = `usage: wiki.mjs <command> <out> ...
+const USAGE = `usage: octocode-graph wiki <command> <out> ...
   build <out> [--changed a,b]       write <out>/wiki from <out>/data.json (--changed: refresh file ids)
   read <out> <slug|index|log>       print a page; read <out> --file <path> prints the page holding that file
   note <out> <slug> <text|->        replace the page's agent notes (- reads stdin; --from <file> reads a file)

@@ -2,7 +2,14 @@ import { delegateToNative, resolveNativeBin } from 'octocode/native';
 import { fileURLToPath } from 'node:url';
 
 const runtimeCommands = new Set([
-  'build', 'query', 'serve', 'channel', 'wiki', 'reply', 'render', 'preflight',
+  'build',
+  'query',
+  'serve',
+  'channel',
+  'wiki',
+  'reply',
+  'render',
+  'preflight',
 ]);
 
 const usage = {
@@ -13,12 +20,20 @@ const usage = {
 export async function runGraphCli(args: readonly string[]): Promise<number> {
   const topic = args[0] === 'help' ? args[1] : args[0];
   if (runtimeCommands.has(topic)) {
-    if (topic === 'channel' && (args[0] === 'help' || args.includes('--help') || args.includes('-h'))) {
-      process.stdout.write('Usage: octocode-graph channel (stdio MCP server for saved graphs and the viewer)\n');
+    if (
+      topic === 'channel' &&
+      (args[0] === 'help' || args.includes('--help') || args.includes('-h'))
+    ) {
+      process.stdout.write(
+        'Usage: octocode-graph channel (stdio MCP server for saved graphs and the viewer)\n'
+      );
       return 0;
     }
     const entry = fileURLToPath(import.meta.resolve(`#graph-runtime/${topic}`));
-    return delegateToNative(process.execPath, [entry, ...(args[0] === 'help' ? ['--help'] : args.slice(1))]);
+    return delegateToNative(process.execPath, [
+      entry,
+      ...(args[0] === 'help' ? ['--help'] : args.slice(1)),
+    ]);
   }
   if (
     (topic === 'html' || topic === 'enrich') &&
