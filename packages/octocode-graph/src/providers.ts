@@ -1,5 +1,5 @@
 import { posix, win32 } from 'node:path';
-import type { Relation } from './relations.js';
+import type { Relation } from './relations.ts';
 
 export interface Observation extends Relation {
   artifact: string;

@@ -378,6 +378,16 @@ pub fn allow_build_wrappers(options: &mut Value) {
     }
 }
 
+/// Whether the routed rust-analyzer options consent to a SCIP index: build
+/// scripts and proc macros both on. rust-analyzer then runs repository code
+/// (`build.rs`, proc-macro crates) to index, so the user, not Octocode's
+/// headless defaults, must have chosen both.
+pub fn scip_consent(options: &Value) -> bool {
+    ["/cargo/buildScripts/enable", "/procMacro/enable"]
+        .iter()
+        .all(|pointer| options.pointer(pointer) == Some(&Value::Bool(true)))
+}
+
 /// Deep-merge `overlay` onto `base`: objects merge key by key, and any other
 /// overlay value replaces the base value.
 fn merge_under(base: Value, overlay: Value) -> Value {

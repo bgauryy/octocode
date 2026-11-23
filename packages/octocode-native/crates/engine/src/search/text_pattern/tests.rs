@@ -64,3 +64,25 @@ fn validate_rejects_invalid_perl_regex() {
     assert!(!result.valid);
     assert!(result.error.is_some());
 }
+
+/// Code written as a regex reads with its unpaired brackets as text, the
+/// rest kept as the regex it is; a pattern that fails for another reason,
+/// or parses, has no such reading.
+#[test]
+fn unpaired_brackets_read_as_text() {
+    for (sent, read) in [
+        ("def route(", "def route\\("),
+        ("def map[|def imap", "def map\\[|def imap"),
+        ("fn main() {", "fn main() \\{"),
+        ("foo)", "foo\\)"),
+        ("*ptr", "\\*ptr"),
+        ("f(a, (b)", "f\\(a, (b)"),
+    ] {
+        assert_eq!(with_unpaired_as_text(sent).as_deref(), Some(read), "{sent}");
+        assert!(validate_text_pattern(read, false, false).valid, "{read}");
+        assert!(validate_text_pattern(read, false, true).valid, "{read}");
+    }
+    for kept in ["^fn ", "(?:x", "a{2,1}"] {
+        assert_eq!(with_unpaired_as_text(kept), None, "{kept}");
+    }
+}

@@ -122,3 +122,17 @@ fn a_clone_write_the_filesystem_refuses_carries_the_write_recovery() {
     let read = storage_read_io(io::Error::from(io::ErrorKind::NotFound));
     assert!(read.hints.is_empty(), "{read:?}");
 }
+
+/// A recorded clone time reads to the second, as every other time: one an
+/// earlier build recorded in milliseconds included.
+#[test]
+fn a_clone_time_reads_to_the_second() {
+    assert_eq!(
+        to_the_second("2026-11-23T07:09:16.158Z"),
+        "2026-11-23T07:09:16Z"
+    );
+    assert_eq!(
+        to_the_second("2026-11-23T07:09:16Z"),
+        "2026-11-23T07:09:16Z"
+    );
+}

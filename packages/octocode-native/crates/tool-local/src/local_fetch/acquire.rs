@@ -180,15 +180,23 @@ pub(super) fn name_read_file(
     if result.path == local_fetch_query::path(q) {
         named.clone_into(&mut result.path);
     }
+    let first_page = result
+        .pagination
+        .as_ref()
+        .is_none_or(|page| page.offset == 0);
     if let Some(target) = &read.target
-        && result
-            .pagination
-            .as_ref()
-            .is_none_or(|page| page.offset == 0)
+        && first_page
     {
         result
             .warnings
             .push(format!("{named} resolves through a symlink to {target}."));
+    }
+    if let Some(requested) = &read.repeated
+        && first_page
+    {
+        result.warnings.push(format!(
+            "read path as {named}: {requested} repeats a folder and does not exist."
+        ));
     }
     let Some(next) = result.next.as_mut() else {
         return Ok(());
@@ -207,9 +215,29 @@ pub(super) fn resolve_file(
     q: &LocalFetchQuery,
     paths: &impl PathAccess,
 ) -> Result<(ValidatedRead, fs::File, fs::Metadata), Box<LocalFetchResult>> {
-    let validated = paths
-        .validate_read(Path::new(local_fetch_query::path(q)))
-        .map_err(|failure| Box::new(path_failure(q, *failure)))?;
+    let validated = match paths.validate_read(Path::new(local_fetch_query::path(q))) {
+        Ok(validated) => validated,
+        // A missing path that repeats a run of its folders (a row's path
+        // joined onto the folder it already names) reads the one path that
+        // exists without the repeat; the row says how it was read.
+        Err(failure) => match failure
+            .meant
+            .as_deref()
+            .filter(|_| failure.resource_missing)
+            .map(|meant| paths.validate_read(Path::new(meant)))
+        {
+            Some(Ok(mut validated)) => {
+                validated.repeated = Some(
+                    failure
+                        .safe_path
+                        .clone()
+                        .unwrap_or_else(|| local_fetch_query::path(q).to_owned()),
+                );
+                validated
+            }
+            _ => return Err(Box::new(path_failure(q, *failure))),
+        },
+    };
     // Open first, then stat the handle: a path swapped for a FIFO or a
     // directory after the policy check is refused, never blocked on. A failed
     // open is named by a plain stat of the path.
@@ -374,7 +402,14 @@ fn path_failure(q: &LocalFetchQuery, failure: PathFailure) -> LocalFetchResult {
             octocode_tools_shared::root_read::listing_entry_note(bare)
         )
     } else if failure.resource_missing {
-        format!("Path does not exist: {display}")
+        let meant = failure
+            .meant
+            .as_deref()
+            .map(octocode_runtime_base::policy::path::repeated_folder_note);
+        format!(
+            "Path does not exist: {display}{}",
+            meant.unwrap_or_default()
+        )
     } else {
         failure.message
     };

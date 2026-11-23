@@ -6,7 +6,7 @@ use oxc_ast::ast::*;
 use oxc_ast_visit::{VisitJs, walk_js};
 use oxc_semantic::ScopeFlags;
 
-use super::names::{callee_name, jsx_component_name, ts_type_name, unwrap_expr};
+use super::names::{callee_name, cited_name_span, jsx_component_name, ts_type_name, unwrap_expr};
 use super::{CallCollector, MODULE_OWNER};
 
 impl<'a> CallCollector<'_, '_> {
@@ -214,14 +214,16 @@ impl<'a> VisitJs<'a> for CallCollector<'_, '_> {
         if let Some(name) = callee_name(&it.callee) {
             let receiver = self.receivers.receiver(&it.callee);
             let name = self.receivers.call_alias(&it.callee).unwrap_or(name);
-            self.push_with_receiver(name, it.span, "calls", receiver);
+            let cited = cited_name_span(&it.callee);
+            self.push_with_receiver(name, (it.span, cited), "calls", receiver);
         }
         walk_js::walk_call_expression(self, it);
     }
 
     fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
         if let Some(name) = callee_name(&it.callee) {
-            self.push(name, it.span, "constructs");
+            let cited = cited_name_span(&it.callee);
+            self.push_with_receiver(name, (it.span, cited), "constructs", (None, None));
         }
         walk_js::walk_new_expression(self, it);
     }

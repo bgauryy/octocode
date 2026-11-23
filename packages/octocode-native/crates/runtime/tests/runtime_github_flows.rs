@@ -105,7 +105,10 @@ async fn a_cross_fork_compare_pins_its_head_to_a_commit() {
         .await
         .expect("pinned scope continuation");
     assert_eq!(row_status(&scoped), "success", "{}", row_data(&scoped));
-    assert_eq!(row_data(&scoped)["commits"][0]["commitSha"], FORK_HEAD_SHA);
+    assert_eq!(
+        octocode_test_support::commit_field(&row_data(&scoped)["commits"][0], "commitSha"),
+        FORK_HEAD_SHA
+    );
     runtime.close().await;
 }
 

@@ -5,6 +5,7 @@ mod edit;
 mod json_edit;
 #[cfg(test)]
 mod layering_tests;
+mod legacy;
 mod loader;
 mod manage;
 mod report;

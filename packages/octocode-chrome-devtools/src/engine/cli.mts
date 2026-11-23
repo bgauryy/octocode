@@ -20,6 +20,7 @@ import {
   planInputs,
 } from './cli-catalog.mjs';
 import {
+  cdpBrowserSelection,
   commonBooleans,
   commonValues,
   fail,
@@ -336,6 +337,7 @@ async function main(argv: string[]) {
     fail('--offset needs --search or protocol *');
   if (tail.length && !['check', 'script'].includes(command))
     fail(`${command} does not accept trailing recipe flags`);
+  if (command === 'cdp') Object.assign(opts, cdpBrowserSelection(opts));
   const { args: runner, port } = await connectionArgs(opts),
     dry = !!opts['--dry-run'];
   const maxPositionals = ['cdp', 'protocol', 'check', 'script'].includes(

@@ -47,7 +47,11 @@ async fn commit_listing_rows_are_typed_commits() {
             "{data}"
         );
         assert!(data.get("type").is_none(), "{scope}: {data}");
-        assert_eq!(data["commits"][0]["commitSha"], "aaa", "{data}");
+        assert_eq!(
+            octocode_test_support::commit_field(&data["commits"][0], "commitSha"),
+            "aaa",
+            "{data}"
+        );
         // The listed path is the caller's own input: not restated.
         assert!(data.get("path").is_none(), "{scope}: {data}");
     }

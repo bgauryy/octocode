@@ -105,7 +105,7 @@ pub(crate) const MAGIC: &[u8; 8] = b"OCGRAPH\0";
 /// v22: a source snapshot's encoding byte also names `latin1` (3) and
 /// `lossy` (4): 8-bit text that is not UTF-8 is indexed as it reads, so an
 /// older reader must refuse such a snapshot.
-pub(crate) const FORMAT_VERSION: u32 = 23;
+pub(crate) const FORMAT_VERSION: u32 = 24;
 /// Packed edge byte bit: the edge's evidence is test code.
 const EDGE_TEST: u8 = 0x80;
 const HEADER_LEN: usize = 8 + 4 + 4 + 32;
@@ -307,6 +307,8 @@ pub(crate) struct UnresolvedRec {
     pub callee: u32,
     pub line: u32,
     pub reason: u32,
+    /// The receiver's type as spelled (interned), or `NONE`.
+    pub receiver_type: u32,
 }
 
 /// Parser-input identity and half-open byte coordinates; `NONE` means unavailable.

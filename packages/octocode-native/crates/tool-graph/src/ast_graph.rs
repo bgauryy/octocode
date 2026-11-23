@@ -103,7 +103,13 @@ use octocode_tools_shared::import_resolution::{aliases, js_paths, paths};
 /// child's `pub(super)` or `pub(crate)` item passes through the glob as a
 /// `pub` one does, and a file's own `use child::*` binds the names the
 /// child passes on as a `use super::*` binds its parent's.
-const ANALYSIS_VERSION: u32 = 46;
+/// 47: a Rust macro invocation (`expands`) links only to a `macro_rules!`
+/// declaration and a call only to a non-macro, so `format!` never links to a
+/// `fn format`; an unlinked invocation is recorded with its `!` (`format!`).
+/// 48: an awaited `async fn` call has its declared return type, and a
+/// destructuring `let (a, b) = f()` gives each name its tuple element's type;
+/// an unresolved call on a typed receiver records the type (`receiverType`).
+const ANALYSIS_VERSION: u32 = 48;
 
 /// graphBuild's and graphQuery's recovery for the shared response stages.
 pub struct Output;

@@ -38,6 +38,10 @@ const exactPredicates = (text: string) =>
       ? context!.source
       : value
   );
+/**
+ * The MCP `query` call for a reader helper's continuation arguments. Helper `artifact` pages are
+ * window mode, so the window is explicit: `query` reads rows unless offset or length says otherwise.
+ */
 export const readerRoute = (
   args: string[],
   tool: string,
@@ -56,7 +60,13 @@ export const readerRoute = (
           : value;
   }
   if (query.file) query.file = capturePath(query.file, workspace);
-  return { tool, query };
+  if (
+    tool === 'artifact' &&
+    query.offset === undefined &&
+    query.length === undefined
+  )
+    query.length = 8000;
+  return { tool: 'query', query };
 };
 
 // Read pages through the existing evidence engine: one index and one pagination contract.
@@ -76,6 +86,9 @@ export async function flowPage(
   if (!Array.isArray(flow.steps)) throw Error('Browser result needs steps');
   const steps: any[] = [];
   const sources: any[] = [];
+  const sourceKeys: string[] = [];
+  /** The last URL a step reached on each target: selection URLs go stale after a navigation. */
+  const lastUrl = new Map<unknown, string>();
   // True when the page stops before the last step: the rest sits behind next.steps.
   let more = false;
   for (const source of flow.steps) {
@@ -92,24 +105,37 @@ export async function flowPage(
       continue;
     const { artifact, startedAt, finishedAt, source: origin, ...row } = source;
     if (origin) {
-      const { capturedAt, ...location } = origin;
+      // One source per page: the URL a step reached, else the last one reached on its target, else
+      // the selection URL. The saved result keeps every raw field.
+      const { capturedAt, selectedUrl, frameId, title, ...location } = origin;
+      const url = location.url ?? lastUrl.get(row.targetId) ?? selectedUrl;
+      delete location.url;
+      if (url) lastUrl.set(row.targetId, url);
       const identity = {
         ...location,
+        ...(url ? { url } : {}),
+        ...(frameId ? { frameId } : {}),
         targetId: row.targetId,
         ...(row.sessionId ? { sessionId: row.sessionId } : {}),
       };
       delete row.targetId;
       delete row.sessionId;
-      let id = sources.findIndex(
-        item => JSON.stringify(item) === JSON.stringify(identity)
-      );
+      const key = JSON.stringify(identity);
+      let id = sourceKeys.indexOf(key);
       if (id < 0) {
         id = sources.length;
+        sourceKeys.push(key);
         sources.push(
-          Buffer.byteLength(JSON.stringify(identity)) <= limits.cdpBytes
+          Buffer.byteLength(key) <= limits.cdpBytes
             ? identity
             : { next: pageQuery(file, '/steps', flow.steps.indexOf(source), 1) }
         );
+      }
+      // Only some steps read the title; it names the page, it does not make it another one.
+      if (title && !sources[id].next) sources[id].title ??= title;
+      if (url && row.condition?.url === url) {
+        const { url: _same, ...condition } = row.condition;
+        row.condition = condition;
       }
       row.source = id;
       row.capturedAt = capturedAt;

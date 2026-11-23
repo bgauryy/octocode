@@ -1,12 +1,23 @@
 {
+  // Node code: the CLI, the MCP launcher and src/runtime. Sources import each other with
+  // their .ts names so tests run them directly; esbuild bundles dist (scripts/build.mjs).
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "target": "ESNext",
     "lib": ["ESNext"],
+    // `octocode/native` ships JavaScript only: its types are inferred from the workspace build.
     "allowJs": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "erasableSyntaxOnly": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "src/runtime/**/*.mjs"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/assets", "src/browser", "src/renderer.ts"]
 }

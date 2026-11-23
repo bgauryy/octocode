@@ -133,6 +133,8 @@ export type RouterDeps = {
   page: Sender;
   /** True when the attached target is the browser itself (`--browser`): there is no second scope. */
   pageIsBrowser?: boolean;
+  /** Why the browser stands in for a page, replacing the drop --browser hint on a page-only method. */
+  pageHint?: string;
   /** The browser-level connection shared by every router of one run. */
   hub: BrowserHub;
   /** The installed Chrome's name for the unsupported message. */
@@ -191,7 +193,11 @@ export class CdpRouter {
   readonly page: Lane;
 
   constructor(private readonly deps: RouterDeps) {
-    this.page = { name: 'page', send: deps.page, enabled: new Set() };
+    this.page = {
+      name: deps.pageIsBrowser ? 'browser' : 'page',
+      send: deps.page,
+      enabled: new Set(),
+    };
   }
 
   /** The browser lane; a `--browser` target is its own browser lane. */
@@ -311,7 +317,7 @@ export class CdpRouter {
           scopeVerdict(method, protocolErrorOf(error)) !== 'other'
         )
           throw errorWith(
-            `${(error as Error).message}\n[HINT] this connection is the browser itself; page methods need a page target (drop --browser)`,
+            `${(error as Error).message}\n[HINT] ${this.deps.pageHint ?? 'this connection is the browser itself; page methods need a page target (drop --browser)'}`,
             error
           );
         throw error;

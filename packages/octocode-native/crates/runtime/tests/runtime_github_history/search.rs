@@ -54,7 +54,8 @@ async fn gh_search_history_commits_lists_via_rest() {
     );
     let data = row_data(&outcome);
     assert_eq!(
-        data["commits"][0]["messageHeadline"], "fix: stabilise parser",
+        octocode_test_support::commit_field(&data["commits"][0], "messageHeadline"),
+        "fix: stabilise parser",
         "{data}"
     );
     runtime.close().await;
@@ -408,7 +409,8 @@ async fn gh_search_history_commit_list_forwards_committer() {
     .expect("commit list");
     let data = row_data(&outcome);
     assert_eq!(
-        data["commits"][0]["messageHeadline"], "merged via UI",
+        octocode_test_support::commit_field(&data["commits"][0], "messageHeadline"),
+        "merged via UI",
         "{data}"
     );
     runtime.close().await;

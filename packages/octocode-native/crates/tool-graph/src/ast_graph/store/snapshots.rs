@@ -1,6 +1,7 @@
 //! The snapshot home: where snapshots live, how they are named, listed,
 //! read and pruned.
 use super::*;
+use std::collections::HashMap;
 
 /// A marker inside a snapshot directory: its modification time is the last
 /// time a reader used the snapshot. A snapshot that retention would remove
@@ -204,21 +205,32 @@ pub(super) struct SnapshotMetadata {
     pub(super) format_version: Option<u64>,
 }
 
-/// When the newest snapshot of `root` in `home` was published; `None` when
-/// it holds none.
-pub(super) fn last_published(home: &Path, root: &Path) -> Option<std::time::SystemTime> {
-    let root = root.to_string_lossy();
-    list_snapshots(home)
-        .into_iter()
-        .filter_map(|id| {
-            let dir = home.join(&id);
-            read_snapshot_metadata(&dir)
-                .filter(|manifest| manifest.root.as_deref() == Some(root.as_ref()))?;
-            std::fs::metadata(dir.join(MANIFEST_FILE))
-                .and_then(|meta| meta.modified())
-                .ok()
-        })
-        .max()
+/// When the newest snapshot of each root in `home` was published, from one
+/// read of each snapshot's metadata. Job retention asks it for every job in
+/// the home, so a per-root scan would read every manifest once per job.
+pub(super) fn published_roots(home: &Path) -> HashMap<String, std::time::SystemTime> {
+    let mut newest = HashMap::new();
+    for entry in std::fs::read_dir(home).into_iter().flatten().flatten() {
+        if entry.file_name().to_string_lossy().starts_with('.')
+            || !entry.file_type().is_ok_and(|kind| kind.is_dir())
+        {
+            continue;
+        }
+        let dir = entry.path();
+        let Some(root) = read_snapshot_metadata(&dir).and_then(|manifest| manifest.root) else {
+            continue;
+        };
+        let Ok(published) =
+            std::fs::metadata(dir.join(MANIFEST_FILE)).and_then(|meta| meta.modified())
+        else {
+            continue;
+        };
+        newest
+            .entry(root)
+            .and_modify(|at: &mut std::time::SystemTime| *at = (*at).max(published))
+            .or_insert(published);
+    }
+    newest
 }
 
 pub(super) fn read_snapshot_metadata(dir: &Path) -> Option<SnapshotMetadata> {

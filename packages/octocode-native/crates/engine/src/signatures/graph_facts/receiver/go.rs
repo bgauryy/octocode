@@ -108,7 +108,7 @@ impl<'t> ReceiverTypes<'t> {
             receiver = receiver.named_child(0)?;
         }
         match kind_of(receiver) {
-            "call_expression" => Some(call_reference(receiver, false)),
+            "call_expression" => Some(call_reference(receiver, false, false)),
             "identifier" => {
                 let name = node_text(receiver, content)?;
                 self.local(receiver, path, name, content)?.value_call
@@ -167,7 +167,7 @@ pub(super) fn go_bindings<'t>(up: Up<'_, 't>, content: &str, out: &mut Vec<Bindi
                 };
                 let value = bound_call(index, lefts.len(), &rights)
                     .filter(|_| kind_of(name) == "identifier")
-                    .map(|call| call_reference(call, false));
+                    .map(|call| call_reference(call, false, false));
                 bind_pattern(*name, ty, node.end_byte(), until, content, out);
                 if let Some(binding) = out.last_mut().filter(|_| value.is_some()) {
                     binding.value_call = value;
@@ -197,7 +197,7 @@ pub(super) fn go_bindings<'t>(up: Up<'_, 't>, content: &str, out: &mut Vec<Bindi
                 });
                 let value = bound_call(index, names.len(), &values)
                     .filter(|_| declared.is_none())
-                    .map(|call| call_reference(call, false));
+                    .map(|call| call_reference(call, false, false));
                 push(out, *name, ty, node.end_byte(), until, content);
                 if let Some(binding) = out.last_mut().filter(|_| value.is_some()) {
                     binding.value_call = value;

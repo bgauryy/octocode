@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { writeNewFile } from './output.js';
-import { adapters, list, record, string } from './providers.js';
-import type { Observation } from './providers.js';
+import { writeNewFile } from './output.ts';
+import { adapters, list, record, string } from './providers.ts';
+import type { Observation } from './providers.ts';
 
 const hash = (bytes: Buffer) =>
   createHash('sha256').update(bytes).digest('hex');

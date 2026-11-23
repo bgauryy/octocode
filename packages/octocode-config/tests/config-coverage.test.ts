@@ -38,10 +38,10 @@ function sources(): string[] {
   const isTest = /tests?[./]|\/tests\/|\.test\.|config-env\.mjs$|node_modules|process_fixture\.rs$/;
   return [
     ...walk('packages/octocode/src', path => path.endsWith('.ts')),
+    // The graph package's TypeScript runtime (CLI, saved-graph commands, channel) reads configuration too.
+    ...walk('packages/octocode-graph/src', path => path.endsWith('.ts') && !path.endsWith('.d.ts')),
     ...walk('packages/octocode-native/crates', path => /\/src\/.*\.rs$/.test(path)),
-    ...['skills', 'packages/octocode-graph/skills'].flatMap(root =>
-      walk(root, path => /\/scripts\/(lib\/)?[^/]+\.mjs$/.test(path)),
-    ),
+    ...walk('skills', path => /\/scripts\/(lib\/)?[^/]+\.mjs$/.test(path)),
   ].filter(path => !isTest.test(path));
 }
 

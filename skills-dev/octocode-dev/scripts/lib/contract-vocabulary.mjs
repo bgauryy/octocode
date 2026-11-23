@@ -97,7 +97,14 @@ function addConfigContract(vocabulary, config) {
   for (const [section, { fields = {} } = {}] of Object.entries(config?.sections ?? {})) {
     if (!section) continue;
     vocabulary.names.add(section);
-    for (const field of Object.keys(fields)) vocabulary.addChild(section, field);
+    for (const [field, { legacyPaths = [] } = {}] of Object.entries(fields)) {
+      vocabulary.addChild(section, field);
+      // A legacy `.octocoderc` path is declared too: the resolver still reads it.
+      for (const legacy of legacyPaths) {
+        const segments = legacy.split('.');
+        for (let index = 1; index < segments.length; index++) vocabulary.addChild(segments[index - 1], segments[index]);
+      }
+    }
   }
 }
 

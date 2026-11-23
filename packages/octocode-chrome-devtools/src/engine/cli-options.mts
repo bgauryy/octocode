@@ -124,6 +124,27 @@ function validateSelection(opts: CliOptions) {
     fail('--new-tab cannot combine with --target-type');
 }
 
+/**
+ * Connection options a raw `cdp` call adds when it names no page: scope browser attaches the browser
+ * itself, and scope auto falls back to it when no single tab is chosen, so browser-level methods
+ * never need a tab.
+ */
+export function cdpBrowserSelection(opts: CliOptions): CliOptions {
+  const pageChoice = [
+    '--target',
+    '--target-url',
+    '--new-tab',
+    '--group',
+    '--target-type',
+    '--browser',
+    '--stealth',
+  ].some(key => opts[key]);
+  if (pageChoice) return {};
+  const scope = optionValue(opts, '--scope') ?? 'auto';
+  if (scope === 'browser') return { '--browser': true };
+  return scope === 'auto' ? { '--browser-fallback': true } : {};
+}
+
 /** Validated connection options as runner arguments: strict target, no reload, tabs kept unless --close-tab. */
 export function runnerArgs(opts: CliOptions) {
   validateNumbers(opts);
@@ -132,6 +153,7 @@ export function runnerArgs(opts: CliOptions) {
     '--strict-target',
     '--no-reload',
     ...(opts['--close-tab'] ? [] : ['--keep-tab']),
+    ...(opts['--browser-fallback'] ? ['--browser-fallback'] : []),
   ];
   for (const key of [...commonValues, ...commonBooleans])
     if (

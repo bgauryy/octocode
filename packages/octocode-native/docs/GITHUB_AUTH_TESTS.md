@@ -47,7 +47,8 @@ An agent runs these by hand on the built CLI and MCP server, in a fresh `OCTOCOD
 synthetic tokens, judging each answer by reading it ([method](../../octocode-benchmark/CHECKS.md)).
 GitHub calls go to a loopback server (`GITHUB_API_URL`) that logs the `Authorization` header it receives.
 
-- [ ] Token precedence: set `GITHUB_TOKEN`, `GH_TOKEN`, a home `.env` and a workspace `.env` to different
+- [ ] Token precedence: set `GITHUB_TOKEN`, `GH_TOKEN`, the legacy `OCTOCODE_TOKEN` and
+  `GITHUB_PERSONAL_ACCESS_TOKEN`, a home `.env` and a workspace `.env` to different
   fake values, then remove them one at a time; the loopback log shows the value the configuration docs rank
   first, on CLI and MCP. `auth status` names the same source. The classification key reaches its loopback
   provider the same way.

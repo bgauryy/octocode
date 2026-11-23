@@ -28,6 +28,10 @@ pub(crate) struct Declaration {
     /// it (see `GraphFactDeclaration::return_type`).
     pub return_type: Option<String>,
     pub try_type: Option<String>,
+    /// A tuple return type's element types, and whether an `async fn` yields
+    /// these types from its future (see `GraphFactDeclaration`).
+    pub return_elements: Vec<Option<String>>,
+    pub asynchronous: bool,
     /// A data member of a function type (see
     /// `GraphFactDeclaration::function_typed`).
     pub function_typed: bool,

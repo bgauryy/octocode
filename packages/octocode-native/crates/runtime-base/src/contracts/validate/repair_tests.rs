@@ -1153,27 +1153,17 @@ fn the_example_keeps_the_rows_fields_its_form_example_leaves_out() {
     }
 }
 
-/// A cursor sent inside a query row is a whole request: the error says so,
-/// and the fields the row lacks as a query, which a cursor call never
-/// sends, are not named. A cursor beside rows is answered by the same rule
-/// first, before what the rows lack.
+/// A cursor sent as the one row of `queries` is read as the cursor call
+/// (a cursor is a whole request); a cursor beside rows is answered by the
+/// cursor-alone rule first, before what the rows lack.
 #[test]
 fn a_cursor_in_a_row_is_answered_by_the_cursor_alone_rule() {
     let in_row = json_fixture(r#"{"queries": [{"cursor": "cursor2.x"}]}"#);
     let beside = json_fixture(r#"{"queries": [{}], "cursor": "cursor2.x"}"#);
     for tool in ["localFetch", "localSearch", "ghSearchCode"] {
-        let (envelope, lines) = answered(tool, &in_row);
-        let error = envelope["error"].as_str().expect("error");
-        assert!(
-            error.contains(r#"{"cursor":"…"}"#) && error.contains(" alone"),
-            "{tool}: {envelope}"
-        );
-        assert!(
-            !lines
-                .iter()
-                .any(|line| line.contains("Missing required field")),
-            "{tool}: {envelope}"
-        );
+        let (read, notes) = crate::contracts::normalized_input(tool, in_row.clone());
+        assert_eq!(read, json_fixture(r#"{"cursor": "cursor2.x"}"#), "{tool}");
+        assert_eq!(notes.len(), 1, "{tool}: {notes:?}");
         let (envelope, _) = answered(tool, &beside);
         let error = envelope["error"].as_str().expect("error");
         assert!(

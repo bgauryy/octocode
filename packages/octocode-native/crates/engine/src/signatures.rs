@@ -87,7 +87,17 @@ pub(crate) mod receiver_fields;
 /// the identifiers written inside it (`names`).
 /// v36: a Rust file lists the bare type names it writes in type and
 /// struct-literal position (`typeNames`).
-pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 36;
+/// v37: a Rust macro invocation (`format!(..)`) is a call of kind `expands`,
+/// not `calls`: macros and functions are separate namespaces.
+/// v38: a call is cited at the name it calls first (its callee's name token, or a chain's head call), not at
+/// the first line of its expression.
+/// v39: the same in the JS/TS (oxc) lane and for a C `p->f()` call.
+/// v40: calls in `json!` values and `tokio`/`futures` `join!`/`try_join!`
+/// arguments are read.
+/// v41: an `async fn` records its return types (`asynchronous`), a tuple
+/// return its elements, and a receiver call whether it is awaited and which
+/// tuple element a destructuring `let` takes.
+pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 41;
 
 /// The declaration kinds an `extends`/`implements` clause can name or
 /// declare: the nodes of a type hierarchy. One list for the graph's linking

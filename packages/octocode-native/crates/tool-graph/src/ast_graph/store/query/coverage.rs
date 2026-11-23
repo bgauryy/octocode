@@ -38,6 +38,15 @@ impl Graph {
         }
     }
 
+    /// What the snapshot's call edges rest on: syntax facts, plus a SCIP
+    /// index when the build had one.
+    fn call_basis(&self) -> &'static str {
+        match self.manifest["scip"] == "indexed" {
+            true => "syntax+scip",
+            false => "syntax",
+        }
+    }
+
     /// One language's call coverage; a node of no source language (a
     /// package) names none.
     fn language_coverage(&self, language: &str) -> Value {
@@ -46,7 +55,7 @@ impl Graph {
             Some(false) => "unsupported",
             None => "notAssessed",
         };
-        let mut coverage = json!({"basis": "syntax", "callExtraction":extraction});
+        let mut coverage = json!({"basis": self.call_basis(), "callExtraction":extraction});
         if !language.is_empty() {
             coverage["language"] = json!(language);
         }
@@ -105,7 +114,7 @@ impl Graph {
         } else {
             "notAssessed"
         };
-        let mut coverage = json!({"basis":"syntax", "callExtraction":extraction});
+        let mut coverage = json!({"basis": self.call_basis(), "callExtraction":extraction});
         if extraction != "supported" {
             coverage["warning"] = json!(format!(
                 "{scope} Recorded call extraction: supported=[{}]; unsupported=[{}]; notAssessed=[{}]. Linkage describes only extracted syntax call sites, not semantic recall. Empty results do not establish absence where extraction is unsupported or not assessed.",

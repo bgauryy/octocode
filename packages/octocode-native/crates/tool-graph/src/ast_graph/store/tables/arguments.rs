@@ -261,6 +261,7 @@ impl Projector<'_> {
                     callee: self.strings.id(target),
                     line: result.line,
                     reason: self.strings.id(result.detail),
+                    receiver_type: NONE,
                 });
             } else {
                 for dst in result.targets {

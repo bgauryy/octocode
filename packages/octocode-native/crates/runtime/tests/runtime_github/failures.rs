@@ -24,8 +24,8 @@ async fn malformed_remote_regex_keeps_the_original_error() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     for patterns in [
-        json_fixture(r#"["("]"#),
-        json_fixture(r#"["^example", "source("]"#),
+        json_fixture(r#"["(?:x"]"#),
+        json_fixture(r#"["^example", "[z-a]"]"#),
     ] {
         let out = call(&runtime, "ghGetFileContent", json!({"owner":"a","repo":"b","path":"README.md","ref":sha,"matchString":patterns,"regexEngine":"rust"})).await.expect("error row");
         assert_eq!(row_status(&out), "error");
@@ -42,6 +42,26 @@ async fn malformed_remote_regex_keeps_the_original_error() {
             checks::leads(data).is_empty(),
             "invalid patterns have no guessed repair: {data}"
         );
+    }
+    // A bracket that pairs with nothing reads as text, and the call says so;
+    // a miss then names no lead the row lacks (the support checks hold it).
+    for (patterns, status, read) in [
+        (
+            json!(["^example", "source("]),
+            "success",
+            "matchString[1] as `source\\(`",
+        ),
+        (json!(["("]), "empty", "matchString[0] as `\\(`"),
+    ] {
+        let out = call(&runtime, "ghGetFileContent", json!({"owner":"a","repo":"b","path":"README.md","ref":sha,"matchString":patterns,"regexEngine":"rust"})).await.expect("runs");
+        assert_eq!(row_status(&out), status, "{}", out.structured_content);
+        let said = out.structured_content["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|warning| warning.as_str())
+            .any(|warning| warning.starts_with("read ") && warning.contains(read));
+        assert!(said, "{}", out.structured_content);
     }
     runtime.close().await;
 }

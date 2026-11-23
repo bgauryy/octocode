@@ -404,10 +404,10 @@ __metadata:
 
 "@octocodeai/octocode-core@file:../octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
   version: 21.4.1
-  resolution: "@octocodeai/octocode-core@file:../octocode-mcp-host/packages/octocode-core#../octocode-mcp-host/packages/octocode-core::hash=0f3807&locator=octocode-monorepo%40workspace%3A."
+  resolution: "@octocodeai/octocode-core@file:../octocode-mcp-host/packages/octocode-core#../octocode-mcp-host/packages/octocode-core::hash=2a758d&locator=octocode-monorepo%40workspace%3A."
   dependencies:
     zod: "npm:^4.6.2"
-  checksum: 10c0/a112886bd62461fa0b5f55ac3b91ab3afba2de953d6eeab5e8f0d84eb5d7800882cd41b2631157cae8c25356932f453bb3a432d47f358a0ffd81a61e3a5efade
+  checksum: 10c0/ec57d663c9f45567e2df143a99ce7ab5282bef87b4e7251b77c1cb7abb7a538a81e6727a071643dd97492531066fa2eda3969df0065e66425036c8317f9298f9
   languageName: node
   linkType: hard
 
@@ -427,9 +427,6 @@ __metadata:
     prettier: "npm:^3.9.10"
   bin:
     octocode-graph: bin/octocode-graph.mjs
-    octocode-graph-build: dist/runtime/build.mjs
-    octocode-graph-query: dist/runtime/query.mjs
-    octocode-graph-serve: dist/runtime/serve.mjs
   languageName: unknown
   linkType: soft
 

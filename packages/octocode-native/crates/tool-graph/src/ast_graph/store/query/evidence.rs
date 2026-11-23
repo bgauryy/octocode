@@ -286,6 +286,11 @@ impl Query<'_> {
             "path": file,
             "line": site.line, "reason": reason,
         });
+        // The receiver's spelled type lets a reader bind the call across
+        // scopes (a parameter typed by another package's type).
+        if site.receiver_type != NONE {
+            row["receiverType"] = json!(text(site.receiver_type)?);
+        }
         let shown = Graph::shows_provenance(&self.g.t.nodes[file_node as usize]);
         if shown {
             let source_digest = text(site.provenance.source_digest)?;

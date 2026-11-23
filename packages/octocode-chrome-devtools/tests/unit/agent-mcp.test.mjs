@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, renameSync, writeFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
@@ -114,22 +114,27 @@ test('success text is the one-line compact reply itself; failure text leads with
     assert.equal(Object.keys(body)[0], 'summary');
   }));
 test('flow save takes an opaque plan and the engine validates it before writing anything', async () =>
-  fixture(async ({ client, cwd }) => {
-    const flow = (await client.listTools()).tools.find(t => t.name === 'flow');
-    assert.equal(flow.inputSchema.properties.plan.type, 'object');
-    assert.equal(flow.inputSchema.properties.plan.properties, undefined);
-    for (const plan of [{ steps: [] }, { steps: [{ op: 'nope' }] }]) {
-      const result = await client.callTool({
-        name: 'flow',
-        arguments: { action: 'save', name: 'junk', plan },
-      });
-      assert.equal(result.isError, true, JSON.stringify(plan));
-    }
-    assert.equal(
-      existsSync(join(cwd, '.octocode/octocode-chrome-devtools/flows')),
-      false
-    );
-  }));
+  fixture(
+    async ({ client, cwd }) => {
+      const flow = (await client.listTools()).tools.find(
+        t => t.name === 'flow'
+      );
+      assert.equal(flow.inputSchema.properties.plan.type, 'object');
+      assert.equal(flow.inputSchema.properties.plan.properties, undefined);
+      for (const plan of [{ steps: [] }, { steps: [{ op: 'nope' }] }]) {
+        const result = await client.callTool({
+          name: 'flow',
+          arguments: { action: 'save', name: 'junk', plan },
+        });
+        assert.equal(result.isError, true, JSON.stringify(plan));
+      }
+      assert.equal(
+        existsSync(join(cwd, '.octocode/octocode-chrome-devtools/flows')),
+        false
+      );
+    },
+    { full: true }
+  ));
 test('typed CLI help is standalone and creates no workspace state', async () =>
   fixture(async ({ cwd, skill }) => {
     const help = typedCli(skill, ['run', '--help', '--json'], { cwd });
@@ -221,9 +226,26 @@ test('MCP-to-CLI discovery and success retain structure; MCP failures retain evi
     assert.equal(data(failure).exitCode, 2);
     assert.match(data(failure).error, /earlier listener/);
   }));
+test('bare schema answers inline with names to drill into, no second call', async () =>
+  fixture(async ({ client }) => {
+    const result = data(
+      await client.callTool({ name: 'schema', arguments: {} })
+    );
+    assert.equal(result.next, undefined);
+    const index = result.data;
+    assert(index.commands.includes('run'));
+    assert(index.plan.operations.extract);
+    assert(index.checks.length > 0);
+  }));
 test('large MCP output is bounded and its continuation reconstructs every byte', async () =>
-  fixture(async ({ client, cwd }) => {
-    // The default schema document is the largest browser-free engine output.
+  fixture(async ({ client, cwd, skill }) => {
+    // schema prints an output well past the inline limit; the reads that page it run the real engine.
+    const engine = join(skill, 'dist/engine');
+    renameSync(join(engine, 'cli.mjs'), join(engine, 'cli-real.mjs'));
+    writeFileSync(
+      join(engine, 'cli.mjs'),
+      "if (process.argv[2] === 'schema') console.log(JSON.stringify({ rows: Array.from({ length: 4000 }, (_, i) => 'row ' + i) }, null, 2)); else await import('./cli-real.mjs');"
+    );
     const result = data(
       await client.callTool({ name: 'schema', arguments: {} })
     );
@@ -305,8 +327,9 @@ test('research preset exports exactly the research registry with typed filters a
       tools.find(tool => tool.name === 'query').inputSchema.properties.where
     );
     assert(
-      tools.find(tool => tool.name === 'artifact').inputSchema.properties.file
+      tools.find(tool => tool.name === 'query').inputSchema.properties.offset
     );
+    assert(!names.includes('artifact') && !names.includes('flow'));
     assert.deepEqual(
       spec.commands.map(command => command.name),
       Object.keys(chromeCommands)

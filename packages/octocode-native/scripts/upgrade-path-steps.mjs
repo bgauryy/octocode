@@ -195,7 +195,7 @@ async function mcpUpgradePhase(ctx, run, oldSession) {
     const rc = !result.names.includes('ghSearchRepo');
     return { ok: result.ok && rc, note: `${result.note}; .octocoderc tools.disabled ${rc ? 'applied' : 'NOT applied'}` };
   });
-  await step('mcp.legacy.settings', `${to} with ${fromMcp}-era settings: honored or reported`, () => legacySettings(ctx, mcp), { required: false });
+  await step('mcp.legacy.settings', `${to} with ${fromMcp}-era settings: legacy names honored, removed ones reported`, () => legacySettings(ctx, mcp), { required: false });
 }
 
 /** Path 3: global installs with a temp prefix, and npx. */

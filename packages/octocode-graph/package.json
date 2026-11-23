@@ -7,17 +7,11 @@
   "engines": {
     "node": "^24.15.0"
   },
-  "bin": {
-    "octocode-graph": "bin/octocode-graph.mjs",
-    "octocode-graph-build": "dist/runtime/build.mjs",
-    "octocode-graph-query": "dist/runtime/query.mjs",
-    "octocode-graph-serve": "dist/runtime/serve.mjs"
-  },
+  "bin": "bin/octocode-graph.mjs",
   "imports": {
     "#graph-browser/*": "./dist/browser/*",
     "#graph-assets/*": "./dist/assets/*",
-    "#graph-core/*": "./dist/*.js",
-    "#graph-runtime/*": "./dist/runtime/*.mjs"
+    "#graph-runtime/*": "./dist/runtime/*.js"
   },
   "exports": {
     ".": {
@@ -53,11 +47,12 @@
     "lint:own": "prettier --check \"src/**/*.ts\" \"scripts/**/*.{mjs,js}\" && node scripts/build.mjs --check-generated && node scripts/lint.mjs skills/octocode-graph",
     "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
     "lint": "yarn lint:own && yarn lint:oxlint",
-    "typecheck": "yarn run -T tsgo -p tsconfig.json",
+    "typecheck": "yarn run -T tsgo -p tsconfig.json && yarn run -T tsgo -p tsconfig.browser.json",
     "test:run": "node --test tests/*.test.mjs",
     "test": "yarn build && yarn test:run",
     "verify:own": "yarn build && yarn lint:own && yarn typecheck && yarn test:run",
-    "verify": "yarn verify:own && yarn lint:oxlint"
+    "verify": "yarn verify:own && yarn lint:oxlint",
+    "test:e2e": "yarn build && node scripts/e2e.mjs"
   },
   "dependencies": {
     "octocode": "20.2.0"

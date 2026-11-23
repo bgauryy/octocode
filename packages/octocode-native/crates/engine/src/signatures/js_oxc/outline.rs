@@ -238,6 +238,8 @@ fn flatten_symbols(
             prototype: false,
             return_type: None,
             try_type: None,
+            return_elements: Vec::new(),
+            asynchronous: false,
             function_typed: false,
         });
         if let Some(parent_id) = parent {

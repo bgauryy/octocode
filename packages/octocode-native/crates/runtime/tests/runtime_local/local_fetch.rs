@@ -142,6 +142,41 @@ async fn a_missing_path_carries_one_listing_and_no_hint_beside_it() {
     runtime.close().await;
 }
 
+/// A missing path that repeats a run of its folders (a row's path joined
+/// onto the folder it already names) reads the one path that exists without
+/// the repeat, and the row says how it was read; the read is named by the
+/// existing path.
+#[tokio::test]
+async fn a_path_with_a_repeated_folder_reads_the_one_that_exists() {
+    let workspace = Workspace::new();
+    workspace.write("w/src/a.md", "alpha\n");
+    let runtime = workspace.runtime(&[]);
+    let outcome = call(
+        &runtime,
+        "localFetch",
+        query_path(&workspace.workspace.join("w/w/src/a.md"), json!({})),
+    )
+    .await
+    .expect("read");
+    let data = row_data(&outcome);
+    assert!(data.get("errorCode").is_none(), "{data}");
+    assert!(
+        data["content"]
+            .as_str()
+            .is_some_and(|text| text.contains("alpha")),
+        "{data}"
+    );
+    assert_eq!(data["path"], "w/src/a.md", "{data}");
+    let said = data["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|warning| warning.as_str())
+        .any(|warning| warning.starts_with("read path as w/src/a.md"));
+    assert!(said, "{data}");
+    runtime.close().await;
+}
+
 /// A long line's byte pages fit the row's share of the response page: all
 /// of it for one row, an equal share for each row of a batch
 /// (`read_share::row_window`), less the skeleton every page budget keeps. A

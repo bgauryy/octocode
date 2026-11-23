@@ -71,6 +71,43 @@ fn unfinished_patch_pages_open_with_a_per_file_summary() {
     assert_eq!(summary(json_fixture(r#"{"offset": 5}"#), Some(50)), None);
 }
 
+/// A file row beside the page's `fileSummary` states its patch, not its
+/// status or change counts again: the summary row for its path holds them.
+#[test]
+fn a_summarized_page_states_status_and_counts_once() {
+    let files = vec![
+        json!({"filename":"src/a.rs","status":"modified","additions":2,"deletions":1,"sha":"1",
+               "patch":"@@ -1,2 +1,3 @@ fn a\n x\n+y\n@@ -9 +10 @@\n-p\n+q"}),
+        json!({"filename":"src/c.rs","status":"added","additions":1,"deletions":0,"sha":"2",
+               "patch":"@@ -0,0 +1 @@\n+z"}),
+    ];
+    let mut query = patch_request(json!({}));
+    query.auto_page_chars = Some(50);
+    let mut row = json!({});
+    let mut pagination = Map::new();
+    shape_pr_files(
+        &mut row,
+        &mut pagination,
+        files,
+        WindowState::COMPLETE,
+        &query,
+        true,
+        None,
+    );
+    assert!(row.get("fileSummary").is_some(), "{row}");
+    let shown = row["files"].as_array().expect("file rows");
+    assert!(!shown.is_empty(), "{row}");
+    for file in shown {
+        assert!(file.get("path").is_some(), "{file}");
+        for repeated in ["status", "additions", "deletions"] {
+            assert!(
+                file.get(repeated).is_none(),
+                "{repeated} repeats the summary: {row}"
+            );
+        }
+    }
+}
+
 /// (PR microsoft/TypeScript#51387 file page 6 at a 40k page): a
 /// first window lists every patch-less file of its page (`omitted`,
 /// `tooLarge`, binary) as a metadata row beside the summary. Those rows

@@ -8,12 +8,17 @@
 //! - a text holding JSON of the declared type: that JSON value;
 //! - an enum literal in another letter case or separator style;
 //! - an integral float (`3.0`) where only an integer is declared: the integer;
+//! - a `[lower, upper]` pair where an object of two ordered fields is
+//!   declared (`x-order`): that object;
 //! - a member an object lacks, from the default its schema states;
-//! - a page size beside a cursor: the cursor alone.
+//! - a `matchString` item of a regex row that parses only with its unpaired
+//!   brackets read as text (`def route(`): those brackets escaped;
+//! - a page size beside a cursor, or a cursor as the one row of `queries`:
+//!   the cursor alone.
 //!
-//! Each is said in one warning naming the declared form on a row that then
-//! runs; a row that still fails is refused as read, for what is still wrong
-//! with it. None is applied to a call that bills. No field is
+//! A call says every reading in one warning that names each field and how
+//! it was read, on a row that then runs; a row that still fails is refused
+//! as read, for what is still wrong with it. None is applied to a call that bills. No field is
 //! read under another name, moved into another object or inferred: an
 //! undeclared field is refused, and the refusal names the declared one.
 
@@ -28,12 +33,12 @@ mod notes;
 pub use beside_cursor::{BesideCursor, read_beside_cursor};
 
 /// One lenient reading, said of the row it was made on (`None`: the
-/// request).
+/// request): the field and how it was read ([`notes::per_call`] joins them).
 type Note = (Option<usize>, String);
 
-/// `input` as the contract takes it, with one warning per lenient reading
-/// made (the module's list); otherwise unchanged, so validation names what
-/// is wrong with what was sent.
+/// `input` as the contract takes it, with one warning naming the lenient
+/// readings made (the module's list); otherwise unchanged, so validation
+/// names what is wrong with what was sent.
 pub fn normalized_input(tool_name: &str, input: Value) -> (Value, Vec<String>) {
     let Some(id) = ToolId::from_name(tool_name) else {
         return (input, Vec::new());
@@ -55,7 +60,44 @@ pub fn normalized_input(tool_name: &str, input: Value) -> (Value, Vec<String>) {
         request
     };
     read_integral_floats(id, &mut request, &mut notes);
+    read_unpaired_brackets(&mut request, &mut notes);
     (request, notes::per_call(notes))
+}
+
+/// Each regex row's `matchString` item that does not compile, but does with
+/// its unpaired brackets read as text
+/// ([`with_unpaired_as_text`](octocode_engine::search::text_pattern::with_unpaired_as_text)):
+/// that reading, said of the item. A literal row has no regex to read.
+fn read_unpaired_brackets(request: &mut Value, notes: &mut Vec<Note>) {
+    use octocode_engine::search::text_pattern::{validate_text_pattern, with_unpaired_as_text};
+    let Some(rows) = request.get_mut("queries").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for (index, row) in rows.iter_mut().enumerate() {
+        let pcre2 = match row.get("regexEngine").and_then(Value::as_str) {
+            Some("rust") => false,
+            Some("pcre2") => true,
+            _ => continue,
+        };
+        let Some(items) = row.get_mut("matchString").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for (at, item) in items.iter_mut().enumerate() {
+            let Some(text) = item.as_str() else {
+                continue;
+            };
+            if validate_text_pattern(text, false, pcre2).valid {
+                continue;
+            }
+            let Some(read) = with_unpaired_as_text(text)
+                .filter(|read| validate_text_pattern(read, false, pcre2).valid)
+            else {
+                continue;
+            };
+            notes.push((Some(index), format!("matchString[{at}] as `{read}`")));
+            *item = Value::String(read);
+        }
+    }
 }
 
 /// Each row's integral floats where an integer is declared
@@ -87,10 +129,7 @@ fn shaped(id: ToolId, input: Value, notes: &mut Vec<Note>) -> Value {
         Value::Array(rows) if !rows.is_empty() && rows.iter().all(Value::is_object) => {
             let mut request = Map::new();
             request.insert("queries".to_owned(), Value::Array(rows));
-            notes.push((
-                None,
-                "read the bare list as query rows; send {\"queries\":[…]} next time.".to_owned(),
-            ));
+            notes.push((None, "bare list as {\"queries\":[…]}".to_owned()));
             request
         }
         Value::Object(request) => request,
@@ -106,7 +145,7 @@ fn shaped(id: ToolId, input: Value, notes: &mut Vec<Note>) -> Value {
         };
         if let Some(rows) = rows {
             *queries = rows;
-            notes.push((None, "read `queries` as an array of query rows; send `queries` as a JSON array of objects, not an object or a string holding JSON, next time.".to_owned()));
+            notes.push((None, "queries as an array of rows".to_owned()));
         }
     } else if request.contains_key("cursor") {
         // A cursor call is the cursor alone ([`cursor_alone`] has dropped a
@@ -128,7 +167,7 @@ fn shaped(id: ToolId, input: Value, notes: &mut Vec<Note>) -> Value {
         }
         request = envelope;
         request.insert("queries".to_owned(), Value::Array(vec![Value::Object(row)]));
-        notes.push((None, "read the bare query fields as one row; send {\"queries\":[{…}]} with request fields beside `queries` next time.".to_owned()));
+        notes.push((None, "bare fields as {\"queries\":[{…}]}".to_owned()));
     }
     Value::Object(request)
 }
@@ -236,12 +275,7 @@ fn read_value(query: &Value, input: &mut Value, issue: &ValidationIssue) -> Opti
     if *slot != *received {
         return None;
     }
-    let label = notes::label(below_row(&issue.path));
-    let note = format!(
-        "read `{label}: {}` as `{label}: {meant}`; send `{label}: {meant}` next time.",
-        sketch(received),
-        meant = sketch(&meant),
-    );
+    let note = notes::reading(&notes::label(below_row(&issue.path)), received, &meant);
     *slot = meant;
     Some(note)
 }
@@ -289,9 +323,9 @@ fn fill_default(query: &Value, input: &mut Value, issue: &ValidationIssue) -> Op
     }
     holder.insert(member.clone(), default.clone());
     let label = within.join(".");
-    let filled = sketch(&Value::Object(holder.clone()));
     Some(format!(
-        "read `{label}` without `{member}` as `{label}: {filled}`, its default there; send `{label}: {filled}` next time."
+        "{label}.{member}: {}, its default",
+        sketch(default)
     ))
 }
 
@@ -310,6 +344,14 @@ fn cursor_alone(input: Value) -> (Value, Option<String>) {
         Value::Object(request) => request,
         other => return (other, None),
     };
+    // A cursor sent in the one row of `queries` is the cursor call: a cursor
+    // is a whole request, never a query field. The row's other fields stand
+    // beside it, read against the query the cursor restores
+    // ([`read_beside_cursor`]).
+    if let Some(lifted) = row_cursor(&request) {
+        let note = "read queries[0].cursor as {\"cursor\":\"…\"} alone".to_owned();
+        return (Value::Object(lifted), Some(note));
+    }
     let only_size_beside =
         request.contains_key("cursor") && request.len() == 2 && request.contains_key(PAGE_SIZE);
     if !only_size_beside {
@@ -320,6 +362,17 @@ fn cursor_alone(input: Value) -> (Value, Option<String>) {
         "`{PAGE_SIZE}` beside `cursor` was not applied: a cursor keeps the page size it was issued with; send {{\"cursor\":\"…\"}} alone, and `{PAGE_SIZE}` with queries in a new request."
     );
     (Value::Object(request), Some(note))
+}
+
+/// A request whose only field is `queries` holding one row with a text
+/// `cursor`, as the cursor request: the cursor and the row's other fields
+/// beside it.
+fn row_cursor(request: &Map<String, Value>) -> Option<Map<String, Value>> {
+    let [row] = request.get("queries")?.as_array()?.as_slice() else {
+        return None;
+    };
+    let row = row.as_object()?;
+    (request.len() == 1 && row.get("cursor").is_some_and(Value::is_string)).then(|| row.clone())
 }
 
 /// Longest text a note quotes whole; a longer one keeps its two ends.

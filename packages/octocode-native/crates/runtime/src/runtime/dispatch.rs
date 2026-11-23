@@ -20,6 +20,9 @@ pub(super) struct LocalEnv<'a> {
     pub memory_only: bool,
     /// `local.graphHome`: the graph snapshot home in place of the workspace's.
     pub graph_home: Option<&'a std::path::Path>,
+    /// Language-server discovery settings: where a graph build reads the
+    /// user's consent to a SCIP index.
+    pub lsp: Option<&'a octocode_engine::lsp::config::LspDiscoveryOptions>,
     pub paths: &'a PathPolicy,
     pub security: &'a ContentSecurity,
     pub cargo: Option<&'a str>,
@@ -40,6 +43,7 @@ pub(super) fn execute_local(
     let &LocalEnv {
         memory_only,
         graph_home,
+        lsp,
         paths,
         security,
         clasify,
@@ -68,6 +72,7 @@ pub(super) fn execute_local(
                 &octocode_tool_graph::ast_graph::store::tools::Store {
                     memory_only,
                     home: graph_home,
+                    lsp,
                 },
             )
         }

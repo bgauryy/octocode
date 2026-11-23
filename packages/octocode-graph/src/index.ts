@@ -1,4 +1,4 @@
-import { octocode } from './runtime/lib.mjs';
+import { octocode } from './runtime/lib.ts';
 
 import type {
   GraphBuildInput,
@@ -12,7 +12,39 @@ export type {
   GraphQueryInput,
   GraphQueryOutput,
 } from './contract.generated.js';
-export { startMcp } from './mcp.js';
+export { startMcp } from './mcp.ts';
+// Saved graphs: build one with the native engine, refresh it after edits, open it and ask it questions, diff two.
+export {
+  buildGraph,
+  openGraph,
+  previousGraph,
+  refreshGraph,
+} from './runtime/api.ts';
+export type {
+  BuildOptions,
+  BuildSummary,
+  RefreshOptions,
+  RefreshSummary,
+  SavedGraph,
+} from './runtime/api.ts';
+export { formatResult, runQuery } from './runtime/query-api.ts';
+export type { QueryData, QueryResult } from './runtime/query-api.ts';
+export { diffGraphs, formatDiff } from './runtime/diff.ts';
+export type { GraphDiff } from './runtime/diff.ts';
+export {
+  LinkRefused,
+  proposeLink,
+  readProposed,
+  removeLink,
+  reviewLink,
+} from './runtime/links-proposed.ts';
+export type {
+  Anchor,
+  LinkProposal,
+  ProposedLink,
+  Refusal,
+} from './runtime/links-proposed.ts';
+export type { Link, UnresolvedLink } from './runtime/types.ts';
 
 /** The native engine validates the input and preserves the full response envelope. */
 export function graphBuild(input: GraphBuildInput): Promise<GraphBuildOutput> {

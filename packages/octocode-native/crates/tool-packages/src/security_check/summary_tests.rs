@@ -118,15 +118,24 @@ fn the_indication_counts_live_advisories_and_links_the_most_severe() {
     target.unfixed_in_major = 2;
     let lean = apply(SecurityCheckView::Summary, row, target);
     assert_eq!(lean["advisoryCount"], 4, "{lean}");
-    assert_eq!(
-        lean["advisoryIds"],
-        json!(["LOW", "WORDLESS", "HIGH"]),
-        "{lean}"
+    let ids = lean["advisories"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|row| row["id"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, ["LOW", "WORDLESS", "HIGH"], "{lean}");
+    assert!(
+        lean["advisories"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .all(|row| row.get("link").is_none()),
+        "a link the id derives is not restated: {lean}"
     );
     assert_eq!(lean["highestSeverity"], "high");
     assert_eq!(lean["unfixedInMajorCount"], 2);
     assert_eq!(lean["link"], "https://osv.dev/vulnerability/HIGH");
-    assert!(lean.get("advisories").is_none(), "{lean}");
     // None listed: the count says so, and nothing is linked.
     let none = apply(
         SecurityCheckView::Summary,
@@ -135,7 +144,7 @@ fn the_indication_counts_live_advisories_and_links_the_most_severe() {
     );
     assert_eq!(none["advisoryCount"], 0, "{none}");
     for absent in [
-        "advisoryIds",
+        "advisories",
         "highestSeverity",
         "link",
         "unfixedInMajorCount",
@@ -149,7 +158,7 @@ fn the_indication_counts_live_advisories_and_links_the_most_severe() {
         self::target(package()),
     );
     assert!(unfinished.get("advisoryCount").is_none(), "{unfinished}");
-    assert!(unfinished.get("advisoryIds").is_none(), "{unfinished}");
+    assert!(unfinished.get("advisories").is_none(), "{unfinished}");
 }
 
 /// The sentence stays only where no field says it: a row with no verdict,
@@ -298,7 +307,7 @@ fn a_version_not_evaluated_counts_no_advisory_as_its_own() {
     let lean = apply(SecurityCheckView::Summary, row.clone(), asked);
     for absent in [
         "advisoryCount",
-        "advisoryIds",
+        "advisories",
         "highestSeverity",
         "link",
         "unfixedInMajorCount",

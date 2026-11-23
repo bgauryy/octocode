@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { bindCalls, chunkOf, packageKey, resolveImport, resolveRustPath, stitch } from '../src/runtime/stitch.mjs';
+import { bindCalls, chunkOf, packageKey, resolveImport, resolveRustPath, stitch } from '../src/runtime/stitch.ts';
 import { tempDir } from './test-tmp.mjs';
 
 const has = (p) => ['lib/a.ts', 'lib/b/index.js', 'c.mjs'].includes(p);
@@ -67,9 +67,48 @@ test('calls between chunks bind exact imported names only; members, unimported a
   ]);
   const cross = [{ source: 'app/m.ts', target: 'lib/a.ts', via: 'relative', sourceChunk: 'app', targetChunk: 'lib' }];
   const rows = bindCalls({ chunks, datas, cross });
-  assert.deepEqual(rows.map((e) => [e.target, e.confidence, e.resolution[0], e.count]), [
-    ['lib/a.ts#run', 'medium', 'stitched-import', 2],
+  assert.deepEqual(rows.map((e) => [e.target, e.confidence, e.resolution.join(' '), e.count]), [
+    ['lib/a.ts#run', 'medium', 'stitched-import import', 2],
   ]);
+});
+
+test('macros and functions are separate namespaces: `name!` binds only a macro, `name(..)` only a function', () => {
+  const chunks = [{ id: 'lib', path: 'lib' }, { id: 'app', path: 'app' }];
+  // lib/a.rs declares a macro `emit` and a function `emit`; b.rs only a function `log`; c.rs only a macro `trace`.
+  const datas = new Map([
+    ['lib', { declarations: [
+      { ...decl('a.rs', 'emit'), id: 'a.rs#emit@3', kind: 'macro' }, { ...decl('a.rs', 'emit'), kind: 'function' },
+      { ...decl('b.rs', 'log'), kind: 'function' }, { ...decl('c.rs', 'trace'), kind: 'macro' },
+    ] }],
+    ['app', { declarations: [decl('m.rs', 'main')], unresolvedCalls: [
+      { from: 'm.rs#main', file: 'm.rs', targetName: 'emit!', line: 3 },
+      { from: 'm.rs#main', file: 'm.rs', targetName: 'emit', line: 4 },
+      { from: 'm.rs#main', file: 'm.rs', targetName: 'log!', line: 5 },
+      { from: 'm.rs#main', file: 'm.rs', targetName: 'trace', line: 6 },
+    ].map((u) => ({ ...u, reason: 'not-declared-in-repo' })) }],
+  ]);
+  const cross = ['a.rs', 'b.rs', 'c.rs'].map((f) => ({ source: 'app/m.rs', target: `lib/${f}`, via: 'crate-path', sourceChunk: 'app', targetChunk: 'lib' }));
+  const rows = bindCalls({ chunks, datas, cross });
+  assert.deepEqual(rows.map((e) => [e.target, e.lines]).sort(), [['lib/a.rs#emit', [4]], ['lib/a.rs#emit@3', [3]]]);
+});
+
+test('a re-exported name binds through one import of the module file, only to an exported declaration', () => {
+  const chunks = [{ id: 'lib', path: 'lib' }, { id: 'app', path: 'app' }];
+  // config.rs re-exports edit.rs#read; helper.rs, which config.rs also imports, has a private `secret`.
+  const datas = new Map([
+    ['lib', { declarations: [{ ...decl('edit.rs', 'read'), exported: true }, { ...decl('helper.rs', 'secret'), exported: false }], imports: [{ source: 'config.rs', target: 'edit.rs' }, { source: 'config.rs', target: 'helper.rs' }] }],
+    ['app', { declarations: [decl('m.rs', 'main')], unresolvedCalls: [
+      // A call whose result is chained is recorded as the whole chain; its first callee is the call at that line.
+      { from: 'm.rs#main', file: 'm.rs', targetName: 'read().map_err().and_then', line: 3 },
+      { from: 'm.rs#main', file: 'm.rs', targetName: 'read().map_err', line: 3 },
+      { from: 'm.rs#main', file: 'm.rs', targetName: 'read', line: 9 },
+      { from: 'm.rs#main', file: 'm.rs', targetName: 'secret', line: 5 },
+      { from: 'm.rs#main', file: 'm.rs', targetName: 'x.read().y', line: 6 },
+    ].map((u) => ({ ...u, reason: 'not-declared-in-repo' })) }],
+  ]);
+  const cross = [{ source: 'app/m.rs', target: 'lib/config.rs', via: 'crate-path', sourceChunk: 'app', targetChunk: 'lib' }];
+  const rows = bindCalls({ chunks, datas, cross });
+  assert.deepEqual(rows.map((e) => [e.target, e.lines, e.count]), [['lib/edit.rs#read', [3, 9], 2]]);
 });
 
 test('rust crate, super and self paths resolve to the deepest module file', () => {
@@ -177,4 +216,114 @@ test('test-only cross-chunk imports keep a boundary hub eligible for LSP without
   const target = `lib/${libraries.at(-1)}`;
   assert.equal(whole.files.find(f => f.id === target).fanIn, 0);
   assert.ok(whole.hubFiles.includes(target));
+});
+
+test('an import that did not link binds through the caller\'s own module, a Type::member binds the member, the own file wins, two matches bind nothing', () => {
+  const chunks = [{ id: 'base', path: 'base' }, { id: 'app', path: 'app' }];
+  const datas = new Map([
+    ['base', { declarations: [
+      { ...decl('result.rs', 'Continuation.related_input'), kind: 'method', exported: true },
+      { ...decl('config.rs', 'read_private_config'), exported: true },
+      { ...decl('cut.rs', 'cut'), exported: true },
+      { ...decl('a.rs', 'dup'), exported: true }, { ...decl('b.rs', 'dup'), exported: true },
+    ] }],
+    ['app', {
+      declarations: [decl('trust.rs', 'listed'), decl('cfg.rs', 'load'), decl('cuts.rs', 'cut'), decl('cuts.rs', 'probe')],
+      // trust.rs reaches base through `crate::cfg`, a module of its own chunk that re-exports base's config.
+      imports: [{ source: 'trust.rs', target: 'cfg.rs' }],
+      unresolvedCalls: [
+        { from: 'trust.rs#listed', file: 'trust.rs', targetName: 'Continuation::related_input', line: 515, reason: 'other' },
+        { from: 'trust.rs#listed', file: 'trust.rs', targetName: 'read_private_config', line: 20, reason: 'other' },
+        { from: 'cuts.rs#probe', file: 'cuts.rs', targetName: 'cut', line: 91, reason: 'other' },
+        { from: 'trust.rs#listed', file: 'trust.rs', targetName: 'dup', line: 30, reason: 'ambiguous' },
+        { from: 'trust.rs#listed', file: 'trust.rs', targetName: 'client.related_input', line: 31, reason: 'other' },
+        // A name nothing imported (a macro such as `format!`) never binds through the caller's own modules.
+        { from: 'trust.rs#listed', file: 'trust.rs', targetName: 'read_private_config', line: 40, reason: 'not-declared-in-repo' },
+      ],
+    }],
+  ]);
+  const cross = [
+    { source: 'app/trust.rs', target: 'base/result.rs', via: 'crate-path', sourceChunk: 'app', targetChunk: 'base' },
+    { source: 'app/trust.rs', target: 'base/a.rs', via: 'crate-path', sourceChunk: 'app', targetChunk: 'base' },
+    { source: 'app/trust.rs', target: 'base/b.rs', via: 'crate-path', sourceChunk: 'app', targetChunk: 'base' },
+    { source: 'app/cfg.rs', target: 'base/config.rs', via: 'crate-path', sourceChunk: 'app', targetChunk: 'base' },
+    { source: 'app/cuts.rs', target: 'base/cut.rs', via: 'crate-path', sourceChunk: 'app', targetChunk: 'base' },
+  ];
+  const rows = bindCalls({ chunks, datas, cross });
+  assert.deepEqual(rows.map((e) => [e.source, e.target, e.lines, e.resolution[1]]).toSorted(), [
+    ['app/trust.rs#listed', 'base/config.rs#read_private_config', [20], 'own-module'],
+    ['app/trust.rs#listed', 'base/result.rs#Continuation.related_input', [515], 'import'],
+  ]);
+});
+
+test('a workspace crate path binds its item or its Type::member', () => {
+  const chunks = [{ id: 'base', path: 'base' }, { id: 'app', path: 'app' }];
+  const datas = new Map([
+    ['base', { declarations: [{ ...decl('memo.rs', 'fresh'), exported: true }, { ...decl('memo.rs', 'Memo.new'), kind: 'method', exported: true }] }],
+    ['app', { declarations: [decl('m.rs', 'main')], unresolvedCalls: [
+      { from: 'm.rs#main', file: 'm.rs', targetName: 'base_io::memo::fresh', line: 3, reason: 'other' },
+      { from: 'm.rs#main', file: 'm.rs', targetName: 'base_io::memo::Memo::new', line: 4, reason: 'constructor-target-unavailable' },
+    ] }],
+  ]);
+  const crateItem = (path) => path.startsWith('base_io::memo::') ? { file: 'base/memo.rs', rest: path.split('::').slice(2) } : null;
+  const rows = bindCalls({ chunks, datas, cross: [], crateItem });
+  assert.deepEqual(rows.map((e) => [e.target, e.resolution[1]]).toSorted(), [['base/memo.rs#Memo.new', 'crate-path'], ['base/memo.rs#fresh', 'crate-path']]);
+});
+
+test('a receiver call typed by another crate binds the method of that type; a chain row keeps its head only', () => {
+  const chunks = [{ id: 'base', path: 'base' }, { id: 'app', path: 'app' }];
+  const datas = new Map([
+    ['base', { declarations: [{ ...decl('client.rs', 'Client.open'), kind: 'method', exported: true }, { ...decl('client.rs', 'Client.close'), kind: 'method', exported: true }] }],
+    ['app', { declarations: [decl('m.rs', 'main'), decl('m.rs', 'other')], unresolvedCalls: [
+      // `client: &base_io::client::Client` then `client.open(..)`: the engine reports the receiver's type as written.
+      { from: 'm.rs#main', file: 'm.rs', targetName: 'client.open', receiverType: 'base_io::client::Client', line: 3, reason: 'not-declared-in-repo' },
+      // A type that does not declare the method binds nothing; an Arc of it names Arc, which declares nothing here.
+      { from: 'm.rs#main', file: 'm.rs', targetName: 'client.flush', receiverType: 'base_io::client::Client', line: 4, reason: 'not-declared-in-repo' },
+      { from: 'm.rs#main', file: 'm.rs', targetName: 'shared.close', receiverType: 'Arc<base_io::client::Client>', line: 5, reason: 'not-declared-in-repo' },
+      // A chain row's receiver type is its outer receiver's, never the head call's.
+      { from: 'm.rs#other', file: 'm.rs', targetName: 'client.close().await.expect', receiverType: 'base_io::client::Client', line: 6, reason: 'not-declared-in-repo' },
+    ] }],
+  ]);
+  const crateItem = (path) => path.startsWith('base_io::client::') ? { file: 'base/client.rs', rest: path.split('::').slice(2) } : null;
+  const rows = bindCalls({ chunks, datas, cross: [], crateItem });
+  assert.deepEqual(rows.map((e) => [e.source, e.target, e.lines, e.resolution[1]]), [['app/m.rs#main', 'base/client.rs#Client.open', [3], 'crate-path']]);
+});
+
+test('a Rust type\'s member declared in another file of its crate binds, as an impl block anywhere in the crate is that type\'s', () => {
+  const chunks = [{ id: 'base', path: 'base' }, { id: 'app', path: 'app' }];
+  const datas = new Map([
+    // client.rs declares the type; client/sync.rs holds `impl Client { pub fn open_doc }`; two trait impls give fmt twice.
+    ['base', { declarations: [
+      { ...decl('client.rs', 'Client'), kind: 'struct', exported: true },
+      { ...decl('client/sync.rs', 'Client.open_doc'), kind: 'method', exported: true },
+      { ...decl('client/show.rs', 'Client.fmt'), kind: 'method', exported: true },
+      { ...decl('client/debug.rs', 'Client.fmt'), kind: 'method', exported: true },
+    ] }],
+    ['app', { declarations: [decl('m.rs', 'main')], unresolvedCalls: [
+      { from: 'm.rs#main', file: 'm.rs', targetName: 'client.open_doc', receiverType: 'base_io::client::Client', line: 3, reason: 'not-declared-in-repo' },
+      { from: 'm.rs#main', file: 'm.rs', targetName: 'client.fmt', receiverType: 'base_io::client::Client', line: 4, reason: 'not-declared-in-repo' },
+    ] }],
+  ]);
+  const crateItem = (path) => path.startsWith('base_io::client::') ? { file: 'base/client.rs', rest: path.split('::').slice(2) } : null;
+  const rows = bindCalls({ chunks, datas, cross: [], crateItem });
+  assert.deepEqual(rows.map((e) => [e.target, e.lines]), [['base/client/sync.rs#Client.open_doc', [3]]]);
+});
+
+test('an imported Rust type binds its member in another file of its crate; a type the import does not declare binds nothing', () => {
+  const chunks = [{ id: 'base', path: 'base' }, { id: 'app', path: 'app' }];
+  const datas = new Map([
+    ['base', { declarations: [
+      { ...decl('client.rs', 'Client'), kind: 'struct', exported: true },
+      { ...decl('client/sync.rs', 'Client.open_doc'), kind: 'method', exported: true },
+      { ...decl('other.rs', 'Other.open_doc'), kind: 'method', exported: true },
+    ] }],
+    // `use base_io::client::Client;` then `client: &Client` and `client.open_doc(..)`.
+    ['app', { declarations: [decl('m.rs', 'main')], unresolvedCalls: [
+      { from: 'm.rs#main', file: 'm.rs', targetName: 'client.open_doc', receiverType: 'Client', line: 3, reason: 'not-declared-in-repo' },
+      { from: 'm.rs#main', file: 'm.rs', targetName: 'other.open_doc', receiverType: 'Other', line: 4, reason: 'not-declared-in-repo' },
+    ] }],
+  ]);
+  const cross = [{ source: 'app/m.rs', target: 'base/client.rs', via: 'crate-path', sourceChunk: 'app', targetChunk: 'base' }];
+  const rows = bindCalls({ chunks, datas, cross });
+  assert.deepEqual(rows.map((e) => [e.target, e.lines, e.resolution[1]]), [['base/client/sync.rs#Client.open_doc', [3], 'import']]);
 });

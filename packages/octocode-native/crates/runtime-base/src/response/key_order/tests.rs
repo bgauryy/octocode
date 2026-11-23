@@ -361,3 +361,34 @@ fn leading_additions_append_and_anchored_additions_keep_their_place() {
         );
     }
 }
+
+/// A row's identity leads its data in the contract's reading order (each
+/// tool's own identity list keeps its order in it), and nothing else moves.
+#[test]
+fn a_rows_identity_leads_its_data_in_reading_order() {
+    let names = identity_names();
+    for tool in ToolId::ALL {
+        let contract = crate::contracts::tool_contract(tool).expect("contract");
+        let listed: Vec<usize> = contract["hoistPlan"]["batch"]["identity"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|pointer| pointer.as_str()?.strip_prefix("/data/"))
+            .filter_map(|name| names.iter().position(|known| known == name))
+            .collect();
+        assert!(
+            listed.windows(2).all(|pair| pair[0] < pair[1]),
+            "{tool:?}: {listed:?} in {names:?}"
+        );
+    }
+    let built = serde_json::json!({
+        "files": [{"path": "a"}], "commitSha": "c", "matchCount": 1, "root": "/r", "owner": "o"
+    });
+    let mut data = built.clone();
+    identity_first(&mut data);
+    assert_eq!(data, built, "the pass moves keys only");
+    assert_eq!(
+        keys(&data),
+        ["owner", "commitSha", "root", "files", "matchCount"]
+    );
+}

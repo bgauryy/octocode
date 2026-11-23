@@ -12,6 +12,8 @@ Run `octocode config list` from the directory where your agent starts Octocode. 
 
 **Settings precedence, highest first.** Process environment (including MCP’s `env`) → project `.env` → user `.env` → project `.octocoderc` → user `.octocoderc` → default. Each setting defines what a project may change. For example, a project can disable cloning. Enabling it requires user or process configuration. [Permissions by setting](#all-settings-and-defaults)
 
+**Legacy names.** A renamed setting still reads its old spelling, shown as `(legacy: …)` in the [settings table](#all-settings-and-defaults), from the same places under the same rules. Where one place sets both, the current name wins. `octocode config` names each legacy spelling it finds.
+
 Run `octocode config home` to locate your user settings. The Windows default is `%USERPROFILE%\.octocode`. Set `OCTOCODE_HOME` to use another directory directly. When the project and user settings are the same files, Octocode reads them once as user settings. [Storage and cleanup](STORAGE_AND_LIMITS.md)
 
 ## Set a value
@@ -54,7 +56,7 @@ MCP applies `tools.enabled` as an allowlist and gives `tools.disabled` priority.
 
 CLI and MCP check these sources in order for the configured host.
 
-Process token → workspace `.env` token → user `.env` token → saved Octocode login → OS credential store → GitHub CLI login → anonymous access where supported. Within one environment source, `GH_TOKEN` wins over `GITHUB_TOKEN`. So a process `GITHUB_TOKEN` wins over a project `GH_TOKEN`.
+Process token → workspace `.env` token → user `.env` token → saved Octocode login → OS credential store → GitHub CLI login → anonymous access where supported. Within one environment source the order is `GH_TOKEN`, legacy `OCTOCODE_TOKEN`, `GITHUB_TOKEN`, legacy `GITHUB_PERSONAL_ACCESS_TOKEN`. The source decides first, so a process `GITHUB_TOKEN` wins over a project `GH_TOKEN`.
 
 Run `octocode auth status --json` to see the selected host, account and `tokenSource`. [Token sources, Enterprise and recovery](AUTHENTICATION.md#github-token-resolution)
 
@@ -79,14 +81,14 @@ Set proxy and TLS variables in the shell, CI or MCP process environment. `SSL_CE
 | `.octocoderc` setting | Environment variable | Type | Default | Sensitive | Workspace may set | What it does |
 |---|---|---|---|---|---|---|
 | `github.apiUrl` | `GITHUB_API_URL` | url | `https://api.github.com` | no | no | GitHub REST API root. GitHub Enterprise commonly uses /api/v3. |
-| `local.enabled` | `OCTOCODE_ENABLE_LOCAL` | boolean | `true` | no | only `false` | Expose local filesystem tools through MCP. CLI tools remain available; path and content security apply on both surfaces. |
+| `local.enabled` | `OCTOCODE_ENABLE_LOCAL` (legacy: `ENABLE_LOCAL`) | boolean | `true` | no | only `false` | Expose local filesystem tools through MCP. CLI tools remain available; path and content security apply on both surfaces. |
 | `local.beta` | `OCTOCODE_BETA` | boolean | `false` | no | no | Enable beta tools on their owning MCP server. The octocode-graph launcher opts into its graph tools by default. Restart the server after changing its environment. |
 | `local.allowedPaths` | `ALLOWED_PATHS` | list | `[]` | no | no | Extra absolute or home-relative roots added to the allowed roots (workspace root and OCTOCODE_HOME). The environment value is a comma-separated list. |
 | `local.workspaceRoot` | `WORKSPACE_ROOT` | path | `the working directory` | no | no | Optional absolute or home-relative workspace root. |
 | `local.graphHome` | `OCTOCODE_GRAPH_HOME` | path | `<workspace>/.octocode/graph` | no | no | Directory in which graphBuild keeps its snapshots, in place of the workspace's .octocode/graph, shared by every workspace: a build then writes nothing in the repository and may scan any allowed directory, such as a ghCloneRepo checkout. Octocode creates the directory if needed and writes only in its own octocode-graph folder there, never reading or removing anything else; the setting grants local tools no read access to it. A build of a path that contains it is refused. Home-only, so a repository cannot choose where Octocode writes. |
 | `tools.enabled` | `TOOLS_TO_RUN` | list | `unset (every tool)` | no | yes | Strict MCP tool allowlist; other MCP prerequisites still apply. The CLI ignores this list. |
 | `tools.disabled` | `DISABLE_TOOLS` | list | `unset (none)` | no | yes | Tools removed from MCP discovery and admission. The CLI ignores this list. |
-| `tools.enableClone` | `OCTOCODE_ENABLE_CLONE` | boolean | `false` | no | only `false` | Expose ghCloneRepo through MCP. CLI remains available. Clone execution requires persistent storage on both surfaces. Restart MCP after changing this setting. |
+| `tools.enableClone` (legacy: `local.enableClone`) | `OCTOCODE_ENABLE_CLONE` (legacy: `ENABLE_CLONE`) | boolean | `false` | no | only `false` | Expose ghCloneRepo through MCP. CLI remains available. Clone execution requires persistent storage on both surfaces. Restart MCP after changing this setting. |
 | `tools.enableSecurityCheck` | `OCTOCODE_SECURITY_CHECKS` | boolean | `false` | no | only `false` | Expose securityCheck through MCP: it asks OSV (api.osv.dev, operated by Google) about packages, sending each public package name and version it checks. Off, MCP leaves it out and sends nothing. The CLI always offers it, and a CLI call sends the package name to OSV only when you run it. Restart MCP after changing this setting. Home-only, so a repository can turn it off for MCP but cannot turn it on. |
 | `network.allowPrivateRegistry` | `OCTOCODE_ALLOW_PRIVATE_REGISTRY` | boolean | `false` | no | no | Allow private, loopback, or link-local artifact registries. Security-sensitive SSRF escape hatch; opt in only for trusted enterprise registries. |
 | `lsp.autoInstall` | `OCTOCODE_LSP_AUTO_INSTALL` | prompt \| off \| auto | `prompt` | no | no | Whether `octocode lsp-server install` may download a managed language server: prompt (ask), off, or auto. |
@@ -107,8 +109,8 @@ Set proxy and TLS variables in the shell, CI or MCP process environment. `SSL_CE
 | — | `TAVILY_BASE_URL` | url | `https://api.tavily.com` | no | no | Tavily API root; receives TAVILY_API_KEY. Home-only, so a repository cannot redirect your key. |
 | — | `EXA_BASE_URL` | url | `https://api.exa.ai` | no | no | Exa API root; receives EXA_API_KEY. Home-only, so a repository cannot redirect your key. |
 | — | `SERPER_BASE_URL` | url | `https://google.serper.dev` | no | no | Serper API root; receives SERPER_API_KEY. Home-only, so a repository cannot redirect your key. |
-| — | `GH_TOKEN` | key | `unset (octocode auth login also works)` | yes | yes | GitHub CLI token |
-| — | `GITHUB_TOKEN` | key | `unset (octocode auth login also works)` | yes | yes | GitHub Actions token |
+| — | `GH_TOKEN` (legacy: `OCTOCODE_TOKEN`) | key | `unset (octocode auth login also works)` | yes | yes | GitHub CLI token |
+| — | `GITHUB_TOKEN` (legacy: `GITHUB_PERSONAL_ACCESS_TOKEN`) | key | `unset (octocode auth login also works)` | yes | yes | GitHub Actions token |
 | — | `SCRAPING_ANT` | key | `unset`; [get a key](https://app.scrapingant.com/) | yes | yes | ScrapingAnt API credential used by the octocode-scraping skill. |
 | — | `HTTPS_PROXY` | url | `unset` | yes | no | Proxy for HTTPS requests and clone git. Shell, CI or MCP env block only. |
 | — | `HTTP_PROXY` | url | `unset` | yes | no | Proxy for HTTP requests and clone git. Shell, CI or MCP env block only. |

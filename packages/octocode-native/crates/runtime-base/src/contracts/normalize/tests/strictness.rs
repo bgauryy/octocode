@@ -41,7 +41,7 @@ fn a_row_that_still_fails_is_refused_for_what_is_still_wrong() {
     assert_eq!(input["queries"][0]["undeclaredField"], 1);
     assert_eq!(input["queries"][1]["exclude"], json!(["target"]));
     assert!(
-        matches!(notes.as_slice(), [note] if note.starts_with("queries[1]: ")),
+        matches!(notes.as_slice(), [note] if note.starts_with("read queries[1]: ")),
         "{notes:?}"
     );
     let shown = refusal(ToolId::LocalSearch, &input).expect("row 0 is refused");

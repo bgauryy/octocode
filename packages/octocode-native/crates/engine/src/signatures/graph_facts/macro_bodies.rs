@@ -22,6 +22,8 @@ pub(super) struct MacroBody {
     pub(super) scope: Vec<String>,
     pub(super) container: Option<(String, String)>,
     pub(super) kind: MacroBodyKind,
+    /// The locals visible where the macro is invoked, for its calls' receivers.
+    pub(super) outer_locals: Vec<super::receiver::Binding>,
 }
 
 #[derive(Clone)]
@@ -162,8 +164,17 @@ fn visit_body(
         let mut included = body.range;
         included.end_byte += 1;
         included.end_point.column += 1;
+        let prefix = &content[..body.range.end_byte];
+        let shaped = matches!(
+            body.kind,
+            MacroBodyKind::Expression {
+                args: MacroArgs::Json,
+                ..
+            }
+        )
+        .then(|| super::rust_macro_args::json_shaped(prefix, body.range.start_byte));
         crate::signatures::extractor::parse_ranges_ending(
-            &content[..body.range.end_byte],
+            shaped.as_deref().unwrap_or(prefix),
             ";",
             language,
             &[included],
@@ -232,6 +243,7 @@ fn visit_body(
             deadline,
             &body.scope,
             body.container.as_ref(),
+            &body.outer_locals,
         )
     });
     let chain = std::mem::replace(&mut acc.macro_chain, outer_chain);
@@ -278,7 +290,7 @@ fn visit_body(
 fn arguments(root: Node<'_>, args: MacroArgs) -> Option<Node<'_>> {
     let group = root.named_child(0)?.named_child(0)?;
     match args {
-        MacroArgs::Forwarding => Some(group),
+        MacroArgs::Forwarding | MacroArgs::Json => Some(group),
         MacroArgs::Scrutinee if matches!(group.kind(), "tuple_expression" | "array_expression") => {
             group.named_child(0)
         }
@@ -342,5 +354,6 @@ pub(super) fn record_macro_body(
         scope: module_scope.to_vec(),
         container,
         kind,
+        outer_locals: Vec::new(),
     });
 }

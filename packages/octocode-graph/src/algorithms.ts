@@ -1,6 +1,6 @@
-import type { Graph, Neighbors } from './graph-model.js';
+import type { Graph, Neighbors } from './graph-model.ts';
 
-interface Components {
+export interface Components {
   comp: Int32Array;
   comps: number[][];
 }
@@ -54,6 +54,77 @@ export function scc(G: Graph): Components {
     }
   }
   return { comp, comps };
+}
+
+// The cycle groups of a graph, as test-utils/graph-algorithms/SPEC.md defines them: components of several nodes, or of
+// one node with an edge to itself; each as its members' indices in ascending id order; largest group first, then by
+// smallest member id.
+export function cycleGroups(G: Graph, { comps }: Components) {
+  const looped = (v: number) => {
+    for (let k = G.out.offsets[v]; k < G.out.offsets[v + 1]; k++)
+      if (G.out.targets[k] === v) return true;
+    return false;
+  };
+  const byId = (a: number, b: number) =>
+    G.ids[a] < G.ids[b] ? -1 : G.ids[a] > G.ids[b] ? 1 : 0;
+  return comps
+    .filter(m => m.length > 1 || looped(m[0]))
+    .map(m => m.toSorted(byId))
+    .toSorted((a, b) => b.length - a.length || byId(a[0], b[0]));
+}
+
+// The shortest cycle through `s` inside its component `members` (breadth-first from s until an edge returns to s). The
+// ring starts at s and lists each node once; ties resolve by neighbours in ascending id order, which the CSR holds.
+// null when s is on no cycle.
+export function shortestRing(G: Graph, s: number, members: Set<number>) {
+  const { out } = G;
+  const prev = new Map([[s, -1]]);
+  for (let frontier = [s]; frontier.length;) {
+    const next: number[] = [];
+    for (const u of frontier)
+      for (let k = out.offsets[u]; k < out.offsets[u + 1]; k++) {
+        const v = out.targets[k];
+        if (v === s) {
+          const ring = [u];
+          while (ring[ring.length - 1] !== s)
+            ring.push(prev.get(ring.at(-1)!)!);
+          return ring.reverse();
+        }
+        if (members.has(v) && !prev.has(v)) {
+          prev.set(v, u);
+          next.push(v);
+        }
+      }
+    frontier = next;
+  }
+  return null;
+}
+
+// Fewest-hop path s → t, as node indices (null when t is unreachable); `blocked` nodes are never entered. Ties resolve
+// by neighbours in ascending id order, which the CSR holds.
+export function fewestHopPath(
+  G: Graph,
+  s: number,
+  t: number,
+  blocked?: Uint8Array
+) {
+  const { out } = G;
+  const prev = new Int32Array(G.n).fill(-1);
+  const queue = [s];
+  prev[s] = s;
+  for (let head = 0; head < queue.length && prev[t] < 0; head++) {
+    const u = queue[head];
+    for (let k = out.offsets[u]; k < out.offsets[u + 1]; k++) {
+      const v = out.targets[k];
+      if (prev[v] >= 0 || blocked?.[v]) continue;
+      prev[v] = u;
+      queue.push(v);
+    }
+  }
+  if (prev[t] < 0) return null;
+  const route = [t];
+  while (route[route.length - 1] !== s) route.push(prev[route.at(-1)!]);
+  return route.reverse();
 }
 
 // Dependency depth: the longest path from a node's component to a sink of the condensation DAG (0 = depends on

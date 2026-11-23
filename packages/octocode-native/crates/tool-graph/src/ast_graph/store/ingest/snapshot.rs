@@ -23,6 +23,8 @@ pub(super) struct Publish<'a> {
     pub registry_identity: &'a str,
     pub build_identity: &'a str,
     pub limits: &'a Limits,
+    /// What the SCIP tier did, and why it failed when it did.
+    pub scip: (super::super::ScipStatus, Option<&'a str>),
 }
 
 /// Sources and configs that changed after the build read them.
@@ -127,6 +129,7 @@ pub(super) fn publish_snapshot(
         registry_identity: job.registry_identity,
         build_identity: job.build_identity,
         unreadable_dirs: &unreadable_dirs,
+        scip: job.scip,
     });
     if let Some(file) = &job.built.file_scope {
         // The persisted identity must also be exact for readers predating file scopes.
@@ -161,10 +164,17 @@ pub(super) fn publish_snapshot(
         return error;
     }
     let pruned = prune(job.home, scope, job.options.keep);
-    // Only this build's root: the home also holds other roots' jobs.
+    // Only this build's root: the home also holds other roots' jobs. Every
+    // job asks when its root was published; one pass of the home answers all.
+    let published = std::cell::OnceCell::new();
     let unfinished = super::super::super::graph::checkpoint::prune_jobs_of(
         &job.home.join(".facts"),
-        &|root| super::super::snapshots::last_published(job.home, root),
+        &|root| {
+            published
+                .get_or_init(|| super::super::snapshots::published_roots(job.home))
+                .get(root.to_string_lossy().as_ref())
+                .copied()
+        },
         Some(scope),
     );
     progress::emit(|| format!("published {id} ({bytes} bytes)"));
@@ -299,6 +309,21 @@ pub(super) fn receipt(id: &str, dir: &Path, manifest: &Value, started: Instant) 
     });
     if manifest["diagnostics"]["total"].as_u64().unwrap_or(0) > 0 {
         receipt["diagnostics"] = manifest["diagnostics"]["byCode"].clone();
+    }
+    // A fresh build and a reused one state the tier the snapshot was built with.
+    if let Some(status) = manifest["scip"].as_str() {
+        receipt["scip"] = json!(status);
+    }
+    if manifest["scip"] == "failed" {
+        let why = manifest["scipFailure"]
+            .as_str()
+            .unwrap_or("no reason was recorded");
+        octocode_runtime_base::response::paging::push_warnings(
+            &mut receipt,
+            vec![format!(
+                "The SCIP index failed ({why}); this snapshot holds syntax call edges only, and the next build runs the indexer again."
+            )],
+        );
     }
     if let Some((warning, build)) = super::super::query::package_above::widening(manifest) {
         octocode_runtime_base::response::paging::push_warnings(&mut receipt, [warning]);

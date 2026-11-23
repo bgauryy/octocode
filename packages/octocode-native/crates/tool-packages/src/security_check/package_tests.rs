@@ -407,18 +407,14 @@ async fn an_unpublished_version_a_record_lists_is_affected() {
         assert_eq!(row["affected"], true, "{row}");
         assert_eq!(row["versionListed"], false, "{row}");
         // OSV's match at the version, not every record of the name.
-        let ids = if summary {
-            row["advisoryIds"].clone()
-        } else {
-            json!(
-                row["advisories"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .map(|advisory| advisory["id"].clone())
-                    .collect::<Vec<_>>()
-            )
-        };
+        let ids = json!(
+            row["advisories"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|advisory| advisory["id"].clone())
+                .collect::<Vec<_>>()
+        );
         assert_eq!(ids, json!(["MAL-1"]), "{row}");
         let warned = row["warnings"]
             .as_array()

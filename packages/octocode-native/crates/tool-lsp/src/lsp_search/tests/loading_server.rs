@@ -38,6 +38,8 @@ function firstAnswer() {
   if (scenario === 'loadAnnouncedWithTheAnswer') { begin(); setTimeout(finish, 300); }
   if (scenario === 'loadOverBeforeTheAnswer') { begin(); finish(); }
   if (scenario === 'loadNeverEnds') { begin(); }
+  // Its load is over; other callers keep it busy from now on.
+  if (scenario === 'busyAfterItsLoad') { burn(); }
   if (scenario === 'loadAnnouncedAfterTheAnswer') {
     setTimeout(() => { begin(); setTimeout(finish, 100); }, 2500);
   }
@@ -64,6 +66,8 @@ function handle(msg) {
   if (msg.method === 'initialize') {
     fs.appendFileSync(__dirname + '/started.txt', 'started\n');
     send({ jsonrpc: '2.0', id: msg.id, result: { capabilities: { definitionProvider: true, referencesProvider: true, textDocumentSync: 1 } } });
+    // Its load, reported and over before the client's readiness wait begins, however loaded the machine.
+    if (scenario === 'busyAfterItsLoad') { begin(); progress({ kind: 'end' }); }
   } else if (msg.method === 'initialized' && scenario === 'reportingLoadOf3s') {
     reportingLoad(3000);
   } else if (msg.method === 'initialized' && scenario === 'loadAnnouncedAfterTheAnswer') {
@@ -311,6 +315,27 @@ fn an_empty_answer_before_the_first_signal_waits_while_the_server_works() {
         Duration::from_millis(300),
     );
     assert_located(&server.definition());
+}
+
+/// A server that reported its load and ended it answers `[]` while other
+/// callers keep its process busy (rust-analyzer under a graph build's probes,
+/// priming its caches again after each cancellation): its own progress says
+/// the load is over, so the empty answer stands at once. Its process CPU is
+/// no evidence about this answer and must not hold it until the load drains.
+#[test]
+fn an_empty_answer_from_a_loaded_busy_server_stands() {
+    if !octocode_runtime_base::test_support::require_node() {
+        return;
+    }
+    // A settle long enough for the load's report to arrive on a loaded machine:
+    // the wait ends when it arrives, and it decides how the answer is judged.
+    let server = Loading::new("busyAfterItsLoad", "go", Duration::from_secs(20));
+    // A deadline far past the answer: before this fix the CPU wait ran it out.
+    let row = server.definition_within(Some(Duration::from_secs(30)));
+    assert_eq!(row["status"], "empty", "{row}");
+    assert_eq!(row["category"], "noLocations", "{row}");
+    assert_ne!(row["isPartial"], true, "{row}");
+    assert!(server.asked() <= 2, "{row}");
 }
 
 /// A load that outlasts the language's readiness budget ends the wait: the

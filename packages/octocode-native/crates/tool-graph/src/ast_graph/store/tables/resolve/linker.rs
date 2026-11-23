@@ -22,6 +22,9 @@ pub(crate) struct Linker<'r> {
     pub(crate) member_data: &'r dyn Fn(u32) -> bool,
     /// Enum members, which a written call constructs.
     pub(crate) enum_member: &'r dyn Fn(u32) -> bool,
+    /// Rust `macro_rules!` macros: the only targets of a macro invocation, and
+    /// never of a call.
+    pub(crate) is_macro: &'r dyn Fn(u32) -> bool,
     /// Data members whose written type is a function type
     /// (`GraphFactDeclaration::function_typed`), by declaration node.
     pub(crate) function_typed: &'r HashSet<u32>,
@@ -33,10 +36,22 @@ pub(crate) struct Linker<'r> {
     /// TS declared types and every file's link context, for receivers a
     /// declared type reaches across files.
     pub(crate) declared: &'r super::es_declared::DeclaredTypes<'r>,
+    /// The opt-in SCIP precise tier: a Rust call site whose cited name
+    /// token the index references as one declaration links to it.
+    pub(crate) scip: Option<&'r crate::ast_graph::store::scip::ScipIndex>,
 }
 
 /// See [`Linker::return_types`].
-pub(crate) type ReturnTypes<'r> = (Option<&'r str>, Option<&'r str>);
+#[derive(Clone, Copy)]
+pub(crate) struct ReturnTypes<'r> {
+    /// The declared return type, and the type `?` yields from it.
+    pub(crate) returned: Option<&'r str>,
+    pub(crate) tried: Option<&'r str>,
+    /// A tuple return type's element types.
+    pub(crate) elements: &'r [Option<String>],
+    /// An `async fn`: an awaited call sees these types, a plain one a future.
+    pub(crate) asynchronous: bool,
+}
 
 /// Where a bare name may bind once its file and imports did not
 /// ([`Linker::bare_scope`]).

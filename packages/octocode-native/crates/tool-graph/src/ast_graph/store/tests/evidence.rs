@@ -291,3 +291,23 @@ fn an_import_witness_names_its_file_once() {
         .unwrap_or_else(|| panic!("a call witness: {}", out.value));
     assert_eq!(call["path"], "app/a.ts", "{call}");
 }
+
+#[test]
+fn an_unresolved_call_on_a_typed_receiver_reports_the_type_as_written() {
+    let source = "pub fn sync(client: &other_crate::lsp::Client) {\n    client.open_document(1);\n    missing();\n}\n";
+    let dir = git_app(&[("lib.rs", source)]);
+    ingest_root(&dir.0, &dir.0.join("app"), None, false);
+    let rows = ask(&dir.0, "unresolved", Some("lib.rs#sync"), |_| {});
+    let rows = rows.value["rows"].as_array().expect("rows").clone();
+    let typed = rows
+        .iter()
+        .find(|row| row["targetName"] == "client.open_document")
+        .unwrap_or_else(|| panic!("{rows:?}"));
+    // The type path as written, without its reference or generic arguments.
+    assert_eq!(typed["receiverType"], "other_crate::lsp::Client", "{typed}");
+    let bare = rows
+        .iter()
+        .find(|row| row["targetName"] == "missing")
+        .unwrap_or_else(|| panic!("{rows:?}"));
+    assert!(bare.get("receiverType").is_none(), "{bare}");
+}

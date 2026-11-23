@@ -143,6 +143,6 @@ fn snapshot_bytes_are_pinned_across_block_boundaries() {
     // Readers of this format version hold exactly these bytes.
     assert_eq!(
         octocode_engine::digest::sha256(&bytes),
-        "079fb9d44515796d4b3d6c20649edb5fcddfd17b02cf00fac2d966156a99d6f7"
+        "58f13d6369772274afa399547093c3dc701e7597ecc6978f09dbbe0939a5f0d9"
     );
 }

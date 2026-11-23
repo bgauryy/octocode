@@ -12,6 +12,7 @@ mod tests;
 mod walk;
 
 pub use credentials::withheld_text_by_default;
+pub use messages::repeated_folder_note;
 pub use walk::DiscoveryWalk;
 
 #[derive(Clone, Debug, Default)]

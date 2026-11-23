@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { betweenness, depths, kcore, louvain, pagerank, scc } from '#graph-core/algorithms';
-import { csr, fileEdges, undirected } from '#graph-core/graph-model';
-import { computeMetrics } from '../src/runtime/metrics.mjs';
+import { betweenness, depths, kcore, louvain, pagerank, scc } from '../src/algorithms.ts';
+import { csr, fileEdges, undirected } from '../src/graph-model.ts';
+import { computeMetrics } from '../src/runtime/metrics.ts';
 
 // A graph from [source, target, weight] triples over node names.
 function graph(names, triples) {

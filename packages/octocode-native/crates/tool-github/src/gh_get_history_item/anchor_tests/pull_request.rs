@@ -314,6 +314,14 @@ async fn pr_include_miss_offers_the_file_inventory() {
     .await;
     assert_eq!(out["status"], "empty", "{out}");
     assert!(out.get("hints").is_none(), "{out}");
+    // The miss says what the scope saw, as a commit or comparison read does:
+    // the changed-file count and the nearest changed directories.
+    assert!(
+        out["warnings"]
+            .to_string()
+            .contains("include matched 0 of 1 changed files; changed directories: src/."),
+        "{out}"
+    );
     assert!(out["next"].get("withoutMatchString").is_none(), "{out}");
     let inventory = &octocode_runtime_base::test_support::checks::related_call(
         &out,
@@ -427,8 +435,8 @@ async fn pr_commit_rows_are_the_shared_commit_row_with_their_body() {
         json!([
             {"commitSha":HEAD,"committedAt":"2024-02-01T00:00:00Z","messageHeadline":"Fix parser",
                 "author":"ada","messageBody":"Why it broke."},
-            {"commitSha":BASE,"committedAt":"2024-01-02T00:00:00Z","messageHeadline":"one line",
-                "author":"Ada"}
+            // A commit with nothing beside its row (no body) is one line.
+            format!("{BASE} 2024-01-02T00:00:00Z Ada: one line")
         ]),
         "{data}"
     );

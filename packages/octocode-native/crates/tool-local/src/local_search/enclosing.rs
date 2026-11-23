@@ -4,7 +4,10 @@
 //! A hit row names the innermost declaration around its line as
 //! `declarations: [{symbolName, kind, line, endLine}]` on the file and an
 //! `enclosing` index on the hit (`line` is the name line; its attribute and
-//! doc lines before it are an astSearch `symbols` read away),
+//! doc lines before it are an astSearch `symbols` read away); the
+//! declarations holding that one (a method's class, an impl's module) are
+//! listed before it, outermost first, so every declaration holding a hit
+//! is named,
 //! so a caller can cite or address the function a hit sits in without
 //! reading it: `symbolName` + `line` anchor lspSearch, `line`–`endLine` is a
 //! localFetch range. Containment is by (line, byte), so on a one-line
@@ -121,6 +124,33 @@ impl Outline {
             })
             .min_by_key(|(_, d)| (std::cmp::Reverse(d.from), d.to))
             .map(|(index, _)| index)
+    }
+
+    /// Declaration `owner` after the declarations holding it, outermost
+    /// first: a method after its class. A declaration whose range equals
+    /// the owner's is not a holder of it.
+    pub(super) fn chain(&self, owner: usize) -> Vec<super::types::Enclosing> {
+        let Some(inner) = self.declarations.get(owner) else {
+            return Vec::new();
+        };
+        let mut holders = self
+            .declarations
+            .iter()
+            .enumerate()
+            .filter(|(index, d)| {
+                *index != owner
+                    && d.from <= inner.from
+                    && inner.to <= d.to
+                    && (d.from, d.to) != (inner.from, inner.to)
+            })
+            .collect::<Vec<_>>();
+        holders.sort_by_key(|(_, d)| (d.from, std::cmp::Reverse(d.to)));
+        holders
+            .into_iter()
+            .map(|(index, _)| index)
+            .chain([owner])
+            .filter_map(|index| self.label(index))
+            .collect()
     }
 
     /// Declaration `owner`: its name, kind, name line and last line, so a
@@ -275,7 +305,8 @@ pub(super) fn annotate_enclosing(
     mut outlines: super::verify::Outlines,
     security: &ContentSecurity,
 ) -> Option<String> {
-    let mut names: Vec<Vec<Vec<Option<super::types::Enclosing>>>> = Vec::with_capacity(files.len());
+    let mut names: Vec<Vec<Vec<Option<Vec<super::types::Enclosing>>>>> =
+        Vec::with_capacity(files.len());
     let mut oversized_rows = 0usize;
     for file in files.iter() {
         let Some(matches) = file.matches.as_ref().filter(|rows| !rows.is_empty()) else {
@@ -343,19 +374,25 @@ pub(super) fn outlined_language(source: &std::path::Path) -> bool {
 /// reads as having none. With `declaring` (a declaration search), only rows that declare
 /// that symbol are named.
 /// A row's `enclosing`, from the owner of each of its hits (one per
-/// matched line of a merged window), each owner listed in `declarations`:
+/// matched line of a merged window), each owner listed in `declarations`
+/// after the declarations holding it (its chain, the owner last):
 /// one index when its hits share one, an index per hit when every hit has
 /// one and they differ. A window of which only some hits sit in a
 /// declaration names its first hit's, as a one-hit row does, and lists
 /// the others.
 fn owners_of(
     declarations: &mut Vec<super::types::Enclosing>,
-    owners: Vec<Option<super::types::Enclosing>>,
+    owners: Vec<Option<Vec<super::types::Enclosing>>>,
 ) -> Option<super::types::Owners> {
     use super::types::Owners;
     let indexes = owners
         .into_iter()
-        .map(|owner| owner.map(|owner| index_of(declarations, owner)))
+        .map(|chain| {
+            chain?
+                .into_iter()
+                .map(|declaration| index_of(declarations, declaration))
+                .last()
+        })
         .collect::<Vec<_>>();
     let first = *indexes.first()?;
     if indexes.iter().all(|index| *index == first) {
@@ -383,7 +420,7 @@ pub(super) fn row_owners(
     outline: &super::enclosing::Outline,
     rows: &[SearchMatch],
     declaring: Option<&str>,
-) -> Vec<Vec<Option<super::types::Enclosing>>> {
+) -> Vec<Vec<Option<Vec<super::types::Enclosing>>>> {
     rows.iter()
         .map(|row| {
             let named = declaring.is_none_or(|symbol| {
@@ -398,7 +435,8 @@ pub(super) fn row_owners(
                 .map(|(line, byte)| {
                     outline
                         .owner(line, byte)
-                        .and_then(|owner| outline.label(owner))
+                        .map(|owner| outline.chain(owner))
+                        .filter(|chain| !chain.is_empty())
                 })
                 .collect()
         })

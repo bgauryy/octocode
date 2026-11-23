@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { buildWiki, lintWiki, pageOf, promote, readPage, writeNotes } from '../src/runtime/wiki.mjs';
-import { today } from '../src/runtime/wiki-store.mjs';
+import { buildWiki, lintWiki, pageOf, promote, readPage, writeNotes } from '../src/runtime/wiki.ts';
+import { today } from '../src/runtime/wiki-store.ts';
 import { tempDir } from './test-tmp.mjs';
 
 const SOURCES = {
@@ -31,16 +31,16 @@ const PR = { 'src/a/x.ts': 0.3, 'src/a/y.ts': 0.1, 'src/a/z.ts': 0.08, 'src/a/w.
 function makeD(root, groups, check = {}) {
   const community = new Map(groups.flatMap(([, members], id) => members.map((m) => [m, id])));
   const files = [...community.keys()].map((id) => ({
-    id, language: id.endsWith('.md') ? 'markdown' : 'typescript', chunk: '.', loc: { path: id, abs: join(root, id), line: 1 },
+    id, language: id.endsWith('.md') ? 'markdown' : 'typescript', chunk: '.',
     check: { status: check[id] ?? 'ok', lines: SOURCES[id].split('\n').length - 1, problems: check[id] ? ['changed since the snapshot'] : [] },
     metrics: { pagerank: PR[id], betweenness: 0, inWeight: 1, outWeight: 1, depth: 0, core: 1, community: community.get(id), cycle: null },
   }));
   const communities = groups.map(([label, members], id) => ({ id, label, size: members.length, members: members.toSorted((a, b) => PR[b] - PR[a]), chunk: '.', purity: 1, internal: 2, external: 1 }));
   return {
-    files, communities,
+    section: root, files, communities,
     imports: [{ source: 'src/a/z.ts', target: 'src/b/p.ts', lines: [1] }],
     calls: [{ source: 'src/a/x.ts#main', target: 'src/b/p.ts#run', lines: [2], count: 1 }],
-    symbols: [{ id: 'src/b/p.ts#run', file: 'src/b/p.ts', name: 'run', kind: 'function', line: 1, endLine: 3, loc: { path: 'src/b/p.ts', line: 1 } }],
+    symbols: [{ id: 'src/b/p.ts#run', file: 'src/b/p.ts', name: 'run', kind: 'function', line: 1, endLine: 3 }],
     fileEdges: [
       { source: 'src/a/x.ts', target: 'src/a/y.ts', weight: 1 }, { source: 'src/a/y.ts', target: 'src/a/z.ts', weight: 1 },
       { source: 'src/a/z.ts', target: 'src/b/p.ts', weight: 2 }, { source: 'src/a/x.ts', target: 'src/b/p.ts', weight: 1 },

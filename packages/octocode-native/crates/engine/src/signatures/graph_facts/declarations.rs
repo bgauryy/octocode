@@ -239,10 +239,13 @@ pub(super) fn named_declaration(
             let function_typed = matches!(kind, "property" | "constant" | "variable")
                 && function_types
                     .is_some_and(|language| function_typed(language, node, written, content));
-            let (return_type, try_type) = match acc.ext.as_str() {
+            let returns = match acc.ext.as_str() {
                 "rs" => super::receiver::rust_return_types(node, ancestors, content),
-                "go" => (super::receiver::go_return_type(node, content), None),
-                _ => (None, None),
+                "go" => super::receiver::DeclaredReturns {
+                    ty: super::receiver::go_return_type(node, content),
+                    ..Default::default()
+                },
+                _ => super::receiver::DeclaredReturns::default(),
             };
             acc.non_reference_tokens.insert(name_token.start_byte());
             GraphFactDeclaration {
@@ -271,8 +274,10 @@ pub(super) fn named_declaration(
                     acc.visibility_adapter,
                     crate::signatures::visibility::VisibilityAdapter::CFamily
                 ) && super::c_family::is_prototype(node, kind),
-                return_type,
-                try_type,
+                return_type: returns.ty,
+                try_type: returns.try_ty,
+                return_elements: returns.elements,
+                asynchronous: returns.asynchronous,
                 function_typed,
             }
         })

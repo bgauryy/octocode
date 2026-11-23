@@ -213,6 +213,28 @@ pub(in crate::signatures) fn last_name_leaf<'tree>(
     found
 }
 
+/// The first identifier-kind token under `node` spelled `name`, in source
+/// order: a call chain's head call (`read` in `read(..).map_err(..)`).
+pub(in crate::signatures) fn first_name_leaf<'tree>(
+    node: Node<'tree>,
+    content: &str,
+    name: &str,
+) -> Option<Node<'tree>> {
+    let mut found = None;
+    let mut pending = vec![node];
+    let mut cursor = node.walk();
+    while let Some(current) = pending.pop() {
+        if is_name_leaf(current)
+            && node_text(current, content) == Some(name)
+            && found.is_none_or(|first: Node<'_>| current.start_byte() < first.start_byte())
+        {
+            found = Some(current);
+        }
+        pending.extend(current.named_children(&mut cursor));
+    }
+    found
+}
+
 /// An identifier-kind token (`identifier`, `type_identifier`,
 /// `field_identifier`, …): the only nodes that can reference a declaration.
 /// Comments and string contents are separate token kinds, so they never match.

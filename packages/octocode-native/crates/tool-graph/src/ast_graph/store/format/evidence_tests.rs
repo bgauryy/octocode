@@ -132,6 +132,7 @@ pub(super) fn evidence_fixture() -> GraphTables {
     });
     t.unresolved.push(UnresolvedRec {
         argument: NONE,
+        receiver_type: NONE,
         provenance: t.witnesses[0].provenance,
         relation: EdgeKind::Calls,
         src: 1,

@@ -103,6 +103,36 @@ pub fn row(commit: &Value) -> Value {
     row
 }
 
+/// A commit row ([`row`]) holding only `commitSha`, `committedAt`, `author`
+/// and `messageHeadline`, as one line:
+/// `"<commitSha> <committedAt> <author>: <messageHeadline>"`. A list states
+/// the four keys of every such commit once, in its schema, instead of on each
+/// row. A row holding any other field, lacking one of the four, or naming an
+/// author a reader could not split off at the first `": "`, stays the object.
+pub fn line(row: Value) -> Value {
+    const FIELDS: [&str; 4] = ["commitSha", "committedAt", "author", "messageHeadline"];
+    let text = |field: &str| row.get(field).and_then(Value::as_str);
+    let only_the_four = row
+        .as_object()
+        .is_some_and(|object| object.len() == FIELDS.len())
+        && FIELDS.iter().all(|field| text(field).is_some());
+    // The SHA and date are single tokens; the author ends at the first ": ".
+    let token =
+        |field: &str| text(field).is_some_and(|value| !value.is_empty() && !value.contains(' '));
+    let author = text("author").is_some_and(|value| !value.is_empty() && !value.contains(": "));
+    if !(only_the_four && token("commitSha") && token("committedAt") && author) {
+        return row;
+    }
+    let field = |name: &str| text(name).unwrap_or("");
+    json!(format!(
+        "{} {} {}: {}",
+        field("commitSha"),
+        field("committedAt"),
+        field("author"),
+        field("messageHeadline")
+    ))
+}
+
 /// The message past its headline (the blank separator line dropped);
 /// `None` for a one-line message.
 pub fn message_body(commit: &Value) -> Option<&str> {

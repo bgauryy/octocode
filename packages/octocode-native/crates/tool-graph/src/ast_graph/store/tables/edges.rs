@@ -1,6 +1,7 @@
 //! The edge families the projector adds between nodes: contains, imports,
 //! uses and calls.
 use super::*;
+use crate::ast_graph::store::scip::{ScipDecl, ScipIndex, ScipInput};
 use crate::ast_graph::types::RustPathUse;
 
 impl<'a> Projector<'a> {
@@ -270,10 +271,19 @@ impl<'a> Projector<'a> {
             };
             for decl in &facts.declarations {
                 if let Some(&id) = index.decl_nodes.get(decl.id.as_str())
-                    && (decl.return_type.is_some() || decl.try_type.is_some())
+                    && (decl.return_type.is_some()
+                        || decl.try_type.is_some()
+                        || !decl.return_elements.is_empty())
                 {
-                    return_types
-                        .insert(id, (decl.return_type.as_deref(), decl.try_type.as_deref()));
+                    return_types.insert(
+                        id,
+                        ReturnTypes {
+                            returned: decl.return_type.as_deref(),
+                            tried: decl.try_type.as_deref(),
+                            elements: &decl.return_elements,
+                            asynchronous: decl.asynchronous,
+                        },
+                    );
                 }
             }
         }
@@ -297,7 +307,43 @@ impl<'a> Projector<'a> {
             .collect()
     }
 
-    pub(super) fn call_edges(&mut self, resolver: &ExportResolver, symbols: &Symbols) -> CallStats {
+    /// Binds each Rust file the SCIP index documents to its text and
+    /// declarations, so the linker can map symbols to declaration nodes.
+    fn bind_scip<'i>(&self, input: ScipInput<'i>, symbols: &Symbols) -> &'i ScipIndex {
+        let ScipInput { index, text } = input;
+        for (file, facts) in &self.built.facts {
+            if self.lang(file) != "rust" || !index.has_document(file) {
+                continue;
+            }
+            let (Some(source), Some(file_index)) = (text(file), symbols.indexes.get(file.as_str()))
+            else {
+                continue;
+            };
+            let decls = facts
+                .declarations
+                .iter()
+                .filter_map(|decl| {
+                    Some(ScipDecl {
+                        node: file_index.decl_nodes.get(decl.id.as_str()).copied()?,
+                        name: &decl.name,
+                        line: decl.line,
+                        selection: decl
+                            .selection_byte_range
+                            .map(|r| (r.start_byte, r.end_byte)),
+                    })
+                })
+                .collect::<Vec<_>>();
+            index.bind_file(file, &source, &decls);
+        }
+        index
+    }
+
+    pub(super) fn call_edges(
+        &mut self,
+        resolver: &ExportResolver,
+        symbols: &Symbols,
+        scip: Option<ScipInput<'_>>,
+    ) -> CallStats {
         let mut file_paths = vec![""; self.nodes.len()];
         let mut families = vec![""; self.nodes.len()];
         let mut go_packages = vec![""; self.nodes.len()];
@@ -315,7 +361,7 @@ impl<'a> Projector<'a> {
         }
         let scope = link_scope(&file_paths, families, go_packages, self.workspace);
         let members = member_index(&symbols.global_names, &symbols.container_names);
-        let accepts = |bit: u8| {
+        let accepts = |bit: u16| {
             move |id: u32| {
                 symbols
                     .targets
@@ -329,11 +375,13 @@ impl<'a> Projector<'a> {
         let recovered = accepts(RECOVERED_TARGET);
         let member_data = accepts(MEMBER_DATA);
         let enum_member = accepts(ENUM_MEMBER);
+        let is_macro = accepts(MACRO_TARGET);
         let empty_bases = BaseIndex::default();
         let rust_macros = self.rust_macro_names();
         let return_types = self.return_types(symbols);
         let function_typed = self.function_typed(symbols);
         let no_declared = DeclaredTypes::default();
+        let scip_index = scip.map(|input| self.bind_scip(input, symbols));
         let linker = Linker {
             resolver,
             nodes: &self.nodes,
@@ -346,10 +394,12 @@ impl<'a> Projector<'a> {
             recovered: &recovered,
             member_data: &member_data,
             enum_member: &enum_member,
+            is_macro: &is_macro,
             function_typed: &function_typed,
             rust_macros: &rust_macros,
             return_types: &return_types,
             declared: &no_declared,
+            scip: scip_index,
         };
         let mut calls = CallStats::default();
         for file in self.built.facts.keys() {
@@ -476,6 +526,10 @@ impl<'a> Projector<'a> {
                 callee: self.strings.id(&call.callee),
                 line: call.line,
                 reason: self.strings.id(call.reason),
+                receiver_type: call
+                    .receiver_type
+                    .as_deref()
+                    .map_or(NONE, |ty| self.strings.id(ty)),
             });
         }
     }

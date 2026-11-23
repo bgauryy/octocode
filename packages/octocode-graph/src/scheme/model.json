@@ -10,7 +10,10 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "summary": { "type": "string", "description": "Purpose, main runtime path, layering, where state lives, key risks." }
+        "summary": {
+          "type": "string",
+          "description": "Purpose, main runtime path, layering, where state lives, key risks."
+        }
       }
     },
     "layers": {
@@ -24,16 +27,31 @@
           "id": { "type": "string" },
           "label": { "type": "string" },
           "order": { "type": "number" },
-          "match": { "type": "array", "items": { "type": "string" }, "description": "Globs over file ids: * is one segment, ** is any." },
+          "match": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Globs over file ids: * is one segment, ** is any."
+          },
           "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
-          "exempt": { "type": "boolean", "description": "Imports from this layer are never flagged upward (tests, tooling)." }
+          "exempt": {
+            "type": "boolean",
+            "description": "Imports from this layer are never flagged upward (tests, tooling)."
+          }
         }
       }
     },
     "assign": {
       "type": "array",
       "description": "Per-file layer, overriding globs.",
-      "items": { "type": "object", "required": ["id", "layer"], "additionalProperties": false, "properties": { "id": { "type": "string" }, "layer": { "type": "string" } } }
+      "items": {
+        "type": "object",
+        "required": ["id", "layer"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "layer": { "type": "string" }
+        }
+      }
     },
     "nodes": {
       "type": "array",
@@ -42,7 +60,12 @@
         "type": "object",
         "required": ["id", "label"],
         "additionalProperties": false,
-        "properties": { "id": { "type": "string", "pattern": "^(actor|store|ext):" }, "label": { "type": "string" }, "layer": { "type": "string" }, "description": { "type": "string" } }
+        "properties": {
+          "id": { "type": "string", "pattern": "^(actor|store|ext):" },
+          "label": { "type": "string" },
+          "layer": { "type": "string" },
+          "description": { "type": "string" }
+        }
       }
     },
     "edges": {
@@ -55,7 +78,21 @@
         "properties": {
           "source": { "type": "string" },
           "target": { "type": "string" },
-          "kind": { "enum": ["call", "spawn", "stdio", "ffi", "http", "rpc", "mcp", "db", "event", "config", "file"] },
+          "kind": {
+            "enum": [
+              "call",
+              "spawn",
+              "stdio",
+              "ffi",
+              "http",
+              "rpc",
+              "mcp",
+              "db",
+              "event",
+              "config",
+              "file"
+            ]
+          },
           "action": { "type": "string" },
           "evidence": { "$ref": "#/$defs/evidence" }
         }
@@ -64,7 +101,16 @@
     "allowed": {
       "type": "array",
       "description": "Upward imports judged legitimate after a Hypothesis test.",
-      "items": { "type": "object", "required": ["source", "target", "reason"], "additionalProperties": false, "properties": { "source": { "type": "string" }, "target": { "type": "string" }, "reason": { "type": "string" } } }
+      "items": {
+        "type": "object",
+        "required": ["source", "target", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "source": { "type": "string" },
+          "target": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
     },
     "flows": {
       "type": "array",
@@ -81,7 +127,14 @@
               "type": "object",
               "required": ["from", "to", "action", "evidence"],
               "additionalProperties": false,
-              "properties": { "from": { "type": "string" }, "to": { "type": "string" }, "action": { "type": "string" }, "kind": { "type": "string" }, "async": { "type": "boolean" }, "evidence": { "$ref": "#/$defs/evidence" } }
+              "properties": {
+                "from": { "type": "string" },
+                "to": { "type": "string" },
+                "action": { "type": "string" },
+                "kind": { "type": "string" },
+                "async": { "type": "boolean" },
+                "evidence": { "$ref": "#/$defs/evidence" }
+              }
             }
           }
         }
@@ -97,12 +150,24 @@
           "title": { "type": "string" },
           "confidence": { "enum": ["confirmed", "likely", "candidate"] },
           "detail": { "type": "string" },
-          "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" }, "description": "Required when confidence is confirmed." }
+          "evidence": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/evidence" },
+            "description": "Required when confidence is confirmed."
+          }
         }
       }
     }
   },
   "$defs": {
-    "evidence": { "type": "object", "required": ["path", "line"], "additionalProperties": false, "properties": { "path": { "type": "string" }, "line": { "type": "integer", "minimum": 1 } } }
+    "evidence": {
+      "type": "object",
+      "required": ["path", "line"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string" },
+        "line": { "type": "integer", "minimum": 1 }
+      }
+    }
   }
 }

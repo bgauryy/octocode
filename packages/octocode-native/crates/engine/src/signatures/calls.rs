@@ -151,7 +151,13 @@ impl CallAdapter {
                 Some(SyntaxCall {
                     callee,
                     name_token: Some(name_token),
-                    kind: "calls",
+                    // A Rust `name!(..)` expands a macro: it never calls a
+                    // function of that name, which lives in another namespace.
+                    kind: if kind_of(node) == "macro_invocation" {
+                        "expands"
+                    } else {
+                        "calls"
+                    },
                     binding: GraphCallBinding::SyntaxLookup,
                 })
             }

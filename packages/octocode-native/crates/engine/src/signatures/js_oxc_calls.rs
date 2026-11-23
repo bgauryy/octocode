@@ -107,7 +107,7 @@ impl CallCollector<'_, '_> {
     }
 
     fn push(&mut self, callee: String, span: Span, kind: &'static str) {
-        self.push_with_receiver(callee, span, kind, (None, None));
+        self.push_with_receiver(callee, (span, None), kind, (None, None));
     }
 
     /// Push a call whose receiver has the written type name or the declared
@@ -115,7 +115,7 @@ impl CallCollector<'_, '_> {
     fn push_with_receiver(
         &mut self,
         callee: String,
-        span: Span,
+        span: (Span, Option<Span>),
         kind: &'static str,
         (receiver_type, receiver_declared): (Option<String>, Option<GraphDeclaredType>),
     ) {

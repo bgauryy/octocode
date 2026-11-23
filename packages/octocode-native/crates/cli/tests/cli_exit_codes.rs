@@ -126,7 +126,7 @@ fn local_rows_exit_by_outcome() {
         ),
         (
             "localSearch",
-            json!({"queries":[{"path":root,"matchString": ["("],"regexEngine":"rust"}]}),
+            json!({"queries":[{"path":root,"matchString": ["(?:x"],"regexEngine":"rust"}]}),
             2,
         ),
     ];

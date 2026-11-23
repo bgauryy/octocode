@@ -211,7 +211,12 @@ async fn history_a_compare_commits_are_headlines_with_login_authors() {
     assert_eq!(
         commits
             .iter()
-            .map(|c| (c["messageHeadline"].clone(), c["author"].clone()))
+            .map(|c| {
+                (
+                    octocode_test_support::commit_field(c, "messageHeadline"),
+                    octocode_test_support::commit_field(c, "author"),
+                )
+            })
             .collect::<Vec<_>>(),
         [
             (json!("Fix A (#1)"), json!("rickhanlonii")),
@@ -241,7 +246,8 @@ async fn history_a_compare_commits_are_headlines_with_login_authors() {
     let full = call(
         &runtime,
         "ghGetHistoryItem",
-        json!({"operation":"commit","owner":"a","repo":"b","ref":commits[1]["commitSha"]}),
+        json!({"operation":"commit","owner":"a","repo":"b",
+            "ref":octocode_test_support::commit_field(&commits[1], "commitSha")}),
     )
     .await
     .expect("complete message");

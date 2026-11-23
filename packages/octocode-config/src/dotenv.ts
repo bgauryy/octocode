@@ -8,6 +8,7 @@ import {
   CONFIG_FIELDS,
   ENV_TOKEN_VARS,
   HOME_TRUSTED_ENV_KEYS,
+  LEGACY_ENV_NAMES,
   PROTECTED_KEY_NAMES,
   WORKSPACE_NARROW_ONLY_ENV,
 } from './config/contract.generated.js';
@@ -77,6 +78,22 @@ function readTextIfExists(filePath: string): string {
   }
 }
 
+/**
+ * One `.env` file's nonblank entries, each legacy name moved to its current
+ * name unless the file sets that one (as the native resolver reads them).
+ */
+function fileEnv(filePath: string): Record<string, string> {
+  const entries = Object.entries(parseEnv(readTextIfExists(filePath))).filter(([, v]) => v.trim());
+  const map = Object.fromEntries(entries);
+  for (const [legacy, current] of Object.entries(LEGACY_ENV_NAMES)) {
+    const value = map[legacy];
+    if (value === undefined) continue;
+    delete map[legacy];
+    if (!map[current]) map[current] = value;
+  }
+  return map;
+}
+
 export interface LoadOctocodeEnvOptions {
   home?: string;
   cwd?: string;
@@ -102,10 +119,7 @@ export function loadOctocodeEnv({
   const sources: Record<string, 'global' | 'project'> = {};
 
   if (home) {
-    for (const [k, v] of Object.entries(
-      parseEnv(readTextIfExists(path.join(home, '.env')))
-    )) {
-      if (!v.trim()) continue;
+    for (const [k, v] of Object.entries(fileEnv(path.join(home, '.env')))) {
       map[k] = v;
       sources[k] = 'global';
     }
@@ -114,8 +128,7 @@ export function loadOctocodeEnv({
   // When cwd is the OS home, <cwd>/.octocode is the Octocode home: its .env is
   // the home layer only, never read a second time as the workspace layer.
   if (workspaceEnv && trusted && !(home && sameFile(workspaceEnv, path.join(home, '.env')))) {
-    for (const [k, v] of Object.entries(parseEnv(readTextIfExists(workspaceEnv)))) {
-      if (!v.trim()) continue;
+    for (const [k, v] of Object.entries(fileEnv(workspaceEnv))) {
       // A workspace value for a protected key is dropped later; it must not
       // also evict the trusted home value for that key.
       if (k in map && isProtectedKey(k) && !workspaceMayNarrow(k, v)) continue;
@@ -148,6 +161,27 @@ function workspaceMayNarrow(key: string, value: string): boolean {
   return WORKSPACE_NARROW_ONLY_ENV[key] === value.trim().toLowerCase();
 }
 
+/** Each variable's names: the current one, then its legacy ones (from the config contract). */
+function namesOf(key: string): string[] {
+  const current = LEGACY_ENV_NAMES[key] ?? key;
+  return [
+    current,
+    ...Object.keys(LEGACY_ENV_NAMES).filter(legacy => LEGACY_ENV_NAMES[legacy] === current),
+  ];
+}
+
+/**
+ * Whether `env` sets `key` under any of its names. The native runtime reads a
+ * legacy name as its current one, so a legacy spelling in the environment
+ * keeps a file from setting the current one.
+ */
+function setsAnyName(env: Record<string, string | undefined>, key: string): boolean {
+  return namesOf(key).some(name => Boolean(env[name]?.trim()));
+}
+
+/** The GitHub token variables under every name, in the order they are read. */
+const TOKEN_NAMES = ENV_TOKEN_VARS.flatMap(namesOf);
+
 export interface ApplyOctocodeEnvResult {
   applied: string[];
   skippedProtected: string[];
@@ -169,11 +203,13 @@ export function applyOctocodeEnv(
   // Resolve source precedence before token-name priority. Otherwise a home
   // `GH_TOKEN` could outrank a process or workspace `GITHUB_TOKEN`.
   const shadowed = new Set<string>();
-  const processSelected = ENV_TOKEN_VARS.some(key => Boolean(env[key]?.trim()));
-  const workspaceSelected = ENV_TOKEN_VARS.some(
+  // What the environment set before any file, under any name of each variable.
+  const before = { ...env };
+  const processSelected = TOKEN_NAMES.some(key => Boolean(before[key]?.trim()));
+  const workspaceSelected = TOKEN_NAMES.some(
     key => sources[key] === 'project' && Boolean(map?.[key]?.trim())
   );
-  for (const key of ENV_TOKEN_VARS) {
+  for (const key of TOKEN_NAMES) {
     if (processSelected || (workspaceSelected && sources[key] !== 'project'))
       shadowed.add(key);
   }
@@ -191,7 +227,7 @@ export function applyOctocodeEnv(
     const existing = env[key];
     // A present-but-blank classification key is an explicit opt-out.
     if (
-      Boolean(existing?.trim()) ||
+      setsAnyName(before, key) ||
       shadowed.has(key) ||
       (key === CLASSIFICATION_KILL_SWITCH && existing !== undefined)
     ) {

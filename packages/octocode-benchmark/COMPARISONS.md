@@ -45,7 +45,7 @@ strip only shared benchmark environment bookkeeping from logical inputs, retaini
 | [structureSearch](#structuresearch) | `fd`, `find`, `stat`, `wc -l` | yes | advanced round, 2026-11-14 | measured |
 | [astSearch](#astsearch) | `ast-grep` | yes | ast-grep comparisons, 2026-10 | measured |
 | [lspSearch](#lspsearch) | same language server over direct LSP; `rg -w` | direct LSP yes; rg only spelling | advanced round, 2026-11-14 | selected semantic sets measured |
-| [graphBuild and graphQuery](#graphbuild-and-graphquery) | Graphify; projected import counts | selected edges, callers and paths | advanced round, 2026-11-14 | measured; graph models differ |
+| [graphBuild and graphQuery](#graphbuild-and-graphquery) | Graphify; lspSearch, rg, ast-grep; madge, dependency-cruiser (TS) | callers, imports, cycles, impact, paths | graph-vs-tools round, 2026-11-23; advanced round, 2026-11-14 | measured; Rust callers recall is the gap |
 | [clasify](#clasify) | the main agent reading everything | yes | clasify A/B campaigns | measured; adoption is the gap |
 | [ghSearchRepo](#ghsearchrepo) | `gh search repos`, `gh repo view` | yes | gh-lean campaigns | measured |
 | [ghSearchCode](#ghsearchcode) | `gh search code` | yes | gh-lean campaigns | measured |
@@ -139,6 +139,41 @@ matches. Omit `-m` and `head` when checking the complete evidence set. See the
   oracle set matches. The advanced round observed TypeScript diagnostic 7006 and disclosed it.
 
 ### graphBuild and graphQuery
+
+The 2026-11-23 round ([report](results/rounds/20.2.0-2026-11-23-graph-vs-tools/report.md), [data](results/rounds/20.2.0-2026-11-23-graph-vs-tools/data/)) measures the saved Octocode
+Graph (`octocode-graph query`) against native graphQuery, lspSearch, rg, ast-grep, madge,
+dependency-cruiser and Graphify (0.9.108, code-only). It uses two targets: `packages/octocode-native` (Rust,
+3,516 files, 19 crates) and a frozen copy of `packages/octocode-graph/src` (TypeScript, 70 files). Ground
+truth is every call site of 33 uniquely named functions, read by hand, and the import statements resolved by
+the TypeScript scanner.
+
+| Callers (site precision / recall) | Rust, 143 sites | TypeScript, 63 sites | Warm s per question (Rust) |
+|---|---|---|---:|
+| Octocode Graph `callers --tests` | 1.00 / **0.57** | 1.00 / 1.00 | 0.36 |
+| native graphQuery (one crate) | 1.00 / 0.27 | 1.00 / 0.76 | 0.44 |
+| lspSearch `callers` | 1.00 / 0.97 | 1.00 / 1.00 | 0.09 |
+| `rg` call pattern (unique names only) | 1.00 / 1.00 | 1.00 / 1.00 | 0.06 |
+| ast-grep, 3 patterns | 1.00 / 0.85 | 1.00 / 1.00 | 0.73 |
+| Graphify `explain --all` | 1.00 / 0.24 | 1.00 / 0.71 | 2.14 |
+
+- **Rust callers are where Graph is worse.** It missed 44 of 72 cross-crate sites: the ones it found all came
+  from LSP evidence, and name binding did not follow `pub use` re-exports. It also missed 13 of 22 calls
+  inside macros. Its answer still reported `isPartial: false`.
+- **Depth is where Graph is ahead.** Only Graph answers cross-crate transitive impact in one call (697 files
+  across 11 crates for `result.rs`, 0.36 s).
+- **On TypeScript, Graph was exact on every check:**
+  - transitive impact for 3 files;
+  - 167 of 167 import pairs, the same as madge, dependency-cruiser with type-only imports, and an `rg` walk;
+  - both injected cycles.
+
+  dependency-cruiser's default drops type-only imports (114 pairs) and so missed the type-only cycle. A
+  madge `--depends` walk needs 14–24 calls and 17–32 s per file.
+- **Build:** 127 s on Rust (76 s of it LSP), against Graphify's 21–23 s code-only. On TypeScript, 1.5–5.2 s
+  with LSP and 1.4 s with `--lsp off`.
+
+That round restricts the sample to unique names, which flatters rg and ast-grep. It does not supersede the
+Graphify claims below, which were measured on other targets. The one addition: on the Rust workspace,
+Graphify found 34 of 143 sites (6 of 72 cross-crate) and kept one location per caller edge.
 
 The advanced round (in git history, see [results/README.md](results/README.md#rounds-tracked)) runs the official
 [Graphify](https://github.com/Graphify-Labs/graphify) package (`graphifyy` 0.9.108), code-only,

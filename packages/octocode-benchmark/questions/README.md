@@ -7,6 +7,7 @@ the round compares ([COMPARISONS.md](../COMPARISONS.md)), and never pool sets in
 | Set | Questions | Scope | Stored answers or numbers (see the [results index](../results/README.md)) |
 |---|---:|---|---|
 | [tools/](tools/README.md) | 17 tool files | all local CLI/MCP tools, input/output, pages, workflows and expert comparisons | each dated tool-rating campaign; assignments and source oracles stored separately |
+| [workflows/](workflows/README.md) | 10 | multi-step questions across tools: packages and advisories, release diffs, history, repository filters, deep traces (GitHub, W1–W6) and callers, ranked files, code shape, call chains (pinned clones, W7–W10); judge keys in `answers/` | v19, v20 and `gh` (2026-11-23) |
 | [github/](github/README.md) | 30 | public GitHub repositories | Octocode v20 (2026-10-29) and v18 (2026-08, 3 passes); gh-lean answers (2026-10-09); plain gh, gh + RTK, gh + Headroom as numbers only (2026-08); MCP builds and clasify A/B (2026-10) |
 | [local-core/](local-core/README.md) | 30 | pinned clones listed in [local/README.md](../local/README.md); judge rubrics in `answers/` | Octocode local MCP builds, 19.1.0 and the lean shell (2026-10-10) |
 | [local-goals/](local-goals/README.md) | 40 | nine pinned checkouts named by path in each question; Q33–Q40 are a Terraform slice | local MCP with and without clasify (2026-10-13) |

@@ -24,3 +24,23 @@ pub fn json_fixture(text: &str) -> Value {
 
 #[cfg(test)]
 mod tests;
+
+/// A commit row's `field` (`commitSha`, `committedAt`, `author`,
+/// `messageHeadline`, or any other object field), read from either form a
+/// commit list holds: the object, or the one line
+/// `"<commitSha> <committedAt> <author>: <messageHeadline>"`.
+pub fn commit_field(commit: &Value, field: &str) -> Value {
+    let Some(line) = commit.as_str() else {
+        return commit.get(field).cloned().unwrap_or(Value::Null);
+    };
+    let mut parts = line.splitn(3, ' ');
+    let (sha, date, rest) = (parts.next(), parts.next(), parts.next().unwrap_or(""));
+    let (author, headline) = rest.split_once(": ").unwrap_or((rest, ""));
+    match field {
+        "commitSha" => sha.map_or(Value::Null, |sha| Value::String(sha.to_owned())),
+        "committedAt" => date.map_or(Value::Null, |date| Value::String(date.to_owned())),
+        "author" => Value::String(author.to_owned()),
+        "messageHeadline" => Value::String(headline.to_owned()),
+        _ => Value::Null,
+    }
+}

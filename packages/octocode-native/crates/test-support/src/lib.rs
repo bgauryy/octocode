@@ -6,4 +6,4 @@ pub mod conformance;
 mod json;
 pub mod mock_http;
 
-pub use json::json_fixture;
+pub use json::{commit_field, json_fixture};

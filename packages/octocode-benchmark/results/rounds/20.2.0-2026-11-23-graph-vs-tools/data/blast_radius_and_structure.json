@@ -1,0 +1,338 @@
+{
+ "ts": {
+  "runtime/lib.ts": {
+   "ground_truth_files": 19,
+   "graph": {
+    "files": 19,
+    "correct": 19,
+    "missed": [],
+    "extra": [],
+    "calls": 1,
+    "time_s": [
+     0.147,
+     0.14,
+     0.123
+    ],
+    "chars": 1169
+   },
+   "native": {
+    "files": 19,
+    "correct": 19,
+    "missed": [],
+    "extra": [],
+    "calls": 1,
+    "time_s": [
+     0.09,
+     0.079,
+     0.098
+    ],
+    "chars": 2731,
+    "note": "complete at default depth"
+   },
+   "depcruise_reaches": {
+    "files": 19,
+    "correct": 19,
+    "missed": [],
+    "extra": [],
+    "calls": 1,
+    "time_s": [
+     2.206,
+     1.684,
+     1.153
+    ],
+    "chars": 2576
+   },
+   "madge_depends": {
+    "files": 19,
+    "correct": 19,
+    "missed": [],
+    "extra": [],
+    "calls": 20,
+    "time_s": 27.6,
+    "chars": 1166
+   },
+   "rg_walk": {
+    "files": 19,
+    "correct": 19,
+    "missed": [],
+    "extra": [],
+    "calls": 20,
+    "time_s": 0.2,
+    "chars": 1170
+   },
+   "graphify_affected_depth_default(2)": {
+    "files": 18,
+    "correct": 18,
+    "time_s": 0.18,
+    "chars": 4503,
+    "calls": 1
+   },
+   "graphify_affected_depth_20": {
+    "files": 19,
+    "correct": 19,
+    "time_s": 0.18,
+    "chars": 5525,
+    "calls": 1
+   }
+  },
+  "runtime/query-index.ts": {
+   "ground_truth_files": 13,
+   "graph": {
+    "files": 13,
+    "correct": 13,
+    "missed": [],
+    "extra": [],
+    "calls": 1,
+    "time_s": [
+     0.091,
+     0.092,
+     0.091
+    ],
+    "chars": 915
+   },
+   "native": {
+    "files": 13,
+    "correct": 13,
+    "missed": [],
+    "extra": [],
+    "calls": 1,
+    "time_s": [
+     0.064,
+     0.062,
+     0.064
+    ],
+    "chars": 2156,
+    "note": "complete at default depth"
+   },
+   "depcruise_reaches": {
+    "files": 13,
+    "correct": 13,
+    "missed": [],
+    "extra": [],
+    "calls": 1,
+    "time_s": [
+     1.407,
+     1.163,
+     1.301
+    ],
+    "chars": 1180
+   },
+   "madge_depends": {
+    "files": 13,
+    "correct": 13,
+    "missed": [],
+    "extra": [],
+    "calls": 14,
+    "time_s": 17.52,
+    "chars": 597
+   },
+   "rg_walk": {
+    "files": 13,
+    "correct": 13,
+    "missed": [],
+    "extra": [],
+    "calls": 14,
+    "time_s": 0.18,
+    "chars": 635
+   },
+   "graphify_affected_depth_default(2)": {
+    "files": 11,
+    "correct": 11,
+    "time_s": 0.21,
+    "chars": 3045,
+    "calls": 1
+   },
+   "graphify_affected_depth_20": {
+    "files": 13,
+    "correct": 13,
+    "time_s": 0.17,
+    "chars": 3425,
+    "calls": 1
+   }
+  },
+  "graph-model.ts": {
+   "ground_truth_files": 23,
+   "graph": {
+    "files": 23,
+    "correct": 23,
+    "missed": [],
+    "extra": [],
+    "calls": 1,
+    "time_s": [
+     0.096,
+     0.099,
+     0.095
+    ],
+    "chars": 1480
+   },
+   "native": {
+    "files": 20,
+    "correct": 20,
+    "missed": [
+     "browser/offline.ts",
+     "runtime/commands/query.ts",
+     "runtime/commands/serve.ts"
+    ],
+    "extra": [],
+    "calls": 1,
+    "time_s": [
+     0.086,
+     0.07,
+     0.069
+    ],
+    "chars": 3074,
+    "note": "default depth 3 (summary.depthLimited true); the reply offers a deeper call"
+   },
+   "depcruise_reaches": {
+    "files": 23,
+    "correct": 23,
+    "missed": [],
+    "extra": [],
+    "calls": 1,
+    "time_s": [
+     1.424,
+     1.17,
+     1.149
+    ],
+    "chars": 2645
+   },
+   "madge_depends": {
+    "files": 23,
+    "correct": 23,
+    "missed": [],
+    "extra": [],
+    "calls": 24,
+    "time_s": 32.35,
+    "chars": 1277
+   },
+   "rg_walk": {
+    "files": 23,
+    "correct": 23,
+    "missed": [],
+    "extra": [],
+    "calls": 24,
+    "time_s": 0.25,
+    "chars": 1313
+   },
+   "graphify_affected_depth_default(2)": {
+    "files": 11,
+    "correct": 11,
+    "time_s": 0.17,
+    "chars": 1445,
+    "calls": 1
+   },
+   "graphify_affected_depth_20": {
+    "files": 23,
+    "correct": 23,
+    "time_s": 0.17,
+    "chars": 4093,
+    "calls": 1
+   }
+  }
+ },
+ "rust": {
+  "crates/runtime-base/src/response/result.rs": {
+   "graph_impact_files": 697,
+   "graph_same_crate": 48,
+   "native_impact_files": 143,
+   "native_calls_with_cursor": 3,
+   "native_time_s": 0.34,
+   "native_covers_graph_same_crate": 48,
+   "native_extra_files_note": "test files and module parents that native counts and the graph production walk leaves out"
+  },
+  "crates/engine/src/structural/files.rs": {
+   "graph_impact_files": 743,
+   "graph_same_crate": 43,
+   "native_impact_files": 93,
+   "native_calls_with_cursor": 2,
+   "native_time_s": 0.31,
+   "native_covers_graph_same_crate": 43,
+   "native_extra_files_note": "test files and module parents that native counts and the graph production walk leaves out"
+  },
+  "crates/tool-packages/src/artifact/go/retraction.rs": {
+   "graph_impact_files": 148,
+   "graph_same_crate": 71,
+   "native_impact_files": 154,
+   "native_calls_with_cursor": 4,
+   "native_time_s": 0.43,
+   "native_covers_graph_same_crate": 71,
+   "native_extra_files_note": "test files and module parents that native counts and the graph production walk leaves out"
+  }
+ },
+ "rust_graph_impact_time_s": {
+  "crates/runtime-base/src/response/result.rs": [
+   0.36,
+   0.35
+  ],
+  "crates/engine/src/structural/files.rs": [
+   0.35,
+   0.36
+  ],
+  "crates/tool-packages/src/artifact/go/retraction.rs": [
+   0.36,
+   0.36
+  ]
+ },
+ "rust_graph_impact_chars": {
+  "crates/runtime-base/src/response/result.rs": 79905,
+  "crates/engine/src/structural/files.rs": 84784,
+  "crates/tool-packages/src/artifact/go/retraction.rs": 15211
+ },
+ "rust_manual_depth1_retraction": {
+  "lsp_references_batch": "3 exported items in one lspSearch call: 5.76 s first, 0.10 s repeat, 2,277 chars; finds go.rs (same as graph dependents)",
+  "rg": "rg -w retraction: 0.07 s, mixes field names and another function"
+ },
+ "rust_paths": {
+  "graph_cli_to_structural_files": "9 hops, 0.36 s",
+  "graph_retraction_to_result": "no path either way, 0.32 s"
+ },
+ "rust_cycles": {
+  "graph": "101 file-level SCCs; tool-lsp SCC 102 files (imports+calls), 95 files with --imports; ring through `use super::*`",
+  "native_tool_lsp": "7 SCCs, largest 6 files, 0.11 s",
+  "verdict": "model difference (glob `use super::*` counted as an edge by the graph); no hand ground truth"
+ },
+ "ts_paths": {
+  "build_to_graph_model": {
+   "gt_hops": 3,
+   "graph": "3 hops, 0.11 s",
+   "native": "3 hops, 0.08 s (2 paths in one call)"
+  },
+  "worker_to_relations": {
+   "gt_hops": 3,
+   "graph": "3 hops, 0.11 s",
+   "native": "3 hops"
+  }
+ },
+ "ts_hubs": {
+  "gt_top_fanin": [
+   [
+    "runtime/types.ts",
+    30
+   ],
+   [
+    "runtime/lib.ts",
+    12
+   ],
+   [
+    "assets/live-state.ts",
+    8
+   ],
+   [
+    "assets/live-dom.ts",
+    7
+   ],
+   [
+    "runtime/pipeline.ts",
+    6
+   ],
+   [
+    "runtime/query-index.ts",
+    6
+   ]
+  ],
+  "native_hubs": "fanIn of imports: same top 6 in the same order, 0.11 s",
+  "graph_top": "ranks by pagerank or inWeight (imports + evidence-weighted calls): a weighted metric, not file fan-in; 0.11 s",
+  "depcruise_metrics": "Ca/Ce/instability per module, 1.30 s, 57,836 chars",
+  "rg_uniq": "counts import statements by basename: lib.ts 13 (GT 12), pipeline.ts 8 (GT 6)"
+ }
+}

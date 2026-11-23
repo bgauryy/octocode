@@ -478,6 +478,7 @@ fn build(
         memory_only: store.memory_only,
         workspace: Some(workspace),
         home: store.home.map(Path::to_path_buf),
+        lsp: store.lsp.cloned(),
         ..IngestOptions::of_query(query, root.clone())
     };
     let mut out = ingest(&options, paths, security, context, cargo);
@@ -544,6 +545,9 @@ pub struct Store<'a> {
     pub memory_only: bool,
     /// `local.graphHome`: the snapshot home in place of the workspace's.
     pub home: Option<&'a Path>,
+    /// Language-server discovery settings: where the user's consent to a
+    /// SCIP index is read from (graphBuild only).
+    pub lsp: Option<&'a octocode_engine::lsp::config::LspDiscoveryOptions>,
 }
 
 /// One validated graphBuild row: ingest a snapshot of its path.

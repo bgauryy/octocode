@@ -1,6 +1,6 @@
 # Attach measurements to a saved graph
 
-Run `octocode-graph enrich <data.json> <manifest.json> <new-data.json>` from an installed graph package. The new export carries the original graph and a separate evidence layer. Query it with `octocode-graph-query <new-data.json> "<query>" --json`.
+Run `octocode-graph enrich <data.json> <manifest.json> <new-data.json>` from an installed graph package. The new export carries the original graph and a separate evidence layer. Query it with `octocode-graph query <new-data.json> "<query>" --json`.
 
 Choose artifacts collected from the same source revision and build configuration. Set the manifest's `baseSha256` to the digest of the exact graph export and each provider's `sha256` to the digest of its original bytes. Obtain them with `shasum -a 256 <file>`. The importer checks both digests and the revision labels. The producer attests which revision the files describe.
 

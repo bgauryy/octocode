@@ -366,7 +366,8 @@ pub(super) async fn shape_pr_commits(
         if let Some(page) = commit.pointer_mut("/sectionPagination/files") {
             lift_page_limits(row, page);
         }
-        commits.push(commit);
+        // A commit with nothing beside its row (no body, no files) is one line.
+        commits.push(commit::line(commit));
         if let Some(read) = more_files {
             let name =
                 octocode_runtime_base::id::numbered("continueCommitFiles", continuations.len());

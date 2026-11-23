@@ -23,7 +23,7 @@ export const sections: ContractInput['sections'] = {
         type: 'boolean',
         default: true,
         description: 'Expose local filesystem tools through MCP. CLI tools remain available; path and content security apply on both surfaces.',
-        env: { name: 'OCTOCODE_ENABLE_LOCAL', dotenv: 'home', workspaceNarrowsTo: 'false' },
+        env: { name: 'OCTOCODE_ENABLE_LOCAL', dotenv: 'home', workspaceNarrowsTo: 'false', legacyNames: ['ENABLE_LOCAL'] },
       },
       beta: {
         type: 'boolean',
@@ -77,7 +77,8 @@ export const sections: ContractInput['sections'] = {
         type: 'boolean',
         default: false,
         description: 'Expose ghCloneRepo through MCP. CLI remains available. Clone execution requires persistent storage on both surfaces. Restart MCP after changing this setting.',
-        env: { name: 'OCTOCODE_ENABLE_CLONE', dotenv: 'home', workspaceNarrowsTo: 'false' },
+        env: { name: 'OCTOCODE_ENABLE_CLONE', dotenv: 'home', workspaceNarrowsTo: 'false', legacyNames: ['ENABLE_CLONE'] },
+        legacyPaths: ['local.enableClone'],
       },
       enableSecurityCheck: {
         type: 'boolean',

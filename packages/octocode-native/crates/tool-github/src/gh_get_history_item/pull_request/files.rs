@@ -1,6 +1,7 @@
 //! The changed-file section of a pull-request read: its page, totals, and
 //! source recovery and the optional reads at each side of its diff.
 use super::PrPlan;
+use crate::gh_get_history_item::file_page::empty_scope_warning;
 use crate::gh_get_history_item::gh_get_history_item_query;
 use crate::gh_get_history_item::inventory::shape_pr_files;
 use crate::gh_get_history_item::pr_menu;
@@ -26,6 +27,10 @@ pub(in crate::gh_get_history_item) struct FileOutcome {
     /// kept (every listed file without one), when the scope or literal
     /// matched nothing.
     pub(in crate::gh_get_history_item) in_scope: usize,
+    /// An `include` scope that matched none of a first page's changed files:
+    /// the count and the nearest changed directories, as a commit or a
+    /// comparison read states them ([`empty_scope_warning`]).
+    pub(in crate::gh_get_history_item) scope_warning: Option<String>,
     /// `readAtCommit`/`readParent`: the top shown file at the head and base.
     pub(in crate::gh_get_history_item) side_reads: Vec<(String, Value)>,
     /// Files whose `matchString` context the hunks cut short.
@@ -79,6 +84,9 @@ pub(super) fn shape_files_section(
     } else {
         0
     };
+    let scope_warning = scope_unmatched
+        .then(|| empty_scope_warning(&loaded.items, plan.scope.as_ref(), query, state.exhausted))
+        .flatten();
     let shaped = shape_pr_files(
         row,
         pagination,
@@ -146,6 +154,7 @@ pub(super) fn shape_files_section(
         match_dropped: shaped.match_dropped,
         scope_unmatched,
         in_scope,
+        scope_warning,
         side_reads,
         clipped: shaped.clipped,
     }

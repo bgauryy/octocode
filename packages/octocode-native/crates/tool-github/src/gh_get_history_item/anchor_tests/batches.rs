@@ -63,7 +63,12 @@ async fn pr_commit_last_short_batch_discloses_the_unreachable_reported_total() {
                     .as_array()
                     .expect("commits")
                     .iter()
-                    .map(|c| c["commitSha"].as_str().expect("sha").to_owned()),
+                    .map(|c| {
+                        octocode_test_support::commit_field(c, "commitSha")
+                            .as_str()
+                            .expect("sha")
+                            .to_owned()
+                    }),
             );
             let Some(next) = data.pointer("/pullRequests/0/next/commits/input") else {
                 break data;

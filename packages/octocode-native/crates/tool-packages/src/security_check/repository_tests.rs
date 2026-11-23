@@ -443,10 +443,17 @@ async fn a_repository_summary_counts_and_links_and_details_lists() {
         .expect("a counted advisory");
     assert_eq!(summary["highestSeverity"], worst["severity"], "{summary}");
     assert_eq!(summary["link"], worst["link"], "{summary}");
-    for detail in ["advisories", "repository", "sources"] {
+    for detail in ["repository", "sources"] {
         assert!(details.get(detail).is_some(), "{detail}: {details}");
         assert!(summary.get(detail).is_none(), "{detail}: {summary}");
     }
+    // The summary lists each counted advisory once, briefly.
+    let brief = summary["advisories"].as_array().expect("brief rows");
+    assert_eq!(brief.len(), counted.len(), "{summary}");
+    assert!(
+        brief.iter().all(|row| row.get("details").is_none()),
+        "{summary}"
+    );
     // The sentence stays: it says the count is the repository's own
     // published advisories, not the package's.
     assert!(

@@ -12,6 +12,7 @@ mod module_path;
 pub mod pool;
 mod project_config;
 pub mod resolver;
+pub mod scip_run;
 mod spawn_limits;
 pub(crate) mod transport;
 pub mod types;

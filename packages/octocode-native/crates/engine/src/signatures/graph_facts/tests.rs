@@ -118,6 +118,7 @@ fn codes(facts: &Value) -> Vec<String> {
         .collect()
 }
 
+mod call_lines;
 mod calls_and_diagnostics;
 mod deadlines;
 mod declarations;

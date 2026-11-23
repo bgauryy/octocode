@@ -1,3 +1,7 @@
+// Builds dist/: Node entry points and command scripts as one esbuild graph (shared chunks, one copy of
+// every module), the viewer and offline-replay browser bundles, the renderer with its licenses, copied
+// HTML/CSS/schema assets and the public declarations. `--check-generated` only checks the generated
+// contract types.
 import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
@@ -5,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { buildRenderer } from './renderer.mjs';
 import { graphDeclarations } from './contract.mjs';
 import {
+  chmod,
   cp,
   mkdir,
   mkdtemp,
@@ -16,14 +21,26 @@ import {
 import { dirname, join, relative, resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
-const options = {
-  absWorkingDir: root,
-  platform: 'node',
-  format: 'esm',
-  target: 'node24',
-  logLevel: 'silent',
-};
 const check = process.argv.includes('--check-generated');
+// Command scripts: package.json bin entries and `octocode-graph <command>` (#graph-runtime/*).
+const COMMANDS = [
+  'build',
+  'refresh',
+  'diff',
+  'query',
+  'serve',
+  'channel',
+  'wiki',
+  'reply',
+  'render',
+  'preflight',
+  'link',
+  'mcp',
+];
+const BINS = new Set(COMMANDS.map(name => `runtime/${name}.js`));
+// Copied verbatim beside the bundles.
+const STATIC = /\.(?:html|css|json)$/;
+
 async function update(path, contents) {
   const current = await readFile(path).catch(error => {
     if (error.code === 'ENOENT') return null;
@@ -40,6 +57,13 @@ const contractPath = join(root, 'src/contract.generated.d.ts');
 await update(contractPath, Buffer.from(await graphDeclarations()));
 if (!check) {
   const dst = join(root, 'dist');
+  const files = new Set();
+  const emit = async file => {
+    const name = relative(dst, file.path);
+    files.add(name);
+    await update(file.path, file.contents);
+    if (BINS.has(name)) await chmod(file.path, 0o755);
+  };
   const declarations = await mkdtemp(join(tmpdir(), 'octocode-graph-types-'));
   try {
     const compiler = fileURLToPath(
@@ -53,73 +77,74 @@ if (!check) {
       [compiler, '-p', 'tsconfig.build.json', '--outDir', declarations],
       { cwd: root, stdio: 'inherit' }
     );
-    const built = await build({
-      ...options,
-      entryPoints: [
-        'src/index.ts',
-        'src/cli.ts',
-        'src/mcp.ts',
-        'src/analysis.ts',
-        'src/algorithms.ts',
-        'src/graph-model.ts',
-        'src/relations.ts',
-      ],
+    const common = {
+      absWorkingDir: root,
       bundle: true,
+      format: 'esm',
+      logLevel: 'silent',
+      outdir: 'dist',
+      write: false,
+    };
+    const node = build({
+      ...common,
+      platform: 'node',
+      target: 'node24',
+      entryPoints: {
+        index: 'src/index.ts',
+        cli: 'src/cli.ts',
+        mcp: 'src/mcp.ts',
+        analysis: 'src/analysis.ts',
+        ...Object.fromEntries(
+          COMMANDS.map(name => [
+            `runtime/${name}`,
+            `src/runtime/commands/${name}.ts`,
+          ])
+        ),
+      },
       packages: 'external',
       splitting: true,
-      outdir: 'dist',
       chunkNames: 'shared/[name]-[hash]',
-      write: false,
     });
-
-    const browser = await build({
-      absWorkingDir: root,
-      platform: 'browser',
-      format: 'esm',
-      target: 'es2022',
-      bundle: true,
+    // The live viewer loads the renderer bundle beside it; the offline page maps the same specifier to
+    // an embedded copy. The replay and its worker are embedded in exported HTML, so they are minified.
+    const browser = { ...common, platform: 'browser', target: 'es2022' };
+    const viewer = build({
+      ...browser,
+      entryPoints: { 'assets/live': 'src/assets/live.ts' },
+      external: ['./renderer.generated.js'],
+    });
+    const offline = build({
+      ...browser,
       minify: true,
       entryPoints: {
-        offline: 'scripts/browser/offline.js',
-        worker: 'scripts/browser/worker.js',
+        'browser/offline': 'src/browser/offline.ts',
+        'browser/worker': 'src/browser/worker.ts',
       },
-      alias: Object.fromEntries(
-        ['algorithms', 'graph-model', 'relations'].map(name => [
-          `#graph-core/${name}`,
-          `./src/${name}.ts`,
-        ])
-      ),
       external: ['./renderer.generated.js'],
-      outdir: 'dist/browser',
-      write: false,
     });
-    const files = new Set();
-    await buildRenderer(root, async (path, contents) => {
-      files.add(relative(dst, path));
-      await update(path, contents);
-    });
-    for (const dir of ['runtime', 'assets', 'scheme']) {
+    await buildRenderer(root, async (path, contents) =>
+      emit({ path, contents })
+    );
+    for (const result of await Promise.all([node, viewer, offline]))
+      for (const file of result.outputFiles) await emit(file);
+    for (const dir of ['assets', 'scheme']) {
       const source = join(root, 'src', dir);
-      for (const entry of await readdir(source, {
-        recursive: true,
-        withFileTypes: true,
-      })) {
-        if (!entry.isFile()) continue;
-        const path = join(entry.parentPath, entry.name);
-        const name = join(dir, relative(source, path));
+      for (const entry of await readdir(source, { withFileTypes: true })) {
+        if (!entry.isFile() || !STATIC.test(entry.name)) continue;
+        const name = join(dir, entry.name);
         files.add(name);
-        await mkdir(dirname(join(dst, name)), { recursive: true });
-        await cp(path, join(dst, name));
+        await mkdir(join(dst, dir), { recursive: true });
+        await cp(join(source, entry.name), join(dst, name));
       }
     }
-    for (const file of [...built.outputFiles, ...browser.outputFiles]) {
-      files.add(relative(dst, file.path));
-      await mkdir(dirname(file.path), { recursive: true });
-      await update(file.path, file.contents);
-    }
-    for (const name of await readdir(declarations)) {
-      if (!name.endsWith('.d.ts') || name === 'renderer.d.ts') continue; // Browser internals have no Node export.
+    for (const entry of await readdir(declarations, {
+      recursive: true,
+      withFileTypes: true,
+    })) {
+      if (!entry.isFile() || !entry.name.endsWith('.d.ts')) continue;
+      const name = relative(declarations, join(entry.parentPath, entry.name));
       files.add(name);
+      await mkdir(dirname(join(dst, name)), { recursive: true });
       await cp(join(declarations, name), join(dst, name));
     }
     files.add('contract.generated.d.ts');

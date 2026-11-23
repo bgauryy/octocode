@@ -36,7 +36,8 @@ fn expired_graph_walk_does_not_emit_complete_facts() {
         &mut acc,
         std::time::Instant::now(),
         &[],
-        None
+        None,
+        &[]
     ));
     assert!(acc.declarations.is_empty());
     assert!(acc.calls.is_empty());

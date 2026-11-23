@@ -124,7 +124,13 @@ async fn compare_row_names_both_resolved_commits_and_each_commit_sha() {
         ),
     )
     .await;
-    assert_eq!(listed["commits"][0]["commitSha"], HEAD, "{listed}");
+    // A plain commit row is one line that opens with its SHA.
+    assert!(
+        listed["commits"][0]
+            .as_str()
+            .is_some_and(|line| line.starts_with(&format!("{HEAD} "))),
+        "{listed}"
+    );
 }
 
 /// A compare of identical refs changes nothing: an empty answer (exit 1),

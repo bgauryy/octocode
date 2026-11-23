@@ -111,7 +111,8 @@ impl Lang {
     }
 }
 
-struct Binding {
+#[derive(Clone)]
+pub(super) struct Binding {
     name: String,
     ty: Option<String>,
     /// First byte where the binding is visible.
@@ -130,6 +131,9 @@ pub(super) struct ReceiverTypes<'t> {
     bindings: HashMap<usize, Vec<Binding>>,
     fields: HashMap<usize, Fields>,
     types: Option<HashMap<String, Vec<Node<'t>>>>,
+    /// For a re-parsed macro body: the locals its invocation sees in the
+    /// enclosing function, which the body's own tree does not hold.
+    outer: Vec<Binding>,
 }
 
 impl<'t> ReceiverTypes<'t> {
@@ -140,7 +144,53 @@ impl<'t> ReceiverTypes<'t> {
             bindings: HashMap::new(),
             fields: HashMap::new(),
             types: None,
+            outer: Vec::new(),
         })
+    }
+
+    /// This resolver for a re-parsed macro body, seeing `outer`: the locals
+    /// visible where the macro is invoked ([`Self::visible_locals`]).
+    pub(super) fn with_outer(mut self, outer: &[Binding]) -> Self {
+        self.outer = outer.to_vec();
+        self
+    }
+
+    /// The locals visible at `at` in its innermost enclosing function, the
+    /// latest of each name; in a macro body with no function of its own, the
+    /// ones its invocation sees. `path` holds the enclosing nodes of `at`.
+    pub(super) fn visible_locals(
+        &mut self,
+        at: Node<'t>,
+        path: &[Node<'t>],
+        content: &str,
+    ) -> Vec<Binding> {
+        let position = at.start_byte();
+        let Some(&function) = path
+            .iter()
+            .rev()
+            .find(|n| self.lang.is_function(kind_of(**n)))
+        else {
+            return self.outer.clone();
+        };
+        let mut latest: HashMap<&str, &Binding> = HashMap::new();
+        for binding in self.bindings_of(function, content) {
+            if binding.from <= position
+                && position < binding.until
+                && latest
+                    .get(binding.name.as_str())
+                    .is_none_or(|b| b.from <= binding.from)
+            {
+                latest.insert(binding.name.as_str(), binding);
+            }
+        }
+        latest
+            .into_values()
+            .map(|binding| Binding {
+                from: 0,
+                until: usize::MAX,
+                ..binding.clone()
+            })
+            .collect()
     }
 
     /// Receiver type of the member call `call`, or `None`. `path` holds the
@@ -246,7 +296,15 @@ impl<'t> ReceiverTypes<'t> {
                 }
             }
         }
-        None
+        // A macro body's own tree holds no enclosing function: the local is
+        // the one its invocation sees.
+        if path
+            .iter()
+            .any(|node| self.lang.is_function(kind_of(*node)))
+        {
+            return None;
+        }
+        self.outer.iter().find(|binding| binding.name == name)
     }
 
     fn bindings_of(&mut self, function: Node<'t>, content: &str) -> &[Binding] {
@@ -369,7 +427,7 @@ use crate::signatures::receiver_fields::{Fields, merge};
 use bindings::{bind_pattern, push};
 use cpp::cpp_declarator_name;
 pub(super) use go::go_return_type;
-pub(super) use rust::rust_return_types;
+pub(super) use rust::{DeclaredReturns, rust_return_types};
 #[cfg(feature = "tree-sitter-scala")]
 pub(super) use scala::ScalaTerms;
 use type_text::is_identifier;

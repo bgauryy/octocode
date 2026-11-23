@@ -282,6 +282,36 @@ fn published_manifests_remain_discoverable_with_large_scan_evidence() {
     assert_eq!(list_snapshots(&home), [id]);
 }
 
+/// Job retention asks when each root was last published, once per job. One
+/// pass over the home answers every root with its newest snapshot.
+#[test]
+fn published_roots_maps_each_root_to_its_newest_snapshot() {
+    let dir = Fixture::new();
+    let home = dir.0.join("graphs");
+    let snapshot = |id: &str, root: &str| {
+        let manifest = json!({
+            "kind": MANIFEST_KIND,
+            "root": root,
+            "id": id,
+            "scope": "scope",
+            "formatVersion": format::FORMAT_VERSION,
+        });
+        super::super::ingest::publish(&home, id, "20261026T070632Z", b"snapshot", &manifest)
+            .expect("publish");
+        std::fs::metadata(home.join(id).join(MANIFEST_FILE))
+            .and_then(|meta| meta.modified())
+            .expect("mtime")
+    };
+    let a1 = snapshot("20261026T070632Z-a-111111", "/repo/a");
+    let a2 = snapshot("20261026T070633Z-a-222222", "/repo/a");
+    let b = snapshot("20261026T070634Z-b-333333", "/repo/b");
+    std::fs::create_dir_all(home.join(".facts").join("jobs")).expect("facts");
+    let published = published_roots(&home);
+    assert_eq!(published.len(), 2, "{published:?}");
+    assert_eq!(published.get("/repo/a"), Some(&a1.max(a2)));
+    assert_eq!(published.get("/repo/b"), Some(&b));
+}
+
 /// A snapshot of an older format (here v4, before diagnostics named their
 /// target file) is never reused: the next ingest rebuilds it, and queries
 /// answer from the rebuilt snapshot.

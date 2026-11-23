@@ -430,8 +430,9 @@ fn git_dir(checkout: &Path) -> Option<PathBuf> {
 
 /// Record that the worktree `stage` was completed now; returns that time.
 pub(super) fn record_completion(stage: &Path) -> Result<String, GitError> {
-    let at = octocode_runtime_base::civil_date::iso8601_millis(
-        octocode_runtime_base::civil_date::unix_millis(),
+    // To the second, as every other time a reply states.
+    let at = octocode_runtime_base::civil_date::iso8601_secs(
+        octocode_runtime_base::civil_date::unix_secs(),
     );
     let git_dir = git_dir(stage).ok_or_else(|| {
         GitError::new(
@@ -468,8 +469,18 @@ pub(super) fn record_scope(
 pub(super) fn completed_at(path: &Path) -> Option<String> {
     fs::read_to_string(git_dir(path)?.join(COMPLETED_AT_FILE))
         .ok()
-        .map(|text| text.trim().to_owned())
+        .map(|text| to_the_second(text.trim()))
         .filter(|text| !text.is_empty())
+}
+
+/// A recorded time to the second (`…:16.158Z` reads `…:16Z`): a clone an
+/// earlier build recorded in milliseconds states the form every other time
+/// does.
+fn to_the_second(at: &str) -> String {
+    match at.split_once('.') {
+        Some((seconds, fraction)) if fraction.ends_with('Z') => format!("{seconds}Z"),
+        _ => at.to_owned(),
+    }
 }
 
 pub(super) fn checked_out_size(path: &Path) -> u64 {

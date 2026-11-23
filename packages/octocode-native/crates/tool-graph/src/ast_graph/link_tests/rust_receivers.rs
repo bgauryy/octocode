@@ -289,3 +289,93 @@ pub fn shared() -> Attempt {
         ]
     );
 }
+
+/// An awaited `async fn` call has its declared return type, and a tuple
+/// `let` binds each name to its element's type: `let (c, n) = pair()` and
+/// `let (c, _) = later_pair().await`, as rust-analyzer types them. A future
+/// that is not awaited, or an element past a `..`, stays untyped.
+#[test]
+fn rust_awaited_and_destructured_results_take_their_declared_types() {
+    let temp = fixture(&[
+        ("src/lib.rs", "pub mod result;\npub mod pairs;\n"),
+        ("src/result.rs", RESULT),
+        (
+            "src/pairs.rs",
+            "use crate::result::{Continuation, Other};
+pub fn pair() -> (Continuation, Other) { (Continuation, Other) }
+pub async fn later_pair() -> (Other, Continuation) { (Other, Continuation) }
+pub async fn awaited() {
+    Continuation::later().await.finish();
+    let (c, o) = pair();
+    c.build();
+    o.finish();
+    let (o2, c2) = later_pair().await;
+    c2.build();
+    let (first, ..) = later_pair().await;
+    first.build();
+    let unawaited = later_pair();
+    unawaited.build();
+}
+",
+        ),
+    ]);
+    let root = ingested(&temp);
+    let edges = call_edges(root, "src/pairs.rs#awaited");
+    let other = |name: &str| {
+        edge(
+            &format!("src/result.rs#Other.{name}"),
+            "receiver-type",
+            "high",
+        )
+    };
+    assert!(
+        edges.contains(&continuation("finish", "receiver-type")),
+        "{edges:?}"
+    );
+    assert!(
+        edges.contains(&continuation("build", "receiver-type")),
+        "{edges:?}"
+    );
+    assert!(edges.contains(&other("finish")), "{edges:?}");
+    assert!(edges.contains(&other("build")), "{edges:?}");
+}
+
+/// A call written inside an expression macro (`assert!`, `assert_eq!`) on a
+/// local the enclosing function binds outside it (a typed parameter, a
+/// destructured awaited result) has that local's type, as outside the macro.
+#[test]
+fn rust_calls_inside_expression_macros_see_the_enclosing_locals() {
+    let temp = fixture(&[
+        ("src/lib.rs", "pub mod result;\npub mod pairs;\n"),
+        ("src/result.rs", RESULT),
+        (
+            "src/pairs.rs",
+            "use crate::result::{Continuation, Other};
+pub async fn later_pair() -> (Other, Continuation) { (Other, Continuation) }
+pub async fn asserted(given: &Continuation) {
+    let (o, c) = later_pair().await;
+    assert_eq!(c.build(), given.finish());
+    assert!(matches!(o.finish(), ()));
+}
+",
+        ),
+    ]);
+    let root = ingested(&temp);
+    let edges = call_edges(root, "src/pairs.rs#asserted");
+    let other = |name: &str| {
+        edge(
+            &format!("src/result.rs#Other.{name}"),
+            "receiver-type",
+            "high",
+        )
+    };
+    assert!(
+        edges.contains(&continuation("build", "receiver-type")),
+        "{edges:?}"
+    );
+    assert!(
+        edges.contains(&continuation("finish", "receiver-type")),
+        "{edges:?}"
+    );
+    assert!(edges.contains(&other("finish")), "{edges:?}");
+}

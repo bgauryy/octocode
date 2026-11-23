@@ -77,6 +77,15 @@
           "docsUrl": {
             "type": "string",
             "format": "uri"
+          },
+          "legacyNames": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*$"
+            },
+            "uniqueItems": true
           }
         },
         "additionalProperties": false
@@ -149,6 +158,15 @@
                         "workspaceNarrowsTo": {
                           "type": "string",
                           "minLength": 1
+                        },
+                        "legacyNames": {
+                          "minItems": 1,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Z0-9_]*$"
+                          },
+                          "uniqueItems": true
                         }
                       },
                       "required": [
@@ -166,6 +184,15 @@
                     "docsUrl": {
                       "type": "string",
                       "format": "uri"
+                    },
+                    "legacyPaths": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)+$"
+                      },
+                      "uniqueItems": true
                     }
                   },
                   "required": [
@@ -227,6 +254,15 @@
                         "workspaceNarrowsTo": {
                           "type": "string",
                           "minLength": 1
+                        },
+                        "legacyNames": {
+                          "minItems": 1,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Z0-9_]*$"
+                          },
+                          "uniqueItems": true
                         }
                       },
                       "required": [
@@ -244,6 +280,15 @@
                     "docsUrl": {
                       "type": "string",
                       "format": "uri"
+                    },
+                    "legacyPaths": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)+$"
+                      },
+                      "uniqueItems": true
                     }
                   },
                   "required": [
@@ -309,6 +354,15 @@
                         "workspaceNarrowsTo": {
                           "type": "string",
                           "minLength": 1
+                        },
+                        "legacyNames": {
+                          "minItems": 1,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Z0-9_]*$"
+                          },
+                          "uniqueItems": true
                         }
                       },
                       "required": [
@@ -326,6 +380,15 @@
                     "docsUrl": {
                       "type": "string",
                       "format": "uri"
+                    },
+                    "legacyPaths": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)+$"
+                      },
+                      "uniqueItems": true
                     }
                   },
                   "required": [
@@ -387,6 +450,15 @@
                         "workspaceNarrowsTo": {
                           "type": "string",
                           "minLength": 1
+                        },
+                        "legacyNames": {
+                          "minItems": 1,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Z0-9_]*$"
+                          },
+                          "uniqueItems": true
                         }
                       },
                       "required": [
@@ -404,6 +476,15 @@
                     "docsUrl": {
                       "type": "string",
                       "format": "uri"
+                    },
+                    "legacyPaths": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)+$"
+                      },
+                      "uniqueItems": true
                     }
                   },
                   "required": [

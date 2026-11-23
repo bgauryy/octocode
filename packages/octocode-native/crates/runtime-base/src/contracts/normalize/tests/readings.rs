@@ -109,10 +109,14 @@ fn a_form_with_one_typed_reading_is_read_as_the_declared_form() {
             let [note] = notes.as_slice() else {
                 panic!("{tool:?} {}: one warning, not {notes:?}", form.kind);
             };
-            assert!(note.contains("next time"), "{note}");
+            // The reading is stated, never an instruction: the call ran as read.
+            assert!(
+                note.starts_with("read ") && !note.contains("next time"),
+                "{note}"
+            );
             if let Some(field) = &form.field {
                 assert!(
-                    note.starts_with(&format!("queries[0]: read `{field}: ")),
+                    note.starts_with(&format!("read queries[0]: {field}")),
                     "{note}"
                 );
             }
@@ -140,8 +144,9 @@ fn a_form_with_one_typed_reading_is_read_as_the_declared_form() {
 
 /// D4: readings of one row are independent. The fields of an example that
 /// are each read alone in another letter case are read together when all
-/// are sent so, with one warning each, on every tool that has two such
-/// fields: a discriminator's case is read before its form judges the rest.
+/// are sent so, in one warning that names each, on every tool that has two
+/// such fields: a discriminator's case is read before its form judges the
+/// rest.
 #[test]
 fn every_independent_reading_of_one_row_is_made_together() {
     let mut tools = Vec::new();
@@ -167,7 +172,13 @@ fn every_independent_reading_of_one_row_is_made_together() {
         }
         let (input, notes) = normalized_input(tool.as_str(), request(&all));
         assert_eq!(input, request(&row), "{tool:?}: {all}");
-        assert_eq!(notes.len(), cased.len(), "{tool:?}: {notes:?}");
+        let [note] = notes.as_slice() else {
+            panic!("{tool:?}: one warning, not {notes:?}");
+        };
+        for form in &cased {
+            let field = form.field.as_deref().expect("a field form");
+            assert!(note.contains(field), "{tool:?} names {field}: {note}");
+        }
         if !tools.contains(&tool) {
             tools.push(tool);
         }
@@ -230,8 +241,8 @@ fn a_missing_member_is_filled_from_its_declared_default() {
     );
 }
 
-/// One warning per reading, said once for the rows that share it and in row
-/// order; a long value is quoted by its ends.
+/// One warning per call: a reading is said once for the rows that share it,
+/// and a value read from its JSON text is named, not quoted.
 #[test]
 fn a_reading_is_said_once_for_the_rows_that_share_it() {
     let terms: Vec<String> = (0..40).map(|at| format!("term{at}")).collect();
@@ -242,9 +253,107 @@ fn a_reading_is_said_once_for_the_rows_that_share_it() {
     let [note] = notes.as_slice() else {
         panic!("one warning: {notes:?}");
     };
-    assert!(note.starts_with("queries[0,2]: read `exclude: "), "{note}");
+    assert_eq!(note, "read queries[0,2]: exclude from JSON text");
     assert!(
         note.chars().count() < json!(terms).to_string().chars().count(),
         "the value is quoted by its ends: {note}"
     );
+}
+
+/// Fields of one row read the same way are named together, once per way:
+/// the warning lists each field, never repeats the reading.
+#[test]
+fn fields_read_the_same_way_share_one_reading() {
+    let row = json!({
+        "path": ".",
+        "matchString": "x",
+        "include": json!(["*.rs"]).to_string(),
+        "exclude": json!(["target"]).to_string()
+    });
+    let (input, notes) = normalized_input("localSearch", json!({"queries": [row]}));
+    assert_eq!(input["queries"][0]["include"], json!(["*.rs"]));
+    assert_eq!(input["queries"][0]["matchString"], json!(["x"]));
+    let [note] = notes.as_slice() else {
+        panic!("one warning: {notes:?}");
+    };
+    assert_eq!(note.matches("from JSON text").count(), 1, "{note}");
+    assert!(
+        note.contains("include") && note.contains("exclude"),
+        "{note}"
+    );
+    assert!(note.contains("matchString as a list"), "{note}");
+}
+
+/// A `[start, end]` pair where a range `{startLine, endLine}` is declared
+/// reads as that range, its first item the start (the contract's `x-order`
+/// names the lower); an object without a declared order (`contextLines`)
+/// has no such reading.
+#[test]
+fn a_pair_reads_as_the_ordered_object() {
+    let sent = json!({"queries": [{"path": "a.rs", "ranges": [[3, 9], {"startLine": 20, "endLine": 22}]}]});
+    let (input, notes) = normalized_input("localFetch", sent);
+    assert_eq!(
+        input["queries"][0]["ranges"],
+        json!([{"startLine": 3, "endLine": 9}, {"startLine": 20, "endLine": 22}])
+    );
+    let [note] = notes.as_slice() else {
+        panic!("one warning: {notes:?}");
+    };
+    assert!(note.contains("ranges[0]"), "{note}");
+    let context =
+        json!({"queries": [{"path": "a.rs", "matchString": ["x"], "contextLines": [2, 4]}]});
+    let (input, _) = normalized_input("localFetch", context.clone());
+    assert_eq!(input, context, "contextLines declares no order");
+}
+
+/// A regex item that compiles only with an unpaired bracket read as text is
+/// read so, and the call says how; one that fails for another reason, and
+/// a literal row, stay as sent.
+#[test]
+fn an_unpaired_bracket_in_a_regex_reads_as_text() {
+    let sent = json!({"queries": [{"path": "a.py", "regexEngine": "rust", "matchString": ["^class ", "def route(", "def map[|def imap"]}]});
+    let (input, notes) = normalized_input("localFetch", sent);
+    assert_eq!(
+        input["queries"][0]["matchString"],
+        json!(["^class ", "def route\\(", "def map\\[|def imap"])
+    );
+    let [note] = notes.as_slice() else {
+        panic!("one warning: {notes:?}");
+    };
+    assert!(note.contains("matchString[1] as `def route\\(`"), "{note}");
+    for kept in [
+        json!({"path": "a.py", "regexEngine": "rust", "matchString": ["(?:x"]}),
+        json!({"path": "a.py", "matchString": ["def route("]}),
+    ] {
+        let sent = json!({"queries": [kept]});
+        let (input, notes) = normalized_input("localFetch", sent.clone());
+        assert_eq!(input, sent);
+        assert!(notes.is_empty(), "{notes:?}");
+    }
+}
+
+/// A cursor sent in the one row of `queries` reads as the cursor call, and
+/// the call says so; the row's other fields stand beside the cursor, for the
+/// saved query to read. A cursor among several rows stays for validation to
+/// refuse.
+#[test]
+fn a_cursor_in_the_one_row_reads_as_the_cursor_call() {
+    let (input, notes) =
+        normalized_input("securityCheck", json!({"queries": [{"cursor": "issued"}]}));
+    assert_eq!(input, json!({"cursor": "issued"}));
+    let [note] = notes.as_slice() else {
+        panic!("one warning: {notes:?}");
+    };
+    assert!(note.starts_with("read queries[0].cursor"), "{note}");
+    let (input, _) = normalized_input(
+        "securityCheck",
+        json!({"queries": [{"operation": "package", "view": "details", "cursor": "issued"}]}),
+    );
+    assert_eq!(
+        input,
+        json!({"operation": "package", "view": "details", "cursor": "issued"})
+    );
+    let kept = json!({"queries": [{"cursor": "issued"}, {"cursor": "other"}]});
+    let (input, _) = normalized_input("localSearch", kept.clone());
+    assert_eq!(input, kept);
 }

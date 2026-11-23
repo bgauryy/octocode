@@ -127,17 +127,17 @@ test('run advertises a smaller plan; schema --command run still lists the droppe
   );
 });
 
-test('no MCP preset exports snapshot or screenshot; the CLI registry keeps them and schema describes their options', async () => {
+test('no MCP preset exports snapshot, screenshot or artifact; the CLI registry keeps them and schema describes their options', async () => {
   for (const preset of Object.keys(presets)) {
     const names = (await tools(preset)).tools.map(tool => tool.name);
-    for (const name of ['snapshot', 'screenshot'])
+    for (const name of ['snapshot', 'screenshot', 'artifact'])
       assert.ok(!names.includes(name), `${preset} ${name}`);
   }
   const full = (await tools('full')).tools.map(tool => tool.name);
   assert.deepEqual(
     full,
     Object.keys(chromeCommands).filter(
-      name => !['snapshot', 'screenshot'].includes(name)
+      name => !['snapshot', 'screenshot', 'artifact'].includes(name)
     )
   );
   assert.deepEqual(

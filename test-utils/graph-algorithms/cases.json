@@ -1,0 +1,38 @@
+[
+  {
+    "name": "triangle-across-chunks",
+    "nodes": ["api/a.ts","web/b.ts","lib/c.ts","app/main.ts"],
+    "edges": [["app/main.ts","api/a.ts"],["api/a.ts","web/b.ts"],["web/b.ts","lib/c.ts"],["lib/c.ts","api/a.ts"]],
+    "expected": {"cycles":[["api/a.ts","lib/c.ts","web/b.ts"]],"ring":{"api/a.ts":["api/a.ts","web/b.ts","lib/c.ts"],"lib/c.ts":["lib/c.ts","api/a.ts","web/b.ts"],"web/b.ts":["web/b.ts","lib/c.ts","api/a.ts"],"app/main.ts":null},"path":[{"from":"app/main.ts","to":"lib/c.ts","path":["app/main.ts","api/a.ts","web/b.ts","lib/c.ts"]},{"from":"lib/c.ts","to":"web/b.ts","path":["lib/c.ts","api/a.ts","web/b.ts"]},{"from":"web/b.ts","to":"app/main.ts","path":null}],"reach":[{"seeds":["api/a.ts"],"depths":{"app/main.ts":1,"lib/c.ts":1,"web/b.ts":2}}],"pagerank":{"api/a.ts":0.33260447,"web/b.ts":0.3202138,"lib/c.ts":0.30968173,"app/main.ts":0.0375}}
+  },
+  {
+    "name": "two-components",
+    "nodes": ["a.ts","b.ts","c.ts","d.ts","e.ts","f.ts"],
+    "edges": [["a.ts","b.ts"],["b.ts","a.ts"],["c.ts","d.ts"],["d.ts","e.ts"],["e.ts","c.ts"],["e.ts","f.ts"]],
+    "expected": {"cycles":[["c.ts","d.ts","e.ts"],["a.ts","b.ts"]],"ring":{"a.ts":["a.ts","b.ts"],"e.ts":["e.ts","c.ts","d.ts"],"f.ts":null},"path":[{"from":"c.ts","to":"f.ts","path":["c.ts","d.ts","e.ts","f.ts"]},{"from":"a.ts","to":"c.ts","path":null}],"reach":[{"seeds":["f.ts"],"depths":{"e.ts":1,"d.ts":2,"c.ts":3}},{"seeds":["a.ts","c.ts"],"depths":{"b.ts":1,"e.ts":1,"d.ts":2}}],"pagerank":{"a.ts":0.262544697,"b.ts":0.262544697,"c.ts":0.101517914,"d.ts":0.125671932,"e.ts":0.146202846,"f.ts":0.101517914}}
+  },
+  {
+    "name": "self-loop",
+    "nodes": ["x.ts","y.ts"],
+    "edges": [["x.ts","x.ts"],["x.ts","y.ts"]],
+    "expected": {"cycles":[["x.ts"]],"ring":{"x.ts":["x.ts"],"y.ts":null},"path":[{"from":"x.ts","to":"y.ts","path":["x.ts","y.ts"]}],"reach":[{"seeds":["y.ts"],"depths":{"x.ts":1}}],"pagerank":{"x.ts":0.5,"y.ts":0.5}}
+  },
+  {
+    "name": "empty",
+    "nodes": [],
+    "edges": [],
+    "expected": {"cycles":[],"ring":{},"path":[],"reach":[],"pagerank":{}}
+  },
+  {
+    "name": "tie-two-shortest-rings",
+    "nodes": ["a.ts","b.ts","c.ts","d.ts"],
+    "edges": [["a.ts","b.ts"],["a.ts","c.ts"],["b.ts","d.ts"],["c.ts","d.ts"],["d.ts","a.ts"]],
+    "expected": {"cycles":[["a.ts","b.ts","c.ts","d.ts"]],"ring":{"a.ts":["a.ts","b.ts","d.ts"],"d.ts":["d.ts","a.ts","b.ts"],"c.ts":["c.ts","d.ts","a.ts"]},"path":[{"from":"a.ts","to":"d.ts","path":["a.ts","b.ts","d.ts"]}],"reach":[{"seeds":["d.ts"],"depths":{"b.ts":1,"c.ts":1,"a.ts":2}}],"pagerank":{"a.ts":0.3202138,"b.ts":0.173590865,"c.ts":0.173590865,"d.ts":0.33260447}}
+  },
+  {
+    "name": "shuffled-input-order",
+    "nodes": ["z.ts","m.ts","b.ts","a.ts"],
+    "edges": [["z.ts","m.ts"],["z.ts","b.ts"],["m.ts","a.ts"],["b.ts","a.ts"],["a.ts","z.ts"]],
+    "expected": {"cycles":[["a.ts","b.ts","m.ts","z.ts"]],"ring":{"z.ts":["z.ts","b.ts","a.ts"],"a.ts":["a.ts","z.ts","b.ts"]},"path":[{"from":"z.ts","to":"a.ts","path":["z.ts","b.ts","a.ts"]}],"reach":[{"seeds":["a.ts"],"depths":{"b.ts":1,"m.ts":1,"z.ts":2}}],"pagerank":{"z.ts":0.3202138,"m.ts":0.173590865,"b.ts":0.173590865,"a.ts":0.33260447}}
+  }
+]

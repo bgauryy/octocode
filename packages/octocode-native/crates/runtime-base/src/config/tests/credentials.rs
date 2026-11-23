@@ -72,18 +72,18 @@ fn inspector_reports_skipped_env_keys_with_source_file() {
     assert!(!printed.contains("private-"));
 }
 #[test]
-fn local_switch_has_one_env_name() {
+fn local_switch_turns_local_tools_off() {
     let off = resolve_sections(
         &[],
         &BTreeMap::from([("OCTOCODE_ENABLE_LOCAL".into(), "false".into())]),
     );
     assert!(!off.unwrap_or_default().local.enabled);
-    // The retired `ENABLE_LOCAL` spelling changes nothing.
-    let retired = resolve_sections(
-        &[],
-        &BTreeMap::from([("ENABLE_LOCAL".into(), "false".into())]),
-    );
-    assert!(retired.unwrap_or_default().local.enabled);
+    // The legacy `ENABLE_LOCAL` spelling: see `config::legacy` tests.
+    let legacy = resolve_config(&input(
+        BTreeMap::from([("ENABLE_LOCAL".into(), "false".into())]),
+        None,
+    ));
+    assert!(!legacy.resolved.local.enabled);
 }
 #[test]
 fn classification_key_falls_back_to_config_file_without_leaking() {

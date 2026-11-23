@@ -63,7 +63,7 @@ pub(super) fn attach_commit_page(
     out["commits"] = json!(
         commits
             .into_iter()
-            .map(|v| commit::row(&v))
+            .map(|v| commit::line(commit::row(&v)))
             .collect::<Vec<_>>()
     );
     // Every commit page states where it stands, the last one too. GitHub

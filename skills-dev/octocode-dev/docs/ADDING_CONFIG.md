@@ -33,7 +33,7 @@ A setting is something a user chooses: a credential, endpoint, feature switch, t
 - **`RuntimeLimits::DEFAULT`** (`packages/octocode-native/crates/runtime-base/src/execution/limits.rs`) when several surfaces share it or tests vary it through `ToolRuntime::with_limits`;
 - **a named constant next to its single use** otherwise (for example `IDLE_EXIT` in `crates/cli/src/cli/serve.rs`), with a doc comment giving the rationale. When it bounds evidence, the response discloses the cut (a warning, a `*Clipped` flag or a continuation), never a silent gap.
 
-Docs link to the constant instead of copying its value. To retire a setting, delete its declaration, consumers and tests, then regenerate; unknown names use ordinary unknown-key handling. No compatibility aliases, tombstones, special diagnostics or second policy registry.
+Docs link to the constant instead of copying its value. To retire a setting, delete its declaration, consumers and tests, then regenerate; unknown names use ordinary unknown-key handling, with no tombstones. To rename one, keep each earlier spelling on the setting as a [legacy name](#legacy-names); there is no other alias mechanism or second policy registry.
 
 ## Add a normal setting
 
@@ -47,13 +47,23 @@ Enum defaults are the first value in `values`; runtime-surface defaults are the 
 
 ### Environment binding
 
-Each setting has at most one `env` binding, `{ "name": "OCTOCODE_..." }`, no aliases. Every Octocode variable must be in the contract, or source labeling, protection, docs and the resolver cannot derive it. Variables other programs own (toolchain homes, `NPM_CONFIG_USERCONFIG`, `GIT_CONFIG_*`, `XDG_CONFIG_HOME`) are not settings: Octocode reads them as their owner does, and `engine/src/process_env.rs` (`PROCESS_ENV`) lists every one the engine reads so the warm server can key on them. An invalid environment value is skipped with a warning and the next source applies.
+Each setting has at most one `env` binding, `{ "name": "OCTOCODE_..." }`; earlier spellings go in its `legacyNames`. Every Octocode variable must be in the contract, or source labeling, protection, docs and the resolver cannot derive it. Variables other programs own (toolchain homes, `NPM_CONFIG_USERCONFIG`, `GIT_CONFIG_*`, `XDG_CONFIG_HOME`) are not settings: Octocode reads them as their owner does, and `engine/src/process_env.rs` (`PROCESS_ENV`) lists every one the engine reads so the warm server can key on them. An invalid environment value is skipped with a warning and the next source applies.
 
 | Property | Effect |
 |---|---|
 | `dotenv` | `all` (default), `home` or `never`. |
 | `normalize: "trim"` / `"lower"` | Trims a string / trims and lowercases. |
 | `workspaceNarrowsTo: "<value>"` | On a `dotenv: "home"` binding: a workspace `.env` or `.octocoderc` may still set this one narrowing value (as `storage.mode: memory`). |
+| `legacyNames: ["OLD_NAME"]` | Earlier names of this variable, still read ([legacy names](#legacy-names)). Also on an `environment` entry. |
+
+### Legacy names
+
+Renaming a setting keeps the old spelling working: list it beside the setting, in `legacyNames` (on an `env` binding or `environment` entry) or `legacyPaths` (on a field, for `.octocoderc`). Nothing else changes; the generator rejects a spelling that is current or listed twice.
+
+- Each source (process, each `.env`, each `.octocoderc`) is read with legacy spellings moved to the current name first (`crates/runtime-base/src/config/legacy.rs`; `src/dotenv.ts` for `.env` propagation), so precedence, workspace trust, token order and reports see one name. In one source the current name wins.
+- A legacy name inherits its current name's policy in every generated set (protected, home-trusted, credential, narrowing, declared).
+- `octocode config` reports each use as `legacy_setting_name`; tool calls stay quiet. The settings table shows `(legacy: …)`.
+- Tests iterate `LEGACY_ENV_NAMES` and `LEGACY_CONFIG_PATHS` on every layer (`config/legacy/tests.rs`, CLI `config_edit/legacy.rs` and `mcp_server/legacy.rs`, `tests/dotenv-fallback.test.ts`): a new legacy name needs no new test.
 
 ### Add a new section
 

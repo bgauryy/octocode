@@ -22,6 +22,8 @@ mod server_requests;
 pub(crate) use connection::JsonRpcConnection;
 pub use patience::with_caller_deadline;
 pub(crate) use patience::{CpuClock, WaitBudget};
+#[cfg(test)]
+pub(crate) use progress::CACHE_PRIMING_TOKEN;
 pub use progress::Readiness;
 pub use progress::{HealthLevel, ServerHealth};
 pub(crate) use progress::{ProgressTracker, STARTUP_SETTLE_MS};

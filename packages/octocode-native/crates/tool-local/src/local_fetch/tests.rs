@@ -32,6 +32,7 @@ impl PathAccess for Paths {
                 canonical,
                 target: None,
                 display: p.to_string_lossy().into_owned(),
+                repeated: None,
             })
             .map_err(|error| {
                 Box::new(PathFailure {
@@ -42,6 +43,7 @@ impl PathAccess for Paths {
                     sparse_checkout: false,
                     clone_scope: None,
                     resolved: None,
+                    meant: None,
                     not_a_file: None,
                     search_root: None,
                     view_tree: None,

@@ -5,6 +5,7 @@
 //! into the envelope a caller receives.
 
 pub(crate) mod answered_leads;
+pub mod checkout;
 pub mod collection;
 pub mod continuations;
 pub mod cursor;

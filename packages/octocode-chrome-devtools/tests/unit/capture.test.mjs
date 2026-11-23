@@ -31,7 +31,7 @@ test('capture inventory pages every artifact and preserves all findings and logs
     assert.equal(paths.length, 60);
     assert.equal(new Set(paths).size, 60);
     let page = await call(client, {
-        tool: 'artifact',
+        tool: 'query',
         query: { file: result.evidence, format: 'json', length: 2000 },
       }),
       text = page.data.content;
@@ -64,7 +64,7 @@ test('JSON reader pages and oversized values keep MCP/CLI routes and reject sour
     ).structuredContent;
     assert(first.ok);
     assert(first.data.rows[0].oversized);
-    assert.equal(first.data.rows[0].next.tool, 'artifact');
+    assert.equal(first.data.rows[0].next.tool, 'query');
     assert.equal(first.data.next.tool, 'query');
     let next = first.data.rows[0].next,
       restored = '';

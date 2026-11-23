@@ -179,6 +179,8 @@ impl FileLink<'_, '_> {
                 prototype: d.prototype,
                 return_type: d.return_type,
                 try_type: d.try_type,
+                return_elements: d.return_elements,
+                asynchronous: d.asynchronous,
                 function_typed: d.function_typed,
             });
         }

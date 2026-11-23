@@ -250,7 +250,7 @@ pub(super) fn cycles(
     for (component, _) in &mut components {
         component.sort();
     }
-    components.sort_by(|(a, _), (b, _)| b.len().cmp(&a.len()).then_with(|| a[0].cmp(&b[0])));
+    components.sort_by(|(a, _), (b, _)| octocode_engine::graph::cycle_group_order(a, b));
     if options.list.as_deref() == Some("cycleNodes") {
         let Some(target) = options.target.as_deref() else {
             return Err(GraphOutput::error(

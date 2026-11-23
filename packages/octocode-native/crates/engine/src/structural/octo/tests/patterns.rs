@@ -234,6 +234,11 @@ fn unparsed_pattern_names_the_unplaced_token() {
             .err()
             .expect("a function without its body does not parse")
             .to_string();
+        // `$$$` in the unplaced token: the error says the list keeps its braces.
+        assert!(
+            error.contains("fills a list inside its brackets or braces"),
+            "{error}"
+        );
         assert!(
             error.contains("pattern parsed with syntax errors near `$$$BODY`"),
             "{ext}: {error}"

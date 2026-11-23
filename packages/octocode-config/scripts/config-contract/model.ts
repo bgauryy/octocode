@@ -71,6 +71,25 @@ export function orderedEnvironment(fields: FlatField[], contract: Contract) {
     if (binding.credential) credentialNames.add(binding.name);
     if (binding.workspaceNarrowsTo) workspaceNarrowOnly[binding.name] = binding.workspaceNarrowsTo;
   }
+  // A legacy name carries its current name's policy, so either spelling is trusted, protected and
+  // masked alike. Each maps to the current name it is read as, in declaration order.
+  const legacyNames: Record<string, string> = {};
+  for (const [name, definition] of Object.entries(contract.environment)) {
+    for (const legacy of definition.legacyNames ?? []) legacyNames[legacy] = name;
+  }
+  for (const binding of fieldBindings) {
+    for (const legacy of binding.legacyNames ?? []) legacyNames[legacy] = binding.name;
+  }
+  for (const [legacy, current] of Object.entries(legacyNames)) {
+    if (protectedNames.includes(current)) protectedNames.push(legacy);
+    if (homeTrusted.includes(current)) homeTrusted.push(legacy);
+    if (credentialNames.has(current)) credentialNames.add(legacy);
+    const narrowsTo = workspaceNarrowOnly[current];
+    if (narrowsTo !== undefined) workspaceNarrowOnly[legacy] = narrowsTo;
+  }
+  const legacyPaths = Object.fromEntries(
+    fields.flatMap(field => (field.legacyPaths ?? []).map(legacy => [legacy, field.path]))
+  );
   const tokens = Object.entries(contract.environment).filter(
     ([, definition]) => definition.tokenPriority !== undefined
   );
@@ -83,5 +102,7 @@ export function orderedEnvironment(fields: FlatField[], contract: Contract) {
     credentialNames: [...credentialNames].toSorted(),
     tokenNames,
     workspaceNarrowOnly,
+    legacyNames,
+    legacyPaths,
   };
 }

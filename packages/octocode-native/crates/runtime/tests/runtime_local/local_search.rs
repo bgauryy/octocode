@@ -358,9 +358,13 @@ async fn a_schema_derived_reading_runs_and_an_undeclared_name_is_refused() {
         (
             "localSearch",
             json!({"path":root,"matchString":["defects"],"exclude":"x"}),
-            "exclude: [\"x\"]",
+            "exclude as a list",
         ),
-        ("localFetch", json!({"path":file,"limit":"1"}), "limit: 1"),
+        (
+            "localFetch",
+            json!({"path":file,"limit":"1"}),
+            "limit from JSON text",
+        ),
     ] {
         let found = call(&runtime, tool, row.clone()).await.expect("runs");
         assert_eq!(
@@ -374,12 +378,11 @@ async fn a_schema_derived_reading_runs_and_an_undeclared_name_is_refused() {
             .into_iter()
             .flatten()
             .filter_map(|warning| warning.as_str())
-            .filter(|warning| warning.contains("next time"))
+            .filter(|warning| warning.starts_with("read "))
             .collect::<Vec<_>>();
         assert!(
             matches!(warnings.as_slice(), [one]
-                if one.contains(&format!("send `{}", field.split(':').next().unwrap_or(field)))
-                    && one.contains(field)),
+                if one.contains(field) && !one.contains("next time")),
             "{tool} {row}: {}",
             found.structured_content
         );
@@ -391,5 +394,52 @@ async fn a_schema_derived_reading_runs_and_an_undeclared_name_is_refused() {
             found.structured_content
         );
     }
+    runtime.close().await;
+}
+
+/// The commit a row states: on the row, or hoisted once for the batch.
+fn stated_commit(content: &Value) -> Option<&str> {
+    content
+        .pointer("/results/0/data/commitSha")
+        .or_else(|| content.pointer("/shared/data/commitSha"))
+        .and_then(Value::as_str)
+}
+
+/// A search inside a git work tree states the commit it is checked out at,
+/// so a citation can name it without reading `.git`; hits in and out of
+/// the work tree name no single commit.
+#[tokio::test]
+async fn a_search_in_a_work_tree_states_its_checked_out_commit() {
+    let workspace = Workspace::new();
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    workspace.write("repo/.git/HEAD", format!("{sha}\n"));
+    workspace.write("repo/src/lib.rs", "fn needle() {}\n");
+    workspace.write("loose.rs", "fn needle() {}\n");
+    let runtime = workspace.runtime(&[]);
+    let search = |path: std::path::PathBuf| json!({"path":path,"matchString":["needle"]});
+    let inside = call(
+        &runtime,
+        "localSearch",
+        search(workspace.workspace.join("repo")),
+    )
+    .await
+    .expect("search");
+    assert_eq!(row_status(&inside), "success");
+    assert_eq!(
+        stated_commit(&inside.structured_content),
+        Some(sha),
+        "{}",
+        inside.structured_content
+    );
+    let both = call(&runtime, "localSearch", search(workspace.workspace.clone()))
+        .await
+        .expect("search");
+    assert_eq!(row_status(&both), "success");
+    assert_eq!(
+        stated_commit(&both.structured_content),
+        None,
+        "{}",
+        both.structured_content
+    );
     runtime.close().await;
 }

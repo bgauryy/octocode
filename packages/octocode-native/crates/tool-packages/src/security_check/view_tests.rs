@@ -7,15 +7,17 @@ use octocode_runtime_base::test_support::assert_row_contract;
 use octocode_test_support::json_fixture;
 
 /// The fields a summary computes from the list it leaves to `details`.
-const SUMMARY_ONLY: [&str; 5] = [
+const SUMMARY_ONLY: [&str; 4] = [
     "advisoryCount",
-    "advisoryIds",
     "highestSeverity",
     "unfixedInMajorCount",
     "link",
 ];
-/// Fields a summary narrows or states only when they say something new.
-const NARROWED: [&str; 7] = [
+/// Fields a summary narrows or states only when they say something new
+/// (`advisories`: one brief row per counted advisory, where details lists
+/// each source's record whole).
+const NARROWED: [&str; 8] = [
+    "advisories",
     "answer",
     "upgradeNote",
     "packageName",
@@ -143,11 +145,18 @@ async fn a_package_summary_is_the_verdict_the_counts_and_one_lead() {
     assert_ne!(summary["latestVersion"], summary["upgradeTo"], "{summary}");
     for detail in DETAIL_FIELDS
         .iter()
-        .filter(|detail| **detail != "latestVersion")
+        .filter(|detail| !matches!(**detail, "latestVersion" | "advisories"))
         .chain(&["answer", "packageName", "version"])
     {
         assert!(summary.get(*detail).is_none(), "{detail}: {summary}");
     }
+    // Each counted advisory is one brief row: what decides an upgrade.
+    let brief = summary["advisories"].as_array().expect("brief rows");
+    assert_eq!(brief.len(), summary["advisoryCount"], "{summary}");
+    assert!(
+        brief.iter().all(|row| row.get("details").is_none()),
+        "{summary}"
+    );
     // What the summary counted is what the whole row lists.
     let listed = details["advisories"].as_array().expect("advisories");
     assert_eq!(listed.len(), 3, "{details}");
@@ -311,7 +320,10 @@ async fn a_commit_summary_counts_and_links_and_details_lists() {
             r#"{
                 "affected": true,
                 "advisoryCount": 2,
-                "advisoryIds": ["CVE-2023-1", "OSV-2020-1"],
+                "advisories": [
+                    {"id": "CVE-2023-1", "severity": "high"},
+                    {"id": "OSV-2020-1", "severity": "medium"}
+                ],
                 "highestSeverity": "high",
                 "link": "https://osv.dev/vulnerability/CVE-2023-1"
             }"#
@@ -664,7 +676,7 @@ async fn a_secret_in_advisory_text_is_redacted_in_both_views() {
         .await
         .expect("details");
     assert!(
-        summary.to_string().contains(&secret) && summary.get("advisoryIds").is_some(),
+        summary.to_string().contains(&secret) && summary.get("advisories").is_some(),
         "the executor row holds the record as OSV gave it: {summary}"
     );
     let distro = answer(
@@ -685,7 +697,7 @@ async fn a_secret_in_advisory_text_is_redacted_in_both_views() {
     assert!(!text.contains(&secret), "{served}");
     assert!(text.contains("REDACTED"), "{served}");
     assert!(
-        served["results"][0]["data"]["advisoryIds"].is_array(),
+        served["results"][0]["data"]["advisories"].is_array(),
         "{served}"
     );
 }

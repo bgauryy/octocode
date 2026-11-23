@@ -81,6 +81,12 @@ pub fn scc_filtered(
     out
 }
 
+/// The order cycle groups are reported in (`test-utils/graph-algorithms/SPEC.md`):
+/// largest first, then by smallest member. Groups list their members sorted.
+pub fn cycle_group_order(a: &[String], b: &[String]) -> std::cmp::Ordering {
+    b.len().cmp(&a.len()).then_with(|| a[0].cmp(&b[0]))
+}
+
 /// Iterative Tarjan over ids `0..node_count`, starting a search from each
 /// unvisited id of `roots` in order. Components come in completion order,
 /// members in stack-pop order (the root last).

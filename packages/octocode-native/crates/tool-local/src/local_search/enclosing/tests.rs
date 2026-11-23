@@ -253,3 +253,33 @@ fn files_over_the_enclosing_cap_are_not_outlined() {
     assert!(over.len() > ENCLOSING_MAX_BYTES);
     assert!(outline_of(over.as_bytes(), path, &security).is_none());
 }
+
+/// A hit inside a method names the method and lists the declarations
+/// holding it before it, outermost first, so its class is named without
+/// another read; each is listed once and the hit indexes its innermost.
+#[test]
+fn a_hits_declaration_follows_the_declarations_holding_it() {
+    let outline = Outline::of(SOURCE, "enclosing-test/a.rs").expect("rust outline");
+    let chain = |line| outline.chain(outline.owner(line, 0).expect("owner"));
+    let names = |chain: &[super::super::types::Enclosing]| {
+        chain
+            .iter()
+            .map(|d| d.symbol_name.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(names(&chain(5)), ["Harness", "try_read_output"]);
+    assert_eq!(names(&chain(10)), ["free"]);
+    let mut declarations = Vec::new();
+    let method = super::owners_of(&mut declarations, vec![Some(chain(5))]);
+    let header = super::owners_of(&mut declarations, vec![Some(chain(3))]);
+    assert_eq!(names(&declarations), ["Harness", "try_read_output"]);
+    assert_eq!(method, Some(super::super::types::Owners::One(1)));
+    assert_eq!(header, Some(super::super::types::Owners::One(0)));
+    let python = Outline::of(
+        "class A:\n    def m(self):\n        return 1\n",
+        "enclosing-test/a.py",
+    )
+    .expect("python outline");
+    let held = python.chain(python.owner(3, 0).expect("owner"));
+    assert_eq!(names(&held), ["A", "m"]);
+}

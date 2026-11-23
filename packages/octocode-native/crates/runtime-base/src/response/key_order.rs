@@ -288,9 +288,67 @@ pub fn order_rows(tool: ToolId, structured: &mut Value) {
     };
     for row in rows {
         if let Some(data) = row.get_mut("data") {
+            identity_first(data);
             pass.order(data, ROOT, false);
         }
     }
+}
+
+/// The identity names every tool's rows may state (each tool's
+/// `hoistPlan.batch.identity`, the contract's one vocabulary), in the
+/// contract's reading order: owner, repo, ref, commit, root. Each tool lists
+/// its own in that order, so each name joins right after the one its list
+/// states before it.
+fn identity_names() -> &'static [String] {
+    static NAMES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    NAMES.get_or_init(|| {
+        let mut names: Vec<String> = Vec::new();
+        for tool in ToolId::ALL {
+            let Ok(contract) = crate::contracts::tool_contract(tool) else {
+                continue;
+            };
+            let pointers = contract["hoistPlan"]["batch"]["identity"].as_array();
+            let mut after: Option<usize> = None;
+            for pointer in pointers.into_iter().flatten().filter_map(Value::as_str) {
+                let Some(name) = pointer
+                    .strip_prefix("/data/")
+                    .filter(|name| !name.contains('/'))
+                else {
+                    continue;
+                };
+                let at = match names.iter().position(|known| known == name) {
+                    Some(at) => at,
+                    None => {
+                        let at = after.map_or(0, |before| before + 1);
+                        names.insert(at, name.to_owned());
+                        at
+                    }
+                };
+                after = Some(at);
+            }
+        }
+        names
+    })
+}
+
+/// A row's identity leads its data, in reading order: where the evidence is
+/// (owner, repo, ref, commit, root) reads before the evidence, alike on
+/// every tool. It moves keys only.
+fn identity_first(data: &mut Value) {
+    let Some(map) = data.as_object_mut() else {
+        return;
+    };
+    let names = identity_names();
+    if !names.iter().any(|name| map.contains_key(name)) {
+        return;
+    }
+    let mut rest = std::mem::take(map);
+    for name in names {
+        if let Some(value) = rest.shift_remove(name) {
+            map.insert(name.clone(), value);
+        }
+    }
+    map.extend(rest);
 }
 
 #[cfg(test)]

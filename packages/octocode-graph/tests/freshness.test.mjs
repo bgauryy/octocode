@@ -3,7 +3,7 @@ import test from 'node:test';
 import { join } from 'node:path';
 import { writeFileSync } from 'node:fs';
 import { tempDir } from './test-tmp.mjs';
-import { chunkFreshness, verifyPhase } from '../src/runtime/verify.mjs';
+import { chunkFreshness, verifyPhase } from '../src/runtime/verify.ts';
 
 const chunks = ['a','b','c'].map(id => ({ id, path: id }));
 const datas = new Map(chunks.map(c => [c.id, { snapshot: { id:c.id, root:`/repo/${c.id}/file.rs`, queryRoot:`scope/${c.id}` } }]));

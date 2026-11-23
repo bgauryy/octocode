@@ -1,35 +1,69 @@
-# Graph output for CLI and MCP
+# Saved graph format
 
-**Proposal.** Give an export two ways to reach its reader. Use `path` by default for agents, scripts and CI. Use `web` when a person wants to explore the result. Both should create the same saved graph and return a short receipt.
+A build writes one **result directory** (default `.octocode/octocode-graph/<date>-<name>-<id>/`). Every path inside
+it is relative to the graph's root, stored once as `data.json` `section`. Nothing in it is required to stay: delete
+the directory to drop the graph.
 
-## Available today
+## Layout
 
-| Task | Current interface |
-| --- | --- |
-| Build and query a native snapshot | The package CLI and MCP expose `graphBuild` and `graphQuery`. The snapshot ID pins subsequent queries. |
-| Save a graph from a file or directory | `octocode-graph-build <source> --out <new-directory>` writes `data.json`, `events.jsonl`, briefs and chunk evidence. |
-| Watch a build | `octocode-graph-serve <source>` opens the loopback viewer. `--no-open` prints its URL for headless use. |
-| Make portable HTML from a saved run | `octocode-graph html <saved-run> <new.html>` embeds the saved graph, events, renderer and query worker. The HTML remains usable after the build process exits. |
+Measured on `packages/octocode-native` (3,520 files, 19 chunks, 70,031 calls) on 2026-11-23:
 
-## Proposed interface
+| Path | Format | Size | Written | Read by |
+|---|---|--:|---|---|
+| `data.json` | One JSON document | 34 MB | Atomically (temp file, then rename) at the end of a build or refresh | `query`, `diff`, the viewer's answers, `html`, the library's `openGraph` |
+| `previous.json` | Same as `data.json` | 0 until a refresh changes the graph | A refresh hard-links the replaced `data.json` here | `diff <dir>`, `diff_graph({result})` |
+| `brief.txt` | Text | 4 KB | With `data.json` | Agents first: counts, top PageRank, betweenness, cycles, packages, checks |
+| `events.jsonl` | JSON Lines, append-only | 12 MB | Every event as it happens; a refresh appends. A `rows` event keeps its page and count, not its rows, which its chunk result holds | `serve --replay` and `html` (rows rebuilt from the chunk results), `refresh` (the run's root and listing) |
+| `chunks/<id>/data.json.gz` | gzip JSON | 4.9 MB in all | Atomically when the chunk is built | `refresh` (reuses unchanged chunks), stitching |
+| `chunks/<id>/evidence/*.jsonl.gz` | gzip JSON Lines, one native page per line | 7.5 MB in all | While the chunk is built | People auditing a row: `gzip -dc … \| rg <id>` |
+| `links.json` | JSON | — | `octocode-graph link … add` | Agents' links with their quotes and hashes; kept across rebuilds and checked by each |
+| `wiki/` | Markdown | 0.9 MB | After metrics | `wiki read`, the viewer |
+| `server.json` | JSON, mode 0600 | — | While a viewer serves the run | `reply`, `refresh` (they go through that viewer) |
+| `model.json` | JSON, optional, written by you | — | — | `render`, the brief's layer checks |
 
-| Input | CLI | MCP |
-| --- | --- | --- |
-| Source file or directory | `octocode-graph export src --output path --out ./review` | `graphExport({path: "src", output: "path"})` |
-| Create and open a portable graph | `octocode-graph export src --output web --out ./review` | `graphExport({path: "src", output: "web"})` returns an HTML resource for the client to open. |
-| Reuse a saved run | `octocode-graph export --from-run ./review --output web` | Supply `fromRun` in place of `path`. Building and LSP incur zero additional calls. |
+`stitched.json` exists only while a build runs, so queries can answer before LSP finishes; `data.json` replaces it.
 
-Here `--out` always selects a new **directory**. The package owns the filenames. The receipt names the source, run directory, primary artifact, each artifact’s role and media type, chunk coverage, LSP state and elapsed time. For `path` the primary artifact is `data.json`. For `web` it is a standalone HTML file alongside the same data. An agent answering an ordinary graph question can still use a targeted, paginated `graphQuery`.
+## `data.json`
 
-The local CLI opens portable HTML with the OS browser when asked for `web`. The `--no-open` option keeps the file for CI. If browser launch fails, preserve the successful export and report its path and launch error. Generating a web artifact on MCP returns a typed resource link and structured receipt. A remote client needs an artifact URI served by the MCP server, or a download its host can open. A server-local pathname or loopback URL alone reaches only the server machine. The MCP protocol supports resource links in tool results, and GitHub CLI provides precedent for explicit browser opening. [MCP tool results](https://modelcontextprotocol.io/specification/2025-11-25/server/tools) · [MCP resources](https://modelcontextprotocol.io/specification/2025-11-25/server/resources) · [GitHub CLI](https://cli.github.com/manual/gh_repo_view)
+| Field | Holds |
+|---|---|
+| `section` | The absolute root; a path's absolute form is `section/path` |
+| `files[]` | `id` (root-relative path), `label`, `language`, `roles`, `chunk`, `fanIn`, `fanOut`, `check` (on-disk status), `metrics` (PageRank, betweenness, in/out weight, depth, core, community, cycle); workspace package nodes add `kind: "package"` and `manifest` |
+| `symbols[]` | Functions and other callables in the call graph: `id` (`file#name`), `file`, `name`, `kind`, `line`, `endLine`, `exported`, `calls` |
+| `imports[]`, `calls[]` | `source`, `target`, `line`, `lines`, `count`, `confidence`, `resolution`, `test`, `crossChunk` (stitched between chunks); calls add `via` (graph, lsp or both) |
+| `fileEdges[]` | The weighted file graph: `weight` = import + evidence-weighted call sites, with `imports`, `calls`, `test` and `strong` |
+| `metrics` | `cycles`, `communities`, `packages` (Ca, Ce, instability), `stats`, `weightRule` |
+| `coverage`, `verification`, `callStats` | What the build saw and could not see: partial chunks, unbuilt chunks, files checked, LSP probes, answers that omitted locations outside the read roots (`withheld`) and unanswered calls |
+| `links[]`, `unresolvedLinks[]` | Docs, manifests and agents → files and symbols: `source`, `line`, `target`, `rule`, `relation`, `check`; what named no single target with `reason` and `candidates`. Never in the code metrics |
 
-## Live or portable
+Nodes and edges store their own lines; query rows add `loc: {path, line}` when they are answered.
 
-Portable HTML works offline, travels as one file, and leaves no server running. Its cost is waiting for the final artifact. The live viewer can show listing, chunk progress and the first stitched graph while LSP continues. Keep the existing serve operation for that workflow. If exposed through MCP later, a live run needs a progress handle, an explicit stop operation and a URL the client can actually reach.
+## Why this format
 
-## Acceptance checks
+Measured on the same workspace, before its cross-crate calls were bound (63,560 calls):
 
-1. Build a directory and one file through CLI and MCP. Match the receipt to the canonical input and every artifact to an existing file or retrievable resource.
-2. Convert one saved run to HTML. Compare decompressed embedded data and events byte for byte with their originals, confirm zero rebuilds, and run an offline query in Chrome.
-3. Exercise desktop CLI, headless CLI and a client on another machine. Verify which machine opens a browser, how that client retrieves the artifact, and what remains available when launching fails.
-4. Try a reused output directory, cancellation and an incomplete LSP phase. Preserve existing files, distinguish a stitched checkpoint from a finished export and retain partial evidence.
+| Option | Size | Load | Verdict |
+|---|--:|--:|---|
+| **JSON, each fact once** (chosen) | 32 MB | 106 ms | One parse loads the whole graph; `jq`, the browser viewer and the HTML export read it directly |
+| JSON with a stored location per node and edge (before) | 55 MB | 280 ms | Each absolute path repeated the root: 37% of the file |
+| gzip of `data.json` | 2.7 MB | 150 ms | 12× smaller, 40% slower to load, and every reader needs a decode step. Used for the cold internal files instead |
+| `v8.serialize` | 32 MB | 112 ms | No gain over JSON; Node only, unreadable to `jq` and the browser |
+| SQLite (`node:sqlite`) | 24 MB for symbols and calls alone | 134 ms to read every row | Point lookups take 0.2 ms, but PageRank, cycles and paths need the whole graph in memory, and the browser cannot open it |
+
+- **Folder, not one file:** a refresh reuses unchanged chunks, appends to the log and keeps the previous graph by
+  hard link; one file would be rewritten whole. For one portable file, export with `octocode-graph html`.
+- **Plain where people and agents read it, gzip where only the tool does:** `data.json`, `brief.txt` and
+  `events.jsonl` stay plain; chunk results and raw evidence are gzipped (12 MB instead of 73 MB), and the event log holds the graph rows by reference to the chunk results (12 MB instead of 51 MB).
+- **Crash-safe:** `data.json` and chunk results are written to a temporary file and renamed, so a reader never sees
+  half a graph.
+
+## Store, diff, check, search
+
+| Task | Do | Not |
+|---|---|---|
+| Keep or share a graph | `tar czf graph.tgz <dir>` (60 MB → 16 MB here), or `octocode-graph html <dir> graph.html` for one offline page | Commit result directories: they are build output, under `.octocode/` |
+| Update after edits | `octocode-graph refresh <dir>`: only chunks with changed files rebuild (2.1 s when nothing changed on this graph) | Rebuild from scratch |
+| Diff | `octocode-graph diff <dir>` after a refresh, or `diff <before> <after>`: new cycles, package links against stability, reach and ranking changes, then every dependency added or removed | `diff`/`git diff` on `data.json`: one line of ids and metrics, no meaning |
+| Check | `brief.txt`, then `query <dir> "about <file>"`; coverage gaps: `jq '.coverage, .callStats.lsp' data.json` | Read the brief as proof: cite the rows' `path:line` |
+| Search | `query <dir> "search <name>"` (ranked: exact, prefix, initials, substring, misspelling) | `rg` over `data.json`: a match prints the whole 34 MB line |
+| Read the source | The answer's `read:` line (`localFetch` with the cited range), and `confirm:` (`lspSearch` callers) before calling a list complete | — |

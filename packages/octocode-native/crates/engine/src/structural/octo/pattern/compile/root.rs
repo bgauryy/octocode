@@ -176,8 +176,15 @@ pub(super) fn unparsed_pattern_message(root: Node<'_>, source: &str, expando: Ex
         .map(|node| expando.restore(node_text(node, source).trim()))
         .filter(|text| !text.is_empty());
     let advice = "A fragment that parses only inside other code takes pattern {context, selector}, or a rule on its kind.";
+    // `$$$` stands for the items of a list; the brackets or braces around
+    // them stay written (`struct $N { $$$ }`, not `struct $N $$$`).
+    let list = if near.as_deref().is_some_and(|text| text.contains("$$$")) {
+        " `$$$` fills a list inside its brackets or braces, which stay written: `struct $N { $$$ }`, `f($$$)`."
+    } else {
+        ""
+    };
     match near {
-        Some(text) => format!("{BASE} near `{text}`. {advice}"),
+        Some(text) => format!("{BASE} near `{text}`. {advice}{list}"),
         None => format!("{BASE}. {advice}"),
     }
 }

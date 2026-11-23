@@ -470,3 +470,27 @@ fn nearest_existing_dir_stops_at_policy_root() {
         None
     );
 }
+
+/// A missing path that repeats a run of its own folders (a row path joined
+/// onto a folder it already starts with) names the path without the repeat
+/// when that one exists; a missing path with no such reading names none.
+#[test]
+fn a_missing_path_with_a_repeated_folder_names_the_one_that_exists() {
+    let dir = tempfile::tempdir().expect("workspace");
+    let root = dir.path().canonicalize().expect("canonical workspace");
+    std::fs::create_dir_all(root.join("tsx/packages")).expect("folders");
+    std::fs::write(root.join("tsx/packages/a.ts"), "x").expect("file");
+    let paths = crate::test_support::workspace_policy(&root);
+    let error = paths
+        .validate(root.join("tsx/tsx/packages/a.ts"))
+        .expect_err("the doubled path is missing");
+    assert!(
+        error.message.contains("tsx/packages/a.ts exists"),
+        "{}",
+        error.message
+    );
+    let other = paths
+        .validate(root.join("tsx/packages/b.ts"))
+        .expect_err("missing");
+    assert!(!other.message.contains("exists"), "{}", other.message);
+}

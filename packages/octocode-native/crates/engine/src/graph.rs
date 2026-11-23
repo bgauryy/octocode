@@ -18,7 +18,8 @@ pub use evidence::{
 };
 
 pub use algorithms::{
-    Condensed, FileGraphNode, condense, scc, scc_filtered, strongly_connected_components,
+    Condensed, FileGraphNode, condense, cycle_group_order, scc, scc_filtered,
+    strongly_connected_components,
 };
 pub use model::{
     COMMONJS_WHOLE_EXPORT, GraphCallBinding, GraphCallBoundary, GraphDeclaredType, GraphFactCall,

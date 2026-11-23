@@ -6,12 +6,12 @@ Run the package from the workspace where you want to save captures. The executab
 
 | Argument | Effect |
 |---|---|
-| `--mcp --preset slim` | Expose five tools for launching Chrome, running plans, searching results, reading guidance, and cleanup. |
-| `--mcp --preset research` | Expose the 12 default tools, including `protocol`, `cdp`, and `flow`. |
-| `--mcp --preset full` | Expose all 19 MCP tools. |
+| `--mcp --preset slim` | Expose five tools for launching Chrome, running plans, searching and reading saved results, reading guidance, and cleanup. |
+| `--mcp --preset research` | Expose the 10 default tools, including `protocol` and `cdp`. |
+| `--mcp --preset full` | Expose all 18 MCP tools, including `flow`. |
 | `--tools <names>` | Add individual tools or groups to the selected preset. Separate names with commas. |
 
-The groups are `capture` (`check`), `data` (`session`, `cookies`, `script`), and `devtools` (`dev-check`, `helper`, `proxy`). For example, `--mcp --preset research --tools capture` keeps the default tools and adds capture recipes. See the [complete tool list](../README.md#tools-and-presets).
+The groups are `capture` (`check`), `data` (`session`, `cookies`, `script`), `devtools` (`dev-check`, `helper`, `proxy`), and `flows` (`flow`). For example, `--mcp --preset research --tools capture` keeps the default tools and adds capture recipes. See the [complete tool list](../README.md#tools-and-presets).
 
 ## Choose the input
 
@@ -21,7 +21,7 @@ The groups are `capture` (`check`), `data` (`session`, `cookies`, `script`), and
 | A sequence of page actions and observations | `run` with a `plan` and optional `connection`. Use a `snapshot` or `screenshot` step for captures in every MCP preset. [Plan examples](browser-execution.md) |
 | A domain or method available in your Chrome | `protocol` to inspect the live schema, then `cdp` with the method and its parameters. [CDP routing](cdp-protocol.md) |
 | A particular tab | Set `connection.target` to the ID from `open` or `targets`. For a named tab group, use `group` and `groupIndex` in the connection. [Tab selection](tabs-and-policy.md) |
-| A reusable plan | Use `flow` to list, inspect, save, or run a plan. [Flows](flows.md) |
+| A reusable plan | Add `--tools flows`, then use `flow` to list, inspect, save, or run a plan. [Flows](flows.md) |
 
 ```sh
 octocode-chrome-devtools /cli schema --command run --operation extract --json
@@ -39,7 +39,7 @@ Use `--input -` to read the same JSON from stdin. For `/raw run --plan`, the fil
 
 ## Read the result
 
-MCP places the successful reply in `structuredContent` and its text block. The typed CLI exposes `structuredContent` with `--json`. Read `data` or `snapshot` for inline results, `files` for captures, and `evidence` for the manifest. Search saved rows with `query` and read a known range with `artifact`. Use strings for integer filters outside JavaScript’s safe integer range. [Evidence files](evidence-files.md)
+MCP places the successful reply in `structuredContent` and its text block. The typed CLI exposes `structuredContent` with `--json`. Read `data` or `snapshot` for inline results, `files` for captures, and `evidence` for the manifest. `query` reads saved files in two modes: rows (`cursor`, `limit`, `where`, `select`; format `json` or `jsonl`) and window (`offset`, `length`; format `text`, `json` or `binary`). A call never mixes the two. The typed CLI also keeps `artifact` as the window reader. Use strings for integer filters outside JavaScript’s safe integer range. [Evidence files](evidence-files.md)
 
 Each continuation contains `{tool, query}`. In MCP call that tool with `query` as its arguments. In the CLI, save the query to a file and pass it with `--input` from the same workspace. Follow the returned continuations to read remaining rows, artifacts, or logs.
 

@@ -204,16 +204,22 @@ async fn a_field_beside_a_cursor_at_another_value_is_refused_naming_the_saved_va
             "{sent}: {error}"
         );
     }
-    // A field the saved query does not hold, and a cursor sent inside a row
-    // (a shape no tool's contract takes, the cursor alone included).
-    for sent in [
-        beside(&next, json!({"owner": "o"})),
-        json!({"queries": [beside(&next, json!({"operation": "search"}))]}),
-    ] {
-        let (failed, refused) = mcp(&runtime, "unheld", "ghSearchRepo", sent.clone()).await;
-        assert!(failed, "{sent}: {refused}");
-        assert_eq!(refused["errorCode"], "invalidInput", "{sent}: {refused}");
-    }
+    // A field the saved query does not hold is refused.
+    let sent = beside(&next, json!({"owner": "o"}));
+    let (failed, refused) = mcp(&runtime, "unheld", "ghSearchRepo", sent.clone()).await;
+    assert!(failed, "{sent}: {refused}");
+    assert_eq!(refused["errorCode"], "invalidInput", "{sent}: {refused}");
+    // A cursor sent inside the one row is the cursor call, its row's fields
+    // beside it: held where the saved query holds them, and said.
+    let sent = json!({"queries": [beside(&next, json!({"operation": "search"}))]});
+    let (failed, ran) = mcp(&runtime, "in a row", "ghSearchRepo", sent.clone()).await;
+    assert!(!failed, "{sent}: {ran}");
+    assert!(
+        warnings(&ran)
+            .iter()
+            .any(|warning| warning.starts_with("read queries[0].cursor")),
+        "{sent}: {ran}"
+    );
     runtime.close().await;
 }
 

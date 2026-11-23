@@ -3,19 +3,21 @@
 use crate::graph::GraphFactCall;
 use crate::signatures::js_oxc_shared::SpanPositions;
 use oxc_ast::ast::*;
-use oxc_span::Span;
+use oxc_span::{GetSpan, Span};
 
 pub(super) fn push_call(
     owner: &str,
     callee: String,
-    span: Span,
+    (span, cited): (Span, Option<Span>),
     li: &SpanPositions,
     kind: &'static str,
     receiver_type: Option<String>,
     calls: &mut Vec<GraphFactCall>,
 ) {
     let range = li.range(span);
-    let line = range.start.line + 1;
+    // Cited where the call names what it calls first ([`cited_name_span`]),
+    // the expression's first line when it names nothing.
+    let line = cited.map_or(range.start.line, |name| li.position(name.start).line) + 1;
     let id_prefix = if kind == "constructs" {
         "construct"
     } else {
@@ -88,6 +90,38 @@ pub(super) fn callee_name(expr: &Expression) -> Option<String> {
         },
         _ => None,
     }
+}
+
+/// Where a call names what it calls first, as a language server cites a
+/// call site: its callee's own name (`open` in `c\n  .open()`), or for a call
+/// on another call's result (`read()\n  .map_err()`) the head call's name,
+/// the call stitching binds. `None` for a callee with no name.
+pub(super) fn cited_name_span(expr: &Expression) -> Option<Span> {
+    match expr {
+        Expression::Identifier(identifier) => Some(identifier.span),
+        Expression::ParenthesizedExpression(paren) => cited_name_span(&paren.expression),
+        Expression::TSAsExpression(ts) => cited_name_span(&ts.expression),
+        Expression::TSSatisfiesExpression(ts) => cited_name_span(&ts.expression),
+        Expression::TSTypeAssertion(ts) => cited_name_span(&ts.expression),
+        Expression::TSNonNullExpression(ts) => cited_name_span(&ts.expression),
+        Expression::TSInstantiationExpression(ts) => cited_name_span(&ts.expression),
+        Expression::ChainExpression(chain) => chain
+            .expression
+            .as_member_expression()
+            .and_then(member_cited_span),
+        _ => expr.as_member_expression().and_then(member_cited_span),
+    }
+}
+
+fn member_cited_span(member: &MemberExpression) -> Option<Span> {
+    if let Expression::CallExpression(call) = unwrap_expr(member.object()) {
+        return cited_name_span(&call.callee);
+    }
+    Some(match member {
+        MemberExpression::StaticMemberExpression(member) => member.property.span,
+        MemberExpression::ComputedMemberExpression(member) => member.expression.span(),
+        MemberExpression::PrivateFieldExpression(member) => member.field.span,
+    })
 }
 
 fn member_callee(member: &MemberExpression) -> Option<String> {

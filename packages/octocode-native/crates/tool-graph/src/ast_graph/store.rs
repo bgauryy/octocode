@@ -20,6 +20,7 @@ mod impact;
 mod ingest;
 mod manifest;
 pub mod query;
+mod scip;
 pub mod snapshots;
 mod staleness;
 pub(super) mod tables;
@@ -69,11 +70,36 @@ fn read_graph_file(path: &Path) -> Result<Vec<u8>, String> {
 pub(crate) const MANIFEST_FILE: &str = "manifest.json";
 const LATEST_FILE: &str = "latest";
 const MANIFEST_KIND: &str = "octocode.graph";
+/// What the opt-in SCIP tier did for a build's Rust call edges.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ScipStatus {
+    /// No consent, or nothing to index: no indexer was spawned.
+    #[default]
+    Off,
+    /// An index fed the linker (a fresh run or a cached one).
+    Indexed,
+    /// The indexer or the index failed: the build kept its syntax-only edges.
+    Failed,
+}
+
+impl ScipStatus {
+    /// The snapshot manifest's and graphBuild's spelling; `None` when off.
+    pub(crate) fn recorded(self) -> Option<&'static str> {
+        match self {
+            Self::Off => None,
+            Self::Indexed => Some("indexed"),
+            Self::Failed => Some("failed"),
+        }
+    }
+}
+
 /// A command result: the JSON printed to stdout and how the command ended.
 #[derive(Debug)]
 pub struct GraphOutput {
     pub value: Value,
     pub class: ExitClass,
+    /// What the SCIP tier did (a build only; every other answer is `Off`).
+    pub scip: ScipStatus,
     /// The calls that continue this answer, by `next` channel; the tool
     /// adapter states each as an executable call.
     pub(crate) next: Vec<(Channel, Resume)>,
@@ -89,6 +115,7 @@ impl GraphOutput {
         Self {
             value,
             class: ExitClass::Success,
+            scip: ScipStatus::Off,
             next: Vec::new(),
             #[cfg(test)]
             validation: Box::default(),
@@ -98,6 +125,7 @@ impl GraphOutput {
         Self {
             value,
             class: ExitClass::Empty,
+            scip: ScipStatus::Off,
             next: Vec::new(),
             #[cfg(test)]
             validation: Box::default(),
@@ -108,6 +136,7 @@ impl GraphOutput {
         Self {
             value: json!({"error": message.into(), "errorCode": code}),
             class: ExitClass::of(code),
+            scip: ScipStatus::Off,
             next: Vec::new(),
             #[cfg(test)]
             validation: Box::default(),
@@ -172,6 +201,9 @@ pub struct IngestOptions {
     pub refresh: bool,
     /// AST parsers by root-relative glob (`{"cpp": ["include/**/*.h"]}`).
     pub language_globs: BTreeMap<String, Vec<String>>,
+    /// The call's language-server discovery settings: the SCIP tier reads the
+    /// user's consent from them. `None`: no consent, no indexer.
+    pub lsp: Option<octocode_engine::lsp::config::LspDiscoveryOptions>,
 }
 
 impl IngestOptions {
@@ -192,6 +224,7 @@ impl IngestOptions {
                 .as_ref()
                 .map(octocode_tools_shared::ast_rule::parser_globs)
                 .unwrap_or_default(),
+            lsp: None,
         }
     }
 }

@@ -119,6 +119,15 @@ const portArgument = () => {
   return at < 0 ? undefined : process.argv[at + 1];
 };
 
+/** The page-method hint when a raw cdp call fell back to the browser because no single tab was chosen. */
+function fallbackHint(pages: unknown) {
+  if (typeof pages !== 'number') return undefined;
+  const why = pages
+    ? `${pages} tabs are open and none is selected`
+    : 'no tab is open';
+  return `${why}, so this ran on the browser target; page methods need connection.target (see targets) or connection.newTab`;
+}
+
 const hubs = new WeakMap<PlanState, BrowserHub>();
 const routers = new WeakMap<PlanScope, CdpRouter>();
 
@@ -155,6 +164,7 @@ async function routerFor(state: PlanState, target: PlanScope) {
     schema,
     page: (method, params) => target.send(method, params),
     pageIsBrowser: target.targetInfo.type === 'browser',
+    pageHint: fallbackHint(target.targetInfo.ambiguousPages),
     hub,
     version: async () => {
       const info = await cdpHttp(Number(portNumber), '/json/version').catch(

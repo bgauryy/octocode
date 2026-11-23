@@ -49,15 +49,25 @@ pub struct GraphFactDeclaration {
     /// member declaration): the function's definition is another declaration.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub prototype: bool,
-    /// A Rust non-`async` function's declared return type reduced to a type
-    /// name as [`GraphFactCall::receiver_type`] spells one, `Self` read as the
-    /// enclosing impl's type: the type a method call on its result sees.
+    /// A Rust function's declared return type reduced to a type name as
+    /// [`GraphFactCall::receiver_type`] spells one, `Self` read as the
+    /// enclosing impl's type: the type a method call on its result sees. For
+    /// an `async fn` ([`Self::asynchronous`]) it is what the future yields,
+    /// which only an awaited call sees.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub return_type: Option<String>,
     /// The type `?` yields from that return type: the first type argument of
     /// a `Result<T, ..>` or `Option<T>`, spelled the same way.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub try_type: Option<String>,
+    /// A Rust return type that is a tuple: each element's type, spelled as
+    /// [`Self::return_type`] is (`None` for one no type name spells), for a
+    /// `let (a, b) = f()` that destructures it.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub return_elements: Vec<Option<String>>,
+    /// A Rust `async fn`: its return types are what its future yields.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub asynchronous: bool,
     /// A data member whose written type is a function type (Scala
     /// `A => B`, C# `Action`, C++ `std::function`): a call of it invokes it.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
@@ -284,7 +294,8 @@ pub struct GraphFactDeclaredType {
 
 /// The call whose value a member call's receiver is: the bytes of that call
 /// expression, the `source_range` of its own [`GraphFactCall`] in the same
-/// file, and whether `?` unwraps it on the way.
+/// file, whether `?` unwraps it on the way, whether it is awaited, and the
+/// tuple element a destructuring `let` takes (`let (a, b) = f()`: `b` is 1).
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct GraphReceiverCall {
@@ -292,6 +303,10 @@ pub struct GraphReceiverCall {
     pub end_byte: u32,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub unwrap: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub awaited: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub element: Option<u32>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]

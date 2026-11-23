@@ -42,6 +42,20 @@ fn a_commit_header_keeps_one_key_order() {
         keys(commit_header(&facts, "main", Header::Section, 2)),
         keys(commit_header(&facts, "main", Header::Summary, 2)),
     );
+    // Read by its own SHA, the ref is not restated and the order holds: the
+    // commit's identity leads, its counts close.
+    assert_eq!(
+        keys(commit_header(&facts, &"a".repeat(40), Header::Summary, 2)),
+        [
+            "commitSha",
+            "message",
+            "author",
+            "parentCommitShas",
+            "changedFileCount",
+            "additions",
+            "deletions"
+        ]
+    );
 }
 
 /// A walk states the commit once. A later file page or patch window names

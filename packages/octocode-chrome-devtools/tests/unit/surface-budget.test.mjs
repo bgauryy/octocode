@@ -16,17 +16,17 @@ test('presets cost less the smaller they are', () => {
   assert.ok(research.chars < full.chars);
 });
 
-test('the default surface stays at most 78% of the full surface (12 tools incl. cdp, protocol and group)', () => {
-  assert.ok(research.chars <= full.chars * 0.78);
+test('the default surface stays at most 60% of the full surface (10 tools incl. cdp, protocol and group; flow is opt-in)', () => {
+  assert.ok(research.chars <= full.chars * 0.6);
 });
 
-test('the slim surface stays at most 52% of the default surface', () => {
-  assert.ok(slim.chars <= research.chars * 0.52);
+test('the slim surface stays at most 60% of the default surface', () => {
+  assert.ok(slim.chars <= research.chars * 0.6);
 });
 
 test('flow does not embed a copy of the plan schema', () => {
   // run advertises a compact plan (ops and options only), so flow, which takes a plan record, never outweighs it.
-  assert.ok(size(research, 'flow') <= size(research, 'run'));
+  assert.ok(size(full, 'flow') <= size(full, 'run'));
 });
 
 test('the shared connection object is one compact copy, identical in every tool', () => {
@@ -47,12 +47,16 @@ test('the shared connection object is one compact copy, identical in every tool'
 });
 
 test('the default surface stays under a documented ceiling', () => {
-  // Measured 2026-11: about 13.3k chars (3.3k tokens at chars/4) for the default surface (12 tools; no MCP preset exports snapshot or screenshot, run advertises a compact plan, schemas carry no $schema or integer bounds); ceiling is that value + 10%.
-  const measuredDefaultChars = 13300;
+  // About 11.5k chars (2.9k tokens at chars/4) for the default surface (10 tools, flow opt-in, query the one saved-file reader; no MCP preset exports snapshot or screenshot, run advertises a compact plan, schemas carry no $schema or integer bounds); ceiling is that value + 10%.
+  const measuredDefaultChars = 11500;
   assert.ok(
     research.chars <= measuredDefaultChars * 1.1,
     String(research.chars)
   );
+  // About 6.5k chars for slim (5 tools, query the one saved-file reader): the ratio above moves with
+  // research, so slim keeps its own ceiling, that value + 10%.
+  const measuredSlimChars = 6500;
+  assert.ok(slim.chars <= measuredSlimChars * 1.1, String(slim.chars));
 });
 
 test('open and check advertise plain objects while the contract still validates them', () =>

@@ -106,6 +106,60 @@ test('input acknowledgement omits event payloads but keeps exact evidence reacha
     );
   }));
 
+test('a run reply lists each page once and does not repeat its URL per step', () =>
+  fixture(async work => {
+    const flow = join(work, 'browser-result.json');
+    const url = `data:text/html,${'<p>long page</p>'.repeat(20)}`;
+    const at = (index, op, extra) => ({
+      index,
+      op,
+      status: 'complete',
+      targetId: 'T1',
+      ...extra,
+    });
+    writeFileSync(
+      flow,
+      JSON.stringify({
+        ok: true,
+        requestedSteps: 3,
+        completedSteps: 3,
+        steps: [
+          at(1, 'goto', {
+            condition: { verified: true, url },
+            source: { selectedUrl: 'about:blank', frameId: null, url },
+          }),
+          at(2, 'wait', {
+            condition: { verified: true, text: 'Hi', url },
+            source: { selectedUrl: 'about:blank', frameId: null, url },
+          }),
+          at(3, 'extract', {
+            count: 1,
+            source: {
+              selectedUrl: 'about:blank',
+              frameId: null,
+              title: 'T',
+              url,
+            },
+          }),
+        ],
+        eventCoverage: [],
+      })
+    );
+    const result = await shape(work, `[ARTIFACT] browser-result.json ${flow}`);
+    assert.deepEqual(result.flow.sources, [
+      { url, targetId: 'T1', title: 'T' },
+    ]);
+    assert.deepEqual(
+      result.flow.steps.map(step => step.source),
+      [0, 0, 0]
+    );
+    assert.deepEqual(result.flow.steps[1].condition, {
+      verified: true,
+      text: 'Hi',
+    });
+    assert.equal(JSON.stringify(result).split(url).length - 1, 1);
+  }));
+
 test('a completed input without a postcondition returns only an acknowledgement and full-evidence routes', () =>
   fixture(async (work, _client) => {
     const artifact = join(work, 'input.json'),

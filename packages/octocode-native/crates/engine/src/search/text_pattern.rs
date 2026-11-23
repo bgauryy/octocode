@@ -89,5 +89,38 @@ pub fn regex_widens(pattern: &str) -> bool {
     regex_syntax::parse(pattern).is_ok_and(|hir| pattern.contains('\\') || !fixed(&hir))
 }
 
+/// `pattern` with each bracket or repetition operator that pairs with
+/// nothing escaped, when only those keep it from parsing as a regex: code
+/// written as text (`def route(`, `fn main() {`, `def map[|def imap`) reads
+/// with them as themselves and the rest as the regex it is. `None` for a
+/// pattern that parses, or that fails for another reason; `(?` opens group
+/// syntax, never text.
+#[must_use]
+pub fn with_unpaired_as_text(pattern: &str) -> Option<String> {
+    use regex_syntax::ast::{ErrorKind, parse::Parser};
+    let mut read = pattern.to_owned();
+    for _ in 0..=pattern.len() {
+        let Err(error) = Parser::new().parse(&read) else {
+            return (read != pattern).then_some(read);
+        };
+        let (head, tail) = read.split_at_checked(error.span().start.offset)?;
+        let unpaired = match error.kind() {
+            ErrorKind::GroupUnclosed => tail.starts_with('(') && !tail.starts_with("(?"),
+            ErrorKind::GroupUnopened => tail.starts_with(')'),
+            ErrorKind::ClassUnclosed => tail.starts_with('['),
+            ErrorKind::RepetitionCountUnclosed | ErrorKind::RepetitionCountDecimalEmpty => {
+                tail.starts_with('{')
+            }
+            ErrorKind::RepetitionMissing => tail.starts_with(['*', '+', '?', '{']),
+            _ => false,
+        };
+        if !unpaired {
+            return None;
+        }
+        read = format!("{head}\\{tail}");
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests;

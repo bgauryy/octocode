@@ -102,8 +102,9 @@ const subset = (names: readonly string[]) => ({
 });
 export const researchSpec = subset(chromeResearchCommands);
 export const slimSpec = subset(chromeSlimCommands);
-// The CLI registry keeps snapshot and screenshot; no MCP preset exports them (plan ops and the
-// page-snapshot and page-screenshot recipes capture the same evidence).
+// The CLI registry keeps snapshot, screenshot and artifact; no MCP preset exports them (plan ops and
+// the page-snapshot and page-screenshot recipes capture the same evidence; `query` window mode
+// reads what `artifact` does).
 export const fullSpec = subset(chromeFullCommands);
 const defaultPreset = 'research';
 export const presets = {
@@ -120,6 +121,7 @@ export const toolGroups = {
   data: ['cookies', 'session', 'script'],
   devtools: ['dev-check', 'helper', 'proxy'],
   capture: ['check'],
+  flows: ['flow'],
 } as const satisfies Record<string, readonly (keyof typeof chromeCommands)[]>;
 /** The preset's spec with the named groups and tools added; a tool the preset already holds is a no-op. Unknown names fail fast with the valid list. */
 export const withTools = (

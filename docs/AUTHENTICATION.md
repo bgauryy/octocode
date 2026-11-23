@@ -17,7 +17,7 @@ Octocode selects credentials for the host named by `GITHUB_API_URL` or `github.a
 
 | Priority | `tokenSource` | Where Octocode looks |
 |---:|---|---|
-| 1 | `env` | Process environment, then workspace `.octocode/.env`, then user `.env`. The first layer with a nonblank token wins. Within that layer, `GH_TOKEN` precedes `GITHUB_TOKEN`. |
+| 1 | `env` | Process environment, then workspace `.octocode/.env`, then user `.env`. The first layer with a nonblank token wins. Within that layer: `GH_TOKEN`, legacy `OCTOCODE_TOKEN`, `GITHUB_TOKEN`, legacy `GITHUB_PERSONAL_ACCESS_TOKEN`. |
 | 2 | `octocode-storage` | The host’s encrypted login in the Octocode home, saved by `octocode auth login`. |
 | 3 | `platform` | An existing Octocode entry for the host in macOS Keychain, Windows Credential Manager or Linux Secret Service. |
 | 4 | `gh-cli` | The saved login returned by `gh auth token --hostname <host>`. Octocode clears token environment variables for this lookup. |

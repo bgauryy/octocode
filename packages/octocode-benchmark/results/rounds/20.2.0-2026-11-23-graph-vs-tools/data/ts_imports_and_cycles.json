@@ -1,0 +1,184 @@
+{
+ "target": "packages/octocode-graph/src, frozen copy (70 .ts files)",
+ "ground_truth": "TypeScript preProcessFile over every file, relative specifiers resolved (.js -> .ts/.d.ts); 190 import statements, 167 file pairs, 73 type-only pairs (some pairs also have value imports)",
+ "gt_pairs": 167,
+ "gt_value_pairs": 94,
+ "tools": {
+  "rg": {
+   "pairs": 167,
+   "tp": 167,
+   "P": 1.0,
+   "R": 1.0,
+   "R_value": 1.0,
+   "fp": [],
+   "fn": []
+  },
+  "madge": {
+   "pairs": 167,
+   "tp": 167,
+   "P": 1.0,
+   "R": 1.0,
+   "R_value": 1.0,
+   "fp": [],
+   "fn": []
+  },
+  "depcruise": {
+   "pairs": 167,
+   "tp": 167,
+   "P": 1.0,
+   "R": 1.0,
+   "R_value": 1.0,
+   "fp": [],
+   "fn": []
+  },
+  "depcruise_default": {
+   "pairs": 114,
+   "tp": 114,
+   "P": 1.0,
+   "R": 0.683,
+   "R_value": 1.0,
+   "fp": [],
+   "fn": [
+    "algorithms.ts -> graph-model.ts (type-only)",
+    "assets/live-chat.ts -> assets/live-state.ts (type-only)",
+    "assets/live-chat.ts -> runtime/types.ts (type-only)",
+    "assets/live-graph.ts -> assets/live-state.ts (type-only)",
+    "assets/live-graph.ts -> runtime/types.ts (type-only)",
+    "assets/live-overview.ts -> assets/live-state.ts (type-only)",
+    "assets/live-overview.ts -> runtime/types.ts (type-only)",
+    "assets/live-panels.ts -> assets/live-graph.ts (type-only)",
+    "assets/live-panels.ts -> assets/live-overview.ts (type-only)",
+    "assets/live-panels.ts -> assets/live-state.ts (type-only)",
+    "assets/live-panels.ts -> runtime/types.ts (type-only)",
+    "assets/live-query.ts -> assets/live-state.ts (type-only)",
+    "assets/live-state.ts -> runtime/types.ts (type-only)",
+    "assets/live-wiki.ts -> assets/live-state.ts (type-only)",
+    "assets/live-wiki.ts -> runtime/types.ts (type-only)",
+    "assets/live.ts -> assets/live-state.ts (type-only)",
+    "assets/live.ts -> runtime/types.ts (type-only)",
+    "browser/offline.ts -> assets/live-state.ts (type-only)",
+    "browser/offline.ts -> browser/worker.ts (type-only)",
+    "index.ts -> contract.generated.d.ts (type-only)",
+    "providers.ts -> relations.ts (type-only)",
+    "runtime/commands/build.ts -> runtime/types.ts (type-only)",
+    "runtime/commands/diff.ts -> runtime/query-index.ts (type-only)",
+    "runtime/commands/refresh.ts -> runtime/types.ts (type-only)",
+    "runtime/coverage.ts -> runtime/types.ts (type-only)",
+    "runtime/diff.ts -> runtime/query-index.ts (type-only)",
+    "runtime/diff.ts -> runtime/types.ts (type-only)",
+    "runtime/graph-pages.ts -> contract.generated.d.ts (type-only)",
+    "runtime/lib/run-options.ts -> runtime/types.ts (type-only)",
+    "runtime/lsp.ts -> runtime/types.ts (type-only)",
+    "runtime/metrics.ts -> runtime/types.ts (type-only)",
+    "runtime/model.ts -> runtime/types.ts (type-only)",
+    "runtime/pipeline.ts -> runtime/types.ts (type-only)",
+    "runtime/plan.ts -> runtime/types.ts (type-only)",
+    "runtime/preflight.ts -> runtime/tools.ts (type-only)",
+    "runtime/query-index.ts -> runtime/types.ts (type-only)",
+    "runtime/query-ops.ts -> graph-model.ts (type-only)",
+    "runtime/query-ops.ts -> runtime/types.ts (type-only)",
+    "runtime/refresh.ts -> runtime/types.ts (type-only)",
+    "runtime/render.ts -> runtime/types.ts (type-only)",
+    "runtime/section.ts -> contract.generated.d.ts (type-only)",
+    "runtime/section.ts -> runtime/types.ts (type-only)",
+    "runtime/serve-answers.ts -> runtime/types.ts (type-only)",
+    "runtime/serve.ts -> runtime/types.ts (type-only)",
+    "runtime/stitch.ts -> runtime/types.ts (type-only)",
+    "runtime/tools.ts -> contract.generated.d.ts (type-only)",
+    "runtime/types.ts -> relations.ts (type-only)",
+    "runtime/verify.ts -> contract.generated.d.ts (type-only)",
+    "runtime/verify.ts -> runtime/types.ts (type-only)",
+    "runtime/wiki-facts.ts -> runtime/types.ts (type-only)",
+    "runtime/wiki-lint.ts -> runtime/types.ts (type-only)",
+    "runtime/wiki-store.ts -> runtime/types.ts (type-only)",
+    "runtime/wiki.ts -> runtime/types.ts (type-only)"
+   ]
+  },
+  "graph": {
+   "pairs": 167,
+   "tp": 167,
+   "P": 1.0,
+   "R": 1.0,
+   "R_value": 1.0,
+   "fp": [],
+   "fn": []
+  },
+  "graph_fileEdges_strong": {
+   "pairs": 168,
+   "tp": 167,
+   "P": 0.994,
+   "R": 1.0,
+   "R_value": 1.0,
+   "fp": [
+    "runtime/serve-answers.ts -> runtime/query-api.ts"
+   ],
+   "fn": []
+  }
+ },
+ "time_s": {
+  "rg": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "madge": [
+   1.2,
+   1.36,
+   1.19
+  ],
+  "madge_tsconfig": [
+   1.31,
+   1.21,
+   1.29
+  ],
+  "depcruise_default": [
+   0.76,
+   0.81,
+   0.72
+  ],
+  "depcruise_with_type_only": [
+   1.47,
+   1.48,
+   1.43
+  ],
+  "graph_build_lsp_live_path": [
+   5.18,
+   3.09,
+   1.53
+  ],
+  "graph_build_lsp_off_live_path": [
+   1.45,
+   1.45,
+   1.39
+  ],
+  "graphify_update_no_cluster": [
+   2.94,
+   1.65
+  ]
+ },
+ "notes": {
+  "depcruise_default": "tsPreCompilationDeps off by default: type-only imports are dropped (53 pairs)",
+  "depcruise first run without typescript installed": "0 modules cruised, no error",
+  "graph_fileEdges_strong": "one extra file edge runtime/serve-answers.ts -> runtime/query-api.ts backed by calls, not an import"
+ },
+ "cycles": {
+  "unmodified": {
+   "ground_truth": 0,
+   "graph": 0,
+   "native": 0,
+   "madge": 0,
+   "depcruise": 0
+  },
+  "injected": {
+   "description": "copy with two added imports: value cycle runtime/section.ts <-> runtime/pipeline.ts; type-only cycle graph-model.ts <-> algorithms.ts",
+   "graph": "2 of 2 (cycle runtime/section.ts, cycle graph-model.ts, 0.09 s each; brief CYCLES 2)",
+   "native": "2 of 2 (cycles op)",
+   "madge": "2 of 2 (--circular, 1.54 s)",
+   "depcruise_default": "1 of 2 (misses the type-only cycle)",
+   "depcruise_with_type_only": "2 of 2",
+   "rg": "cannot",
+   "lsp": "cannot",
+   "ast_grep": "cannot"
+  }
+ }
+}

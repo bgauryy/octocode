@@ -104,6 +104,23 @@ impl NativeLspClient {
             // The server is gone: the next request reports that.
             return EmptyAnswer::Stands;
         };
+        // A server that reported its own load ([`Readiness::ProgressIdle`]) is
+        // judged by that signal alone. Its process CPU also counts cache
+        // priming and other callers' requests, which never stop under a busy
+        // client: sampling it would hold this answer until the whole queue
+        // drains (measured: 71-152 s for answers ready in 0.5 s).
+        if self.readiness() == Some(Readiness::ProgressIdle) {
+            if progress.has_active() {
+                worked = true;
+                if !self.outwait_load(&connection, deadline).await {
+                    return EmptyAnswer::StillLoading;
+                }
+            }
+            let begun = progress.work_begins();
+            worked |= begun != asked.begins;
+            self.inner.idle_at_begin.store(begun + 1, Ordering::Release);
+            return self.judged(worked, deadline);
+        }
         let sample = self.settle(CPU_SAMPLE);
         loop {
             if progress.has_active() {
@@ -112,7 +129,7 @@ impl NativeLspClient {
                     return EmptyAnswer::StillLoading;
                 }
             }
-            let begins = progress.begins();
+            let begins = progress.work_begins();
             let before = connection.server_cpu_time();
             clock.sleep(sample).await;
             // No window (a harness's fake server), no evidence of work.
@@ -122,7 +139,7 @@ impl NativeLspClient {
                     .is_some_and(|(before, after)| {
                         after.saturating_sub(before) >= sample / WORKING_CPU_DIVISOR
                     });
-            if progress.begins() == begins && !progress.has_active() && !working {
+            if progress.work_begins() == begins && !progress.has_active() && !working {
                 self.inner
                     .idle_at_begin
                     .store(begins + 1, Ordering::Release);
@@ -133,10 +150,17 @@ impl NativeLspClient {
                 return EmptyAnswer::StillLoading;
             }
         }
+        self.judged(worked, deadline)
+    }
+
+    /// The verdict once the load shows none: an answer the server gave
+    /// without working since stands; one older than its work is asked again,
+    /// forgetting the answers recorded before it.
+    fn judged(&self, worked: bool, deadline: Option<Instant>) -> EmptyAnswer {
         if !worked {
             return EmptyAnswer::Stands;
         }
-        if past(deadline, clock.now()) {
+        if past(deadline, self.inner.clock.now()) {
             return EmptyAnswer::StillLoading;
         }
         let _ = RESPONSE_SCOPE.try_with(|scope| {

@@ -89,3 +89,32 @@ mod shared_rows;
 mod walk;
 mod window;
 mod withheld;
+
+/// A search the code-search quota refused that names a file also leads to
+/// reading that file for the same terms, which spends no search quota; a
+/// folder path leads to no read.
+#[test]
+fn a_quota_refused_search_of_a_file_leads_to_reading_it() {
+    use octocode_github::{ProviderError, ProviderErrorKind};
+    use octocode_tools_shared::gh_shared::GhFailure;
+    let refused = || {
+        GhFailure::new(
+            ProviderError::new(ProviderErrorKind::RateLimited, "quota"),
+            "quota",
+        )
+    };
+    let query = |path: &str| -> GhSearchCodeQuery {
+        serde_json::from_value(
+            json!({"owner": "o", "repo": "r", "keywords": ["onRequest"], "path": path}),
+        )
+        .expect("query")
+    };
+    let failure = super::with_file_read(refused(), &query("docs/Lifecycle.md"));
+    let calls = failure.calls.expect("a lead");
+    assert_eq!(calls["readFile"]["tool"], "ghGetFileContent", "{calls}");
+    let row = &calls["readFile"]["input"]["queries"][0];
+    assert_eq!(row["path"], "docs/Lifecycle.md", "{calls}");
+    assert_eq!(row["matchString"], json!(["onRequest"]), "{calls}");
+    let folder = super::with_file_read(refused(), &query("docs"));
+    assert!(folder.calls.is_none(), "{:?}", folder.calls);
+}

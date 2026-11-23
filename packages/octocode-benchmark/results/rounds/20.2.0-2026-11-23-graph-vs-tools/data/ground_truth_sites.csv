@@ -1,0 +1,262 @@
+target,function,path,line,kind,caller,test,rust_category
+rust,related_input,crates/tool-graph/src/ast_graph/store/query/answers.rs,44,call,stats@14,False,in macro
+rust,related_input,crates/tool-packages/src/security_check/trust.rs,515,call,listed@488,False,cross-crate
+rust,related_input,crates/tool-packages/src/security_check/trust.rs,539,call,listed@488,False,cross-crate
+rust,related_input,crates/tool-packages/src/security_check/package.rs,895,call,not_on_registry@854,False,in macro
+rust,related_input,crates/tool-packages/src/security_check/package.rs,1295,call,pinned_calls@1285,False,cross-crate
+rust,related_input,crates/tool-packages/src/security_check/package.rs,1315,call,module_call@1303,False,cross-crate
+rust,related_input,crates/tool-packages/src/security_check/package.rs,1564,call,respond@1426,False,cross-crate
+rust,related_input,crates/tool-packages/src/security_check/answer.rs,826,call,advisory_calls@798,False,cross-crate
+rust,related_input,crates/tool-github/src/gh_get_file_content/leads.rs,153,call,rewrite_continuations@124,False,cross-crate
+rust,related_input,crates/runtime-base/src/response/result.rs,39,call,related@38,False,same crate
+rust,related_input,crates/tool-packages/src/security_check/commit.rs,486,call,apply@380,False,cross-crate
+rust,related_input,crates/runtime-base/src/response/continuations/tests.rs,47,call,related_requests_remain_complete_and_never_create_cursor_work@45,True,same crate test
+rust,related_input,crates/tool-lsp/src/lsp_search/failure/leads.rs,326,call,listed_search_lead@307,False,cross-crate
+rust,related_input,crates/tool-github/src/gh_search_code/leads.rs,231,call,or_split@204,False,cross-crate
+rust,related_input,crates/tool-packages/src/artifact_search/leads.rs,304,call,with_repair@245,False,cross-crate
+rust,related_input,crates/tool-packages/src/artifact_search/leads.rs,324,call,with_repair@245,False,cross-crate
+rust,related_input,crates/tool-packages/src/artifact_search/leads.rs,371,call,with_repair@245,False,cross-crate
+rust,related_input,crates/tool-github/src/gh_get_history_item/pr_menu.rs,287,call,change_reads@196,False,cross-crate
+rust,related_input,crates/tool-packages/src/security_check.rs,497,call,apply@475,False,cross-crate
+rust,related_input,crates/runtime-base/src/response/result/tests.rs,142,call,related_calls_of_every_tool_publish_no_private_progress@129,True,same crate test
+rust,related_input,crates/tool-ast/src/ast_search/matches/exact_miss.rs,330,call,lead_call@324,False,cross-crate
+rust,related_input,crates/tool-ast/src/ast_search/matches/exact_miss.rs,644,call,calls@636,False,cross-crate
+rust,related_input,crates/tool-ast/src/ast_search/matches/gaps.rs,182,call,language_repair@168,False,cross-crate
+rust,related_input,crates/tool-github/src/gh_search_repo/leads.rs,81,call,split_by_created@56,False,cross-crate
+rust,related_input,crates/tool-ast/src/ast_search/matches/qualified.rs,632,call,attach@572,False,cross-crate
+rust,related_input,crates/tools-shared/src/leads/broaden.rs,110,call,broaden@28,False,cross-crate
+rust,related_input,crates/tools-shared/src/leads/broaden/tests.rs,74,call,a_broader_lead_a_related_call_already_holds_is_not_added_again@72,True,cross-crate test
+rust,related_input,crates/tools-shared/src/leads/broaden/tests.rs,79,call,a_broader_lead_a_related_call_already_holds_is_not_added_again@72,True,cross-crate test
+rust,related_input,crates/tools-shared/src/source_capture/page.rs,155,call,reader_failure@140,False,cross-crate
+rust,related_input,crates/tool-local/src/local_search/leads/reads.rs,36,call,add_window_reads@9,False,cross-crate
+rust,set_next,crates/tool-lsp/src/lsp_search/locations.rs,359,call,location_page@205,False,cross-crate
+rust,set_next,crates/tool-clasify/src/clasify/sections/emit.rs,381,call,attach_hit_reads@363,False,cross-crate
+rust,set_next,crates/tool-graph/src/ast_graph/store/tools.rs,531,call,resume_paused@525,False,cross-crate
+rust,set_next,crates/tool-graph/src/ast_graph/store/tools/pages.rs,81,call,convert@36,False,cross-crate
+rust,set_next,crates/tool-lsp/src/lsp_search/walk/outcome.rs,204,call,mark_truncation@130,False,cross-crate
+rust,set_next,crates/runtime/src/runtime/dispatch.rs,219,call,offer_retry@212,False,cross-crate
+rust,set_next,crates/runtime-base/src/response/rows/restart.rs,29,call,require_restart@11,False,same crate
+rust,set_next,crates/runtime-base/src/response/result/tests.rs,260,call,set_next_writes_one_call_under_the_next_channel@258,True,same crate test
+rust,set_next,crates/runtime-base/src/response/result/tests.rs,265,call,set_next_writes_one_call_under_the_next_channel@258,True,same crate test
+rust,set_next,crates/runtime-base/src/response/result/tests.rs,270,call,set_next_writes_one_call_under_the_next_channel@258,True,same crate test
+rust,set_next,crates/runtime-base/src/response/result/tests.rs,285,call,set_next_writes_one_call_under_the_next_channel@258,True,same crate test
+rust,reads_source,crates/runtime-base/src/response/read_share/tests.rs,68,call,only_unjudged_source_rows_read_again_for_free_fill_together@64,True,in macro test
+rust,reads_source,crates/runtime-base/src/response/numbered.rs,275,call,number_read_rows@269,False,same crate
+rust,reads_source,crates/runtime-base/src/response/read_share.rs,31,call,rows_room@30,False,same crate
+rust,reads_source,crates/runtime-base/src/response/read_share.rs,44,call,fill_together@43,False,same crate
+rust,github_ref_path,crates/tool-packages/src/artifact/util.rs,200,comment,<module>,False,
+rust,github_ref_path,crates/tool-packages/src/artifact/util.rs,210,call,source_link@208,False,same crate
+rust,github_ref_path,crates/tool-packages/src/artifact/util/github_page_tests.rs,2,import,<module>,True,
+rust,github_ref_path,crates/tool-packages/src/artifact/util/github_page_tests.rs,8,call,tree_and_blob_urls_name_a_directory_or_a_release_ref@7,True,same crate test
+rust,github_page,crates/tool-packages/src/artifact/util.rs,183,call,github_ref_path@182,False,same crate
+rust,github_page,crates/tool-packages/src/artifact/util.rs,223,call,release_ref_in@222,False,same crate
+rust,continued_query,crates/tool-lsp/src/lsp_search/ops.rs,121,call,mark_more_candidates@99,False,cross-crate
+rust,continued_query,crates/tool-lsp/src/lsp_search/walk/outcome.rs,201,call,mark_truncation@130,False,cross-crate
+rust,continued_query,crates/tool-local/src/structure_search.rs,143,call,continuation@141,False,cross-crate
+rust,continued_query,crates/tool-lsp/src/lsp_search/ops/lookups.rs,111,call,definition@81,False,cross-crate
+rust,continued_query,crates/tool-lsp/src/lsp_search/locations/byte_window.rs,297,fn-value,unsealed@291,False,
+rust,continued_query,crates/tool-lsp/src/lsp_search/locations/byte_window.rs,348,call,read_from@337,False,cross-crate
+rust,continued_query,crates/tool-lsp/src/lsp_search/locations/shaping.rs,247,fn-value,cap_declaration_content@202,False,
+rust,continued_query,crates/tool-lsp/src/lsp_search/failure/paging.rs,131,call,offer_next_page@115,False,cross-crate
+rust,continued_query,crates/tool-lsp/src/lsp_search/importers/coverage.rs,322,call,annotate@239,False,cross-crate
+rust,continued_query,crates/tool-local/src/local_search/cursor.rs,69,call,walk_next@42,False,cross-crate
+rust,continued_query,crates/tool-local/src/local_search/window.rs,162,call,paused_row@116,False,cross-crate
+rust,continued_query,crates/tool-ast/src/ast_search/symbols/page.rs,288,call,attach_symbol_leads@257,False,cross-crate
+rust,continued_query,crates/tool-ast/src/ast_search/matches/rows.rs,242,call,continuation_with@237,False,cross-crate
+rust,continued_query,crates/tool-ast/src/ast_search/matches/snapshot.rs,71,call,interrupted_rescan@53,False,in macro
+rust,continued_query,crates/tools-shared/src/source_view/types/next_calls.rs,59,call,serialize@55,False,cross-crate
+rust,continued_query,crates/tool-clasify/src/clasify/sections/assess.rs,154,call,assess_and_save@32,False,cross-crate
+rust,continued_query,crates/tool-clasify/src/clasify/sections/assess.rs,180,call,assess_and_save@32,False,cross-crate
+rust,continued_query,crates/tool-clasify/src/clasify/sections/emit.rs,122,call,attach_continuations@98,False,cross-crate
+rust,continued_query,crates/tool-github/src/gh_search_history/leads.rs,117,call,next_page@116,False,cross-crate
+rust,continued_query,crates/tools-shared/src/source_capture/url/store.rs,122,call,save@86,False,cross-crate
+rust,continued_query,crates/tool-github/src/gh_get_history_item/pr_sections/commit_files.rs,64,call,next_page@50,False,cross-crate
+rust,continued_query,crates/tool-github/src/gh_get_history_item/compare/leads.rs,123,call,commit_list_lead@110,False,cross-crate
+rust,continued_query,crates/tool-github/src/gh_search_code/leads.rs,34,call,hits_read@18,False,cross-crate
+rust,continued_query,crates/tool-github/src/gh_search_code/leads.rs,106,call,unlisted_read@73,False,cross-crate
+rust,continued_query,crates/tool-graph/src/ast_graph/store/tools.rs,534,call,resume_paused@525,False,cross-crate
+rust,continued_query,crates/tool-github/src/gh_get_history_item/pr_menu.rs,52,call,continuation@51,False,cross-crate
+rust,continued_query,crates/tool-github/src/gh_get_history_item/pr_finish.rs,301,call (excluded: file edited after build),attach_context_reads@269,False,
+rust,continued_query,crates/runtime-base/src/response/collection.rs,48,call,walk_query@42,False,same crate
+rust,may_name_supertypes,crates/engine/src/signatures/graph_facts/tests/heritage_edges.rs,167,call,only_go_heritage_never_names_a_supertype@157,True,in macro test
+rust,may_name_supertypes,crates/engine/src/signatures/graph_facts/tests/heritage_edges.rs,179,call,only_go_heritage_never_names_a_supertype@157,True,in macro test
+rust,may_name_supertypes,crates/tool-lsp/src/lsp_search/heritage/scan.rs,148,call,subtype_snippets@143,False,cross-crate
+rust,may_name_supertypes,crates/tool-lsp/src/lsp_search/heritage/scan.rs,224,call,member_snippets@218,False,cross-crate
+rust,read_private_config,crates/runtime-base/src/config.rs,18,ref,<module>,False,
+rust,read_private_config,crates/runtime-base/src/config/manage.rs,7,ref,<module>,False,
+rust,read_private_config,crates/runtime-base/src/config/manage.rs,134,call,edit_setting@108,False,same crate
+rust,read_private_config,crates/runtime-base/src/config/manage.rs,232,call,inspect_management@217,False,same crate
+rust,read_private_config,crates/runtime-base/src/config/edit/tests.rs,16,call,revision_backup_and_permissions@8,True,same crate test
+rust,read_private_config,crates/runtime-base/src/config/edit/tests.rs,68,call,rejects_symlink_and_retains_directory_permissions@56,True,in macro test
+rust,read_private_config,crates/runtime-base/src/config/edit/tests.rs,85,call,symlinked_parent_directory_is_readable_and_writable@76,True,in macro test
+rust,read_private_config,crates/runtime-base/src/config/edit/tests.rs,160,call,scoped_policy_and_roundtrip_quotes@137,True,same crate test
+rust,read_private_config,crates/runtime-base/src/config/edit/tests.rs,164,call,scoped_policy_and_roundtrip_quotes@137,True,in macro test
+rust,read_private_config,crates/runtime-base/src/config/edit.rs,99,call,replace_private_config@59,False,same crate
+rust,read_private_config,crates/runtime-base/src/config/edit.rs,114,call,replace_private_config@59,False,same crate
+rust,read_private_config,crates/runtime-base/src/config/edit.rs,152,call,edit_scoped_env@144,False,same crate
+rust,read_private_config,crates/runtime-base/src/config/manage/tests.rs,315,call,stale_revision_cannot_overwrite@308,True,same crate test
+rust,read_private_config,crates/cli/src/cli/mcp_manage/continue_main.rs,3,import,<module>,False,
+rust,read_private_config,crates/cli/src/cli/mcp_manage/continue_main.rs,19,call,inspect_continue_main@17,False,cross-crate
+rust,read_private_config,crates/cli/src/cli/config.rs,231,ref,unset_unknown_setting@229,False,
+rust,read_private_config,crates/cli/src/cli/config.rs,242,call,unset_unknown_setting@229,False,cross-crate
+rust,read_private_config,crates/cli/src/cli/mcp_manage/update.rs,6,import,<module>,False,
+rust,read_private_config,crates/cli/src/cli/mcp_manage/update.rs,14,call,update@9,False,cross-crate
+rust,read_private_config,crates/cli/src/cli/mcp_manage.rs,9,import,<module>,False,
+rust,read_private_config,crates/cli/src/cli/mcp_manage.rs,180,call,inspect@179,False,cross-crate
+rust,read_private_config,crates/cli/src/cli/mcp_install/clients.rs,83,call,client_status@60,False,cross-crate
+rust,read_private_config,crates/cli/src/cli/mcp_install.rs,146,ref,run@116,False,
+rust,read_private_config,crates/cli/src/cli/mcp_install.rs,148,call,run@116,False,cross-crate
+rust,read_private_config,crates/cli/src/cli/mcp_install.rs,150,call,run@116,False,cross-crate
+rust,read_private_config,crates/cli/src/cli/mcp_install/apply.rs,25,ref,install@23,False,
+rust,read_private_config,crates/cli/src/cli/mcp_install/apply.rs,28,call,install@23,False,cross-crate
+rust,first_round_tokens_at_most,crates/tool-clasify/src/clasify/evaluate.rs,226,call,plan@218,False,cross-crate
+rust,first_round_tokens_at_most,crates/tools-shared/src/selection/judge/units.rs,230,call,plan_units_at@201,False,same crate
+rust,login_device_flow_in_store,crates/runtime/src/runtime/auth.rs,220,call,device_login@216,False,cross-crate
+rust,login_device_flow_in_store,crates/runtime-base/src/providers/github/login/tests.rs,4,ref,<module>,True,
+rust,login_device_flow_in_store,crates/runtime-base/src/providers/github/login/tests.rs,353,call,oauth_calls_do_not_replay_bodies_across_redirects@316,True,same crate test
+rust,login_device_flow_in_store,crates/runtime-base/src/providers/github/login.rs,8,import,<module>,False,
+rust,open_document_and_wait,crates/tool-lsp/src/lsp_search/session/sync.rs,32,call,sync_document@11,False,cross-crate
+rust,open_document_and_wait,crates/tool-lsp/src/lsp_search/session/sync.rs,59,call,sync_document@11,False,cross-crate
+rust,open_document_and_wait,crates/tool-lsp/src/lsp_search/importers/occurrences.rs,129,call,open_candidates@68,False,cross-crate
+rust,open_document_and_wait,crates/tool-lsp/src/lsp_search/prewarm.rs,222,call,warm@198,False,cross-crate
+rust,open_document_and_wait,crates/engine/src/lsp/client/open_documents.rs,106,comment,<module>,False,
+rust,open_document_and_wait,crates/engine/src/lsp/client/open_documents.rs,106,comment,<module>,False,
+rust,open_document_and_wait,crates/engine/src/lsp/client/requests.rs,250,comment,<module>,False,
+rust,open_document_and_wait,crates/engine/src/lsp/client/requests.rs,274,call,get_document_symbols_settled@253,False,same crate
+rust,open_document_and_wait,crates/engine/src/lsp/client/tests/project_loads.rs,38,call,open@35,True,same crate test
+rust,open_document_and_wait,crates/engine/src/lsp/client/tests/project_loads.rs,163,call,an_explicit_settle_is_also_owed_once_per_project@155,True,same crate test
+rust,open_document_and_wait,crates/engine/src/lsp/client/tests/project_loads.rs,190,call,a_document_opened_without_the_wait_owes_it_in_an_unsettled_project@173,True,in macro test
+rust,open_document_and_wait,crates/engine/src/lsp/client/tests/project_loads.rs,374,call,a_resumed_client_does_not_report_a_stale_timeout@349,True,same crate test
+rust,open_document_and_wait,crates/engine/src/lsp/client/tests/readiness.rs,53,call,first_open_waits_for_the_project_load_the_open_triggers@13,True,same crate test
+rust,open_document_and_wait,crates/engine/src/lsp/client/tests/readiness.rs,80,call,first_open_waits_for_the_project_load_the_open_triggers@13,True,in macro test
+rust,open_document_and_wait,crates/engine/src/lsp/client/tests/readiness.rs,167,call,first_open_after_a_confirmed_project_load_skips_the_settle@154,True,same crate test
+rust,open_document_and_wait,crates/engine/src/lsp/client/tests/readiness.rs,226,call,a_settle_cap_bounds_every_silent_server_wait@189,True,in macro test
+rust,open_document_and_wait,crates/engine/src/lsp/client/tests/open_readiness.rs,53,call,timed_out_document_open_keeps_waiting_until_project_progress_finishes@8,True,in macro test
+rust,open_document_and_wait,crates/engine/src/lsp/client/tests/open_readiness.rs,63,call,timed_out_document_open_keeps_waiting_until_project_progress_finishes@8,True,in macro test
+rust,open_document_and_wait,crates/engine/src/lsp/client/tests/open_readiness.rs,70,call,timed_out_document_open_keeps_waiting_until_project_progress_finishes@8,True,in macro test
+rust,open_document_and_wait,crates/engine/src/lsp/client/tests/process_readiness.rs,89,call,first_open_waits_for_the_project_load_the_open_triggers@54,True,same crate test
+rust,open_document_and_wait,crates/engine/src/lsp/client/tests/process_readiness.rs,119,call,first_open_waits_for_the_project_load_the_open_triggers@54,True,same crate test
+rust,open_document_and_wait,crates/engine/src/lsp/client/tests/process_readiness.rs,244,call,first_open_after_a_confirmed_project_load_skips_the_settle@225,True,same crate test
+rust,open_document_and_wait,crates/engine/src/lsp/client/tests/process_readiness.rs,288,call,a_settle_cap_bounds_every_silent_server_wait@268,True,same crate test
+rust,open_document_and_wait,crates/engine/src/lsp/client.rs,42,comment,<module>,False,
+rust,clear_caches,crates/cli/src/cli.rs,320,call,dispatch@239,False,cross-crate
+rust,clear_caches,crates/runtime/tests/runtime_gh_structure/listing.rs,301,call,a_busy_answer_cache_leaves_the_response_whole_and_quiet@286,True,same crate test
+rust,search_files_shared,crates/tool-ast/src/ast_search/matches/scan.rs,326,call,scan_directory_keeping@191,False,cross-crate
+rust,search_files_shared,crates/engine/src/structural/files/shared/tests.rs,272,call,rules_sharing_a_walk_and_trees_match_as_scans_of_their_own@222,True,same crate test
+rust,search_files_shared,crates/engine/src/structural/files.rs,104,call,search_files@96,False,same crate
+rust,search_files_shared,crates/engine/src/structural/files.rs,115,comment,<module>,False,
+rust,search_files_shared,crates/engine/src/structural.rs,21,ref,<module>,False,
+rust,commit_pull_numbers,crates/github/src/tests/security.rs,130,call,branch_heads_and_pull_numbers_follow_every_linked_page@91,True,in macro test
+rust,commit_pull_numbers,crates/runtime/src/runtime/github/repository_read.rs,88,call,commit_facts@71,False,in macro
+rust,member_row,crates/engine/src/signatures/outline.rs,139,call,outline_rows@115,False,same crate
+rust,member_row,crates/engine/src/signatures/outline.rs,188,call,outline_rows@115,False,same crate
+rust,to_screaming_snake,crates/runtime-base/build/tool_query_limits.rs,1,import,<module>,False,
+rust,to_screaming_snake,crates/runtime-base/build/tool_query_limits.rs,96,call,query_facts@80,False,in macro
+rust,to_screaming_snake,crates/runtime-base/build/tool_query_limits.rs,97,call,query_facts@80,False,in macro
+rust,to_screaming_snake,crates/runtime-base/build/config_render_metadata.rs,1,import,<module>,False,
+rust,to_screaming_snake,crates/runtime-base/build/config_render_metadata.rs,119,call,render_field_metadata@8,False,in macro
+rust,to_screaming_snake,crates/runtime-base/build/tool_gen.rs,8,import,<module>,False,
+rust,to_screaming_snake,crates/runtime-base/build/tool_gen.rs,278,call,render_semantic_policies@262,False,in macro
+rust,to_screaming_snake,crates/runtime-base/build.rs,80,call,to_snake@79,False,same crate
+rust,proxy_go_mod,crates/tool-packages/src/artifact/go/retraction.rs,17,call,go_mod_text@9,False,same crate
+rust,proxy_go_mod,crates/tool-packages/src/artifact/go/retraction.rs,84,call,go_retraction@47,False,same crate
+rust,load_from,crates/runtime-base/src/providers/github/login/refresh.rs,143,call,refresh_selected@127,False,same crate
+rust,load_from,crates/runtime-base/src/providers/github/login/flow_tests/refresh.rs,52,call,refresh_cannot_restore_logout_or_overwrite_a_new_login@10,True,in macro test
+rust,open_and_index,crates/tool-lsp/src/lsp_search/importers/freshen.rs,2,import,<module>,False,
+rust,open_and_index,crates/tool-lsp/src/lsp_search/importers/freshen.rs,81,call,freshen_index@25,False,same crate
+rust,open_and_index,crates/tool-lsp/src/lsp_search/importers/index_proof.rs,181,call,index_window@152,False,same crate
+rust,is_test_parent,crates/tools-shared/src/test_code/mount_targets.rs,466,call,mounts_under_test@451,False,same crate
+rust,is_test_parent,crates/tools-shared/src/test_code/mount_targets.rs,474,call,mounts_under_test@451,False,same crate
+ts,resolveSymbol,runtime/query-ops.ts,13,ref,<module>,False,
+ts,resolveSymbol,runtime/query-ops.ts,722,call,symbolCalls@717,False,
+ts,resolveSymbol,runtime/query-ops.ts,899,call,trace@885,False,
+ts,resolveSymbol,runtime/query-search.ts,11,ref,<module>,False,
+ts,resolveSymbol,runtime/query-search.ts,392,call,about@388,False,
+ts,resolveSymbol,runtime/query-search.ts,403,call,about@388,False,
+ts,topGroup,runtime/stitch.ts,4,import,<module>,False,
+ts,topGroup,runtime/stitch.ts,839,call,shape@833,False,
+ts,topGroup,runtime/stitch.ts,844,call,shape@833,False,
+ts,topGroup,runtime/stitch.ts,844,call,shape@833,False,
+ts,topGroup,runtime/section.ts,20,ref,<module>,False,
+ts,topGroup,runtime/section.ts,119,alias-binding,<module>,False,
+ts,topGroup,runtime/section.ts,236,call,fileNodes@227,False,
+ts,prepareGraphRun,runtime/refresh.ts,11,import,<module>,False,
+ts,prepareGraphRun,runtime/refresh.ts,396,call,refreshResult@387,False,
+ts,prepareGraphRun,runtime/section.ts,18,ref,<module>,False,
+ts,prepareGraphRun,runtime/section.ts,354,call,crossCallGaps@333,False,
+ts,prepareGraphRun,runtime/pipeline.ts,22,ref,<module>,False,
+ts,prepareGraphRun,runtime/pipeline.ts,633,call,buildPipeline@613,False,
+ts,prerequisiteOrder,runtime/query-ops.ts,19,import,<module>,False,
+ts,prerequisiteOrder,runtime/query-ops.ts,861,call,dependencyOrder@858,False,
+ts,callEvidence,runtime/query-index.ts,7,ref,<module>,False,
+ts,callEvidence,runtime/query-index.ts,223,call,relations@197,False,
+ts,callEvidence,graph-model.ts,74,call,fileEdges@43,False,
+ts,callEvidence,graph-model.ts,75,call,fileEdges@43,False,
+ts,buildSection,runtime/pipeline.ts,27,import,<module>,False,
+ts,buildSection,runtime/pipeline.ts,297,call,buildChunk@273,False,
+ts,linkRows,runtime/wiki-facts.ts,283,call,communityFacts@269,False,
+ts,linkRows,runtime/wiki-facts.ts,287,call,communityFacts@269,False,
+ts,bundle,assets/live-graph.ts,46,comment,<module>,False,
+ts,bundle,browser/offline.ts,24,comment,<module>,False,
+ts,bundle,renderer.ts,1,comment,<module>,False,
+ts,bundle,html.ts,28,call,exportHtml@21,False,
+ts,bundle,html.ts,29,call,exportHtml@21,False,
+ts,bundle,assets/renderer.generated.d.ts,1,comment,<module>,False,
+ts,bundle,runtime/serve.ts,68,comment,<module>,False,
+ts,scheduleLabels,assets/live-graph.ts,364,call,restyleLabels@355,False,
+ts,scheduleLabels,assets/live-graph.ts,566,call,follow@565,False,
+ts,scheduleLabels,assets/live-graph.ts,713,call,resize@710,False,
+ts,scheduleLabels,assets/live-graph.ts,736,fn-value,createGraph@725,False,
+ts,slugOfCommunity,assets/live-wiki.ts,412,call,load@402,False,
+ts,slugOfCommunity,assets/live-wiki.ts,561,call,onSelect@555,False,
+ts,errorMessage,runtime/lib.ts,141,call,schema@127,False,
+ts,errorMessage,runtime/lib.ts,324,call,settle@310,False,
+ts,errorMessage,runtime/pipeline.ts,20,ref,<module>,False,
+ts,errorMessage,runtime/pipeline.ts,210,call,listFiles@164,False,
+ts,errorMessage,runtime/pipeline.ts,315,call,buildChunk@273,False,
+ts,errorMessage,runtime/pipeline.ts,595,call,wikiPhase@587,False,
+ts,errorMessage,runtime/commands/build.ts,5,import,<module>,False,
+ts,errorMessage,runtime/commands/build.ts,26,call,<module>,False,
+ts,errorMessage,runtime/commands/build.ts,33,call,<module>,False,
+ts,errorMessage,runtime/preflight.ts,3,import,<module>,False,
+ts,errorMessage,runtime/preflight.ts,37,call,tool@28,False,
+ts,errorMessage,runtime/verify.ts,7,import,<module>,False,
+ts,errorMessage,runtime/verify.ts,114,call,check@75,False,
+ts,errorMessage,runtime/verify.ts,173,call,checkFile@148,False,
+ts,errorMessage,runtime/section.ts,15,ref,<module>,False,
+ts,errorMessage,runtime/section.ts,156,call,ingest@140,False,
+ts,errorMessage,runtime/lsp.ts,4,import,<module>,False,
+ts,errorMessage,runtime/lsp.ts,417,call,lspPhase@295,False,
+ts,messageOf,runtime/serve-answers.ts,287,call,query@277,False,
+ts,messageOf,runtime/serve-answers.ts,288,call,query@277,False,
+ts,messageOf,runtime/serve-answers.ts,311,call,wiki@296,False,
+ts,messageOf,runtime/commands/channel.ts,16,ref,<module>,False,
+ts,messageOf,runtime/commands/channel.ts,512,call,?@497,False,
+ts,messageOf,runtime/commands/channel.ts,513,call,?@497,False,
+ts,messageOf,runtime/commands/channel.ts,541,call,request@525,False,
+ts,messageOf,runtime/serve.ts,41,ref,<module>,False,
+ts,messageOf,runtime/serve.ts,307,call,fromBrowser@289,False,
+ts,messageOf,runtime/serve.ts,357,call,runRefresh@339,False,
+ts,messageOf,runtime/serve.ts,360,call,runRefresh@339,False,
+ts,messageOf,runtime/serve.ts,361,call,runRefresh@339,False,
+ts,messageOf,runtime/serve.ts,458,call,ast@454,False,
+ts,messageOf,runtime/serve.ts,471,call,lsp@461,False,
+ts,messageOf,runtime/serve.ts,495,call,onMessage@477,False,
+ts,messageOf,runtime/serve.ts,573,call,api@549,False,
+ts,messageOf,runtime/serve.ts,813,call,main@804,False,
+ts,messageOf,runtime/serve.ts,821,call,main@804,False,
+ts,wikiPaths,runtime/wiki-store.ts,72,call,pageFile@71,False,
+ts,wikiPaths,runtime/wiki-store.ts,89,call,readMap@85,False,
+ts,wikiPaths,runtime/wiki-store.ts,95,call,writeMap@94,False,
+ts,wikiPaths,runtime/wiki-store.ts,96,call,writeMap@94,False,
+ts,wikiPaths,runtime/wiki-store.ts,264,call,appendLog@263,False,
+ts,wikiPaths,runtime/wiki.ts,22,ref,<module>,False,
+ts,wikiPaths,runtime/wiki.ts,251,call,buildWiki@237,False,
+ts,wikiPaths,runtime/wiki.ts,292,call,buildWiki@237,False,
+ts,wikiPaths,runtime/wiki.ts,315,call,readPage@308,False,
+ts,wikiPaths,runtime/wiki.ts,353,call,pageEntry@347,False,
+ts,wikiPaths,runtime/wiki.ts,375,call,saveNotes@358,False,
+ts,wikiPaths,runtime/wiki-lint.ts,11,ref,<module>,False,
+ts,wikiPaths,runtime/wiki-lint.ts,207,call,lintWiki@176,False,
+ts,topGroup,runtime/section.ts,394,"alias-call (group = topGroup), neutral",crossings,False,
+ts,topGroup,runtime/section.ts,395,"alias-call (group = topGroup), neutral",crossings,False,

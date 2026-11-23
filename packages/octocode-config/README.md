@@ -49,7 +49,7 @@ To see the result on a machine: `npx octocode config list`.
 ## Public API
 
 - `getOctocodeHome(env?)` resolves `OCTOCODE_HOME` or the platform default.
-- `loadOctocodeEnv(options)` loads the home and workspace `.env` files; `applyOctocodeEnv(map, options)` applies them under the protected-key policy; `propagateOctocodeEnv(options)` does both.
+- `loadOctocodeEnv(options)` loads the home and workspace `.env` files, legacy names read as their current ones; `applyOctocodeEnv(map, options)` applies them under the protected-key policy; `propagateOctocodeEnv(options)` does both.
 - `CONFIG_FIELDS` (every setting's metadata), `DEFAULT_CONFIG` (generated defaults), `configFieldEnvName(path)` (a setting's env variable), and `ENV_TOKEN_VARS` (GitHub token names, priority order) come from the contract.
 - `devOverridesAllowed(env, { bundled })` gates the dev-only `OCTOCODE_NATIVE_BIN` override for the launchers; `RuntimeSurface` names the runtime surfaces.
 

@@ -37,7 +37,7 @@ test('a tool name adds that tool; a tool already in the preset is a no-op', () =
     names(withTools('research', ['proxy'])).filter(n => !research.includes(n)),
     ['proxy']
   );
-  assert.equal(withTools('research', ['run', 'flow']), presets.research);
+  assert.equal(withTools('research', ['run', 'query']), presets.research);
   assert.equal(withTools('full', ['data']), presets.full);
 });
 

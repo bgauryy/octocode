@@ -216,3 +216,148 @@ fn symbol_answers_lead_to_the_lsp_search_that_checks_them() {
         .collect::<Vec<_>>();
     assert_eq!(ways, [json!("in")], "{both}");
 }
+
+/// The cases every graph-algorithm implementation answers the same way
+/// (`test-utils/graph-algorithms/SPEC.md`); the TypeScript graph reads the
+/// same file.
+fn algorithm_cases() -> Vec<Value> {
+    let text = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../../test-utils/graph-algorithms/cases.json"),
+    )
+    .expect("the shared graph-algorithm cases");
+    json_fixture(&text)
+        .as_array()
+        .expect("a list of cases")
+        .clone()
+}
+
+fn strings(value: &Value) -> Vec<String> {
+    value
+        .as_array()
+        .expect("a list")
+        .iter()
+        .map(|item| item.as_str().expect("a string").to_owned())
+        .collect()
+}
+
+/// A node id as the case names it, without the tree the files were written under.
+fn unscoped_id(id: &str) -> String {
+    id.strip_prefix("app/").unwrap_or(id).to_owned()
+}
+
+fn unscoped(ids: Vec<String>) -> Vec<String> {
+    ids.iter().map(|id| unscoped_id(id)).collect()
+}
+
+/// `target` as an import specifier written in `source`.
+fn specifier(source: &str, target: &str) -> String {
+    let from = source.split('/').collect::<Vec<_>>();
+    let to = target
+        .trim_end_matches(".ts")
+        .split('/')
+        .collect::<Vec<_>>();
+    let shared = from[..from.len() - 1]
+        .iter()
+        .zip(&to)
+        .take_while(|(a, b)| a == b)
+        .count();
+    let up = from.len() - 1 - shared;
+    let mut parts = if up == 0 {
+        vec![".".to_owned()]
+    } else {
+        vec!["..".to_owned(); up]
+    };
+    parts.extend(to[shared..].iter().map(|part| (*part).to_owned()));
+    parts.join("/")
+}
+
+/// The shared cases through the real tools: files on disk, `graphBuild`,
+/// then `graphQuery` over import edges. The fixture's nodes are files and its
+/// edges imports, written in the order the case lists them.
+#[test]
+fn graph_queries_answer_the_shared_algorithm_cases() {
+    for case in algorithm_cases() {
+        // A file importing itself is not a graph edge; an empty tree builds nothing.
+        let nodes = strings(&case["nodes"]);
+        let edges = case["edges"].as_array().expect("edges");
+        let name = case["name"].as_str().expect("name");
+        if nodes.is_empty() || edges.iter().any(|edge| edge[0] == edge[1]) {
+            continue;
+        }
+        let dir = Fixture::new();
+        for node in &nodes {
+            let mut text = String::new();
+            for edge in edges.iter().filter(|edge| edge[0] == node.as_str()) {
+                let target = edge[1].as_str().expect("target");
+                text += &format!("import \"{}\";\n", specifier(node, target));
+            }
+            dir.write(
+                &format!("app/{node}"),
+                &(text + "export const value = 1;\n"),
+            );
+        }
+        let built = call(&dir.0, ToolId::GraphBuild, json!({"path": "app"}));
+        let query = |request: Value| {
+            let mut row = json!({"path": "app", "graph": built["graph"]});
+            for (key, value) in request.as_object().expect("a request") {
+                row[key] = value.clone();
+            }
+            call(&dir.0, ToolId::GraphQuery, row)
+        };
+        let expected = &case["expected"];
+
+        let cycles = query(json!({"operation": "cycles", "edges": ["imports"]}));
+        let found = cycles["rows"]
+            .as_array()
+            .expect("cycle rows")
+            .iter()
+            .map(|row| unscoped(strings(&row["nodes"])))
+            .collect::<Vec<_>>();
+        let wanted = expected["cycles"]
+            .as_array()
+            .expect("cycles")
+            .iter()
+            .map(strings)
+            .collect::<Vec<_>>();
+        assert_eq!(found, wanted, "{name}: cycle groups {cycles}");
+
+        for step in expected["path"].as_array().expect("paths") {
+            let out = query(json!({
+                "operation": "path", "target": format!("app/{}", step["from"].as_str().expect("from")), "to": format!("app/{}", step["to"].as_str().expect("to")), "direction": "out", "edges": ["imports"],
+            }));
+            let found = (out["found"] == true).then(|| {
+                out["path"]
+                    .as_array()
+                    .expect("hops")
+                    .iter()
+                    .map(|hop| unscoped_id(hop["id"].as_str().expect("a hop id")))
+                    .collect::<Vec<_>>()
+            });
+            let wanted = (!step["path"].is_null()).then(|| strings(&step["path"]));
+            assert_eq!(found, wanted, "{name}: path {step} {out}");
+        }
+
+        for reach in expected["reach"].as_array().expect("reach") {
+            let seeds = strings(&reach["seeds"])
+                .into_iter()
+                .map(|seed| format!("app/{seed}"))
+                .collect::<Vec<_>>();
+            let out = query(json!({"operation": "impact", "changed": seeds}));
+            let mut found = serde_json::Map::new();
+            // `impact` also lists each changed file at depth 0; the case lists reached files.
+            for row in out["rows"]
+                .as_array()
+                .expect("impact rows")
+                .iter()
+                .filter(|row| row["depth"] != 0)
+            {
+                found.insert(
+                    unscoped_id(row["id"].as_str().expect("id")),
+                    row["depth"].clone(),
+                );
+            }
+            assert_eq!(Value::Object(found), reach["depths"], "{name}: reach {out}");
+        }
+    }
+}

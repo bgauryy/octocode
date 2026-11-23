@@ -125,10 +125,13 @@ struct FileIndex<'a> {
 /// Projects `built` into snapshot tables. Each file's captured source moves
 /// into the tables' source table ([`sources::Sources::capture`]), so a build
 /// is projected once.
-pub(crate) fn project(
+/// (with `scip`, the opt-in precise tier: Rust call sites the index
+/// references as one declaration link to it, resolution `scip`).
+pub(crate) fn project_with_scip(
     built: &mut BuiltGraph,
     workspace: &Workspace,
     cancel: &dyn octocode_runtime_base::execution::cancel::CancellationCheck,
+    scip: Option<super::scip::ScipInput<'_>>,
 ) -> Result<Projection, octocode_runtime_base::response::result::ToolError> {
     let sources = sources::Sources::capture(built, cancel)?;
     let built = &*built;
@@ -146,7 +149,7 @@ pub(crate) fn project(
         memo: std::cell::RefCell::new(HashMap::new()),
     };
     projector.use_edges(&resolver);
-    let calls = projector.call_edges(&resolver, &symbols);
+    let calls = projector.call_edges(&resolver, &symbols, scip);
     for (src, dst, line) in unparsed_links {
         projector.push(
             src,
@@ -166,7 +169,7 @@ struct Symbols<'a> {
     indexes: BTreeMap<&'a str, FileIndex<'a>>,
     global_names: HashMap<&'a str, Vec<u32>>,
     /// Call/type eligibility and method classification by node id (none past the end).
-    targets: Vec<u8>,
+    targets: Vec<u16>,
     /// Symbol node → name of its containing declaration (`Box` for `Box.open`).
     container_names: HashMap<u32, &'a str>,
     /// C-family prototype → the one definition it declares (see
@@ -175,22 +178,24 @@ struct Symbols<'a> {
 }
 
 /// A symbol a call can target ([`NON_CALLABLE`] kinds cannot).
-const CALL_TARGET: u8 = 1;
+const CALL_TARGET: u16 = 1;
 /// A symbol a base-type clause can target.
-const TYPE_TARGET: u8 = 2;
+const TYPE_TARGET: u16 = 2;
 /// A member declared in a type body, rather than a free or nested function.
-const METHOD_TARGET: u8 = 4;
-const REFERENCE_TARGET: u8 = 8;
-const LEXICAL_SCOPE: u8 = 16;
+const METHOD_TARGET: u16 = 4;
+const REFERENCE_TARGET: u16 = 8;
+const LEXICAL_SCOPE: u16 = 16;
 /// A declaration whose own extent was recovered, or a variable holding a
 /// `require`d module: never a call target, but it still occupies its name,
 /// so a same-named decoy cannot win a scope choice by its absence.
-const RECOVERED_TARGET: u8 = 32;
+const RECOVERED_TARGET: u16 = 32;
 /// Data a type declares ([`is_member_data`]): reached through a receiver or
 /// a type, never by a bare name.
-const MEMBER_DATA: u8 = 64;
+const MEMBER_DATA: u16 = 64;
 /// An enum member: constructed (`Attempt::Done(1)`), never called.
-const ENUM_MEMBER: u8 = 128;
+const ENUM_MEMBER: u16 = 128;
+/// A Rust `macro_rules!` macro: only an invocation (`expands`) reaches it.
+const MACRO_TARGET: u16 = 256;
 
 /// A field, property or enum member, or a constant or variable declared in
 /// a type's body: data of that type, not a callable of its scope.
@@ -208,7 +213,7 @@ fn is_member_data(decl: &Declaration, by_id: &HashMap<&str, &Declaration>) -> bo
     }
 }
 
-fn target_bits(kind: &str, member_data: bool) -> u8 {
+fn target_bits(kind: &str, member_data: bool) -> u16 {
     let call = if NON_CALLABLE.contains(&kind) {
         0
     } else {
@@ -227,7 +232,8 @@ fn target_bits(kind: &str, member_data: bool) -> u8 {
     };
     let data = if member_data { MEMBER_DATA } else { 0 };
     let variant = if kind == "enumMember" { ENUM_MEMBER } else { 0 };
-    call | ty | method | REFERENCE_TARGET | lexical | data | variant
+    let macro_ = if kind == "macro" { MACRO_TARGET } else { 0 };
+    call | ty | method | REFERENCE_TARGET | lexical | data | variant | macro_
 }
 
 /// `(src, dst, line)` links to unparsed files, and the `(file, line)`

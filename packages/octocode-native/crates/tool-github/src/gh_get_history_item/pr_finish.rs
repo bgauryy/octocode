@@ -48,6 +48,7 @@ fn mark_unmatched(
         return literal_warning;
     }
     push_warnings(out, literal_warning);
+    push_warnings(out, files.scope_warning.clone());
     out["status"] = json!("empty");
     ensure_calls(out);
     if let Some(next) = out["calls"].as_object_mut() {

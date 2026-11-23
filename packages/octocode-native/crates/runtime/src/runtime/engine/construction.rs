@@ -11,15 +11,17 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 /// The configuration diagnostics every runtime start prints. A key no
-/// setting reads changes nothing, so
-/// `octocode config` reports it instead of every call; an ignored value of a
-/// live setting (invalid, protected, an unreadable file) is said each time.
+/// setting reads changes nothing, and a legacy name works as its current
+/// name, so `octocode config` reports them instead of every call; an ignored
+/// value of a live setting (invalid, protected, an unreadable file) is said
+/// each time.
 pub(super) fn startup_diagnostics(
     diagnostics: &[config::ConfigDiagnostic],
 ) -> impl Iterator<Item = &config::ConfigDiagnostic> {
-    diagnostics
-        .iter()
-        .filter(|diagnostic| diagnostic.code != config::UNKNOWN_CONFIG_CODE)
+    diagnostics.iter().filter(|diagnostic| {
+        diagnostic.code != config::UNKNOWN_CONFIG_CODE
+            && diagnostic.code != config::LEGACY_SETTING_CODE
+    })
 }
 
 impl ToolRuntime {

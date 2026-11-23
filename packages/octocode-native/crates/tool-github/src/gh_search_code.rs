@@ -90,6 +90,9 @@ pub async fn run(
             Some(&query.owner),
             repo,
         );
+        if failure.error.kind == octocode_github::ProviderErrorKind::RateLimited {
+            failure = with_file_read(failure, query);
+        }
         if let Some((last, reachable)) = window {
             // Stated in the query's `limit`: each merged search's own page
             // size is internal.
@@ -139,6 +142,37 @@ pub async fn run(
             (None, _) => failure,
         }
     })
+}
+
+/// A search the code-search quota refused whose `path` names one file (its
+/// last part has an extension) also leads to reading that file for the same
+/// terms: a file read spends none of the code-search quota.
+fn with_file_read(mut failure: GhFailure, query: &GhSearchCodeQuery) -> GhFailure {
+    let row = serde_json::to_value(query).unwrap_or_default();
+    let (Some(repo), Some(path)) = (row["repo"].as_str(), row["path"].as_str()) else {
+        return failure;
+    };
+    let names_file = path
+        .rsplit('/')
+        .next()
+        .and_then(|name| name.rfind('.'))
+        .is_some_and(|at| at > 0);
+    let terms = row["keywords"].as_array().filter(|terms| !terms.is_empty());
+    let (true, Some(terms)) = (names_file, terms) else {
+        return failure;
+    };
+    let read = json!({"owner": row["owner"], "repo": repo, "path": path, "matchString": terms});
+    let mut calls = failure
+        .calls
+        .take()
+        .map_or_else(|| json!({}), |calls| *calls);
+    calls["readFile"] = octocode_runtime_base::response::result::Continuation::related(
+        ToolId::GhGetFileContent,
+        read,
+    )
+    .build();
+    failure.calls = Some(Box::new(calls));
+    failure
 }
 
 /// Files per merged page: the query's `limit`, its contract default when

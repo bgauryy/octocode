@@ -33,7 +33,7 @@ export const readNext = (
   length = 1000,
   workspace = process.cwd()
 ) => ({
-  tool: 'artifact',
+  tool: 'query',
   query: { file: capturePath(file, workspace), format, length },
 });
 const readerTools = new Map(

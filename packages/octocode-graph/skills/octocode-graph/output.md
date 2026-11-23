@@ -1,6 +1,6 @@
 # Output
 
-Use `loc` on a saved node or edge to cite its source. The `via`, `resolution` and confidence fields show how the tool identified a call.
+Every path in a saved graph is relative to its root, `data.json` `section`. Query rows add `loc: {path, line}`; an answer's `read:` and `confirm:` lines are the next calls, with absolute paths (`localFetch` the cited range, `lspSearch` callers).
 
 ## Saved result
 
@@ -8,10 +8,11 @@ Builds create a fresh directory under `.octocode/octocode-graph/` in the current
 
 | Artifact | Consumer and meaning |
 |---|---|
-| `data.json` | Stitched graph with locations for files, packages, imports, functions and calls. Each entry in the saved `files` array carries its own `check`. Jump from a call to its source using `loc`, `via`, `resolution`, confidence and recorded witness lines. Includes chunks, coverage, findings, cycles, LSP stats and insights |
-| `events.jsonl` | Every event the viewer received, in order (skeleton pages, graph rows, tool calls, LSP batches, AST and LSP answers); `octocode-graph serve --replay <dir>` reopens it |
-| `chunks/<id>/data.json`, `chunks/<id>/tmp/evidence/` | Each chunk's section result and its raw graph pages, gzipped (`*.jsonl.gz`, one JSON line per page; read with `gzip -dc`) |
-| `brief.txt`, `brief-full.txt` | Measured facts (counts, top PageRank/betweenness, cycles, communities, package coupling, checks); neither replaces the rows |
+| `brief.txt` | Read first: counts, top PageRank, betweenness and in-weight, communities, cycles, package coupling, checks, chunks. Facts to orient, not citations |
+| `data.json` | The stitched graph, each fact once: `files[]` (with `check` and `metrics`), `symbols[]`, `imports[]` and `calls[]` (lines, confidence, `resolution`, `via`, `crossChunk`), the weighted `fileEdges[]`, `metrics`, `coverage`, `verification`, `callStats`. Ask it with `octocode-graph query`; `jq` reads it too |
+| `previous.json` | The graph the last refresh replaced (a hard link until it differs): `octocode-graph diff <dir>` |
+| `events.jsonl` | Every event the viewer received, in order; `octocode-graph serve --replay <dir>` reopens it |
+| `chunks/<id>/data.json.gz`, `chunks/<id>/evidence/*.jsonl.gz` | Each chunk's section result (refresh reuses it) and its raw graph pages, one JSON line per page; read with `gzip -dc` |
 | `model.json` (optional) | Authored overlay: schema exported as `@octocodeai/octocode-graph/model-schema` |
 
 Report the coverage gaps that limit a reported claim, beside that claim: failed snapshot freshness checks (`verification.staleCheck`), files whose `check.status` differs from `ok`, unbuilt or split chunks, files in no chunk, unresolved imports between chunks, skipped LSP and its reason, and partial tool results. Graph counts are graph counts.

@@ -191,12 +191,28 @@ impl DomainDispatcher {
         })?;
         if matches!(tool.family(), ToolFamily::Local) {
             // A graph names its own rows from its snapshot root.
+            let graph = matches!(tool, ToolId::GraphBuild | ToolId::GraphQuery);
+            // Found from the row's absolute paths, before they are shown.
+            let commit = (!graph)
+                .then(|| {
+                    octocode_runtime_base::response::checkout::checkout_commit(
+                        &result.data,
+                        &self.paths,
+                        query,
+                    )
+                })
+                .flatten();
             octocode_runtime_base::response::paths::shown_paths(
-                matches!(tool, ToolId::GraphBuild | ToolId::GraphQuery),
+                graph,
                 &mut result.data,
                 &self.paths,
                 query,
             );
+            if let (Some(commit), Some(fields)) = (commit, result.data.as_object_mut()) {
+                fields
+                    .entry("commitSha")
+                    .or_insert(serde_json::Value::String(commit));
+            }
         }
         Ok(result)
     }
@@ -252,6 +268,7 @@ impl DomainDispatcher {
             warms_named_file(self.config.resolved.lsp.prewarm, tool).then_some(query);
         // The row already runs on a blocking or scoped worker thread inside
         // the runtime context ([`Self::execute`]): no further thread hop.
+        let discovery = self.lsp_execution_config.discovery();
         let result = dispatch::execute_local(
             tool,
             query,
@@ -267,6 +284,7 @@ impl DomainDispatcher {
                     .graph_home
                     .as_deref()
                     .map(std::path::Path::new),
+                lsp: Some(&discovery),
                 cargo: self
                     .config
                     .env_value(octocode_runtime_base::config::environment::OCTOCODE_CARGO),

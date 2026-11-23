@@ -72,7 +72,14 @@ async fn compare_cursors_deliver_each_requested_file_and_commit_once_in_batches(
                             .map(|path| format!("file:{path}"))
                             .collect::<Vec<_>>();
                         ids.extend(data["commits"].as_array().into_iter().flatten().map(
-                            |commit| format!("commit:{}", commit["commitSha"].as_str().unwrap()),
+                            |commit| {
+                                format!(
+                                    "commit:{}",
+                                    octocode_test_support::commit_field(commit, "commitSha")
+                                        .as_str()
+                                        .unwrap()
+                                )
+                            },
                         ));
                         ids
                     })

@@ -7,6 +7,8 @@ import {
   presets,
   spec,
   annotationRules,
+  toolGroups,
+  withTools,
 } from '../../dist/runtime.js';
 import { chromeCommands } from '../../dist/engine/chrome-contract.mjs';
 
@@ -89,6 +91,38 @@ test('default preset holds cdp, protocol and group; slim holds none; only full h
   assert(has(presets.full, 'helper'));
   assert(!has(presets.research, 'helper'));
   assert(!has(presets.slim, 'helper'));
+});
+
+test('flow is opt-in: absent from slim and research, in full and in the flows group', () => {
+  const has = (preset, tool) =>
+    preset.commands.some(command => command.name === tool);
+  assert(!has(presets.slim, 'flow') && !has(presets.research, 'flow'));
+  assert(has(presets.full, 'flow'));
+  assert.deepEqual(toolGroups.flows, ['flow']);
+  assert(has(withTools('research', ['flows']), 'flow'));
+  assert(has(withTools('slim', ['flow']), 'flow'));
+  assert(!/\bflow\b/.test(presets.research.instructions));
+});
+
+test('artifact is on no MCP preset; query reads saved files in rows and window modes', () => {
+  for (const preset of Object.values(presets))
+    assert(!preset.commands.some(command => command.name === 'artifact'));
+  const query = presets.slim.commands.find(command => command.name === 'query');
+  assert(
+    query.schema.safeParse({ file: 'a.json', offset: 0, length: 9 }).success
+  );
+  assert(query.schema.safeParse({ file: 'a.json', limit: 9 }).success);
+  assert(
+    !query.schema.safeParse({ file: 'a.json', offset: 0, limit: 9 }).success
+  );
+});
+
+test('every preset exposes the tools its replies continue through', () => {
+  for (const [name, preset] of Object.entries(presets))
+    assert(
+      preset.commands.some(command => command.name === 'query'),
+      `${name} lacks query`
+    );
 });
 
 test('the step command is gone from /cli', () => {

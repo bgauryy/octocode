@@ -275,8 +275,16 @@ export function groupArgs(input: ChromeInvocation): string[] {
     }),
   ];
 }
+/** A `query` call is window mode (an artifact page) when it names a window or a non-row format. */
+const isWindowQuery = (input: ChromeInvocation) =>
+  input.offset !== undefined ||
+  input.length !== undefined ||
+  input.format === 'text' ||
+  input.format === 'binary';
 /** Engine command, argv and stdin of one typed call. */
 export function engineArgs(command: string, input: ChromeInvocation) {
+  // `query` is one MCP tool over two engine readers: row filtering and byte windows.
+  if (command === 'query' && isWindowQuery(input)) command = 'artifact';
   // The `helper` gateway runs the named helper's engine command with its own arguments.
   if (command === 'helper')
     return {

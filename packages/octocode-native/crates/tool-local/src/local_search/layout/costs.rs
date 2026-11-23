@@ -49,7 +49,7 @@ pub(crate) enum FilePrice {
 
 impl FilePrice {
     /// The names of `file`'s hit rows by its `outline` (`None`: it has
-    /// none). A row's owner is the one [`annotate_enclosing`](crate::local_search::enclosing::annotate_enclosing) names it by,
+    /// none), each with the declarations holding it. A row's owner is the one [`annotate_enclosing`](crate::local_search::enclosing::annotate_enclosing) names it by,
     /// except that a declaration search names only its declaring rows (and
     /// a merged context block lists each owner once, with one index per
     /// hit): charging every hit row its owner whole bounds those pages from
@@ -65,9 +65,18 @@ impl FilePrice {
                         .iter()
                         .filter_map(|matched| {
                             let at = (matched.line, matched.byte_offset);
-                            let owner = outline.label(outline.owner(at.0, at.1)?)?;
+                            // The owner and the declarations holding it,
+                            // each listed with its comma.
+                            let chain = outline.chain(outline.owner(at.0, at.1)?);
                             let full = ENCLOSING_FIELD_CHARS
-                                + octocode_engine::json_size::utf16_units(&owner).unwrap_or(0);
+                                + chain
+                                    .iter()
+                                    .map(|declaration| {
+                                        octocode_engine::json_size::utf16_units(declaration)
+                                            .unwrap_or(0)
+                                            + 1
+                                    })
+                                    .sum::<usize>();
                             Some((at, Owner { full }))
                         })
                         .collect()

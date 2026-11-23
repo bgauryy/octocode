@@ -370,3 +370,13 @@ fn a_file_outside_the_known_list_is_readable() {
         );
     }
 }
+
+/// A refused `.git/` path points at the commit a search or read inside the
+/// checkout already states, which is what reading `.git/HEAD` was for.
+#[test]
+fn a_refused_git_directory_points_at_the_stated_commit() {
+    let message = withheld_message("repo/.git", Path::new("/w/repo/.git/HEAD"));
+    assert!(message.contains("commitSha"), "{message}");
+    let credential = withheld_message("x", Path::new("/w/.ssh/id_rsa"));
+    assert!(!credential.contains("commitSha"), "{credential}");
+}

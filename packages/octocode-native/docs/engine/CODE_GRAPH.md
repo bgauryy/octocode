@@ -17,7 +17,21 @@ The graph-facts scan (`engine/src/fact_scan/`) crosses the Rust package boundary
 2. `build_graph` (`ast_graph/graph.rs`) scans a `GraphScan` (root, exclude globs, file bound, language globs, Cargo linking) under the one default prune every local tool walks by (`policy/prune.rs`), records each directory that prune left out as a `default-excluded` diagnostic, and links each file's imports, re-exports, calls and paths into a `BuiltGraph`.
 3. `tables::project` turns it into `GraphTables`, preserving occurrence witnesses before topology deduplication. After encoding, ingest checks recorded source identities and resolution inputs again before atomic publication. These checks detect observed mutations; they do not make a mutable working tree an atomic repository revision.
 
-The graph is syntax evidence: `astSearch`, `graphBuild` and `graphQuery` start no language server. Callers confirm identity with explicit `lspSearch` calls, which keeps syntax candidates distinct from semantic claims. Which of graph, LSP and AST answers which question: [choose the evidence you need](../../../../docs/OCTOCODE_TOOLS.md#text-ast-graph-and-lsp-choose-the-evidence-you-need).
+The graph is syntax evidence: `astSearch`, `graphBuild` and `graphQuery` start no language server, and run no repository code unless the user opted in to the SCIP tier below. Callers confirm identity with explicit `lspSearch` calls, which keeps syntax candidates distinct from semantic claims.
+
+### Opt-in SCIP tier (Rust)
+
+`rust-analyzer scip` gives compiler-precise call targets, but it always runs the repository's build scripts and proc macros. That is what Octocode's headless defaults forbid. So the tier runs only when the user's own rust-analyzer options already enable both `cargo.buildScripts.enable` and `procMacro.enable`, in `lsp-servers.json` under the Octocode home or a trusted project file (`scip_consent`, `lsp/config/defaults.rs`). Fetched code is never indexed.
+
+| Step | Behavior |
+|---|---|
+| Plan | The routed rust-analyzer config (command, env allowlist) runs `scip <cargo workspace root> --output <tmp>`. It is bounded by the caller's deadline and cancel, and kills the process tree. |
+| Cache | The index is kept at `<graph home>/scip/<root tag>/<key>.scip`, written atomically. The key hashes every `.rs`, `Cargo.toml`, `Cargo.lock` and `rust-toolchain*` file under the workspace root, the server's `--version` and the consent. A file lock makes concurrent chunk builds of one workspace run it once. A changed key runs it again. |
+| Link | Each SCIP document path is rebased from the workspace root to the graph scope. At a syntax call site whose name token holds exactly one SCIP reference to a mapped declaration, the edge targets that declaration with resolution `scip` and confidence high. This confirms, replaces or resolves the syntax answer. Ambiguous or unmapped sites keep the syntax result, and no edge is added where syntax recorded no call. |
+| State | `graphBuild.scip` is `indexed` or `failed`, read from the snapshot manifest, so a reused snapshot states it too. On `failed`, a warning names the reason, the snapshot keeps syntax edges only, and the next build retries. Coverage `basis` is `syntax+scip` for an indexed snapshot. Without consent nothing is spawned and both fields read as before. |
+
+On `packages/octocode-native`, a full index took about 200 s and 6.6 to 6.9 GB of memory. A small crate takes a few seconds.
+ Which of graph, LSP and AST answers which question: [choose the evidence you need](../../../../docs/OCTOCODE_TOOLS.md#text-ast-graph-and-lsp-choose-the-evidence-you-need).
 
 ## Cycle engine
 
@@ -383,7 +397,7 @@ occurrences, including repeated calls and argument slots on one line. `unresolve
 sites that the linker could not bind. Both operations page with `limit` and
 `offset`, report the full matching total, and support executable continuation.
 They report `evidence: "syntax"`; a linked call is a candidate, not proof that it
-executed. A witness may represent a structural relationship and have no line.
+executed. A call the SCIP tier resolved carries resolution `scip` (`via: "scip"`). A witness may represent a structural relationship and have no line.
 
 Symbol nodes can carry `occurrenceId`, `sourceDigest`, `sourceRange`, `sourceOrigin`,
 `parseAssessment` and `testIdentity`. Each observed range and digest refers to its
@@ -691,6 +705,11 @@ above moves no key and `drift` shows no relation change), so a same-named method
 keeps its plain key (`Buf.len` is the method, `Buf.len@1` the field). A written
 call of an enum member through its type (`Attempt::Done(1)`) constructs it and
 links as `constructs:<resolution>`; `v.Done(1)` through a value does not link.
+A Rust macro invocation (`format!(..)`) is a call of kind `expands`: it links
+only to a `macro_rules!` macro (`expands:<resolution>`), and a call `f(..)` only
+to a function, since macros and functions are separate namespaces. An
+invocation of a macro the repository does not declare stays unresolved as
+`name!`, so `format!` never binds a function named `format`.
 
 CommonJS links the same way. A module-scope `require('./m')` binding (whole module,
 destructured key or `.key`) counts as an import only when oxc semantics prove it
@@ -953,7 +972,7 @@ rather than linked by a name guess.
 | TypeScript, TSX, JavaScript | Types only a checker settles: an overloaded callee's argument, `import("..").T`, and members whose declared type names a type parameter. Declared types do link across files: class fields and parameter properties, imported interface and alias members (`app.scene.m()`), `T["k"]` with a literal key, parameters of a function its declarator annotates with an alias (`const f: A = ({ scene }) => ..`), and properties destructured from a typed value; a chain may pass the same class (through an inherited member) or the same alias again. Members of `await import()`; a conditional of two requires (`c ? require(a) : require(b)`); a `require` through a wrapper function; a scope `require` whose name a nested scope declares again. A guarded loader (`root._ \|\| require(..)`) and a UMD wrapper's CommonJS-branch export link at medium |
 | Python | The standard-library module list is generated (`skills-dev/octocode-graph-dev/scripts/gen-python-stdlib.mjs` → `import_resolution/aliases/python_stdlib.txt`: the interpreter's `sys.stdlib_module_names` at a pinned Python line plus typeshed `VERSIONS` entries with an upper bound at a pinned typeshed commit; the file header names both), so a private stdlib module (`_socket`) is never bound to another tree; `cls()`; `__all__` is not read; a constructor call links to the class, not `__init__`; `self` inside a nested function |
 | Go | an explicit type argument applied to one value (`F[T]` with a single argument, which the grammar reads as a type conversion); function values, type switches and method-chain return types. A `NewT()` result is typed `T` from the constructor's name only when no declaration of `NewT` is found; a declared result type (an interface included) wins |
-| Rust | calls inside macros; untyped closure parameters. A trait default method is matched to its implementing type by name |
+| Rust | calls inside macros other than std/core forwarding macros (`assert_eq!`, `format!`, `vec!`, …), `json!` values and `tokio`/`futures` `join!`/`try_join!` arguments; untyped closure parameters. A trait default method is matched to its implementing type by name |
 | Java | method references (`Foo::bar`); untyped lambda parameters; `this(..)` and `super(..)` delegation (`constructor-binding-not-assessed`); record accessors and anonymous-class bodies |
 | C# | extension methods and literal receivers; `: base(..)` initializers; a `global using` declared in another file |
 | Scala | implicit and `given` resolution, `summon` and extension methods (a `given` is declared, an anonymous one under the type it provides); calls through the base type never reach an override |

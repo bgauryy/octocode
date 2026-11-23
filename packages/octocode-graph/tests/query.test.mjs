@@ -2,10 +2,10 @@
 // make one route stronger, a test-only edge, and names that resolve ambiguously.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { computeMetrics } from '../src/runtime/metrics.mjs';
-import { formatResult, parseArgs, resolveNodes, runQuery, tokenize } from '../src/runtime/query.mjs';
+import { computeMetrics } from '../src/runtime/metrics.ts';
+import { formatResult, parseArgs, resolveNodes, runQuery, tokenize } from '../src/runtime/query.ts';
 
-const file = (id, chunk) => ({ id, label: id.split('/').pop(), chunk, language: 'javascript', loc: { path: id, line: 1 } });
+const file = (id, chunk) => ({ id, label: id.split('/').pop(), chunk, language: 'javascript' });
 const imp = (source, target, line, extra = {}) => ({ source, target, line, lines: [line], confidence: 'high', test: false, ...extra });
 const call = (source, target, extra = {}) => ({ source, target, line: 5, lines: [5], count: 1, confidence: 'high', via: 'graph', test: false, ...extra });
 const sym = (id, line) => ({ id, file: id.split('#')[0], name: id.split('#')[1], kind: 'function', line });
@@ -114,7 +114,7 @@ test('path: the heavier route wins, with hop weights and evidence; no path repor
 
 test('cycle: the strongly connected set, ordered along one ring through the file', () => {
   const r = runQuery(D, 'cycle q.mjs');
-  assert.deepEqual(r.rows.map((x) => [x.id, x.order, x.next]), [['b/q.mjs', 0, 'b/p.mjs'], ['b/p.mjs', 1, 'b/q.mjs']]);
+  assert.deepEqual(r.rows.map((x) => [x.id, x.order, x.nextFile]), [['b/q.mjs', 0, 'b/p.mjs'], ['b/p.mjs', 1, 'b/q.mjs']]);
   assert.deepEqual(r.edges, [['b/q.mjs', 'b/p.mjs'], ['b/p.mjs', 'b/q.mjs']]);
   assert.equal(r.stats.size, 2);
   assert.equal(r.stats.cycle, D.metrics.cycles[0].id);
@@ -150,7 +150,7 @@ test('callers and callees: symbol-level with provenance; a bare name shared by t
   assert.deepEqual(out.edges, [['a/x.mjs', 'a/y.mjs']]);
 });
 
-test('top and find: complete rankings and matches', () => {
+test('top ranks completely; find reads as search', () => {
   const r = runQuery(D, 'top pagerank 3');
   assert.equal(r.rows.length, 3);
   const values = r.rows.map((x) => x.value);
@@ -158,9 +158,11 @@ test('top and find: complete rankings and matches', () => {
   assert.equal(runQuery(D, 'top inweight all').rows.length, D.files.length);
   assert.equal(runQuery(D, 'top depth').rows[0].id, 'a/x.mjs');
   assert.equal(runQuery(D, 'top nothing').ok, false);
+  // `find` is read as `search`, the one text query: every substring match is in its ranked rows.
   const f = runQuery(D, 'find util');
-  assert.deepEqual(ids(f), ['b/util.mjs', 'c/util.mjs']);
-  const s = runQuery(D, 'find start');
+  assert.equal(f.readAs.query, 'search util');
+  assert.deepEqual(ids(f).toSorted(), ['b/util.mjs', 'c/util.mjs']);
+  const s = runQuery(D, 'search start --symbols');
   assert.deepEqual(s.rows.map((x) => [x.id, x.symbol, x.loc.line]), [['b/p.mjs', 'b/p.mjs#start', 40], ['c/util.mjs', 'c/util.mjs#start', 50]]);
 });
 
@@ -180,7 +182,7 @@ test('walks follow strong edges by default; --weak adds edges backed only by nam
 });
 
 test('a strong-edge answer states what --weak would add, so it never contradicts the metrics', () => {
-  const data = { section: '.', files: ['a.ts', 'b.ts', 'c.ts'].map((id) => ({ id, label: id, chunk: 'x', loc: { path: id, line: 1 }, metrics: {} })), imports: [], symbols: [], calls: [
+  const data = { section: '.', files: ['a.ts', 'b.ts', 'c.ts'].map((id) => ({ id, label: id, chunk: 'x', metrics: {} })), imports: [], symbols: [], calls: [
     { source: 'a.ts#f', target: 'b.ts#g', via: 'graph', confidence: 'medium', line: 2 },
     { source: 'b.ts#g', target: 'a.ts#f', via: 'graph', confidence: 'medium', line: 3 },
   ] };
@@ -301,8 +303,9 @@ test('files returns saved metadata and requested source lines without traversing
   assert.equal(r.ok,true);
   assert.deepEqual(r.rows.map(f=>[f.id,f.loc.line,f.language]), [['a/x.mjs',11,'javascript'],['b/p.mjs',1,'javascript'],['a/x.mjs',19,'javascript']]);
   assert.deepEqual(r.nodes,['a/x.mjs','b/p.mjs']);
-  assert.deepEqual(r.sourceQueries,[{path:'a/x.mjs',ranges:[{startLine:11,endLine:11},{startLine:19,endLine:19}]},{path:'b/p.mjs'}]);
-  assert.deepEqual(runQuery(data,'files x.mjs:19 x.mjs x.mjs:11').sourceQueries,[{path:'a/x.mjs'}]);
+  // Source reads are absolute (the graph's root + path), so localFetch resolves them from any working directory.
+  assert.deepEqual(r.sourceQueries,[{path:'/repo/a/x.mjs',ranges:[{startLine:11,endLine:11},{startLine:19,endLine:19}]},{path:'/repo/b/p.mjs'}]);
+  assert.deepEqual(runQuery(data,'files x.mjs:19 x.mjs x.mjs:11').sourceQueries,[{path:'/repo/a/x.mjs'}]);
   assert.equal(runQuery(data,'files util.mjs').candidates.length,2);
 });
 
@@ -329,9 +332,161 @@ test('offline stdin returns one result per question and continues after a query 
   const {tempDir} = await import('./test-tmp.mjs');
   const out = tempDir('graph-query-stdin-');
   writeFileSync(join(out,'data.json'), JSON.stringify(D));
-  const cli = fileURLToPath(new URL('../src/runtime/query.mjs',import.meta.url));
+  const cli = fileURLToPath(new URL('../src/runtime/commands/query.ts',import.meta.url));
   const q = ['files x.mjs','unknown','impact x.mjs y.mjs'];
   const proc = spawnSync(process.execPath,[cli,out,'--stdin','--json'],{input:q.join('\r\n\r\n'),encoding:'utf8'});
   assert.equal(proc.status,1,proc.stderr);
-  assert.deepEqual(proc.stdout.trim().split('\n').map(s=>JSON.parse(s)),q.map(s=>runQuery(D,s)));
+  // The CLI answers exactly as runQuery, with the stale-file warning every surface adds (withStaleness).
+  const { editedSince, withStaleness } = await import('../src/runtime/query.ts');
+  const edited = editedSince(D, join(out, 'data.json'));
+  assert.deepEqual(proc.stdout.trim().split('\n').map(s=>JSON.parse(s)),q.map(s=>withStaleness(runQuery(D,s),edited)));
+});
+
+test('search ranks names by how they match, then by call sites received; every match is reachable', () => {
+  const r = runQuery(D, 'search start');
+  assert.equal(r.ok, true);
+  // Both `start` declarations match exactly; the one with production calls ranks first.
+  assert.deepEqual(r.rows.slice(0, 2).map((x) => [x.symbol, x.match, x.rank]), [['b/p.mjs#start', 'exact', 1], ['c/util.mjs#start', 'exact', 2]]);
+  assert.equal(r.rows[0].callSites, 3);
+  assert.equal(r.stats.matches, r.rows.length);
+  // Separators and case do not matter; initials and word prefixes match a camelCase name.
+  const named = { ...D, symbols: [...D.symbols, sym('a/y.mjs#parseArgs', 25), sym('a/z.mjs#getUserName', 35)] };
+  for (const text of ['parse_args', 'PARSEARGS', 'parse-args']) assert.equal(runQuery(named, `search ${text}`).rows[0].match, 'exact', text);
+  assert.deepEqual(runQuery(named, 'search p args').rows.map((x) => [x.name, x.match]), [['parseArgs', 'words']]);
+  assert.deepEqual(runQuery(named, 'search gun').rows.map((x) => [x.name, x.match]), [['getUserName', 'words']]);
+  assert.deepEqual(runQuery(named, 'search args parse').rows.map((x) => x.match), ['terms']);
+  // Letters in order only when nothing holds the text.
+  const fuzzy = runQuery(named, 'search prsArgs');
+  assert.deepEqual([fuzzy.rows[0].name, fuzzy.rows[0].match, fuzzy.stats.fuzzy], ['parseArgs', 'fuzzy', true]);
+  assert.equal(runQuery(D, 'search util --files').rows.every((x) => x.kind === 'file'), true);
+  assert.equal(runQuery(D, 'search util --symbols').rows.length, 0);
+  assert.equal(runQuery(D, 'search start --bogus').ok, false);
+  assert.match(runQuery(D, 'search zzzz').summary, /nothing matches/);
+});
+
+test('search shows the best rows and names the command that lists every match', () => {
+  const many = { ...D, symbols: Array.from({ length: 25 }, (_, i) => sym(`a/x.mjs#handler${i}`, i + 1)) };
+  const r = runQuery(many, 'search handler');
+  assert.equal(r.rows.length, 20);
+  assert.equal(r.stats.matches, 25);
+  assert.match(r.summary, /`search handler --all` lists all 25/);
+  assert.equal(runQuery(many, 'search handler --all').rows.length, 25);
+});
+
+test('about a file: its metrics and community, direct dependencies and dependents, and its declarations', () => {
+  const r = runQuery(D, 'about a/y.mjs');
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.rows.map((x) => [x.role, x.id]), [['subject', 'a/y.mjs'], ['dependency', 'b/p.mjs'], ['dependent', 'a/x.mjs'], ['declares', 'a/y.mjs']]);
+  assert.equal(r.rows[0].metrics.community, D.files.find((f) => f.id === 'a/y.mjs').metrics.community);
+  assert.deepEqual(r.stats, { dependencies: 1, dependents: 1, declarations: 1, weakDependencies: 0, weakDependents: 0 });
+  assert.equal(runQuery(D, 'about y.mjs:20').rows[0].loc.line, 20);
+});
+
+test('about a symbol: callers and callees; an ambiguous name lists re-runnable candidates', () => {
+  const r = runQuery(D, 'about a/y.mjs#run');
+  assert.deepEqual(r.rows.map((x) => [x.role, x.symbol]), [['subject', 'a/y.mjs#run'], ['caller', 'a/x.mjs#main'], ['callee', 'b/p.mjs#start']]);
+  const bare = runQuery(D, 'about run');
+  assert.equal(bare.rows[0].symbol, 'a/y.mjs#run');
+  const ambiguous = runQuery(D, 'about start');
+  assert.equal(ambiguous.ok, false);
+  assert.deepEqual(ambiguous.candidates.map((c) => c.query), ['about b/p.mjs#start', 'about c/util.mjs#start']);
+  assert.match(runQuery(D, 'about nothing-here').error, /try search nothing-here/);
+});
+
+test('critical functions: PageRank over the call graph weighted by call sites and evidence, with callers and reach', () => {
+  const r = runQuery(D, 'critical functions');
+  assert.equal(r.ok, true, r.error);
+  const top = r.rows[0];
+  assert.deepEqual([top.symbol, top.callSites, top.callers, top.callerFiles, top.transitiveCallers], ['b/p.mjs#start', 3, 2, 2, 3]);
+  assert.deepEqual(r.rows.map((x) => x.rank), r.rows.map((_, i) => i + 1));
+  assert.equal(runQuery(D, 'critical functions 1').rows.length, 1);
+  assert.match(runQuery(D, 'critical functions 1').summary, /`critical functions all` ranks all 4/);
+});
+
+test('critical points: files whose removal disconnects the file graph, with the parts left', () => {
+  const r = runQuery(D, 'critical points');
+  assert.deepEqual(r.rows.map((x) => [x.id, x.value, x.parts]), [['b/p.mjs', 2, [3, 2]], ['b/q.mjs', 1, [4, 1]]]);
+});
+
+test('critical path: the longest dependency chain, through a cycle, and the chain of dependents above a file', () => {
+  const down = runQuery(D, 'critical path');
+  assert.deepEqual(down.nodes, ['a/x.mjs', 'a/y.mjs', 'b/p.mjs', 'b/q.mjs', 'b/util.mjs']);
+  assert.deepEqual([down.stats.depth, down.stats.hops], [3, 4]);
+  // Each row carries the hop's weight and evidence like `path`: x → y is the heavier of x's two edges.
+  assert.equal(down.rows[0].nextFile, 'a/y.mjs');
+  assert.ok(down.rows[0].weight > 1);
+  const up = runQuery(D, 'critical path b/util.mjs --up');
+  assert.deepEqual(up.nodes, ['a/x.mjs', 'a/y.mjs', 'b/p.mjs', 'b/q.mjs', 'b/util.mjs']);
+  assert.equal(runQuery(D, 'critical path b/util.mjs').stats.hops, 0);
+  assert.equal(runQuery(D, 'critical nonsense').ok, false);
+});
+
+test('callers state what they cannot see: other chunks need LSP, Rust macros need the language server', () => {
+  // One chunk, no Rust: the answer is the graph's own, with nothing to disclose.
+  assert.equal(runQuery(D, 'callers b/p.mjs#start').warnings, undefined);
+  const multi = { ...D, chunks: [{ id: 'a', path: 'a', built: true }, { id: 'b', path: 'b', built: true }], callStats: { mode: 'both', lsp: 'ok', scope: 'functions in hub files' } };
+  const r = runQuery(multi, 'callers b/p.mjs#start');
+  assert.equal(r.ok, true);
+  assert.match(r.warnings[0], /other chunks .*\(functions in hub files\)/);
+  assert.deepEqual(r.next.confirm, { tool: 'lspSearch', input: { queries: [{ operation: 'callers', path: '/repo/b/p.mjs', symbolName: 'start', line: 40 }] } });
+  assert.match(r.summary, /may be incomplete/);
+  assert.match(formatResult(r), /^confirm: octocode lspSearch/m);
+  const rust = { ...D, files: [...D.files, file('r/lib.rs', 'r')], symbols: [...D.symbols, sym('r/lib.rs#go', 3)], calls: [...D.calls, call('a/x.mjs#main', 'r/lib.rs#go')] };
+  assert.match(runQuery(rust, 'callers r/lib.rs#go').warnings.join(' '), /Rust macro/);
+  assert.equal(runQuery(multi, 'about b/p.mjs#start').next.confirm.tool, 'lspSearch');
+});
+
+test('region: what can take part in entry → outcome, and the steps every modeled route must pass', () => {
+  const r = runQuery(D, 'region a/x.mjs b/util.mjs');
+  assert.equal(r.ok, true, r.error);
+  assert.deepEqual(r.rows.map((x) => x.id).toSorted(), ['a/x.mjs', 'a/y.mjs', 'a/z.mjs', 'b/p.mjs', 'b/q.mjs', 'b/util.mjs']);
+  assert.deepEqual(r.stats.mustPass, ['b/q.mjs', 'b/p.mjs']);
+  assert.deepEqual(r.rows.filter((x) => x.mustPass).map((x) => x.id).toSorted(), ['a/x.mjs', 'b/p.mjs', 'b/q.mjs', 'b/util.mjs']);
+  // Two symbols ask the call graph.
+  const fn = runQuery(D, 'region a/x.mjs#main b/p.mjs#start');
+  assert.deepEqual([fn.stats.level, fn.stats.mustPass], ['function', ['a/y.mjs#run']]);
+  assert.match(runQuery(D, 'region b/util.mjs a/x.mjs').summary, /no modeled route b\/util\.mjs → a\/x\.mjs; a\/x\.mjs reaches b\/util\.mjs instead/);
+});
+
+test('path --avoid: a route that bypasses the avoided files breaks a rule that requires them', () => {
+  const bypass = runQuery(D, 'path a/x.mjs b/p.mjs --avoid a/y.mjs');
+  assert.deepEqual([bypass.found, bypass.nodes], [true, ['a/x.mjs', 'a/z.mjs', 'b/p.mjs']]);
+  const none = runQuery(D, 'path a/x.mjs b/util.mjs --avoid b/q.mjs');
+  assert.equal(none.found, false);
+  assert.match(none.summary, /every route .* passes through the avoided 1 file/);
+  // A directory avoids every file under it; avoiding an endpoint is refused.
+  assert.equal(runQuery(D, 'path a/x.mjs b/p.mjs --avoid a/').ok, false);
+  assert.equal(runQuery(D, 'path a/x.mjs b/p.mjs --avoid a/y.mjs a/z.mjs').found, false);
+});
+
+test('answers hand over the next Octocode call: read the best hit or the declaration, confirm callers', () => {
+  const about = runQuery(D, 'about a/y.mjs#run');
+  assert.deepEqual(about.next.read, { tool: 'localFetch', input: { queries: [{ path: '/repo/a/y.mjs', ranges: [{ startLine: 20, endLine: 20 }] }] } });
+  assert.deepEqual(runQuery(D, 'about a/y.mjs').next.read.input.queries, [{ path: '/repo/a/y.mjs' }]);
+  assert.equal(runQuery(D, 'search start').next.read.input.queries[0].path, '/repo/b/p.mjs');
+  assert.match(formatResult(about), /^read: octocode localFetch/m);
+});
+
+test('cycle with no file lists every measured cycle, largest first, with all its members', () => {
+  const r = runQuery(D, 'cycle');
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.rows.length, D.metrics.cycles.length);
+  assert.deepEqual(r.rows[0].members.toSorted(), ['b/p.mjs', 'b/q.mjs']);
+  assert.match(formatResult(r), /b\/p\.mjs.*b\/q\.mjs|b\/q\.mjs.*b\/p\.mjs/);
+  assert.match(r.summary, /`cycle <file>`/);
+});
+
+test('a callers answer is partial unless every callable was probed and every probe answered', () => {
+  const open = runQuery(fixture(), 'callers b/p.mjs#start');
+  assert.equal(open.isPartial, true);
+  assert.deepEqual(open.partialReasons, ['callersNotProbed']);
+  assert.ok(open.next?.confirm, 'a partial answer hands over the confirming lspSearch call');
+  assert.match(open.summary, /may be incomplete \(callersNotProbed\)/);
+  const all = fixture();
+  all.callStats = { scope: 'all callable declarations', lsp: 'ok' };
+  const complete = runQuery(all, 'callers b/p.mjs#start');
+  assert.equal(complete.isPartial, undefined);
+  assert.equal(complete.warnings, undefined);
+  all.callStats.lsp = 'partial';
+  assert.equal(runQuery(all, 'callers b/p.mjs#start').isPartial, true, 'an unanswered probe leaves callers unproven');
 });

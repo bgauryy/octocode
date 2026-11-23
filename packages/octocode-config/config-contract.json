@@ -99,7 +99,10 @@
       "type": "key",
       "displayDefault": "unset (octocode auth login also works)",
       "group": "GitHub",
-      "description": "GitHub CLI token"
+      "description": "GitHub CLI token",
+      "legacyNames": [
+        "OCTOCODE_TOKEN"
+      ]
     },
     "GITHUB_TOKEN": {
       "dotenv": "all",
@@ -108,7 +111,10 @@
       "type": "key",
       "displayDefault": "unset (octocode auth login also works)",
       "group": "GitHub",
-      "description": "GitHub Actions token"
+      "description": "GitHub Actions token",
+      "legacyNames": [
+        "GITHUB_PERSONAL_ACCESS_TOKEN"
+      ]
     },
     "SCRAPING_ANT": {
       "dotenv": "all",
@@ -218,7 +224,10 @@
           "env": {
             "name": "OCTOCODE_ENABLE_LOCAL",
             "dotenv": "home",
-            "workspaceNarrowsTo": "false"
+            "workspaceNarrowsTo": "false",
+            "legacyNames": [
+              "ENABLE_LOCAL"
+            ]
           }
         },
         "beta": {
@@ -294,8 +303,14 @@
           "env": {
             "name": "OCTOCODE_ENABLE_CLONE",
             "dotenv": "home",
-            "workspaceNarrowsTo": "false"
-          }
+            "workspaceNarrowsTo": "false",
+            "legacyNames": [
+              "ENABLE_CLONE"
+            ]
+          },
+          "legacyPaths": [
+            "local.enableClone"
+          ]
         },
         "enableSecurityCheck": {
           "type": "boolean",

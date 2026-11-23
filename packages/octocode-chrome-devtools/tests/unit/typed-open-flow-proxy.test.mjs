@@ -208,7 +208,7 @@ test('the engines refuse argv the typed schema never produces', () => {
   }
 });
 
-test('presets nest (slim < default < full); the default holds flow, the full surface alone holds proxy and dev-check; cdp and protocol are in the default', () => {
+test('presets nest (slim < default < full); flow is opt-in (full only); the full surface alone holds proxy and dev-check; cdp and protocol are in the default', () => {
   const [slim, research, full] = [presets.slim, researchSpec, spec].map(names);
   for (const [small, large] of [
     [slim, research],
@@ -217,7 +217,7 @@ test('presets nest (slim < default < full); the default holds flow, the full sur
     assert.ok(small.length < large.length);
     for (const name of small) assert.ok(large.includes(name), name);
   }
-  assert.ok(research.includes('flow'));
+  assert.ok(!research.includes('flow') && full.includes('flow'));
   for (const name of ['proxy', 'dev-check']) {
     assert.ok(!research.includes(name), name);
     assert.ok(full.includes(name), name);

@@ -308,7 +308,18 @@ pub(super) fn shape_pr_files(
         }
     };
     let patches = patches.compact();
-    let shaped = patches.rows;
+    let mut shaped = patches.rows;
+    // Beside the summary, a file row states its patch only: the summary row
+    // for its path already holds its status and change counts.
+    if patches.cursor.is_some() && summary.as_ref().is_some_and(|summary| !summary.is_empty()) {
+        for file in &mut shaped {
+            if let Some(file) = file.as_object_mut() {
+                for repeated in ["status", "additions", "deletions"] {
+                    file.remove(repeated);
+                }
+            }
+        }
+    }
     let shown = shaped
         .iter()
         .filter_map(|file| str_at(file, "/path").map(str::to_owned))

@@ -304,3 +304,50 @@ fn macro_chains_round_trip_and_bump_the_schema() {
     let back: GraphFactsDocument = serde_json::from_value(json).expect("round trip");
     assert_eq!(back, facts);
 }
+
+#[test]
+fn a_macro_invocation_is_an_expansion_never_a_call() {
+    let names = ["format", "vec", "write", "assert_eq", "matches"];
+    let invocations: String = names.iter().map(|name| format!("{name}!(1); ")).collect();
+    let facts = rust_facts(&format!(
+        "fn f(s: &mut String) {{ {invocations}s.clear(); }}"
+    ));
+    for name in names {
+        let calls = calls_to(&facts, name);
+        assert_eq!(calls.len(), 1, "{name}: {:?}", facts.calls);
+        assert_eq!(calls[0].kind, "expands", "{name}");
+    }
+    let method = calls_to(&facts, "s.clear");
+    assert_eq!(method.len(), 1, "{:?}", facts.calls);
+    assert_eq!(method[0].kind, "calls");
+}
+
+#[test]
+fn json_values_are_calls_and_keys_are_not() {
+    let source = "fn f(q: u8) -> Value {\n    json!({\n        \"repair\": Continuation::related_input(make(q)),\n        \"list\": [g(1), h(2)],\n        \"text\": \"a: {b}\",\n        \"nested\": { \"deep\": k(3) },\n    })\n}\n";
+    let facts = rust_facts(source);
+    for (callee, line) in [
+        ("Continuation::related_input", 3),
+        ("make", 3),
+        ("g", 4),
+        ("h", 4),
+        ("k", 6),
+    ] {
+        let calls = calls_to(&facts, callee);
+        assert_eq!(calls.len(), 1, "{callee}: {:?}", facts.calls);
+        assert_eq!(calls[0].line, line, "{callee}");
+        assert_eq!(calls[0].macros, ["json"], "{callee}");
+    }
+    assert!(calls_to(&facts, "repair").is_empty(), "{:?}", facts.calls);
+    let qualified = rust_facts("fn f() { serde_json::json!({ \"a\": g(1) }); }");
+    assert_eq!(calls_to(&qualified, "g")[0].macros, ["serde_json::json"]);
+}
+
+#[test]
+fn join_arguments_are_calls() {
+    let source = "async fn f() {\n    let (a, b) = tokio::join!(one(), two(3));\n    futures::try_join!(three()).ok();\n}\n";
+    let facts = rust_facts(source);
+    assert_eq!(calls_to(&facts, "one")[0].macros, ["tokio::join"]);
+    assert_eq!(calls_to(&facts, "two")[0].line, 2);
+    assert_eq!(calls_to(&facts, "three")[0].macros, ["futures::try_join"]);
+}

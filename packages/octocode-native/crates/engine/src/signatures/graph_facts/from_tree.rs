@@ -83,7 +83,16 @@ pub(super) fn facts_from_tree(
             error_lines = syntax_error_lines(root);
         }
         acc.name_tokens = (!declarations_only).then(Vec::new);
-        let visited = visit_node(root, content, &line_index, &mut acc, deadline, &[], None);
+        let visited = visit_node(
+            root,
+            content,
+            &line_index,
+            &mut acc,
+            deadline,
+            &[],
+            None,
+            &[],
+        );
         let name_tokens = acc.name_tokens.take().unwrap_or_default();
         if !visited
             || !visit_macro_bodies(content, &entry.language, &line_index, &mut acc, deadline)
@@ -225,7 +234,16 @@ fn narrow_walk<T>(
     acc.only_spelling = Some(crate::signatures::spelled::Spelled::of(content, name));
     let positions = NodePositions::new(content);
     let deadline = crate::signatures::extractor::whole_file_deadline();
-    if !visit_node(root, content, &positions, &mut acc, deadline, &[], None) {
+    if !visit_node(
+        root,
+        content,
+        &positions,
+        &mut acc,
+        deadline,
+        &[],
+        None,
+        &[],
+    ) {
         return None;
     }
     let walked = read(&acc);
@@ -367,8 +385,16 @@ fn declarations_on_lines_inner(
     acc.export_forwarding_node = entry.export_forwarding_node;
     acc.only_spans = Some(super::walk::Spans::new(spans));
     let positions = NodePositions::new(content);
-    if !visit_node(root, content, &positions, &mut acc, deadline, &[], None)
-        || !acc.macro_bodies.is_empty()
+    if !visit_node(
+        root,
+        content,
+        &positions,
+        &mut acc,
+        deadline,
+        &[],
+        None,
+        &[],
+    ) || !acc.macro_bodies.is_empty()
     {
         return None;
     }

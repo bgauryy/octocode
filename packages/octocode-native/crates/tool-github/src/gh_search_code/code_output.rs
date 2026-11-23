@@ -46,7 +46,10 @@ fn reads_lines(query: &GhSearchCodeQuery) -> bool {
     query
         .match_in
         .contains(&GhSearchCodeQueryMatchInItem::Content)
-        && (query.fields.is_empty() || picks(query, "matches") || picks(query, "matchCount"))
+        && (query.fields.is_empty()
+            || picks(query, "matches")
+            || picks(query, "matchCount")
+            || picks(query, "matchedLines"))
 }
 
 /// Whether this row's file stays unread, its lines and fragments unshown:
@@ -133,8 +136,10 @@ pub(super) fn shape_files(
                 } if reads_lines => {
                     redacted += shown_redacted;
                     row.insert("matches".into(), Value::Array(numbered_matches(lines)));
-                    // Only a listing with context needs to say which lines are hits.
-                    if lines.len() > matched.len() {
+                    // Only a listing with context needs to say which lines are
+                    // hits; a `matchedLines` pick states them anyway, as a
+                    // `matchCount` pick states the count.
+                    if lines.len() > matched.len() || picks(query, "matchedLines") {
                         row.insert("matchedLines".into(), json!(matched));
                     }
                     // A cut row states how many hits its file holds, and its

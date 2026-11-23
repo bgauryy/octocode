@@ -433,6 +433,41 @@ fn shape_commit_rows(v: &mut Value, items: &[Value], fields: &[String]) {
     }
     lean_rows(v, "commits", COMMIT_DETAIL, fields);
     pick_rows(v, "commits", &["commitSha", "owner", "repo"], fields);
+    one_repository_once(v);
+    // A row of only a SHA, date, author and headline reads as one line, as a
+    // comparison's and a pull request's commits do.
+    if let Some(rows) = v.get_mut("commits").and_then(Value::as_array_mut) {
+        for row in rows.iter_mut() {
+            *row = commit::line(std::mem::take(row));
+        }
+    }
+}
+
+/// A page whose commits all lie in one repository states its `owner` and
+/// `repo` once, on the page (the identity the hoist plan states once), so
+/// each row is the commit alone; rows of several repositories keep theirs.
+fn one_repository_once(v: &mut Value) {
+    let Some(rows) = v.get("commits").and_then(Value::as_array) else {
+        return;
+    };
+    let at = |row: &Value| (row.get("owner").cloned(), row.get("repo").cloned());
+    let Some((Some(owner), Some(repo))) = rows.first().map(at) else {
+        return;
+    };
+    if !rows
+        .iter()
+        .all(|row| at(row) == (Some(owner.clone()), Some(repo.clone())))
+    {
+        return;
+    }
+    for row in v["commits"].as_array_mut().into_iter().flatten() {
+        if let Some(fields) = row.as_object_mut() {
+            fields.shift_remove("owner");
+            fields.shift_remove("repo");
+        }
+    }
+    v["owner"] = owner;
+    v["repo"] = repo;
 }
 
 /// A complete page with no rows is empty, so the shared fallback hint fires.

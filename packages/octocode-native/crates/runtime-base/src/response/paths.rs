@@ -140,7 +140,7 @@ impl Shown<'_> {
 }
 
 /// A call object: the tool it runs and its input.
-fn is_call(fields: &serde_json::Map<String, Value>) -> bool {
+pub(super) fn is_call(fields: &serde_json::Map<String, Value>) -> bool {
     fields.get("tool").is_some_and(Value::is_string)
         && fields.get("input").is_some_and(Value::is_object)
 }

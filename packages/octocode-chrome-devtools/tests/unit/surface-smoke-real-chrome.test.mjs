@@ -232,7 +232,7 @@ test(
         );
 
         await t.test(
-          'artifact continuation rebuilds the file byte for byte',
+          'query window continuation rebuilds the file byte for byte',
           async () => {
             const file = snapshot.evidence;
             const want = read(file);
@@ -244,7 +244,7 @@ test(
             };
             let rebuilt = '';
             for (let pages = 0; next && pages < 200; pages++) {
-              const reply = await toolOk('artifact', next);
+              const reply = await toolOk('query', next);
               rebuilt += reply.data.content;
               assert.equal(reply.data.sha256, sha256(want));
               next = reply.data.next?.query;

@@ -5,7 +5,7 @@
 use serde_json::{Number, Value};
 
 use super::super::schema_facts::{child_schemas, item_schemas, resolve_ref};
-use super::{Note, notes, sketch};
+use super::{Note, notes};
 
 /// Each integral float of `value`, held where every schema at its place
 /// declares `integer`, replaced by that integer with a note.
@@ -28,13 +28,7 @@ pub(super) fn read_integral_floats(
         };
         let label = notes::label(path);
         let meant = Value::Number(Number::from(whole));
-        notes.push((
-            Some(row),
-            format!(
-                "read `{label}: {}` as `{label}: {meant}`; send `{label}: {meant}` next time.",
-                sketch(slot)
-            ),
-        ));
+        notes.push((Some(row), format!("{label}: {meant}")));
         *slot = meant;
     });
 }

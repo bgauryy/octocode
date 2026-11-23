@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
+import { createServer } from 'node:http';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,13 +48,13 @@ else if (a[0] === 'graphBuild') {
 } else if (row.operation === 'stale') {
   const before = existsSync(snapFile(row.graph)) ? JSON.parse(readFileSync(snapFile(row.graph), 'utf8')) : {}, now = hashes(row.path);
   const rows = [...Object.keys(before).filter((p) => now[p] !== before[p]).map((p) => ({ path: p, status: now[p] ? 'changed' : 'missing' })), ...Object.keys(now).filter((p) => !before[p]).map((p) => ({ path: p, status: 'added' }))];
-  for (const entry of rows) entry.path = relative(process.cwd(), join(row.path, entry.path));
+  for (const entry of rows) entry.path = relative(root, join(row.path, entry.path));
   out({ graph: { id: row.graph }, rows, freshness: { fresh: rows.length === 0, analysisCurrent: true } });
 } else {
   const g = graph(row.path);
   if (row.operation === 'find') page(g.files.map((id) => ({ id, kind: 'file', language: 'typescript' })));
   else if (row.operation === 'witnesses') page(g.W.filter((w) => inTarget(w.from.split('#')[0])));
-  else if (row.operation === 'symbols') page(g.S.filter((s) => inTarget(s.file)).map((s) => ({ ...s, path: relative(process.cwd(), join(row.path, s.path)) })));
+  else if (row.operation === 'symbols') page(g.S.filter((s) => inTarget(s.file)).map((s) => ({ ...s, path: relative(root, join(row.path, s.path)) })));
   else out({ graph: { id: row.graph }, rows: [], summary: { health: {}, byDetector: {} } });
 }`;
 
@@ -69,10 +71,11 @@ function fakeRepo() {
   }
   const cli = join(base, 'cli.cjs');
   writeFileSync(cli, FAKE, { mode: 0o755 });
-  const env = { OCTOCODE_CLI: `${process.execPath} ${cli}`, FAKE_ROOT: root, FAKE_STATE: join(base, 'state.json') };
+  // The repository is the workspace: the engine answers paths relative to it, as the fake does.
+  const env = { OCTOCODE_CLI: `${process.execPath} ${cli}`, FAKE_ROOT: root, FAKE_STATE: join(base, 'state.json'), WORKSPACE_ROOT: root };
   Object.assign(process.env, env);
   const out = join(base, 'result');
-  const r = spawnSync(process.execPath, [join(here, 'build.mjs'), root, '--out', out, '--lsp', 'off'], { encoding: 'utf8', cwd: root, env: { ...process.env, ...env } });
+  const r = spawnSync(process.execPath, [join(here, 'commands', 'build.ts'), root, '--out', out, '--lsp', 'off'], { encoding: 'utf8', cwd: root, env: { ...process.env, ...env } });
   assert.equal(r.status, 0, r.stderr);
   return { root, out, builds: () => readFileSync(env.FAKE_STATE, 'utf8').trim().split('\n') };
 }
@@ -84,8 +87,8 @@ const collect = () => {
 
 test('a refresh rebuilds only the edited chunk, streams its rows again and writes the new edge', async () => {
   const { root, out, builds } = fakeRepo();
-  // lib.mjs reads OCTOCODE_CLI when it loads, so the module loads after the fake is in place.
-  const { refreshRun } = await import('../src/runtime/refresh.mjs');
+  // lib.ts reads OCTOCODE_CLI when it loads, so the module loads after the fake is in place.
+  const { refreshRun } = await import('../src/runtime/refresh.ts');
   assert.deepEqual(builds().toSorted(), ['pkg/a', 'pkg/c']);
   writeFileSync(join(root, 'pkg/a/b.ts'), 'export function b() {}\nexport function h() { a(); }\n');
   const run = collect();
@@ -131,4 +134,52 @@ test('a refresh rebuilds only the edited chunk, streams its rows again and write
   const quiet = collect();
   await refreshRun({ root, out, emit: quiet.emit });
   assert.deepEqual(quiet.of('refreshed')[0].chunks, [], 'the listing of the plan run is kept for the next refresh');
+});
+
+test('the refresh command rebuilds the edited chunk headlessly and continues the saved event sequence', () => {
+  const { root, out, builds } = fakeRepo();
+  const before = readFileSync(join(out, 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  writeFileSync(join(root, 'pkg/a/b.ts'), 'export function b() {}\nexport function h() { a(); }\n');
+  const r = spawnSync(process.execPath, [join(here, 'commands', 'refresh.ts'), out], { encoding: 'utf8', cwd: root, env: process.env });
+  assert.equal(r.status, 0, r.stderr);
+  const summary = JSON.parse(r.stdout);
+  assert.deepEqual([summary.chunks, summary.changed], [['pkg-a'], ['pkg/a/b.ts']]);
+  assert.deepEqual(builds().slice(2), ['pkg/a']);
+  const after = readFileSync(join(out, 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const added = after.slice(before.length);
+  assert.ok(added.length > 0);
+  assert.deepEqual(added.map((e) => e.seq), added.map((_, i) => before.at(-1).seq + 1 + i), 'sequence numbers continue the saved log');
+  assert.equal(added.at(-1).type, 'refreshed');
+  const saved = JSON.parse(readFileSync(join(out, 'data.json'), 'utf8'));
+  assert.ok(saved.calls.some((c) => c.source === 'pkg/a/b.ts#h'));
+  // The replaced graph stays as previous.json: diff names the cycle the edit created (a.ts ⇄ b.ts).
+  const diff = spawnSync(process.execPath, [join(here, 'commands', 'diff.ts'), out, '--json'], { encoding: 'utf8' });
+  assert.equal(diff.status, 0, diff.stderr);
+  const d = JSON.parse(diff.stdout);
+  assert.deepEqual(d.cycles.map((c) => [c.change, c.after]), [['new', ['pkg/a/a.ts', 'pkg/a/b.ts']]]);
+  assert.deepEqual(d.edges.added.map((e) => [e.source, e.target]), [['pkg/a/b.ts', 'pkg/a/a.ts']]);
+});
+
+test('the refresh command hands a run a live viewer serves to that viewer and prints its summary', async () => {
+  const out = tempDir('graph-refresh-served-');
+  const asked = [];
+  const server = createServer((req, res) => {
+    asked.push(req.url);
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ ok: true, ms: 5, chunks: ['pkg-a'], changed: ['pkg/a/a.ts'] }));
+  });
+  await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+  const url = `http://127.0.0.1:${server.address().port}/`;
+  writeFileSync(join(out, 'server.json'), JSON.stringify({ pid: process.pid, url, token: 'tok', port: server.address().port, out, root: null }));
+  const child = spawn(process.execPath, [join(here, 'commands', 'refresh.ts'), out], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let stdout = '', stderr = '';
+  child.stdout.on('data', (d) => (stdout += d));
+  child.stderr.on('data', (d) => (stderr += d));
+  const [code] = await once(child, 'exit');
+  server.close();
+  assert.equal(code, 0, stderr);
+  assert.deepEqual(asked, ['/refresh?t=tok']);
+  const summary = JSON.parse(stdout);
+  assert.deepEqual([summary.out, summary.chunks, summary.changed, 'ok' in summary], [out, ['pkg-a'], ['pkg/a/a.ts'], false]);
+  assert.equal(spawnSync(process.execPath, [join(here, 'commands', 'refresh.ts'), '--help'], { encoding: 'utf8' }).status, 0);
 });

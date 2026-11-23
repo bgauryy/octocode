@@ -2,7 +2,7 @@
 //! handshake, the listing, a tool call, the protocol error of an unlisted
 //! tool, and the exit on stdin close; `prewarm` covers the language-server
 //! prewarm after `initialize`, `progress` a rate-limit wait's progress
-//! notifications.
+//! notifications, `legacy` the listing under legacy setting names.
 
 use crate::support;
 use octocode_test_support::json_fixture;
@@ -13,6 +13,7 @@ use support::Workspace;
 mod cancel;
 mod graph_parity;
 mod identity;
+mod legacy;
 #[cfg(unix)]
 mod prewarm;
 mod progress;

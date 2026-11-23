@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { tempDir } from './test-tmp.mjs';
-import { runQuery } from '../src/runtime/query.mjs';
+import { runQuery } from '../src/runtime/query.ts';
 
 test('enrich binds providers to the exact export, preserves revision and rejects replacement', () => {
   const dir = tempDir('graph-facts-'),

@@ -11,9 +11,9 @@ import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import test from 'node:test';
-import { parseFrame } from '../src/runtime/ws.mjs';
-import { startServer } from '../src/runtime/serve.mjs';
-import { computeMetrics } from '../src/runtime/metrics.mjs';
+import { parseFrame } from '../src/runtime/ws.ts';
+import { startServer } from '../src/runtime/serve.ts';
+import { computeMetrics } from '../src/runtime/metrics.ts';
 
 const here = fileURLToPath(new URL('../src/runtime/', import.meta.url));
 
@@ -30,7 +30,7 @@ function fixture() {
   return { dir, repo, out };
 }
 
-const file = (id) => ({ id, label: id.split('/').pop(), chunk: 'repo', loc: { path: id, line: 1 } });
+const file = (id) => ({ id, label: id.split('/').pop(), chunk: 'repo' });
 
 // The result's graph: src/b.ts imports src/a.ts; lib/a.ts makes a bare `a.ts` ambiguous.
 function graphData(repo) {
@@ -91,17 +91,17 @@ function connect(pageUrl, origin) {
   });
 }
 
-// reply.mjs as a child, asynchronously: this process hosts the server it talks to.
+// The reply command as a child, asynchronously: this process hosts the server it talks to.
 const replyCli = (...args) => new Promise((ok) => {
-  execFile(process.execPath, [join(here, 'reply.mjs'), ...args], { encoding: 'utf8' }, (error, stdout, stderr) => ok({ status: error ? error.code : 0, stdout, stderr }));
+  execFile(process.execPath, [join(here, 'commands', 'reply.ts'), ...args], { encoding: 'utf8' }, (error, stdout, stderr) => ok({ status: error ? error.code : 0, stdout, stderr }));
 });
 
 const post = (pageUrl, path, body, token = new URL(pageUrl).searchParams.get('t')) =>
   fetch(new URL(`${path}${token ? `?t=${token}` : ''}`, pageUrl), { method: 'POST', body: JSON.stringify(body) });
 
 // The channel as Claude Code runs it: a child on stdio, one JSON-RPC message per line.
-function channel(cwd) {
-  const child = spawn(process.execPath, [join(here, 'channel.mjs')], { cwd, env: { ...process.env, GRAPH_VIEW_NO_OPEN: '1' }, stdio: ['pipe', 'pipe', 'pipe'] });
+function channel(cwd, command = 'channel') {
+  const child = spawn(process.execPath, [join(here, 'commands', `${command}.ts`)], { cwd, env: { ...process.env, GRAPH_VIEW_NO_OPEN: '1' }, stdio: ['pipe', 'pipe', 'pipe'] });
   const lines = [];
   const waiters = new Set();
   createInterface({ input: child.stdout }).on('line', (line) => {
@@ -138,7 +138,11 @@ test('the channel declares claude/channel, an earlier protocol revision and its 
   assert.equal(older.result.protocolVersion, '2025-03-26');
   c.notify('notifications/initialized');
   const list = await c.call('tools/list', {});
-  assert.deepEqual(list.result.tools.map((tool) => tool.name).toSorted(), ['open_graph', 'query_graph', 'refresh_graph', 'reply', 'wiki_lint', 'wiki_note', 'wiki_promote', 'wiki_read']);
+  // Ours, and the engine's graph tools passed through when the engine resolves.
+  const names = list.result.tools.map((tool) => tool.name);
+  const ours = ['build_graph', 'diff_graph', 'link_graph', 'open_graph', 'query_graph', 'refresh_graph', 'reply', 'wiki_lint', 'wiki_note', 'wiki_promote', 'wiki_read'];
+  assert.deepEqual(names.filter((n) => ours.includes(n)).toSorted(), ours);
+  assert.ok(names.filter((n) => !ours.includes(n)).every((n) => ['graphBuild', 'graphQuery'].includes(n)), names.join(','));
   assert.match(init.result.instructions, /query_graph/);
   assert.match(init.result.instructions, /wiki_promote/);
   const missing = await c.call('resources/list', {});
@@ -155,10 +159,10 @@ test('MCP searches a saved export without creating a viewer and reloads a change
   const f = fixture();
   const c = channel(f.dir);
   t.after(() => { c.child.kill(); rmSync(f.dir, {recursive:true, force:true}); });
-  const ask = async query => (await c.call('tools/call', {name:'query_graph', arguments:{result:f.out, query}})).result;
+  const ask = async query => (await c.call('tools/call', {name:'query_graph', arguments:{result:f.out, query, format:'json'}})).result;
   const before = readFileSync(join(f.out,'events.jsonl'),'utf8');
   const result = JSON.parse((await ask('files src/a.ts:9 src/b.ts')).content[0].text);
-  assert.deepEqual(result.sourceQueries, [{path:'src/a.ts',ranges:[{startLine:9,endLine:9}]},{path:'src/b.ts'}]);
+  assert.deepEqual(result.sourceQueries, [{path:join(f.repo,'src/a.ts'),ranges:[{startLine:9,endLine:9}]},{path:join(f.repo,'src/b.ts')}]);
   assert.equal((await ask('files a.ts')).isError,true);
   const data = graphData(f.repo);
   data.files.push(file('new.ts'));
@@ -177,7 +181,8 @@ test('the channel reuses only viewers with the requested LSP and build scope', a
     return JSON.parse(reply.result.content[0].text);
   };
   const smart = await open({});
-  assert.equal((await open({lsp:'on'})).url, smart.url);
+  assert.equal((await open({lsp:'smart'})).url, smart.url);
+  assert.equal((await c.call('tools/call', {name:'open_graph', arguments:{path:f.dir, lsp:'on'}})).result.isError, true, 'no lsp aliases');
   const all = await open({lsp:'all'});
   assert.notEqual(all.url, smart.url);
   assert.equal((await open({lsp:'all'})).reused, true);
@@ -224,7 +229,7 @@ test('a viewer chat reaches the session as notifications/claude/channel and the 
   rmSync(f.dir, { recursive: true, force: true });
 });
 
-test('inbox mode: chat lands in chat-inbox.jsonl, /reply needs the token, reply.mjs answers', { timeout: 30000 }, async (t) => {
+test('inbox mode: chat lands in chat-inbox.jsonl, /reply needs the token, the reply command answers', { timeout: 30000 }, async (t) => {
   const f = fixture();
   const s = await startServer({ out: f.out, replay: true, open: false });
   t.after(() => { rmSync(f.dir, { recursive: true, force: true }); return s.close(); });
@@ -263,7 +268,7 @@ test('inbox mode: chat lands in chat-inbox.jsonl, /reply needs the token, reply.
   assert.equal(existsSync(join(f.out, 'server.json')), false);
   const gone = await replyCli(f.out, 'late');
   assert.equal(gone.status, 3);
-  assert.match(gone.stderr, /no server\.json/);
+  assert.match(gone.stderr, /no viewer serves .*server\.json missing or stale/);
   rmSync(f.dir, { recursive: true, force: true });
 });
 
@@ -339,7 +344,7 @@ test('the channel points at nodes: query_graph emits a query event, reply nodes 
   assert.ok(c.lines.every((m) => m.jsonrpc === '2.0'), 'stdout carries only JSON-RPC');
 });
 
-test('POST /query and /wiki need the token; queries answer over HTTP, the socket and reply.mjs; reply --nodes', { timeout: 30000 }, async (t) => {
+test('POST /query and /wiki need the token; queries answer over HTTP, the socket and the reply command; reply --nodes', { timeout: 30000 }, async (t) => {
   const f = fixture();
   const s = await startServer({ out: f.out, replay: true, open: false });
   t.after(() => { rmSync(f.dir, { recursive: true, force: true }); return s.close(); });
@@ -420,4 +425,73 @@ test('viewer serves its renderer locally and revalidates its cached copy', async
   const cached=await fetch(url,{headers:{'If-None-Match':etag}});
   assert.equal(cached.status,304);
   assert.equal((await cached.arrayBuffer()).byteLength,0);
+});
+
+test('names inherited from Object.prototype are unknown actions, tools, methods and socket ops', { timeout: 30000 }, async (t) => {
+  const f = fixture();
+  const s = await startServer({ out: f.out, replay: true, open: false });
+  t.after(() => { rmSync(f.dir, { recursive: true, force: true }); return s.close(); });
+  for (const action of ['toString', 'constructor', '__proto__']) {
+    const res = await post(s.url, '/wiki', { action });
+    assert.equal(res.status, 400, action);
+    assert.match((await res.json()).error, /wiki action must be one of/);
+  }
+  const ws = await connect(s.url);
+  t.after(() => ws.close());
+  ws.send({ op: 'hello', since: 0 });
+  ws.send({ op: 'toString' });
+  ws.send({ op: 'query', text: 'top pagerank 1' });
+  // The bogus op neither answers nor logs a failure; the next real op still answers.
+  await ws.waitFor((e) => e.type === 'query' && e.from === 'viewer');
+  assert.equal(ws.events.some((e) => e.type === 'note' && /toString/.test(e.text ?? '')), false);
+  const c = channel(tmpdir());
+  t.after(() => c.child.kill());
+  await c.call('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '0' } });
+  const tool = await c.call('tools/call', { name: 'toString', arguments: {} });
+  assert.equal(tool.error?.code, -32602);
+  assert.match(tool.error.message, /unknown tool toString/);
+  const method = await c.call('constructor', {});
+  assert.equal(method.error?.code, -32601);
+});
+
+test('the channel builds, queries, refreshes and diffs a saved graph without a viewer', { timeout: 60000 }, async (t) => {
+  const f = fixture();
+  const c = channel(f.dir);
+  t.after(() => { c.child.kill(); rmSync(f.dir, { recursive: true, force: true }); });
+  await c.call('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '0' } });
+  const call = async (name, args) => (await c.call('tools/call', { name, arguments: args })).result;
+  // The saved run answers by its result directory in text, the default format.
+  const q = await call('query_graph', { result: f.out, query: 'deps of src/b.ts' });
+  assert.notEqual(q.isError, true, q.content[0].text);
+  assert.match(q.content[0].text, /^read as: deps src\/b\.ts/m);
+  // No refresh yet: the diff says how to get a baseline.
+  const none = await call('diff_graph', { result: f.out });
+  assert.equal(none.isError, true);
+  assert.match(none.content[0].text, /refresh/);
+  const bad = await call('build_graph', {});
+  assert.equal(bad.isError, true);
+  // Arguments are checked against the advertised schema: a misspelled field names the one meant.
+  assert.match(bad.content[0].text, /path is required/);
+  const typo = await call('query_graph', { result: f.out, qurey: 'search a' });
+  assert.equal(typo.isError, true);
+  assert.match(typo.content[0].text, /unknown field qurey \(did you mean query\?\).*query is required/);
+  assert.match((await call('diff_graph', { result: f.out, format: 'xml' })).content[0].text, /format must be one of text, json/);
+});
+
+test('mcp serves the saved-graph tools without a viewer: no channel capability, result required, viewer tools absent', { timeout: 30000 }, async (t) => {
+  const c = channel(tmpdir(), 'mcp');
+  t.after(() => c.child.kill());
+  const init = await c.call('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '0' } });
+  assert.deepEqual(init.result.capabilities, { tools: {} });
+  assert.doesNotMatch(init.result.instructions, /channel source/);
+  c.notify('notifications/initialized');
+  const tools = (await c.call('tools/list', {})).result.tools;
+  const names = tools.map((tool) => tool.name);
+  for (const n of ['build_graph', 'query_graph', 'refresh_graph', 'diff_graph', 'link_graph']) assert.ok(names.includes(n), n);
+  for (const n of ['open_graph', 'reply', 'wiki_read']) assert.ok(!names.includes(n), n);
+  const query = tools.find((tool) => tool.name === 'query_graph');
+  assert.deepEqual(query.inputSchema.required.toSorted(), ['query', 'result']);
+  assert.ok(!('path' in query.inputSchema.properties) && !/viewer/.test(query.description));
+  const missing = await c.call('tools/call', { name: 'query_graph', arguments: { query: 'search x' } });
+  assert.match(missing.result.content[0].text, /result is required/);
 });

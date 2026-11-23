@@ -90,6 +90,14 @@ impl Encoder<'_> {
                     self.sid(site.argument)
                 }),
             );
+            put(
+                &mut out,
+                u64::from(if site.receiver_type == NONE {
+                    NONE
+                } else {
+                    self.sid(site.receiver_type)
+                }),
+            );
         }
         out
     }
@@ -224,11 +232,13 @@ pub(super) fn read_unresolved(
             reason: r.var_u32()?,
             provenance: read_provenance(r, t, strings, checks)?,
             argument: r.var_u32()?,
+            receiver_type: r.var_u32()?,
         };
         if site.src as usize >= t.nodes.len()
             || site.occurrence >= strings
             || site.callee >= strings
             || site.reason >= strings
+            || (site.receiver_type != NONE && site.receiver_type >= strings)
             || !source_node(t, site.src)
             || site.line == 0
             || site.line == NONE

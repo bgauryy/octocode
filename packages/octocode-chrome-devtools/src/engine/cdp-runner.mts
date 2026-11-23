@@ -81,6 +81,7 @@ const KEEP_TAB = hasFlag('--keep-tab');
 const LIST_TARGETS = hasFlag('--list-targets');
 const SELECTION = {
   browser: hasFlag('--browser'),
+  browserFallback: hasFlag('--browser-fallback'),
   newTab: NEW_TAB,
   targetId: TARGET_ID,
   targetUrl: TARGET_URL,

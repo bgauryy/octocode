@@ -74,7 +74,11 @@ async fn capped_compare_with_a_path_leads_to_the_path_history() {
         .await
         .expect("commit page");
     let commit = &row_data(&listed)["commits"][0];
-    assert_eq!(commit["messageHeadline"], "c0", "{commit}");
+    assert_eq!(
+        octocode_test_support::commit_field(commit, "messageHeadline"),
+        "c0",
+        "{commit}"
+    );
     assert!(commit.get("message").is_none(), "{commit}");
     runtime.close().await;
 }

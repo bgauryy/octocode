@@ -257,12 +257,12 @@ pub(super) fn unconfirmed_warning(facts: &Facts<'_>) -> Option<String> {
 
 /// The warning of a row OSV answered at a version the registry does not list
 /// (`versionListed:false`): `ids` are the advisories it counts, each named up to
-/// [`CVES_IN_SENTENCE`], past that counted (`advisoryIds` names them).
+/// [`CVES_IN_SENTENCE`], past that counted (`advisories` lists them).
 pub(super) fn unlisted_warning(name: &str, version: &str, ids: &[String]) -> String {
     let affected_by = if ids.len() <= CVES_IN_SENTENCE {
         ids_clause(ids)
     } else {
-        format!("{} (advisoryIds)", counted(ids.len()))
+        format!("{} (advisories)", counted(ids.len()))
     };
     format!(
         "The registry does not list {} {} (yanked, unpublished or removed); OSV lists it as affected by {affected_by}: do not install it.",

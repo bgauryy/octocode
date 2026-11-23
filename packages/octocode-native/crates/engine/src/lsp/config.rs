@@ -16,7 +16,7 @@ pub use catalog::{
     ROUTED_EXTENSIONS, available_server_languages, default_server_for_file, detect_language_id,
     typescript_server_fallback,
 };
-pub use defaults::{allow_build_wrappers, rust_analyzer_headless_options};
+pub use defaults::{allow_build_wrappers, rust_analyzer_headless_options, scip_consent};
 pub(crate) use defaults::{
     apply_server_default_options, project_config_files, serves_requests_concurrently,
     workspace_symbol_cap_advice, workspace_symbol_limit,
@@ -28,6 +28,7 @@ pub use directory::{
 pub(crate) use identity::launch_identity;
 pub(super) use invocation::current_node_command;
 pub(crate) use invocation::{is_generic_interpreter_command, is_rust_analyzer_command};
+pub(crate) use probe::{PROBE_POLL, ProbeError, probe_command_stdout, run_command_quiet};
 pub use probe::{is_command_available, repository_toolchain_refusal, server_command_resolves};
 pub use types::{FETCHED_CODE_REFUSAL, LspDiscoveryOptions};
 pub use user_config::{

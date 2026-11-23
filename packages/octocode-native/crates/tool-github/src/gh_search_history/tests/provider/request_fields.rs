@@ -42,10 +42,16 @@ async fn fields_project_listed_commits_end_to_end() {
     )
     .await
     .expect("commit listing");
-    // Projection keeps the complete identity needed to read the commit.
+    // Projection keeps the complete identity needed to read the commit: a
+    // page of one repository states it once, beside the rows.
     assert_eq!(
         data["commits"][0],
-        json_fixture(r#"{"owner": "o", "repo": "r", "commitSha": "aaa"}"#),
+        json_fixture(r#"{"commitSha": "aaa"}"#),
+        "{data}"
+    );
+    assert_eq!(
+        (&data["owner"], &data["repo"]),
+        (&json!("o"), &json!("r")),
         "{data}"
     );
 }
@@ -97,8 +103,9 @@ async fn a_default_commit_row_names_its_author() {
     )
     .await
     .expect("commit listing");
-    assert_eq!(data["commits"][0]["author"], "dev", "{data}");
-    assert_eq!(data["commits"][1]["author"], "Git Name", "{data}");
+    let author = |at: usize| octocode_test_support::commit_field(&data["commits"][at], "author");
+    assert_eq!(author(0), "dev", "{data}");
+    assert_eq!(author(1), "Git Name", "{data}");
     assert!(!data.to_string().contains("example.test"), "{data}");
 }
 
@@ -148,7 +155,7 @@ async fn an_absent_picked_key_is_named_once() {
     .expect("commit listing");
     assert_eq!(
         data["commits"][0],
-        json_fixture(r#"{"owner": "o", "repo": "r", "commitSha": "aaa"}"#),
+        json_fixture(r#"{"commitSha": "aaa"}"#),
         "{data}"
     );
     assert_eq!(

@@ -352,8 +352,13 @@ pub fn withheld_message(display: &str, path: &Path) -> String {
             );
         }
     };
+    let commit = if sensitive_directory(&aliases) == Some(".git") {
+        " A search or read inside its checkout states the checkout's commit as commitSha."
+    } else {
+        ""
+    };
     format!(
-        "Path '{display}' is withheld by the security path policy ({matched}): no local tool reads it, and no flag or config setting lifts it."
+        "Path '{display}' is withheld by the security path policy ({matched}): no local tool reads it, and no flag or config setting lifts it.{commit}"
     )
 }
 

@@ -10,6 +10,9 @@ mod determinism_tests;
 mod hooks;
 mod publication;
 mod redact;
+mod scip_tier;
+#[cfg(test)]
+mod scip_tier_tests;
 mod settled;
 mod snapshot;
 #[cfg(test)]
@@ -80,13 +83,22 @@ pub(super) fn ingest_with_registry(
         Ok(identity) => identity,
         Err(error) => return GraphOutput::error(error.code, error.message),
     };
-    let build_identity = unchanged::build_identity(options, cargo, &registry_identity);
+    let mut scip = scip_tier::Scip::plan(options);
+    let build_identity = unchanged::build_identity(
+        options,
+        cargo,
+        &registry_identity,
+        scip.identity().as_deref(),
+    );
     let identity = unchanged::Identity {
         build: &build_identity,
         registry: &registry_identity,
     };
     let judged = match unchanged::reuse(options, &home, paths, &identity, cancel, started) {
-        unchanged::Reuse::Current(receipt) => return receipt,
+        unchanged::Reuse::Current(mut receipt) => {
+            receipt.scip = scip.reused();
+            return receipt;
+        }
         unchanged::Reuse::Build { judged } => judged,
     };
     let scanned = judged
@@ -115,13 +127,14 @@ pub(super) fn ingest_with_registry(
         return snapshot::paused(&built.root, pause);
     }
     let build_ms = octocode_runtime_base::num::millis_of(started.elapsed());
-    let projection = match project_graph(
+    let projection = match project_graph_with(
         &mut built,
         options,
         (paths, security),
         scanned.as_ref().map(<[format::Strings; 2]>::as_slice),
         cancel,
         limits,
+        (&mut scip, &home),
     ) {
         Ok(projection) => projection,
         Err(output) => {
@@ -194,7 +207,17 @@ pub(super) fn ingest_with_registry(
             Err(error) => error,
         };
     }
-    publish_snapshot(
+    // A failed indexer records another identity: the next build retries it.
+    let recorded_identity = match scip.recorded_identity() == scip.identity() {
+        true => build_identity.clone(),
+        false => unchanged::build_identity(
+            options,
+            cargo,
+            &registry_identity,
+            scip.recorded_identity().as_deref(),
+        ),
+    };
+    let mut out = publish_snapshot(
         &Publish {
             options,
             home: &home,
@@ -216,12 +239,15 @@ pub(super) fn ingest_with_registry(
             build_ms,
             registry,
             registry_identity: &registry_identity,
-            build_identity: &build_identity,
+            build_identity: &recorded_identity,
             limits,
+            scip: (scip.status(), scip.failure()),
         },
         cancel,
         started,
-    )
+    );
+    out.scip = scip.status();
+    out
 }
 
 /// Projects `built` into snapshot tables and redacts them. Row counts are
@@ -230,13 +256,37 @@ pub(super) fn ingest_with_registry(
 /// move into the tables ([`tables::project`]). `scanned`: strings a
 /// snapshot built with the same inputs stores, which the secret scan has
 /// already read ([`redact_secrets`]).
+#[cfg(test)]
 pub(super) fn project_graph(
+    built: &mut super::super::types::BuiltGraph,
+    options: &IngestOptions,
+    guards: (&PathPolicy, &ContentSecurity),
+    scanned: Option<&[format::Strings]>,
+    cancel: &dyn CancellationCheck,
+    limits: &Limits,
+) -> Result<tables::Projection, GraphOutput> {
+    let (mut scip, home) = (scip_tier::Scip::off(), PathBuf::new());
+    project_graph_with(
+        built,
+        options,
+        guards,
+        scanned,
+        cancel,
+        limits,
+        (&mut scip, &home),
+    )
+}
+
+/// [`project_graph`] with the SCIP tier `scip`, whose cached indexes live
+/// under `home`.
+fn project_graph_with(
     built: &mut super::super::types::BuiltGraph,
     options: &IngestOptions,
     (paths, security): (&PathPolicy, &ContentSecurity),
     scanned: Option<&[format::Strings]>,
     cancel: &dyn CancellationCheck,
     limits: &Limits,
+    (scip, home): (&mut scip_tier::Scip, &Path),
 ) -> Result<tables::Projection, GraphOutput> {
     let files = built.nodes.keys().map(String::as_str).collect::<Vec<_>>();
     let mains = built
@@ -260,7 +310,16 @@ pub(super) fn project_graph(
     let project = workspace::Workspace::discover(&built.root, &files, &mains, &marks, &|path| {
         super::super::aliases::read_config_text(paths, security, path)
     });
-    let mut projection = match tables::project(built, &project, cancel) {
+    let mut index = scip.load(home, built);
+    let root = built.root.clone();
+    let read = |file: &str| {
+        let bytes =
+            octocode_tools_shared::source::read_bounded(&root.join(file), limits.source_bytes)
+                .ok()?;
+        String::from_utf8(bytes).ok()
+    };
+    let input = index.as_mut().map(|index| scip_tier::input(index, &read));
+    let mut projection = match tables::project_with_scip(built, &project, cancel, input) {
         Ok(projection) => projection,
         Err(error) => return Err(GraphOutput::error(error.code, error.message)),
     };
@@ -439,6 +498,7 @@ pub(super) fn build_for_ingest(
             Err(GraphOutput {
                 class: ExitClass::of(error.code),
                 next: Vec::new(),
+                scip: ScipStatus::Off,
                 #[cfg(test)]
                 validation: Box::default(),
                 value,

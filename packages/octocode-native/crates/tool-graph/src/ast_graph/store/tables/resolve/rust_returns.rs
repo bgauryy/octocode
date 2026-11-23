@@ -119,9 +119,18 @@ impl Receiving<'_, '_> {
         let derived = match self.linked(inner) {
             // A declaration is found: it decides, or leaves the receiver untyped.
             Some((targets, confidence)) => {
+                // An awaited call sees an `async fn`'s types, a plain call a future.
                 let declared = self
-                    .declared(&targets, confidence, |(returned, tried)| {
-                        if reference.unwrap { tried } else { returned }
+                    .declared(&targets, confidence, |types| {
+                        (types.asynchronous == reference.awaited).then_some(())?;
+                        match reference.element {
+                            Some(index) if !reference.unwrap => {
+                                types.elements.get(usize::try_from(index).ok()?)?.as_deref()
+                            }
+                            Some(_) => None,
+                            None if reference.unwrap => types.tried,
+                            None => types.returned,
+                        }
                     })
                     .and_then(|(ty, confidence)| {
                         Some((self.in_caller_scope(&targets, inner, ty)?, confidence))
@@ -242,10 +251,11 @@ impl Receiving<'_, '_> {
         let receiver = self.referenced(reference)?;
         let (targets, confidence) = self.linked(receiver)?;
         let members = self.linker.members;
-        self.declared(&targets, confidence, |(returned, tried)| {
-            let wrapper = returned?.rsplit("::").next()?;
+        self.declared(&targets, confidence, |types| {
+            (!types.asynchronous && reference.element.is_none()).then_some(())?;
+            let wrapper = types.returned?.rsplit("::").next()?;
             (matches!(wrapper, "Result" | "Option") && !members.contains_key(&(wrapper, name)))
-                .then_some(tried?)
+                .then_some(types.tried?)
         })
     }
 }

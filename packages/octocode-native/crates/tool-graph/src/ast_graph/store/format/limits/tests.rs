@@ -92,6 +92,7 @@ fn occurrence_counts_are_checked_without_truncation() {
     t.unresolved = vec![
         UnresolvedRec {
             argument: NONE,
+            receiver_type: NONE,
             provenance,
             relation: EdgeKind::Calls,
             src: 0,

@@ -20,5 +20,8 @@ test('the installed cookbook contains only Markdown and the package owns saved s
   const resources = readdirSync(folder, {recursive:true, withFileTypes:true}).filter(entry=>entry.isFile());
   assert.ok(resources.every(entry=>entry.name.endsWith('.md')), 'runtime files in cookbook');
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url)));
-  assert.ok(pkg.bin['octocode-graph-query'].startsWith('dist/'));
+  // One command: every saved-graph operation is a subcommand of octocode-graph. npm reads a string `bin` as one
+  // command named after the unscoped package.
+  const bin = typeof pkg.bin === 'string' ? { [pkg.name.split('/').pop()]: pkg.bin } : pkg.bin;
+  assert.deepEqual(Object.keys(bin), ['octocode-graph']);
 });

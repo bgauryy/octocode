@@ -116,6 +116,7 @@ pub(super) fn visit_node(
     deadline: std::time::Instant,
     outer_scope: &[String],
     outer_declaration: Option<&(String, String)>,
+    outer_locals: &[receiver::Binding],
 ) -> bool {
     enum Frame<'tree> {
         /// A node, its carried Rust context, its depth below the root, and the
@@ -129,7 +130,7 @@ pub(super) fn visit_node(
     let mut receivers = if acc.declarations_only {
         None
     } else {
-        receiver::ReceiverTypes::new(&acc.ext, root)
+        receiver::ReceiverTypes::new(&acc.ext, root).map(|r| r.with_outer(outer_locals))
     };
     #[cfg(feature = "tree-sitter-scala")]
     let mut scala_terms = (!acc.declarations_only && super::scala::is_scala(&acc.ext))
@@ -198,6 +199,7 @@ pub(super) fn visit_node(
             module_scope: &module_scope,
         });
         let calls_before = acc.calls.len();
+        let bodies_before = acc.macro_bodies.len();
         let identity = collect_node_facts(
             node,
             &path,
@@ -209,6 +211,15 @@ pub(super) fn visit_node(
             rust_node,
             deadline,
         );
+        // A macro body re-parsed later sees the locals its invocation sees.
+        if acc.macro_bodies.len() > bodies_before
+            && let Some(receivers) = receivers.as_mut()
+        {
+            let locals = receivers.visible_locals(node, &path, content);
+            for body in &mut acc.macro_bodies[bodies_before..] {
+                body.outer_locals = locals.clone();
+            }
+        }
         // An expression macro body's paths are the flat tokens the outer
         // walk already read.
         if rust && !acc.declarations_only && acc.macro_chain.is_none() {

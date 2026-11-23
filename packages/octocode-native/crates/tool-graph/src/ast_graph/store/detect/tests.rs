@@ -34,6 +34,122 @@ fn witness_is_the_shortest_cycle_through_the_start() {
     assert_eq!(witness_cycle(0, &members, &adj), vec![0, 3, 0]);
 }
 
+/// The shared cases (`test-utils/graph-algorithms/SPEC.md`) through the engine's
+/// cycle groups, the ring witness and PageRank, with the cases' nodes and edges
+/// in reverse order as well as as written.
+#[test]
+fn shared_cases_hold_for_the_ring_and_pagerank() {
+    use octocode_engine::graph::{FileGraphNode, cycle_group_order, scc};
+    let text = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../../test-utils/graph-algorithms/cases.json"),
+    )
+    .expect("the shared graph-algorithm cases");
+    let cases: Value = serde_json::from_str(&text).expect("cases are JSON");
+    let names = |value: &Value| {
+        value
+            .as_array()
+            .expect("a list")
+            .iter()
+            .map(|item| item.as_str().expect("a string").to_owned())
+            .collect::<Vec<_>>()
+    };
+    for case in cases.as_array().expect("a list of cases") {
+        let label = case["name"].as_str().expect("name");
+        let expected = &case["expected"];
+        for reversed in [false, true] {
+            let mut nodes = names(&case["nodes"]);
+            let mut edges = case["edges"].as_array().expect("edges").clone();
+            if reversed {
+                nodes.reverse();
+                edges.reverse();
+            }
+            let mut graph = nodes
+                .iter()
+                .map(|node| (node.clone(), FileGraphNode::default()))
+                .collect::<BTreeMap<_, _>>();
+            for edge in &edges {
+                let (from, to) = (
+                    edge[0].as_str().expect("from"),
+                    edge[1].as_str().expect("to"),
+                );
+                graph.get_mut(from).expect("a node").edges.insert(
+                    to.to_owned(),
+                    BTreeMap::from([("static-import".to_owned(), 1)]),
+                );
+            }
+            let mut groups = scc(&graph, true);
+            groups.sort_by(|a, b| cycle_group_order(a, b));
+            let wanted = expected["cycles"]
+                .as_array()
+                .expect("cycles")
+                .iter()
+                .map(names)
+                .collect::<Vec<_>>();
+            assert_eq!(groups, wanted, "{label}: cycle groups");
+
+            // Ids follow the sorted names, as the stored file nodes do.
+            let sorted = graph.keys().cloned().collect::<Vec<_>>();
+            let id = |name: &str| {
+                u32::try_from(sorted.iter().position(|n| n == name).expect("node")).expect("id")
+            };
+            let adj = |node: u32| {
+                graph[&sorted[node as usize]]
+                    .edges
+                    .keys()
+                    .map(|to| id(to))
+                    .collect::<Vec<_>>()
+            };
+            let ring = |start: &str| {
+                let group = groups
+                    .iter()
+                    .find(|group| group.iter().any(|n| n == start))?;
+                let members = group.iter().map(|n| id(n)).collect::<BTreeSet<_>>();
+                let mut walk = witness_cycle(id(start), &members, &adj);
+                walk.pop();
+                Some(
+                    walk.into_iter()
+                        .map(|node| sorted[node as usize].clone())
+                        .collect::<Vec<_>>(),
+                )
+            };
+            for (start, wanted) in expected["ring"].as_object().expect("rings") {
+                let wanted = (!wanted.is_null()).then(|| names(wanted));
+                assert_eq!(ring(start), wanted, "{label}: ring through {start}");
+            }
+            for group in &groups {
+                assert_eq!(
+                    ring(&group[0]).expect("a ring")[0],
+                    group[0],
+                    "{label}: a ring with no queried node starts at the smallest member"
+                );
+            }
+
+            let ids = (0..sorted.len())
+                .map(|node| u32::try_from(node).expect("id"))
+                .collect::<Vec<_>>();
+            let flow = ids
+                .iter()
+                .map(|node| {
+                    adj(*node)
+                        .into_iter()
+                        .map(|to| (to, 1.0))
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+            let rank = crate::ast_graph::algorithms::page_rank(ids.len(), &ids, &flow);
+            for (name, value) in expected["pagerank"].as_object().expect("ranks") {
+                let got = rank[id(name) as usize];
+                let wanted = value.as_f64().expect("a rank");
+                assert!(
+                    (got - wanted).abs() < 1e-4,
+                    "{label}: rank of {name}: {got} vs {wanted}"
+                );
+            }
+        }
+    }
+}
+
 /// A name imported by a component's script block (every extension of
 /// [`SCRIPT_BEARING_MARKUP`]) is a reference, as in source code; the same
 /// bare word in prose stays a word.

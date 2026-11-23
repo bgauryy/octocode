@@ -50,6 +50,13 @@ pub(crate) fn probe_command_stdout(probe: &mut Command) -> Result<Vec<u8>, Probe
     probe_command(probe, true)
 }
 
+/// [`probe_command_stdout`] for a command whose output goes elsewhere (a
+/// file it writes): its stdout is discarded, so a chatty command never fills
+/// a pipe.
+pub(crate) fn run_command_quiet(probe: &mut Command) -> Result<(), ProbeError> {
+    probe_command(probe, false).map(drop)
+}
+
 pub(super) fn probe_command(
     probe: &mut Command,
     capture_stdout: bool,
@@ -108,7 +115,7 @@ pub(super) fn probe_command(
 }
 
 /// How often a running probe checks whether it exited or its caller stopped.
-const PROBE_POLL: std::time::Duration = std::time::Duration::from_millis(10);
+pub(crate) const PROBE_POLL: std::time::Duration = std::time::Duration::from_millis(10);
 
 /// Whether `command` resolves to a usable language-server executable. A
 /// rust-analyzer is asked `--version` with `RUSTUP_AUTO_INSTALL=0`, so a rustup

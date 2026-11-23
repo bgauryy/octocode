@@ -70,6 +70,7 @@ mod rustup_fixture;
 mod rustup_memo;
 #[cfg(unix)]
 mod rustup_toolchain_path;
+mod scip_consent;
 mod server_defaults;
 mod tsgo;
 mod workspace_root;

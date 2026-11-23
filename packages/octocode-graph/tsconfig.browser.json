@@ -1,0 +1,11 @@
+{
+  // The viewer, the offline replay and its query worker: DOM globals, no Node types. The
+  // saved-graph query engine they bundle (src/runtime/query-*.ts) is checked here too.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": []
+  },
+  "include": ["src/assets/**/*.ts", "src/browser/**/*.ts", "src/renderer.ts"],
+  "exclude": []
+}

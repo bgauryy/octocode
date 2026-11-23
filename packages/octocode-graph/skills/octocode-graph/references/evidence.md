@@ -9,3 +9,5 @@ When a query returns zero rows, check the snapshot scope, freshness, confidence 
 Bulk exports save the raw cursor replies. The viewer streams each completed graph slice, joining all parts of a split edge first. A cursor failure, conflicting snapshot, or inconsistent exact total invalidates the walk.
 
 For a method with several owners, use native `graphQuery find` with `Owner.method` or `Owner::method`. If the call site is known, `lspSearch definition` with `view:"files"` returns its target path and line. To identify every declaration with the same name in that file, use `astSearch symbols` with an exact symbol filter. A single `localFetch` batch can then read the call site and the chosen declaration.
+
+For an unresolved member call (`member-unknown-receiver-in-repo`: a matching name exists in the repository), locate the call with `astSearch`, then ask `lspSearch` for the definition at the method name and line; keep the reason beside the open call site.

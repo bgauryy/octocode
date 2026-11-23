@@ -30,9 +30,9 @@ npx -y @octocodeai/octocode-chrome-devtools /cli schema --command run --operatio
 
 | MCP preset | Tools | What you get |
 |---|---:|---|
-| `slim` | 5 | `open` launches Chrome, `run` executes a plan, `query` searches saved results, `skill` reads a guide, and `cleanup` ends the session. |
-| `research` (default) | 12 | Also includes `targets` and `group` for tabs, `protocol` and `cdp` for Chrome’s live protocol, `flow` for reusable plans, `schema` for inputs, and `artifact` for reading saved files. |
-| `full` | 19 | Also includes `check` for capture recipes, `dev-check` for console and network errors, `session` for saved browser sessions, `cookies` for approved cookie transfers, `script` for custom code, `proxy` for CDP clients, and `helper` for saved evidence. |
+| `slim` | 5 | `open` launches Chrome, `run` executes a plan, `query` searches and reads saved files, `skill` reads a guide, and `cleanup` ends the session. |
+| `research` (default) | 10 | Also includes `targets` and `group` for tabs, `protocol` and `cdp` for Chrome’s live protocol, and `schema` for inputs. |
+| `full` | 18 | Also includes `flow` for reusable plans, `check` for capture recipes, `dev-check` for console and network errors, `session` for saved browser sessions, `cookies` for approved cookie transfers, `script` for custom code, `proxy` for CDP clients, and `helper` for saved evidence. |
 
 To select a preset, append `"--mcp", "--preset", "slim"` to the server arguments. Replace `slim` with `full` for all MCP tools. To add only capture recipes to the default preset, append `"--mcp", "--tools", "check"`. The typed CLI has **21 commands**, including standalone `snapshot` and `screenshot`. On MCP, use those as steps inside `run`. [CLI inputs and MCP flags](docs/mcp-cli.md)
 

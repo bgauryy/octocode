@@ -4,25 +4,35 @@ use crate::graph::GraphReceiverCall;
 use crate::num::saturating_u32;
 use crate::signatures::node_kinds::kind_of;
 
-/// A Rust function's declared return type and the type `?` yields from it,
-/// as receiver types spell them (`Self` is the enclosing impl's type). An
-/// `async fn` returns a future, so it has neither. `ancestors` holds the
-/// enclosing nodes of `node`, root first.
+/// A function's declared return types, as receiver types spell them
+/// (`Self` is the enclosing impl's type): the type, the type `?` yields from
+/// it, each element of a tuple, and whether an `async fn` yields them from
+/// its future.
+#[derive(Default)]
+pub(in crate::signatures::graph_facts) struct DeclaredReturns {
+    pub(in crate::signatures::graph_facts) ty: Option<String>,
+    pub(in crate::signatures::graph_facts) try_ty: Option<String>,
+    pub(in crate::signatures::graph_facts) elements: Vec<Option<String>>,
+    pub(in crate::signatures::graph_facts) asynchronous: bool,
+}
+
+/// [`DeclaredReturns`] of a function item. `ancestors` holds the enclosing nodes
+/// of `node`, root first.
 pub(in crate::signatures::graph_facts) fn rust_return_types(
     node: Node<'_>,
     ancestors: &[Node<'_>],
     content: &str,
-) -> (Option<String>, Option<String>) {
-    let written = matches!(kind_of(node), "function_item" | "function_signature_item")
+) -> DeclaredReturns {
+    let written_node = matches!(kind_of(node), "function_item" | "function_signature_item")
         .then(|| node.child_by_field_name("return_type"))
-        .flatten()
-        .and_then(|ty| node_text(ty, content));
+        .flatten();
+    let written = written_node.and_then(|ty| node_text(ty, content));
     let asynchronous = named_children(node).iter().any(|child| {
         kind_of(child) == "function_modifiers"
             && node_text(*child, content).is_some_and(|text| text.contains("async"))
     });
-    let Some(written) = written.filter(|_| !asynchronous) else {
-        return (None, None);
+    let Some(written) = written else {
+        return DeclaredReturns::default();
     };
     let named = |text: &str| {
         let ty = clean_type_text(text, Lang::Rust)?;
@@ -38,13 +48,28 @@ pub(in crate::signatures::graph_facts) fn rust_return_types(
             Lang::Rust,
         )
     };
-    (named(written), rust_try_argument(written).and_then(named))
+    let elements = written_node
+        .filter(|ty| kind_of(*ty) == "tuple_type")
+        .map(|ty| {
+            named_children(ty)
+                .iter()
+                .map(|element| node_text(*element, content).and_then(named))
+                .collect()
+        })
+        .unwrap_or_default();
+    DeclaredReturns {
+        ty: named(written),
+        try_ty: rust_try_argument(written).and_then(named),
+        elements,
+        asynchronous,
+    }
 }
 
-/// The call expression a value is, through parentheses, `&` and one `?`
-/// (`unwrap`); `.await` changes the type, so it is not followed.
-fn value_call(value: Node<'_>) -> Option<(Node<'_>, bool)> {
-    let (mut value, mut unwrap) = (value, false);
+/// The call expression a value is, through parentheses, `&`, one `?`
+/// (`unwrap`) and one `.await` (`awaited`: the value is what the call's
+/// future yields).
+fn value_call(value: Node<'_>) -> Option<(Node<'_>, bool, bool)> {
+    let (mut value, mut unwrap, mut awaited) = (value, false, false);
     loop {
         value = match kind_of(value) {
             "parenthesized_expression" => value.named_child(0)?,
@@ -53,19 +78,48 @@ fn value_call(value: Node<'_>) -> Option<(Node<'_>, bool)> {
                 unwrap = true;
                 value.named_child(0)?
             }
+            "await_expression" if !awaited => {
+                awaited = true;
+                value.named_child(0)?
+            }
             _ => break,
         };
     }
-    Some((value, unwrap))
+    Some((value, unwrap, awaited))
 }
 
-pub(super) fn call_reference(call: Node<'_>, unwrap: bool) -> GraphReceiverCall {
+pub(super) fn call_reference(call: Node<'_>, unwrap: bool, awaited: bool) -> GraphReceiverCall {
     let byte = |offset: usize| saturating_u32(offset);
     GraphReceiverCall {
         start_byte: byte(call.start_byte()),
         end_byte: byte(call.end_byte()),
         unwrap,
+        awaited,
+        element: None,
     }
+}
+
+/// The names a tuple pattern binds by element, up to a `..` rest (whose
+/// later elements count from the end): `(a, mut b, _, ..)` gives `a` at 0
+/// and `b` at 1.
+fn tuple_elements<'a>(pattern: Node<'_>, content: &'a str) -> Vec<(u32, &'a str)> {
+    let mut named = Vec::new();
+    for (index, element) in named_children(pattern).into_iter().enumerate() {
+        let element = match kind_of(element) {
+            "mut_pattern" | "ref_pattern" => match element.named_child(0) {
+                Some(inner) => inner,
+                None => continue,
+            },
+            "remaining_field_pattern" => break,
+            _ => element,
+        };
+        if kind_of(element) == "identifier"
+            && let Some(name) = node_text(element, content)
+        {
+            named.push((saturating_u32(index), name));
+        }
+    }
+    named
 }
 
 impl<'t> ReceiverTypes<'t> {
@@ -103,13 +157,26 @@ impl<'t> ReceiverTypes<'t> {
                 let value_call = node
                     .child_by_field_name("value")
                     .and_then(value_call)
-                    .filter(|(value, _)| ty.is_none() && kind_of(value) == "call_expression")
-                    .map(|(value, unwrap)| call_reference(value, unwrap));
+                    .filter(|(value, ..)| ty.is_none() && kind_of(value) == "call_expression")
+                    .map(|(value, unwrap, awaited)| call_reference(value, unwrap, awaited));
+                let first = out.len();
                 bind_pattern(pattern, ty, node.end_byte(), until, content, out);
                 if kind_of(pattern) == "identifier"
                     && let Some(binding) = out.last_mut()
                 {
                     binding.value_call = value_call;
+                } else if kind_of(pattern) == "tuple_pattern"
+                    && let Some(call) = value_call
+                {
+                    // Each name a tuple pattern binds takes its element of the value.
+                    for (element, name) in tuple_elements(pattern, content) {
+                        if let Some(binding) = out[first..].iter_mut().find(|b| b.name == name) {
+                            binding.value_call = Some(GraphReceiverCall {
+                                element: Some(element),
+                                ..call
+                            });
+                        }
+                    }
                 }
             }
             // An item in a block is visible in the whole block.
@@ -176,16 +243,22 @@ impl<'t> ReceiverTypes<'t> {
         } else {
             function
         };
-        let (receiver, unwrap) = value_call(self.lang.member_parts(function)?.0)?;
+        let (receiver, unwrap, awaited) = value_call(self.lang.member_parts(function)?.0)?;
         match kind_of(receiver) {
-            "call_expression" => Some(call_reference(receiver, unwrap)),
+            "call_expression" => Some(call_reference(receiver, unwrap, awaited)),
             "identifier" if !typed => {
                 let name = node_text(receiver, content)?;
                 let binding = self.local(receiver, path, name, content)?;
                 let mut value = binding.value_call.filter(|_| binding.ty.is_none())?;
+                // `x?` and `x.await` on a local bound to a call apply once, to
+                // the call's whole value (not to one tuple element).
                 if unwrap {
                     (!value.unwrap).then_some(())?;
                     value.unwrap = true;
+                }
+                if awaited {
+                    (!value.awaited && value.element.is_none()).then_some(())?;
+                    value.awaited = true;
                 }
                 Some(value)
             }

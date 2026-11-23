@@ -4,7 +4,7 @@ Start the package from your project directory so later calls can find the same b
 
 ## Discover, inspect, execute, read
 
-1. Check existing evidence first. `query` filters saved JSON rows, and `artifact` reads a known file or range. For page controls, search the snapshot’s `page-nodes.txt` by role or name.
+1. Check existing evidence first. `query` filters saved JSON rows and, with `offset`/`length`, reads a known file or range. For page controls, search the snapshot’s `page-nodes.txt` by role or name.
 2. Call `open` for an isolated Chrome session. Save its port and target ID. If several tabs match, use `targets` and pass the intended ID as `connection.target`. A visible launch also uses a separate profile.
 3. Take a `snapshot` step in a `run` plan to find a control. Act on the observed control, then read the visible outcome. Refresh references after navigation. A plan stops when a required step fails.
 4. Use the reply’s `files` and `evidence` paths to inspect the result. Follow each needed `next` call unchanged. Keep the workspace the same when reading a saved capture. [Evidence files](evidence-files.md)

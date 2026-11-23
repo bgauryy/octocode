@@ -257,8 +257,9 @@ pub(super) fn selection_overflow(schema: &Value, defs: &Value, received: &Value)
 
 /// The value `received` is read as where `schema` declares another type,
 /// when the schema alone gives it one typed reading: a text holding JSON of
-/// the declared type is that JSON value, and a value where a list is
-/// declared is the one-item list. Validation of the result decides whether
+/// the declared type is that JSON value, a `[lower, upper]` pair where an
+/// ordered pair object is declared is that object ([`ordered_pair`]), and a
+/// value where a list is declared is the one-item list. Validation of the result decides whether
 /// it fits.
 pub(crate) fn lenient_value(schema: &Value, defs: &Value, received: &Value) -> Option<Value> {
     let schema = super::super::resolve_ref(schema, defs);
@@ -272,8 +273,30 @@ pub(crate) fn lenient_value(schema: &Value, defs: &Value, received: &Value) -> O
     if holds_json(received, wanted) {
         return serde_json::from_str(received.as_str()?).ok();
     }
+    if let Some(pair) = ordered_pair(schema, received) {
+        return Some(pair);
+    }
     (wanted(&Value::Array(Vec::new())) && !received.is_array() && !received.is_null())
         .then(|| Value::Array(vec![received.clone()]))
+}
+
+/// A two-item list where an object of two ordered fields is declared, its
+/// `x-order` naming the lower and the upper: that object, the first item
+/// its lower (`[3, 9]` for `{"startLine": 3, "endLine": 9}`).
+fn ordered_pair(schema: &Value, received: &Value) -> Option<Value> {
+    let [lower, upper] = received.as_array()?.as_slice() else {
+        return None;
+    };
+    let order = schema.get("x-order")?;
+    let names = [order.get("lower")?.as_str()?, order.get("upper")?.as_str()?];
+    let fields = schema.get("properties")?.as_object()?;
+    if fields.len() != 2 || !names.iter().all(|name| fields.contains_key(*name)) {
+        return None;
+    }
+    let mut pair = serde_json::Map::new();
+    pair.insert(names[0].to_owned(), lower.clone());
+    pair.insert(names[1].to_owned(), upper.clone());
+    Some(Value::Object(pair))
 }
 
 /// The value an error's example shows for `received` where `schema` takes

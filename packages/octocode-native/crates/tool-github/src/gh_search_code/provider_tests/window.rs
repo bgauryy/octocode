@@ -267,6 +267,65 @@ async fn a_match_count_pick_counts_every_file_without_lines() {
     assert!(out.data.get("warnings").is_none(), "{}", out.data);
 }
 
+/// A `matchedLines` pick states each file's hit line numbers even where every
+/// listed line is a hit (no context), alone or beside `matches`, and no
+/// warning calls the picked field missing.
+#[tokio::test]
+async fn a_matched_lines_pick_states_the_hit_lines_without_context() {
+    let server = MockServer::builder().start().await;
+    mount_counted_search(&server, 2).await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/HEAD"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(SHA))
+        .mount(&server)
+        .await;
+    for (name, body) in [
+        ("busy.rs", "wrap_app();\n".repeat(3)),
+        ("calm.rs", "fn wrap_app() {}\n".to_owned()),
+    ] {
+        octocode_test_support::mock_http::list_in_trees(&server, "a", "b", &format!("src/{name}"))
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/a/b/contents/src%2F{name}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "type":"file","encoding":"base64","content":STANDARD.encode(body)
+            })))
+            .mount(&server)
+            .await;
+    }
+    let provider = one_shot_provider(&server);
+    let context = default_context();
+    for fields in [
+        json!(["path", "matchedLines"]),
+        json!(["path", "matches", "matchedLines"]),
+    ] {
+        let query: GhSearchCodeQuery = serde_json::from_value(json!({
+            "owner": "a", "repo": "b", "keywords": ["wrap_app"], "fields": fields
+        }))
+        .expect("query");
+        let out = execute(
+            &provider,
+            &query,
+            &context,
+            &Passthrough,
+            &octocode_runtime_base::policy::discovery::is_sensitive_repository_file,
+        )
+        .await
+        .expect("search");
+        let files = &out.data["files"];
+        assert_eq!(files[0]["path"], "src/busy.rs", "{}", out.data);
+        assert_eq!(files[0]["matchedLines"], json!([1, 2, 3]), "{}", out.data);
+        assert_eq!(files[1]["matchedLines"], json!([1]), "{}", out.data);
+        assert_eq!(
+            files[0].get("matches").is_some(),
+            fields.to_string().contains("\"matches\""),
+            "{}",
+            out.data
+        );
+        assert!(out.data.get("warnings").is_none(), "{}", out.data);
+    }
+}
+
 /// Every layout of merged searches lists each GitHub page once: page 1 of
 /// each search, then the later pages `k` to a merged page, every merged
 /// page full but the last.

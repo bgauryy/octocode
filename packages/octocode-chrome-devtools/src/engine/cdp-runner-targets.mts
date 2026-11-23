@@ -26,6 +26,8 @@ type ChromeTarget = {
   url: string;
   title: string;
   webSocketDebuggerUrl?: string;
+  /** On a browser fallback: how many tabs were open with none chosen. */
+  ambiguousPages?: number;
 };
 
 /** The selected target, or the message to print before exiting. */
@@ -42,6 +44,8 @@ type Selection =
 /** The --browser, --new-tab, --target, --target-url, --target-type and --strict-target flags. */
 type TargetFlags = {
   browser?: boolean;
+  /** Raw cdp without a page selector: attach the browser when no single tab is chosen. */
+  browserFallback?: boolean;
   newTab?: string;
   targetId?: string;
   targetUrl?: string;
@@ -105,7 +109,7 @@ const attach = (t: ChromeTarget): Selection => ({
 async function browserTarget(
   chrome: ChromeEndpoint,
   sel: TargetFlags
-): Promise<Selection> {
+): Promise<Extract<Selection, { error?: undefined }>> {
   const pageSelection =
     sel.newTab || sel.targetId || sel.targetUrl || sel.targetType;
   if (pageSelection || stealthEnabled())
@@ -241,6 +245,14 @@ async function firstPage(
     note(`[CDP_RUNNER] Using the tab open selected: ${selected.url}`);
     return attach(selected);
   }
+  if (sel.browserFallback && pages.length !== 1) {
+    note(
+      `[CDP_RUNNER] ${pages.length} tabs and none selected: using the browser target`
+    );
+    const browser = await browserTarget(chrome, {});
+    browser.targetInfo.ambiguousPages = pages.length;
+    return browser;
+  }
   const t = uniqueTarget(pages, sel.strict);
   // No match means no page at all: uniqueTarget only returns undefined for an empty list.
   if (!t)
@@ -361,26 +373,32 @@ export async function listTargets(
   });
   const groupMeta = readSessionMeta(port);
   const groups = Object.entries(groupMeta.groups ?? {});
-  const rows = targets.map(t => {
-    const member = groups.flatMap(([name, ids]) =>
-      ids.includes(t.id)
-        ? [
-            {
-              group: name,
-              groupIndex: ids.indexOf(t.id),
-              private: Boolean(groupMeta.contexts?.[name]),
-            },
-          ]
-        : []
-    )[0];
-    return {
-      id: t.id,
-      type: t.type,
-      url: t.url,
-      title: t.title,
-      ...member,
-    };
-  });
+  // Chrome's own UI and extension backgrounds are never task targets; tabs and site workers stay,
+  // and the target snapshot keeps every row.
+  const rows = targets
+    .filter(
+      t => t.type === 'page' || !/^(chrome|chrome-extension):/.test(t.url)
+    )
+    .map(t => {
+      const member = groups.flatMap(([name, ids]) =>
+        ids.includes(t.id)
+          ? [
+              {
+                group: name,
+                groupIndex: ids.indexOf(t.id),
+                private: Boolean(groupMeta.contexts?.[name]),
+              },
+            ]
+          : []
+      )[0];
+      return {
+        id: t.id,
+        type: t.type,
+        url: t.url,
+        title: t.title,
+        ...member,
+      };
+    });
   const encoded = JSON.stringify(rows, null, 2);
   // Small inventories stay convenient; large ones retain an immutable source
   // and a lossless query continuation instead of overflowing agent context.

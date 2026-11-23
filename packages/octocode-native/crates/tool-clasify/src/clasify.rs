@@ -387,6 +387,13 @@ fn mark_default(models: &mut Value, model: &str) {
         if entry["name"] == model {
             entry["default"] = json!(true);
         }
+        // A model row leads with its name, as every listed row leads with
+        // what it names.
+        if let Some(fields) = entry.as_object_mut()
+            && let Some(name) = fields.shift_remove("name")
+        {
+            fields.shift_insert(0, "name".to_owned(), name);
+        }
     }
 }
 

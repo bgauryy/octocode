@@ -117,6 +117,10 @@ pub(crate) struct ProgressTracker {
     ever_active: AtomicBool,
     /// Tokens that began, counted once per start of a token not already open.
     begins: AtomicU64,
+    /// Begins of work an answer waits for: every begin but cache priming and
+    /// the status that only reports it ([`open_work`]'s rule), so a priming
+    /// restart after each cancellation is no new work.
+    work_begins: AtomicU64,
     /// Work-done notices so far (`begin`, `report`, `end`, rust-analyzer's
     /// status): a change between two reads means the server said something
     /// about its work in between, which an open token alone does not.
@@ -156,6 +160,7 @@ impl ProgressTracker {
             health: StdMutex::new(None),
             ever_active: AtomicBool::new(false),
             begins: AtomicU64::new(0),
+            work_begins: AtomicU64::new(0),
             reports: AtomicU64::new(0),
             messages: AtomicU64::new(0),
             count_tx,
@@ -174,8 +179,13 @@ impl ProgressTracker {
         if !active.contains(&token) && active.len() >= MAX_ACTIVE_PROGRESS_TOKENS {
             return;
         }
+        let work = token != CACHE_PRIMING_TOKEN
+            && !(token == SERVER_STATUS_TOKEN && active.contains(CACHE_PRIMING_TOKEN));
         if active.insert(token) {
             self.begins.fetch_add(1, Ordering::AcqRel);
+            if work {
+                self.work_begins.fetch_add(1, Ordering::AcqRel);
+            }
         }
         self.ever_active.store(true, Ordering::Release);
         let _ = self.count_tx.send(open_work(&active));
@@ -217,11 +227,18 @@ impl ProgressTracker {
         self.begins.load(Ordering::Acquire)
     }
 
-    /// The begin count and active work at one point between token transitions.
-    /// Reading them separately can pair a new begin with the previous idle count.
+    /// How many begins of work an answer waits for so far ([`Self::work_begins`]
+    /// leaves out cache priming).
+    pub(crate) fn work_begins(&self) -> u64 {
+        self.work_begins.load(Ordering::Acquire)
+    }
+
+    /// The work-begin count and active work at one point between token
+    /// transitions. Reading them separately can pair a new begin with the
+    /// previous idle count.
     pub(crate) async fn work_state(&self) -> (u64, bool) {
         let active = self.active.lock().await;
-        (self.begins(), open_work(&active) > 0)
+        (self.work_begins(), open_work(&active) > 0)
     }
 
     /// `true` while any progress token (or rust-analyzer's non-quiescent

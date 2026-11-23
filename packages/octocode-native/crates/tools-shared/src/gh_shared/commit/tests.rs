@@ -116,3 +116,25 @@ fn a_person_is_the_login_else_the_git_name() {
     assert_eq!(person(&empty_login, "author"), "Ada");
     assert_eq!(person(&json!({}), "committer"), Value::Null);
 }
+
+/// A commit row holding only its identity, date, author and headline reads
+/// as one line; a row holding more (a body, files), or an author a reader
+/// could not split off at ": ", stays the object.
+#[test]
+fn a_plain_commit_row_reads_as_one_line() {
+    let row = json!({"commitSha": "abc123", "committedAt": "2026-06-14T18:07:56Z",
+        "messageHeadline": "docs: document sensitive headers", "author": "Jane Doe"});
+    assert_eq!(
+        line(row),
+        json!("abc123 2026-06-14T18:07:56Z Jane Doe: docs: document sensitive headers")
+    );
+    for kept in [
+        json!({"commitSha": "abc123", "committedAt": "2026-06-14T18:07:56Z",
+            "messageHeadline": "x", "author": "a", "messageBody": "more"}),
+        json!({"commitSha": "abc123", "committedAt": "2026-06-14T18:07:56Z", "messageHeadline": "x"}),
+        json!({"commitSha": "abc123", "committedAt": "2026-06-14T18:07:56Z",
+            "messageHeadline": "x", "author": "a: b"}),
+    ] {
+        assert_eq!(line(kept.clone()), kept);
+    }
+}

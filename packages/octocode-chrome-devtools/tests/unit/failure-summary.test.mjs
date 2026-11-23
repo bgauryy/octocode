@@ -20,7 +20,7 @@ const { failureSummary, failurePayload } = await import(
   pathToFileURL(file).href
 );
 rmSync(dir, { recursive: true, force: true });
-const next = { capture: { tool: 'artifact', query: { file: 'c.json' } } };
+const next = { capture: { tool: 'query', query: { file: 'c.json' } } };
 
 test('the failed plan step is the cause, with its step number and the next call', () => {
   const text = failureSummary({
@@ -30,7 +30,7 @@ test('the failed plan step is the cause, with its step number and the next call'
   });
   assert.match(
     text,
-    /^Failed: step 2: 0 elements match role\/name; next: artifact /
+    /^Failed: step 2: 0 elements match role\/name; next: query /
   );
   assert.ok(text.includes('c.json'));
 });
@@ -83,7 +83,7 @@ const envelope = {
   artifacts: [{ label: 'x', path: 'y' }],
   root: '/r',
   next: {
-    capture: { tool: 'artifact', query: { file: 'c.json' } },
+    capture: { tool: 'query', query: { file: 'c.json' } },
     steps: { tool: 'query', query: { file: 's.json' } },
   },
 };

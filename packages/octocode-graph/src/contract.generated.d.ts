@@ -101,7 +101,7 @@ sites: number
 ratio: (number | null)
 population: "syntax-call-sites"
 }
-basis: "syntax"
+basis: ("syntax" | "syntax+scip")
 callExtraction: ("supported" | "unsupported" | "notAssessed")
 warning?: string
 }
@@ -424,6 +424,7 @@ version: string
 }
 evidence?: "syntax"
 targetName: string
+receiverType?: string
 edge: "calls"
 reason: ("external-package" | "not-declared-in-repo" | "type-qualified-unmatched" | "member-unknown-receiver-in-repo" | "ambiguous" | "other" | "local-binding" | "recovered-declaration")
 candidates?: string[]
@@ -441,6 +442,7 @@ version: string
 }
 evidence?: "syntax"
 targetName: string
+receiverType?: string
 edge: "calls"
 reason: ("external-package" | "not-declared-in-repo" | "type-qualified-unmatched" | "member-unknown-receiver-in-repo" | "ambiguous" | "other" | "local-binding" | "recovered-declaration")
 candidates?: string[]
@@ -455,6 +457,7 @@ version: string
 }
 evidence?: "syntax"
 targetName: string
+receiverType?: string
 edge: "calls"
 reason: ("external-package" | "not-declared-in-repo" | "type-qualified-unmatched" | "member-unknown-receiver-in-repo" | "ambiguous" | "other" | "local-binding" | "recovered-declaration")
 candidates?: string[]
@@ -1027,12 +1030,12 @@ text?: string
 }[]
 shared?: {
 data: {
-commitSha?: string
 owner?: string
 repo?: string
 ref?: string
-workspaceRoot?: string
+commitSha?: string
 root?: string
+workspaceRoot?: string
 lsp?: {
 [k: string]: unknown
 }
@@ -1122,6 +1125,7 @@ progress?: {
 committedFiles: number
 remainingFiles: number
 }
+scip?: ("indexed" | "failed")
 reused?: true
 [k: string]: unknown
 }
@@ -3436,6 +3440,7 @@ progress?: {
 committedFiles: number
 remainingFiles: number
 }
+scip?: ("indexed" | "failed")
 reused?: true
 [k: string]: unknown
 }
@@ -3500,6 +3505,7 @@ progress: {
 committedFiles: number
 remainingFiles: number
 }
+scip?: ("indexed" | "failed")
 reused?: true
 [k: string]: unknown
 }
@@ -3886,12 +3892,12 @@ text?: string
 }[]
 shared?: {
 data: {
-commitSha?: string
 owner?: string
 repo?: string
 ref?: string
-workspaceRoot?: string
+commitSha?: string
 root?: string
+workspaceRoot?: string
 lsp?: {
 [k: string]: unknown
 }

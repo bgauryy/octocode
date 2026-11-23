@@ -322,3 +322,30 @@ fn a_later_idle_judgment_cannot_validate_an_answer_asked_during_loading() {
         );
     });
 }
+
+#[test]
+fn a_cache_priming_restart_is_no_work_an_empty_answer_waits_for() {
+    paused(|clock| async move {
+        let (client, _reader, _writer) =
+            client_with_fake_server_using(client_on(&clock, ts_config()), 64 * 1024).await;
+        // The server reported its load and finished it.
+        *client
+            .inner
+            .readiness
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Readiness::ProgressIdle);
+        let asked = client.asked_at().await;
+        // rust-analyzer begins priming its caches again after each cancelled
+        // request: background work no answer waits for.
+        client
+            .inner
+            .progress
+            .on_begin(crate::lsp::transport::CACHE_PRIMING_TOKEN.to_owned())
+            .await;
+        assert_eq!(
+            client.judge_empty_answer(asked, None).await,
+            EmptyAnswer::Stands,
+            "a priming restart is no new work: the empty answer stands"
+        );
+    });
+}

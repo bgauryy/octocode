@@ -280,7 +280,9 @@ fn commit_header(commit: &CommitFacts<'_>, reference: &str, read: Header, listed
     if reference.eq_ignore_ascii_case(&commit.sha)
         && let Some(fields) = out.as_object_mut()
     {
-        fields.remove("ref");
+        // `shift_remove`: a plain `remove` swaps the last key into the
+        // first place, leading the row with `deletions`.
+        fields.shift_remove("ref");
     }
     out
 }

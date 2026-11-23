@@ -175,6 +175,11 @@ fn read_leads(
     // shared miss's own sentence, which names only the first of them.
     if !misses.is_empty() {
         content.hints = vec![miss_order(outlined, &misses, content.masked_spans)];
+    } else if match_not_found && next.is_none() {
+        // The shared miss's only lead searched the file's directory with
+        // localSearch, which has no GitHub form; a regex miss has no
+        // repository search either. The hint names no call the row lacks.
+        content.hints = vec![format!("{}.", absent(content.masked_spans))];
     }
     if !misses.is_empty()
         && let Some(calls) = next.get_or_insert_with(|| json!({})).as_object_mut()
@@ -228,9 +233,17 @@ pub(super) fn miss_order(
             _ => None,
         })
         .collect::<Vec<_>>();
-    // What the miss proves: nothing of the file's text, or, when the file
-    // holds masked values, nothing of the text outside them.
-    let absent = masked.map_or_else(
+    format!(
+        "{}; related[] in order: {}.",
+        absent(masked),
+        steps.join(", then ")
+    )
+}
+
+/// What a miss proves: nothing of the file's text, or, when the file holds
+/// `masked` secret values, nothing of the text outside them.
+fn absent(masked: Option<usize>) -> String {
+    masked.map_or_else(
         || "No line of this file holds it".to_owned(),
         |masked| {
             format!(
@@ -238,8 +251,7 @@ pub(super) fn miss_order(
                 octocode_tools_shared::source_view::masked_unsearched(masked)
             )
         },
-    );
-    format!("{absent}; related[] in order: {}.", steps.join(", then "))
+    )
 }
 
 fn no_match(

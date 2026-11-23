@@ -176,6 +176,7 @@ impl<'t> Encoder<'t> {
             for id in [
                 site.occurrence,
                 site.argument,
+                site.receiver_type,
                 site.callee,
                 site.reason,
                 site.provenance.source_digest,

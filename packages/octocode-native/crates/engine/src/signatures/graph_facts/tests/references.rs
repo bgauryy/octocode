@@ -26,8 +26,8 @@ fn rust_paths_outside_calls_and_uses_are_facts() {
             ("crate::limits::MAX", 2, true, 0),
             ("crate::types::Out", 3, true, 0),
             ("crate::rules::globs", 4, true, 0),
+            // `crate::macros::recovery(a)` in a `json!` value is a call, read as one.
             ("crate::m::Z", 6, true, 0),
-            ("crate::macros::recovery", 6, true, 0),
             ("super::super::up::X", 8, true, 1),
         ]
     );

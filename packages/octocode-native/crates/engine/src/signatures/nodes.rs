@@ -12,7 +12,7 @@ use tree_sitter::Node;
 mod calls;
 mod declarations;
 
-pub(super) use calls::{call_callee, is_call_node, is_name_leaf, last_name_leaf};
+pub(super) use calls::{call_callee, first_name_leaf, is_call_node, is_name_leaf, last_name_leaf};
 #[cfg(feature = "tree-sitter-scala")]
 pub(super) use calls::{scala_applied_function, scala_call_callee, scala_infix_callee};
 pub(super) use declarations::{

@@ -18,6 +18,7 @@ mod rust;
 mod rust_members;
 mod rust_returns;
 mod scala;
+mod scip;
 mod scope;
 pub(super) use es_declared::DeclaredTypes;
 pub(super) use exports::{ExportResolver, FileBindings, confidence_for};
@@ -129,6 +130,9 @@ pub(super) struct UnlinkedCall {
     pub line: u32,
     pub reason: &'static str,
     pub source_range: Option<octocode_engine::text::analysis::ObservedSpan>,
+    /// The receiver's type as the source spells it (written, or a call's
+    /// declared return type), when the call is on a typed receiver.
+    pub receiver_type: Option<String>,
 }
 
 /// One file's call-linking context.
@@ -178,6 +182,13 @@ pub(super) fn link_calls(
             }
             resolved => (resolved, false),
         };
+        // The precise tier confirms, replaces or supplies the syntax link of
+        // a site the facts recorded as a call; it never adds a site.
+        let precise = linker.scip_target(unit, call, callable, method);
+        let (resolved, constructs) = match precise {
+            Some(dst) => (Ok((vec![dst], "scip", Confidence::High)), false),
+            None => (resolved, constructs),
+        };
         let Ok((targets, resolution, confidence)) = resolved else {
             let reason = resolved.err().unwrap_or("other");
             calls.unresolved += 1;
@@ -185,10 +196,17 @@ pub(super) fn link_calls(
             out.unresolved.push(UnlinkedCall {
                 src: caller,
                 occurrence: call.id.clone(),
-                callee: call.callee.clone(),
+                // An unlinked macro invocation keeps its `!`: no consumer can
+                // read it as a function's name.
+                callee: if call.kind == "expands" {
+                    format!("{}!", call.callee)
+                } else {
+                    call.callee.clone()
+                },
                 line: call.line,
                 reason,
                 source_range: call.source_range,
+                receiver_type: receiver_type.map(str::to_owned),
             });
             let bucket = if INTERNAL_REASONS.contains(&reason) {
                 1
@@ -203,7 +221,11 @@ pub(super) fn link_calls(
         };
         // A receiver typed through another call's result is no surer than
         // that call's own link.
-        let confidence = received.confidence(confidence);
+        let confidence = if precise.is_some() {
+            confidence
+        } else {
+            received.confidence(confidence)
+        };
         calls.linked += 1;
         calls
             .by_language
@@ -319,17 +341,24 @@ fn resolve_call(
                         })
                     })
         };
-        let accept = |id| match call.binding {
-            GraphCallBinding::ConstructedType => {
-                constructors::admits(linker, caller, id, &call.callee)
-            }
-            GraphCallBinding::SyntaxLookup => {
-                callable(id)
-                    && (!bare_lexical || !method(id))
-                    && !((linker.member_data)(id)
-                        && ((bare && !bare_data(id)) || data_shadowed(id)))
-            }
-            GraphCallBinding::Unassessed { .. } => false,
+        // Macros and functions are separate namespaces: `format!` expands a
+        // macro and never calls a `fn format`, and `twice()` never expands
+        // `macro_rules! twice`.
+        let expands = call.kind == "expands";
+        let accept = |id| {
+            (linker.is_macro)(id) == expands
+                && match call.binding {
+                    GraphCallBinding::ConstructedType => {
+                        constructors::admits(linker, caller, id, &call.callee)
+                    }
+                    GraphCallBinding::SyntaxLookup => {
+                        callable(id)
+                            && (!bare_lexical || !method(id))
+                            && !((linker.member_data)(id)
+                                && ((bare && !bare_data(id)) || data_shadowed(id)))
+                    }
+                    GraphCallBinding::Unassessed { .. } => false,
+                }
         };
         let site = Site {
             bindings: &unit.bindings,

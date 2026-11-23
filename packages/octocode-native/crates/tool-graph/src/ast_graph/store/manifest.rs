@@ -207,6 +207,8 @@ pub(super) struct ManifestInput<'a> {
     /// Root-relative directories the walk could not read, so the graph lacks
     /// everything below them.
     pub(super) unreadable_dirs: &'a [String],
+    /// What the SCIP tier did, and why it failed when it did.
+    pub(super) scip: (super::ScipStatus, Option<&'a str>),
 }
 
 pub(super) fn manifest(input: &ManifestInput) -> Value {
@@ -306,6 +308,16 @@ pub(super) fn manifest(input: &ManifestInput) -> Value {
         "inputs": input.inputs,
         "buildMs": input.build_ms,
     });
+    if let Some(status) = input.scip.0.recorded() {
+        manifest["scip"] = json!(status);
+    }
+    if let Some(failure) = input
+        .scip
+        .1
+        .filter(|_| input.scip.0 == super::ScipStatus::Failed)
+    {
+        manifest["scipFailure"] = json!(failure);
+    }
     if let Some(proof) = input.input_proof {
         manifest["inputProof"] = json!(proof);
     }

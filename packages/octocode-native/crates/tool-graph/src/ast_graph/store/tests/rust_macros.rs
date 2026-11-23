@@ -241,3 +241,76 @@ fn a_repo_macro_aliased_to_a_std_name_leaves_the_argument_unlinked() {
         unresolved.value
     );
 }
+
+#[test]
+fn a_std_macro_never_links_to_a_same_named_function() {
+    let names = ["format", "vec", "write", "assert_eq", "matches"];
+    let helpers: String = names
+        .iter()
+        .map(|name| format!("pub fn {name}() {{}}\n"))
+        .collect();
+    let invocations: String = names
+        .iter()
+        .map(|name| format!("    {name}!(1);\n"))
+        .collect();
+    let caller = format!(
+        "use crate::h::{{{}}};\npub fn x() {{\n{invocations}}}\n",
+        names.join(", ")
+    );
+    let dir = git_app(&[
+        CARGO,
+        ("src/lib.rs", "pub mod h;\npub mod a;\n"),
+        ("src/h.rs", &helpers),
+        ("src/a.rs", &caller),
+    ]);
+    assert_eq!(
+        ingest_fixture(dir.0.as_path(), None).class,
+        ExitClass::Success
+    );
+    let callees = ask(dir.0.as_path(), "callees", Some("app/src/a.rs#x"), |_| {});
+    assert!(ids(&callees).is_empty(), "{}", callees.value);
+    // Each invocation stays unlinked under its macro's name, `!` included.
+    let unresolved = ask(dir.0.as_path(), "unresolved", Some("src/a.rs"), |o| {
+        o.edges = vec!["calls".into()];
+    });
+    let mut targets: Vec<String> = unresolved.value["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|row| row["targetName"].as_str().map(str::to_owned))
+        .collect();
+    targets.sort();
+    let mut expected: Vec<String> = names.iter().map(|name| format!("{name}!")).collect();
+    expected.sort();
+    assert_eq!(targets, expected, "{}", unresolved.value);
+}
+
+#[test]
+fn a_repo_macro_links_only_from_its_invocation_and_its_namesake_function_only_from_a_call() {
+    let dir = git_app(&[
+        CARGO,
+        (
+            "src/lib.rs",
+            "macro_rules! twice { ($x:expr) => { $x * 2 }; }\npub fn twice(x: u8) -> u8 { x }\npub fn m() -> u8 { twice!(1) }\npub fn f() -> u8 { twice(1) }\n",
+        ),
+    ]);
+    assert_eq!(
+        ingest_fixture(dir.0.as_path(), None).class,
+        ExitClass::Success
+    );
+    let via = |caller: &str| {
+        let out = ask(dir.0.as_path(), "callees", Some(caller), |_| {});
+        out.value["rows"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|row| row["via"].as_str().unwrap_or_default().to_owned())
+            .collect::<Vec<_>>()
+    };
+    let expanded = via("app/src/lib.rs#m");
+    assert_eq!(expanded.len(), 1, "{expanded:?}");
+    assert!(expanded[0].starts_with("expands:"), "{expanded:?}");
+    let called = via("app/src/lib.rs#f");
+    assert_eq!(called.len(), 1, "{called:?}");
+    assert!(!called[0].starts_with("expands:"), "{called:?}");
+}

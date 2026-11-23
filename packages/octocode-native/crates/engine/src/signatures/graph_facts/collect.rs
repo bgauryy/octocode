@@ -261,8 +261,9 @@ fn push_call(
     (caller_decl, caller_name): (Option<&str>, Option<&str>),
 ) {
     let callee = unaliased(observation.callee, acc);
+    // `c->open` (C, C++) names `open`, as `c.open` and `T::open` do.
     let target = callee
-        .rsplit(['.', ':'])
+        .rsplit(['.', ':', '>'])
         .find(|segment| !segment.is_empty());
     let name_token = target.and_then(|name| {
         observation
@@ -283,7 +284,19 @@ fn push_call(
             .zip(acc.argument_bindings.as_ref())
             .is_some_and(|(token, bindings)| bindings.calls_local(&callee, token.start_byte()));
     let range = line_index.range(node);
-    let line = range.start.line + 1;
+    // A call is cited where it names what it calls first, as a language
+    // server cites a call site: its callee's own name (`.open(..)` on the
+    // line under `client`), or for a chain row (`read(..).map_err`) the name
+    // of the head call that row witnesses, which stitching binds. The
+    // expression's first line is the fallback.
+    let cited = match callee.split_once('(') {
+        Some((head, _)) => head
+            .rsplit(['.', ':', '>'])
+            .find(|segment| !segment.is_empty())
+            .and_then(|name| crate::signatures::nodes::first_name_leaf(node, content, name)),
+        None => name_token,
+    };
+    let line = cited.map_or(range.start.line, |token| line_index.range(token).start.line) + 1;
     // Module-level code (a Python decorator or `main()` guard, a Go
     // package `var` initializer, a Rust item-level macro) has no
     // enclosing declaration: it is owned by the `module` placeholder

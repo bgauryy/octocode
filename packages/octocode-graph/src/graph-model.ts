@@ -1,3 +1,4 @@
+import { fileOf } from './ids.ts';
 // The weighted file graph every metric reads: integer node ids and CSR adjacency (offsets + targets + weights).
 // One weight rule, documented here only:
 //   w(u→v) = [u imports v] + Σ call sites from u's symbols into v's symbols × evidence
@@ -32,7 +33,6 @@ export type Neighbors = Map<number, number>[];
 
 const CONFIDENCE: Record<string, number> = { high: 1, medium: 0.5, low: 0.25 };
 const RESOLVED = new Set(['both', 'lsp']);
-const fileOf = (id: string) => id.split('#')[0];
 
 export const callEvidence = (c: Witness) =>
   RESOLVED.has(c.via ?? '')
@@ -78,7 +78,9 @@ export function fileEdges(D: Witnesses, includeTests = true) {
   return [...by.values()];
 }
 
-// CSR over the production edges of the nodes in `ids`: out and in adjacency with weights.
+// CSR over the production edges of the nodes in `ids`: out and in adjacency with weights. A node's neighbours are in
+// ascending id order (test-utils/graph-algorithms/SPEC.md: the tie rule), so no answer depends on the order the nodes
+// or edges came in.
 export function csr(
   ids: string[],
   edges: readonly Pick<FileEdge, 'source' | 'target' | 'weight' | 'test'>[]
@@ -89,13 +91,17 @@ export function csr(
     .filter(e => !e.test && index.has(e.source) && index.has(e.target))
     .map(e => [index.get(e.source)!, index.get(e.target)!, e.weight]);
   const build = (from: number, to: number) => {
+    const sorted = list.toSorted((a, b) => {
+      const [x, y] = [ids[a[to]], ids[b[to]]];
+      return x < y ? -1 : x > y ? 1 : 0;
+    });
     const offsets = new Int32Array(n + 1);
-    for (const e of list) offsets[e[from] + 1]++;
+    for (const e of sorted) offsets[e[from] + 1]++;
     for (let i = 0; i < n; i++) offsets[i + 1] += offsets[i];
     const fill = offsets.slice(0, n);
-    const targets = new Int32Array(list.length),
-      weights = new Float64Array(list.length);
-    for (const e of list) {
+    const targets = new Int32Array(sorted.length),
+      weights = new Float64Array(sorted.length);
+    for (const e of sorted) {
       const at = fill[e[from]]++;
       targets[at] = e[to];
       weights[at] = e[2];

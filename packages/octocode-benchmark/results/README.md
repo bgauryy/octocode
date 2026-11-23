@@ -14,6 +14,8 @@ previous version and the stored baselines.
 
 | Version | Date | Build | Round (scorecard or stored folder) | Headline |
 |---|---|---|---|---|
+| 20.2.0 vs 19.1.0 vs `gh`: workflows | 2026-11-23 | 20.2.0 vs `octocode-mcp` 19.1.0 vs read-only `gh` | [Results](rounds/20.2.0-2026-11-23-workflows/README.md) | 10 questions that each take several tools, judged against answer keys: GitHub W1–W6 v20 10.0, `gh` 9.3, v19 7.6; on disk W7–W10 v19 9.6, v20 8.9 (an estimated count where an exact one was asked) |
+| 20.2.0 vs 19.1.0 vs `gh` | 2026-11-23 | 20.2.0 vs `octocode-mcp` 19.1.0 vs read-only `gh` | [Results](rounds/20.2.0-2026-11-23-v19-v20-gh/README.md) · [upgrade guide](../../../docs/V19_V20.md) | All 60 questions (30 GitHub, 30 on code on disk), fresh Sonnet 5.5 per version, blind Opus 5.5 judge: quality 9.59 vs 9.32 (v20 5 wins, v19 2, 52 ties); 47% fewer characters, 38% fewer input tokens counting cached, 43% lower cost. GitHub: `gh` 9.55, v20 9.45, v19 8.95; `gh` re-reads 79% fewer cached tokens |
 | 20.2.0 | 2026-11-22 | staged host `881395dd…15813` | [Staged tool and core audit](rounds/20.2.0-2026-11-22-staged-audit/SCORECARD.md) | All 17 tools exercised. The public clone workflow and three older connected regressions passed. A contradictory Go release warning caps artifactSearch at 4.0. Provisional mean 8.6/10. |
 | 20.2.0 | 2026-11-22 | dev build `9599f78a…eed12` | [Results and ratings](rounds/20.2.0-2026-11-22-core-context/SCORECARD.md) · [Core context inventory](rounds/20.2.0-2026-11-22-core-context/CONTEXT.md) · [Workflow receipts](rounds/20.2.0-2026-11-22-core-context/EFFICIENCY.md) | Fresh results and measured descriptions, schemas and instructions for all 17 tools. The follow-up live archive check passed. The provisional 17-tool mean is 8.7/10. |
 | 20.2.0 | 2026-11-22 | dev build `62f112ed…8949a7` | [Public tool recheck](rounds/20.2.0-2026-11-22-tool-recheck/SCORECARD.md) | All 17 tools rated across local, GitHub, package, security and classifier workflows. Provider-backed verification on the rebuilt host was limited. |
@@ -54,6 +56,8 @@ The 22 November 2026 core-context round includes the [blocker inventory and rati
 Every folder under `rounds/` is listed here; add a line when a round lands. Keep the newest scorecards; fold older ones into a timeline row.
 
 `rounds/<version>-<date>/SCORECARD.md`, one per round, from the [scorecard template](../briefs/SCORECARD.md).
+- [20.2.0 vs 19.1.0 vs `gh`, 2026-11-23](rounds/20.2.0-2026-11-23-v19-v20-gh/README.md): all 60 research questions on
+  fresh Sonnet 5.5 agents, with new, cached and output tokens per question.
 - [20.2.0 — rating round 4, 2026-11-21](rounds/20.2.0-2026-11-21-ratings-round-4/SCORECARD.md): the same 8 lanes and
   12 dimensions after fix round 5; findings in [FINDINGS.md](rounds/20.2.0-2026-11-21-ratings-round-4/FINDINGS.md),
   each lane's report in [lanes/](rounds/20.2.0-2026-11-21-ratings-round-4/lanes/).

@@ -13,6 +13,7 @@ pub(super) fn build_identity(
     options: &IngestOptions,
     cargo: Option<&str>,
     registry_identity: &str,
+    scip: Option<&str>,
 ) -> String {
     identity_of(
         Versions::CURRENT,
@@ -20,6 +21,7 @@ pub(super) fn build_identity(
         cargo,
         registry_identity,
         octocode_engine::security::patterns_identity(),
+        scip,
     )
 }
 
@@ -46,6 +48,7 @@ fn identity_of(
     cargo: Option<&str>,
     registry_identity: &str,
     patterns: &str,
+    scip: Option<&str>,
 ) -> String {
     octocode_engine::digest::sha256(
         json!([
@@ -61,6 +64,9 @@ fn identity_of(
             options.walk.disclosure(),
             options.language_globs,
             cargo,
+            // The SCIP tier: its cache key (the inputs and the consent bit),
+            // or null when off, so toggling consent never reuses a snapshot.
+            scip,
         ])
         .to_string()
         .as_bytes(),

@@ -15,6 +15,12 @@ pub struct ValidatedRead {
     /// The file a path read through a symlink resolved to, named as a
     /// canonical path is.
     pub target: Option<String>,
+    /// The missing path the request named when it repeats a run of its
+    /// folders (`tsx/tsx/…`): this read is of the one path that exists
+    /// without the repeat ([`PathPolicy::without_repeated_run`]).
+    ///
+    /// [`PathPolicy::without_repeated_run`]: octocode_runtime_base::policy::path::PathPolicy::without_repeated_run
+    pub repeated: Option<String>,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PathFailure {
@@ -39,6 +45,11 @@ pub struct PathFailure {
     ///
     /// [`CloneScope::reclone`]: crate::gh_git::clone_scope::CloneScope::reclone
     pub resolved: Option<PathBuf>,
+    /// The existing path a missing one means when it repeats a run of its
+    /// folders ([`PathPolicy::without_repeated_run`]).
+    ///
+    /// [`PathPolicy::without_repeated_run`]: octocode_runtime_base::policy::path::PathPolicy::without_repeated_run
+    pub meant: Option<String>,
     /// The path names something other than a regular file.
     pub not_a_file: Option<NotAFile>,
     /// Where a missing file's listing searches: the workspace root (`.`)
@@ -111,6 +122,7 @@ impl PathAccess for octocode_runtime_base::policy::path::PathPolicy {
                     target,
                     canonical: validated.canonical,
                     display: validated.display,
+                    repeated: None,
                 }
             })
             .map_err(|error| {
@@ -134,6 +146,9 @@ impl PathAccess for octocode_runtime_base::policy::path::PathPolicy {
                         .flatten()
                         .filter(|scope| scope.excludes(&resolved)),
                     resolved: missing.then(|| resolved.clone()),
+                    meant: missing
+                        .then(|| self.without_repeated_run(&resolved))
+                        .flatten(),
                     not_a_file: (error.code
                         == octocode_runtime_base::policy::PolicyErrorCode::NotRegular)
                         .then(|| match resolved.is_dir() {

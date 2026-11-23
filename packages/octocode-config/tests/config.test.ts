@@ -81,6 +81,9 @@ const CANONICAL = [
   'OCTOCODE_CREDENTIAL_FILES',
   // The form of every MCP reply: a repository must not change what a client parses.
   'OCTOCODE_MCP_RESULT',
+  // Legacy names carry their current name's policy.
+  'ENABLE_LOCAL',
+  'ENABLE_CLONE',
 ];
 
 describe('PROTECTED_KEYS', () => {

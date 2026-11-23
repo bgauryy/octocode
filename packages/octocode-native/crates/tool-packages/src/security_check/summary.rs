@@ -179,24 +179,26 @@ pub(super) fn advisory(row: Value) -> Value {
     Value::Object(fields)
 }
 
-/// `advisoryCount`, `advisoryIds`, `highestSeverity`, `unfixedInMajorCount`
+/// `advisoryCount`, `advisories`, `highestSeverity`, `unfixedInMajorCount`
 /// and `link` of a finished list: a withdrawn advisory is listed and never
-/// counted. The ids name each counted advisory once, in the list's order, so
-/// a reader reaches any of them by an `advisory` call without the details.
+/// counted. Each counted advisory is one brief row, once, in the list's
+/// order (most severe first): its id, CVEs, severity and fixed versions,
+/// what decides an upgrade; an `advisory` call reads one whole.
 fn indication(lean: &mut Map<String, Value>, listed: &[Value], unfixed_in_major: usize) {
     let counted = listed
         .iter()
         .filter(|row| row.get("withdrawn").is_none())
         .collect::<Vec<_>>();
     lean.insert("advisoryCount".to_owned(), json!(counted.len()));
-    let mut ids: Vec<&str> = Vec::new();
-    for id in counted.iter().filter_map(|row| row["id"].as_str()) {
-        if !ids.contains(&id) {
-            ids.push(id);
+    let mut rows: Vec<Value> = Vec::new();
+    for row in &counted {
+        if !rows.iter().any(|known| known["id"] == row["id"]) {
+            rows.push((*row).clone());
         }
     }
-    if !ids.is_empty() {
-        lean.insert("advisoryIds".to_owned(), json!(ids));
+    if !rows.is_empty() {
+        super::record::drop_derivable_links(&mut rows);
+        lean.insert("advisories".to_owned(), Value::Array(rows));
     }
     // The first of the most severe: rows keep the order their list gave them.
     let Some(worst) = counted

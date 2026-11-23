@@ -56,7 +56,7 @@ test(
           `${tool.name} readOnlyHint follows annotationRules`
         );
 
-      // A first snapshot gives query and artifact a real evidence file to read.
+      // A first snapshot gives query a real evidence file to read.
       const seed = await ok('check', { connection, recipe: 'page-snapshot' });
       const calls = {
         targets: () => ok('targets', { connection }),
@@ -64,14 +64,19 @@ test(
           ok('protocol', { member: 'DOM.querySelector', connection }),
         schema: () => ok('schema', { command: 'run' }),
         skill: () => ok('skill', { topic: 'recovery', length: 500 }),
-        query: () =>
-          ok('query', {
+        query: async () => {
+          await ok('query', {
             file: seed.evidence,
             format: 'json',
             pointer: '/artifacts',
-          }),
-        artifact: () =>
-          ok('artifact', { file: seed.evidence, format: 'json', length: 500 }),
+          });
+          // Window mode reads what the removed artifact tool did.
+          return ok('query', {
+            file: seed.evidence,
+            format: 'json',
+            length: 500,
+          });
+        },
       };
       assert.deepEqual(
         Object.keys(calls).sort(),

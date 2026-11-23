@@ -244,5 +244,23 @@ export async function schemaOutput(
     fail(
       `Unknown operation ${operation}; supported operations: ${Object.keys(chromePlanOperations).join(', ')}`
     );
-  return JSON.stringify(schemaDocument(target, plan, cliPath), null, 2);
+  return JSON.stringify(
+    target.name ? schemaDocument(target, plan, cliPath) : schemaIndex(plan),
+    null,
+    2
+  );
+}
+
+/**
+ * The bare schema call: names to drill into, small enough to arrive inline in one reply. Command
+ * descriptions are already in each tool's own description, so they are not repeated here.
+ */
+function schemaIndex(plan: PlanContract) {
+  return {
+    commands: Object.keys(rawCommands),
+    plan: { operations: planSchema(undefined, plan).operations },
+    checks: Object.keys(checks),
+    detail:
+      'schema with a command gives its fields and examples; with run, also operation; with check, also recipe.',
+  };
 }

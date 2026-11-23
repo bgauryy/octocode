@@ -19,7 +19,7 @@ Only the token-authenticated browser socket (page token plus same-server `Origin
 1. Start the viewer: `octocode-graph serve <section>` (or `--replay <result-dir>`); its stdout line names `out`.
 2. Watch `<out>/chat-inbox.jsonl`; each message is one line `{chat_id, text, file, line, metrics?, at}`. In Claude Code, a Monitor on `tail -n 0 -F <out>/chat-inbox.jsonl` turns each line into a notification.
 3. Answer with the reply command: `octocode-graph reply <out> "text" --chat <chat_id> [--nodes a.ts,src/b.ts]` (`-` reads the text from stdin; without `--chat` it answers the latest unanswered message; `--nodes` points at files on the graph). Ask the graph with `octocode-graph reply query <out> "impact a.ts"`; read or write the wiki with `octocode-graph reply wiki <out> read|note|promote|lint` ([query](query.md)).
-4. To show edits in the viewer, add `--refresh` to the reply, or run `octocode-graph reply <out> --refresh`. Refreshes run one at a time; a request during a run queues one follow-up that later requests join.
+4. To show edits in the viewer, run `octocode-graph refresh <out>`: the viewer serving it rebuilds the changed chunks and its page updates. Refreshes run one at a time; a request during a run queues one follow-up that later requests join.
 
 `octocode-graph reply` prints one JSON line; exit 1 means the server refused, the refresh failed or a query failed (stderr says why; an ambiguous query or node lists candidates), 2 a usage error, 3 no running server for `<out>` (no or stale `server.json`, or unreachable).
 

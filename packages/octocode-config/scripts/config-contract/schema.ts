@@ -15,6 +15,11 @@ const uniqueStrings = (item: z.ZodString) =>
 
 const dotenvPolicy = z.enum(['all', 'home', 'never']);
 
+// Earlier names of the same variable, in the order they are tried. Each is still read, with the
+// current name's policy, in a source that does not set the current name; `octocode config` asks
+// to rename it.
+const legacyNames = uniqueStrings(envName).optional();
+
 const environmentOnly = z.strictObject({
   dotenv: dotenvPolicy.optional(),
   tokenPriority: z.int().min(0).optional(),
@@ -27,6 +32,7 @@ const environmentOnly = z.strictObject({
   group: z.string().min(1).optional(),
   // Where to get a key.
   docsUrl: z.url().optional(),
+  legacyNames,
 });
 
 const envBinding = z.strictObject({
@@ -34,6 +40,7 @@ const envBinding = z.strictObject({
   dotenv: dotenvPolicy.optional(),
   normalize: z.enum(['trim', 'lower']).optional(),
   workspaceNarrowsTo: z.string().min(1).optional(),
+  legacyNames,
 });
 
 // Properties every field kind may carry; each kind below picks the ones it allows.
@@ -44,6 +51,8 @@ const common = {
   displayDefault: z.string().optional(),
   group: z.string().min(1).optional(),
   docsUrl: z.url().optional(),
+  // Earlier `.octocoderc` paths of the same value, read the way `legacyNames` are.
+  legacyPaths: uniqueStrings(z.string().regex(/^[a-z][A-Za-z0-9]*(\.[a-z][A-Za-z0-9]*)+$/)).optional(),
 };
 
 const booleanField = z.strictObject({
@@ -81,15 +90,45 @@ const section = z.strictObject({
   fields: z.record(z.string().regex(/^[a-z$][A-Za-z0-9]*$/), field),
 });
 
-export const contractSchema = z.strictObject({
-  $schema: z.string(),
-  config: z.strictObject({
-    fileName: z.string().min(1),
-    runtimeSurfaces: uniqueStrings(z.string().regex(/^[a-z][a-z0-9]*$/)),
-  }),
-  environment: z.record(envName, environmentOnly),
-  sections: z.record(z.string().regex(/^(|[a-z][A-Za-z0-9]*(\.[a-z][A-Za-z0-9]*)*)$/), section),
-});
+export const contractSchema = z
+  .strictObject({
+    $schema: z.string(),
+    config: z.strictObject({
+      fileName: z.string().min(1),
+      runtimeSurfaces: uniqueStrings(z.string().regex(/^[a-z][a-z0-9]*$/)),
+    }),
+    environment: z.record(envName, environmentOnly),
+    sections: z.record(z.string().regex(/^(|[a-z][A-Za-z0-9]*(\.[a-z][A-Za-z0-9]*)*)$/), section),
+  })
+  .superRefine((contract, context) => {
+    // A legacy name or path is read as exactly one current one, and never shadows a current one.
+    const fields = Object.entries(contract.sections).flatMap(([sectionPath, declared]) =>
+      Object.entries(declared.fields).map(([key, setting]) => ({
+        path: sectionPath === '' ? key : `${sectionPath}.${key}`,
+        setting,
+      }))
+    );
+    const names = [
+      ...Object.keys(contract.environment),
+      ...fields.flatMap(({ setting }) => (setting.env ? [setting.env.name] : [])),
+    ];
+    const legacyEnvNames = [
+      ...Object.values(contract.environment).flatMap(entry => entry.legacyNames ?? []),
+      ...fields.flatMap(({ setting }) => setting.env?.legacyNames ?? []),
+    ];
+    const paths = fields.map(({ path }) => path);
+    const legacyConfigPaths = fields.flatMap(({ setting }) => setting.legacyPaths ?? []);
+    for (const [kind, current, legacy] of [
+      ['name', names, legacyEnvNames],
+      ['path', paths, legacyConfigPaths],
+    ] as const) {
+      for (const [index, value] of legacy.entries()) {
+        if (current.includes(value) || legacy.indexOf(value) !== index) {
+          context.addIssue({ code: 'custom', message: `legacy ${kind} ${value} must be unique and unused` });
+        }
+      }
+    }
+  });
 
 export type ContractInput = z.input<typeof contractSchema>;
 type Parsed = z.output<typeof contractSchema>;

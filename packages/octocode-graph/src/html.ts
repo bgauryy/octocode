@@ -1,14 +1,22 @@
+import { Readable } from 'node:stream';
+import { readEvents } from './runtime/pipeline.ts';
 import { createInterface } from 'node:readline';
-import { checkRunHeaders } from './runtime/lib/run-output.mjs';
+import { checkRunHeaders } from './runtime/lib/run-output.ts';
 import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createGzip } from 'node:zlib';
-import { writeNewFile } from './output.js';
+import { writeNewFile } from './output.ts';
 
-async function* encoded(file: string) {
+// Gzip and base64 a file, or text: a file's bytes as they are, the event log as readEvents rebuilds it (its
+// `rows` events store references to the chunk results, which the page cannot read).
+async function* encoded(source: string | { text: string }) {
   let carry = Buffer.alloc(0);
-  for await (const bytes of createReadStream(file).compose(createGzip())) {
+  const input =
+    typeof source === 'string'
+      ? createReadStream(source)
+      : Readable.from([source.text]);
+  for await (const bytes of input.compose(createGzip())) {
     const combined = Buffer.concat([carry, bytes]);
     const length = combined.length - (combined.length % 3);
     yield combined.toString('base64', 0, length);
@@ -68,12 +76,15 @@ export async function exportHtml(run: string, output: string) {
   async function* document() {
     yield before;
     yield `<script id="saved-root" type="application/json">${JSON.stringify(replayRoot ?? null).replaceAll('<', '\\u003c')}</script>`;
-    for (const [id, file] of [
-      ['saved-events', 'events.jsonl'],
-      ['saved-data', 'data.json'],
+    const log = readEvents(run)
+      .map(e => JSON.stringify(e))
+      .join('\n');
+    for (const [id, source] of [
+      ['saved-events', { text: `${log}\n` }],
+      ['saved-data', join(run, 'data.json')],
     ] as const) {
       yield `<script type="application/octet-stream" id="${id}">`;
-      yield* encoded(join(run, file));
+      yield* encoded(source);
       yield '</script>';
     }
     yield `<script type="text/plain" id="saved-worker">${safeScript(worker)}</script><script type="text/plain" id="licenses">${safeScript(licenses)}</script><script type="importmap">${imports}</script><script type="module">${safeScript(viewer)}</script>`;
