@@ -341,3 +341,120 @@ fn impl_block_names_anchor_on_the_self_type() {
         (3, 5)
     );
 }
+
+/// The anchored request `fields` adds to: `symbolName` in `/w/a.rs`.
+fn named(fields: &str) -> LspSearchQuery {
+    serde_json::from_value(json_fixture(&format!(
+        r#"{{"operation": "callers", "path": "/w/a.rs", "symbolName": "run"{fields}}}"#
+    )))
+    .expect("query")
+}
+
+/// Without `line` the name anchors at its one declaration, and the anchor
+/// (position, receipt, no warning) is the one the request sending that line
+/// gets: uses of the name on other lines are not candidates.
+#[test]
+fn a_name_without_a_line_anchors_at_its_one_declaration() {
+    let source = "fn main() {\n    run();\n}\n\nfn run() {}\n";
+    let declared = source
+        .lines()
+        .zip(1u32..)
+        .find_map(|(text, line)| text.starts_with("fn run").then_some(line))
+        .expect("declaration line");
+    let by_name = resolve_anchor(&named(""), "/w/a.rs", "file:///w/a.rs", Some(source));
+    let by_line = resolve_anchor(
+        &named(&format!(r#", "line": {declared}"#)),
+        "/w/a.rs",
+        "file:///w/a.rs",
+        Some(source),
+    );
+    let by_name = by_name.expect("anchor by name");
+    assert_eq!(by_name.line + 1, declared, "{by_name:?}");
+    assert_eq!(by_name.warning, None);
+    assert_eq!(Ok(by_name), by_line);
+}
+
+/// Several declarations of the name are several identities: the request is
+/// refused with every candidate's line and kind, and each listed line
+/// anchors when sent.
+#[test]
+fn a_name_declared_several_times_is_refused_with_each_line() {
+    let source = "struct A;\nstruct B;\nimpl A {\n    fn run(&self) {}\n}\nimpl B {\n    fn run(&self) {}\n}\n";
+    let lines = source
+        .lines()
+        .zip(1u32..)
+        .filter_map(|(text, line)| text.contains("fn run").then_some(line))
+        .collect::<Vec<_>>();
+    assert!(
+        lines.len() > 1,
+        "the fixture declares the name more than once"
+    );
+    let refusal = resolve_anchor(&named(""), "/w/a.rs", "file:///w/a.rs", Some(source))
+        .expect_err("several declarations never anchor");
+    for line in &lines {
+        assert!(refusal.contains(&format!("line {line} (")), "{refusal}");
+        let sent = named(&format!(r#", "line": {line}"#));
+        let anchor = resolve_anchor(&sent, "/w/a.rs", "file:///w/a.rs", Some(source));
+        assert_eq!(anchor.expect("listed line anchors").line + 1, *line);
+    }
+    assert!(
+        refusal.contains(&format!("{} times", lines.len())),
+        "{refusal}"
+    );
+    // Each candidate names the type that holds it, never a path or an id.
+    for holder in ["A", "B"] {
+        assert!(
+            refusal.contains(&format!("(method in {holder})")),
+            "{refusal}"
+        );
+    }
+    assert!(!refusal.contains("/w/a.rs"), "{refusal}");
+}
+
+/// A file that only uses the name declares no anchor for it: the refusal
+/// says so and names `line` and the search that finds it, never the use.
+#[test]
+fn a_name_the_file_does_not_declare_is_refused() {
+    let source = "fn main() {\n    run();\n}\n";
+    let refusal = resolve_anchor(&named(""), "/w/a.rs", "file:///w/a.rs", Some(source))
+        .expect_err("a use is no declaration");
+    assert!(refusal.contains("declares no `run`"), "{refusal}");
+    assert!(
+        refusal.contains("line") && refusal.contains("localSearch"),
+        "{refusal}"
+    );
+}
+
+/// An `impl` block names its type and declares nothing: a type with impls
+/// has one declaration.
+#[test]
+fn an_impl_block_is_no_second_declaration_of_its_type() {
+    let source = "struct Runner;\n\nimpl Runner {\n    fn go(&self) {}\n}\n";
+    let query: LspSearchQuery = serde_json::from_value(json_fixture(
+        r#"{"operation": "references", "path": "/w/a.rs", "symbolName": "Runner"}"#,
+    ))
+    .expect("query");
+    let anchor = resolve_anchor(&query, "/w/a.rs", "file:///w/a.rs", Some(source));
+    assert_eq!(anchor.expect("one declaration").line, 0);
+}
+
+/// The request a rung reads carries the declaration's line, so every rung
+/// answers the request that sends it; one with a line is left as sent.
+#[test]
+fn a_request_without_a_line_is_rewritten_to_the_declaration_line() {
+    let directory = tempfile::tempdir().expect("directory");
+    let file = directory.path().join("a.rs");
+    std::fs::write(&file, "fn main() {\n    run();\n}\n\nfn run() {}\n").expect("write");
+    let path = file.to_string_lossy();
+    let rewritten = anchored_by_name(&named(""), &path)
+        .expect("one declaration")
+        .expect("rewritten");
+    assert_eq!(lsp_search_query::anchor_line(&rewritten), Some(5));
+    assert_eq!(
+        lsp_search_query::to_row(&rewritten),
+        lsp_search_query::to_row(&named(r#", "line": 5"#))
+    );
+    assert_eq!(anchored_by_name(&rewritten, &path), Ok(None));
+    std::fs::write(&file, "fn main() {\n    run();\n}\n").expect("write");
+    assert!(anchored_by_name(&named(""), &path).is_err());
+}

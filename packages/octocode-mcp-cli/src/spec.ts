@@ -165,7 +165,7 @@ export function commandJsonSchema(command: CliCommand): JsonSchema {
     return command.inputSchema;
   }
   if (!command.schema) throw new Error(`Zod command ${command.name} has no schema`);
-  return z.toJSONSchema(command.schema, { io: 'input' }) as JsonSchema;
+  return zodInputSchema(command.schema);
 }
 
 function validatorFor(schema: JsonSchema): (data: unknown) => string | undefined {

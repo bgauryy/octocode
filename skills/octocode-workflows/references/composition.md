@@ -48,7 +48,7 @@ Size a lane by its files and checks, not by item count. Once its return is in, r
 
 The [shared tool-access rule](../SKILL.md#use-octocode-across-workflows) applies to every role. Assign the evidence question and checkout/ref or entry point; let its owner refine the calls. The orchestrator can use the same tools to scope work, resolve disagreements and verify anchors.
 
-Use the [MCP/CLI guide](octocode-usage.md) for live availability, invocation, pagination and recovery. Choose tools by the evidence question; `octocode-research`, when installed, adds detailed query selection. The rows below pair source capabilities with each boundary.
+Choose tools by the evidence question; `octocode-research`, when installed, adds detailed query selection. The rows below pair source capabilities with each boundary.
 
 | Evidence needed, in any workflow | Useful Octocode capability and application |
 |---|---|

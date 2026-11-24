@@ -29,6 +29,16 @@ struct RetryWait {
     sleep: Duration,
 }
 
+impl RetryWait {
+    /// Whether the next attempt's admission sleeps this wait (a rate limit's
+    /// block), rather than [`Attempts::retry`] before it: that admission
+    /// sleeps a block past the wait bound up to the bound
+    /// ([`crate::budget::WaitLimit::part_within_bound`]).
+    fn admission_sleeps(&self) -> bool {
+        self.sleep.is_zero() && !self.wait.is_zero()
+    }
+}
+
 /// The state one request's attempts share.
 pub(super) struct Attempts<'a> {
     transport: &'a GitHubTransport,
@@ -286,9 +296,12 @@ impl<'a> Attempts<'a> {
         let retry = &self.transport.retry;
         let budget = &self.context.budget;
         // Every wait is bounded by the request's wait limit alone (a rate
-        // limit's by the next turn's admission too).
-        if *self.attempt + 1 >= retry.max_attempts || !self.context.wait_limit().takes(backoff.wait)
-        {
+        // limit's by the next turn's admission too, which sleeps one past the
+        // wait bound up to the bound and refuses with the rest).
+        let limit = self.context.wait_limit();
+        let waited = limit.takes(backoff.wait)
+            || (backoff.admission_sleeps() && limit.part_within_bound(backoff.wait).is_some());
+        if *self.attempt + 1 >= retry.max_attempts || !waited {
             return Err(error);
         }
         // The delay before a retry: the `retry-after` GitHub sent, else the

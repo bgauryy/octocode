@@ -755,8 +755,11 @@ pub(super) fn answered(tool: &str, sent: &Value) -> (Value, Vec<String>) {
     (envelope, lines)
 }
 
+/// An anchored operation without `line` is admitted (native anchors at the
+/// one declaration of `symbolName` in `path`); without `symbolName` it is
+/// refused naming that field, never a guessed line.
 #[test]
-fn a_missing_lsp_anchor_points_to_search_without_guessing_a_line() {
+fn an_lsp_anchor_needs_a_name_and_not_a_line() {
     for operation in [
         "definition",
         "typeDefinition",
@@ -768,21 +771,21 @@ fn a_missing_lsp_anchor_points_to_search_without_guessing_a_line() {
         "subtypes",
         "hover",
     ] {
-        let sent = json!({
+        let by_name = json!({
+            "queries": [{"operation": operation, "path": "src/runner.ts", "symbolName": "run"}]
+        });
+        crate::contracts::validate("lspSearch", by_name.clone())
+            .unwrap_or_else(|error| panic!("{operation}: {by_name} is rejected: {error}"));
+        let nameless = json!({
             "queries": [
                 {"operation": "documentSymbols", "path": "src/runner.ts"},
-                {"operation": operation, "path": "src/runner.ts", "symbolName": "run"}
+                {"operation": operation, "path": "src/runner.ts"}
             ]
         });
-        let (_, lines) = answered("lspSearch", &sent);
-        let [line] = lines.as_slice() else {
-            panic!("{operation}: expected only the anchor guidance, got {lines:?}");
-        };
-        assert!(line.contains("queries.1.line"), "{operation}: {line}");
-        assert!(
-            line.contains("localSearch or astSearch"),
-            "{operation}: {line}"
-        );
+        let (_, lines) = answered("lspSearch", &nameless);
+        let text = lines.join("\n");
+        assert!(text.contains("queries.1.symbolName"), "{operation}: {text}");
+        assert!(!text.contains("queries.1.line"), "{operation}: {text}");
     }
 }
 

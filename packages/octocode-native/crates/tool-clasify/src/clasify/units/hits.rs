@@ -6,7 +6,8 @@
 //! each hit is one unit, judged as the in-tool
 //! `classification` filter judges it: its target line, its own window, and
 //! what the row already says around it (the innermost of its `declarations`
-//! holding the line, its key path in the row's `matchKeys`).
+//! holding the line, other than the one the hit itself declares, and its key
+//! path in the row's `matchKeys`).
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -41,11 +42,22 @@ impl<'q> Reach<'q> {
     }
 }
 
-/// One hit: its first and last line, and the listed lines of its window.
+/// One hit: its first and last line, the listed lines of its window, and
+/// the `declarations` indexes its entry says its hits declare.
 struct Hit {
     line: u64,
     last: u64,
     window: Vec<(u64, String)>,
+    declares: Vec<u64>,
+}
+
+/// The `declarations` indexes `entry` states as its `declaration`: one
+/// index, or one per declaring hit.
+fn declared(entry: &Value) -> Vec<u64> {
+    match &entry["declaration"] {
+        Value::Number(index) => index.as_u64().into_iter().collect(),
+        indexes => line_numbers(indexes),
+    }
 }
 
 /// `<line>\t<text>`, a numbered window's record.
@@ -139,6 +151,7 @@ fn hits(row: &Value, reach: Reach<'_>) -> Option<Vec<Hit>> {
                     line,
                     last: line,
                     window: within(&lines, reach, (line, line)),
+                    declares: Vec::new(),
                 })
                 .collect(),
         );
@@ -153,6 +166,7 @@ fn hits(row: &Value, reach: Reach<'_>) -> Option<Vec<Hit>> {
                 line: hit,
                 last: hit,
                 window: within(&lines, reach, (hit, hit)),
+                declares: declared(entry),
             }));
             continue;
         }
@@ -161,6 +175,7 @@ fn hits(row: &Value, reach: Reach<'_>) -> Option<Vec<Hit>> {
             line,
             last,
             window: lines,
+            declares: declared(entry),
         });
     }
     Some(hits)
@@ -174,21 +189,26 @@ fn within(lines: &BTreeMap<u64, String>, reach: Reach<'_>, span: (u64, u64)) -> 
         .collect()
 }
 
-/// The innermost of `row`'s declarations holding `line`. A declaration may
+/// The innermost of `row`'s declarations holding `hit`'s line, other than
+/// the one the hit declares (listed for the hit to point at: its name line
+/// is the hit's, and it is not around its own name). A declaration may
 /// be its object or its line-first outline string
 /// (`"<line>\t<indent><kind> <name> (end N, …)"`), read back as the object.
-fn enclosing(row: &Value, line: u64) -> Option<Value> {
+fn enclosing(row: &Value, hit: &Hit) -> Option<Value> {
+    let line = hit.line;
     row["declarations"]
         .as_array()?
         .iter()
-        .filter_map(|declared| {
+        .zip(0_u64..)
+        .filter_map(|(declared, index)| {
             let declared = match declared.as_str() {
                 Some(text) => octocode_runtime_base::response::symbol_outline::outline_row(text)?.1,
                 None => declared.clone(),
             };
             let first = declared["line"].as_u64()?;
             let last = declared["endLine"].as_u64().unwrap_or(first);
-            (first <= line && line <= last).then(|| (last - first, declared))
+            let own = first == line && hit.declares.contains(&index);
+            (first <= line && line <= last && !own).then(|| (last - first, declared))
         })
         .min_by_key(|(span, _)| *span)
         .map(|(_, declared)| declared)
@@ -212,7 +232,7 @@ fn state(row: &Value, path: &str, hit: &Hit) -> Value {
     if !text.is_empty() {
         target["text"] = json!(text.join("\n"));
     }
-    if let Some(declared) = enclosing(row, hit.line) {
+    if let Some(declared) = enclosing(row, hit) {
         target["enclosing"] = declared;
     }
     if let Some(key) = row["matchKeys"]

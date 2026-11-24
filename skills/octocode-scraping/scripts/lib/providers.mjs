@@ -23,7 +23,7 @@ export function resolveProvider(name) {
 export function autoSelectProvider(mode, env) {
   if (mode !== 'html') {
     if (!env.SCRAPING_ANT?.trim()) {
-      throw new Error(`--mode ${mode} requires scrapingant; set the SCRAPING_ANT env variable or pass --provider scrapingant explicitly`);
+      throw new Error(`--mode ${mode} requires scrapingant; save SCRAPING_ANT with: node scripts/keys.mjs set SCRAPING_ANT --stdin, or pass --provider scrapingant explicitly`);
     }
     return 'scrapingant';
   }

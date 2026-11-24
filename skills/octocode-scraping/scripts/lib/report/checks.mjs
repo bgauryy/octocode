@@ -22,6 +22,17 @@ export function contractFor(skill) {
   return contract;
 }
 
+// The report skill whose scripts these are, or '' when installed elsewhere (skills/common).
+export const SCRIPT_SKILL = Object.hasOwn(KINDS, path.basename(SCRIPT_SKILL_DIR)) ? path.basename(SCRIPT_SKILL_DIR) : '';
+
+// The skill whose contract a report answers to: the .octocode/<skill>/ folder it is saved in, else `owner` for a
+// report saved outside <workspace>/.octocode/. '' when neither names a report skill.
+export function reportSkill(full, workspace, owner = '') {
+  const rel = toPosix(path.relative(path.join(workspace, '.octocode'), full)).split('/');
+  if (rel[0] === '..') return owner;
+  return rel.length >= 2 && Object.hasOwn(KINDS, rel[0]) ? rel[0] : '';
+}
+
 export const localDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 // A file inside a report folder that is not the folder's entry point (README.md, RFC.md, index.md) and carries
@@ -67,19 +78,32 @@ function headerWarnings(meta, workspace) {
   return warnings;
 }
 
-function contractWarnings(skill, meta, body) {
+// Required sections keep the contract's order: the first ## heading of each present one must follow that order.
+function orderWarnings(required, h2) {
+  const present = required.filter((h) => h2.includes(h.toLowerCase()));
+  const found = present.toSorted((a, b) => h2.indexOf(a.toLowerCase()) - h2.indexOf(b.toLowerCase()));
+  if (found.every((h, i) => h === present[i])) return [];
+  const list = (hs) => hs.map((h) => `## ${h}`).join(', ');
+  return [`required sections are out of order: ${list(found)}; the contract order is ${list(present)}`];
+}
+
+// `check`: a skill without a reachable contract is a violation, since --check must not pass what it never checked.
+function contractWarnings(skill, meta, body, check = false) {
   const contract = contractFor(skill);
-  if (!contract) return [];
+  if (!contract) return check ? [`no report contract for ${skill}: its output.md is not installed beside this script; run ${skill}/scripts/render-report.mjs --check`] : [];
   const warnings = [];
   if (meta.status && contract.statuses.length && !contract.statuses.some((w) => w.toLowerCase() === String(meta.status).toLowerCase()))
     warnings.push(`status "${meta.status}" is not one of ${contract.statuses.join(', ')}`);
-  const heads = new Set(outline(body).headings.filter(h=>h.level===2).map(h=>h.text.toLowerCase()));
+  const h2 = outline(body).headings.filter(h=>h.level===2).map(h=>h.text.toLowerCase());
+  const heads = new Set(h2);
   for (const h of contract.required) if (!heads.has(h.toLowerCase())) warnings.push(`missing the required section ## ${h}`);
   for (const g of contract.anyOf) if (!g.some((h) => heads.has(h.toLowerCase()))) warnings.push(`missing a required section: ${g.map((h) => `## ${h}`).join(' or ')}`);
-  return warnings;
+  return [...warnings, ...orderWarnings(contract.required, h2)];
 }
 
-export function checkReport(full, meta, body, workspace) {
+// `check` (render-report --check) treats every file as a report: one no contract can check is a violation, and a
+// report saved outside <workspace>/.octocode/ is checked against `owner`, the skill whose script runs.
+export function checkReport(full, meta, body, workspace, { check = false, owner = '' } = {}) {
   const support = supportingFile(full, meta, workspace);
   if (support) return support.hasPrimary ? [] : [`${support.folder}/: a report folder needs README.md (or RFC.md) as its entry point`];
   const rel = toPosix(path.relative(path.join(workspace, '.octocode'), full)).split('/');
@@ -88,9 +112,13 @@ export function checkReport(full, meta, body, workspace) {
   const scratch = rel[0] === 'tmp' ? rel[1] !== 'showcase' : rel[1] === 'tmp';
   if (scratch && meta.status && meta.question)
     return [`${rel.join('/')}: this has a report header but sits in a tmp/ folder, which the catalog skips; save it as .octocode/<skill>/<YYYY-MM-DD>-<slug>.md`];
-  if (rel.length < 2 || rel[0] === '..' || !KINDS[rel[0]]) return [];
+  const skill = reportSkill(full, workspace, check ? owner : '');
+  const fromWorkspace = toPosix(path.relative(workspace, full));
+  const shown = fromWorkspace.startsWith('../') ? toPosix(full) : fromWorkspace;
+  if (!skill) return check ? [`${shown}: no report skill owns this file; save it as .octocode/<skill>/<YYYY-MM-DD>-<slug>.md, or check it with the owning skill's scripts/render-report.mjs`] : [];
+  if (rel[0] === '..') return [...headerWarnings(meta, workspace), ...contractWarnings(skill, meta, body, check)].map((w) => `${shown}: ${w}`);
   const name = rel.length === 2 ? rel[1] : `${rel[1]}/${rel.slice(2).join('/')}`;
-  const warnings = [...layoutWarnings(full, rel), ...dateWarnings(full, rel, meta, workspace), ...headerWarnings(meta, workspace), ...contractWarnings(rel[0], meta, body)];
+  const warnings = [...layoutWarnings(full, rel), ...dateWarnings(full, rel, meta, workspace), ...headerWarnings(meta, workspace), ...contractWarnings(skill, meta, body, check)];
   return warnings.map((w) => `${name}: ${w}`);
 }
 

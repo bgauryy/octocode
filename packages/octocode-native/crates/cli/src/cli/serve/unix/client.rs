@@ -11,6 +11,7 @@ use super::startup::{Unstarted, start};
 use super::surface::Surface;
 use super::{read_line_bounded, same_dir_form};
 use crate::cli::output::Printed;
+use crate::cli::tool_call::Answered;
 use octocode_contract_types::ErrorCode;
 use octocode_io::http::READ_STALL;
 use octocode_native::runtime::RuntimeError;
@@ -73,110 +74,133 @@ pub(in crate::cli) async fn call(
     mode: crate::cli::OutputMode,
     loaded: &mut Option<octocode_runtime_base::config::ConfigInput>,
 ) -> Option<u8> {
-    let json_out = mode.json;
     let remote = Remote::resolve(Surface::Cli, loaded)?;
-    let target = &remote.target;
-    let cancel = async {
-        if tokio::signal::ctrl_c().await.is_err() {
-            std::future::pending::<()>().await;
-        }
-    };
-    let mut stream = match remote.connect_or_start(cancel).await {
-        Ok(stream) => stream,
-        Err(Unstarted::Cancelled) => return Some(130),
-        Err(Unstarted::Unavailable(reason)) => {
-            eprintln!(
-                "# octocode: warm server did not start ({reason}); running {tool} in process."
-            );
-            return None;
-        }
-    };
-    let bound = socket_identity(&target.socket);
-    let request = Request {
-        tool,
-        input,
-        json_out,
-        cwd: &target.cwd,
-        env: &target.env,
-        identity: &target.identity,
-        process: &target.process,
-        surface: Surface::Cli,
-    };
-    // An in-process call prints its configuration warnings at start.
-    let warn = || octocode_native::runtime::ToolRuntime::print_startup_diagnostics(&target.config);
-    let interrupted = || {
-        warn();
-        eprintln!(
-            "{}",
-            octocode_io::notice::as_note(crate::cli::tool_call::CANCELLING)
-        );
-    };
-    let first = async {
-        if tokio::signal::ctrl_c().await.is_err() {
-            std::future::pending::<()>().await;
-        }
-    };
-    let deadline = reply_deadline();
-    let exchanged = exchange(
-        &mut stream,
-        &request,
-        deadline,
-        READ_STALL,
-        first,
-        tokio::signal::ctrl_c(),
-        interrupted,
-        {
-            let print = crate::cli::tool_call::progress_printer(
-                crate::cli::tool_call::stderr_is_terminal(),
-            );
-            move |line: &str| {
-                if let Some(print) = &print {
-                    print(line);
-                }
-            }
-        },
-    )
-    .await;
-    let (printed, notices) = match exchanged {
-        Ok(reply) => (reply.printed, reply.notices),
-        Err(Failed::Fallback(reason)) => {
-            eprintln!("# octocode: warm server failed ({reason}); running {tool} in process.");
-            return None;
-        }
-        Err(Failed::Stalled(silence)) => {
-            discard_stalled(&target.socket, bound);
-            eprintln!(
-                "# octocode: warm server failed ({}); running {tool} in process.",
-                stalled_reason(silence)
-            );
-            return None;
-        }
-        Err(Failed::Interrupted(_)) => return Some(130),
-        Err(Failed::Deadline) => (
-            Printed::finish(
-                tool,
-                Err(octocode_native::runtime::RuntimeError {
-                    code: ErrorCode::Timeout,
-                    message: format!(
-                        "The warm server sent no {tool} reply within {} s; the call was not run again in process.",
-                        deadline.unwrap_or_default().as_secs()
-                    ),
-                    payload: None,
-                    validation_issues: None,
-                }),
-                json_out,
-                &serde_json::Value::Null,
-                None,
-            ),
-            Vec::new(),
-        ),
-    };
-    warn();
-    // What the call said on stderr while it ran, as in process.
-    for notice in notices {
-        eprintln!("{}", octocode_io::notice::as_note(&notice));
+    match remote.call_cli(tool, input, mode.json, true).await? {
+        Answered::Printed(printed) => Some(printed.print(mode)),
+        Answered::Exit(code) => Some(code),
     }
-    Some(printed.print(mode))
+}
+
+impl Remote {
+    /// Run the CLI call `tool` on the server, started when none answers:
+    /// the call as printed in JSON or text (`json_out`), after the notices
+    /// it raised (and, with `warn`, this configuration's warnings) on
+    /// stderr, as in process. `None` means the caller runs it in process: no
+    /// server started, or the exchange failed (both said on stderr).
+    pub(in crate::cli) async fn call_cli(
+        &self,
+        tool: &str,
+        input: &Value,
+        json_out: bool,
+        warn: bool,
+    ) -> Option<Answered> {
+        let target = &self.target;
+        let cancel = async {
+            if tokio::signal::ctrl_c().await.is_err() {
+                std::future::pending::<()>().await;
+            }
+        };
+        let mut stream = match self.connect_or_start(cancel).await {
+            Ok(stream) => stream,
+            Err(Unstarted::Cancelled) => return Some(Answered::Exit(130)),
+            Err(Unstarted::Unavailable(reason)) => {
+                eprintln!(
+                    "# octocode: warm server did not start ({reason}); running {tool} in process."
+                );
+                return None;
+            }
+        };
+        let bound = socket_identity(&target.socket);
+        let request = Request {
+            tool,
+            input,
+            json_out,
+            cwd: &target.cwd,
+            env: &target.env,
+            identity: &target.identity,
+            process: &target.process,
+            surface: Surface::Cli,
+        };
+        // An in-process call prints its configuration warnings at start.
+        let warn = || {
+            if warn {
+                octocode_native::runtime::ToolRuntime::print_startup_diagnostics(&target.config);
+            }
+        };
+        let interrupted = || {
+            warn();
+            eprintln!(
+                "{}",
+                octocode_io::notice::as_note(crate::cli::tool_call::CANCELLING)
+            );
+        };
+        let first = async {
+            if tokio::signal::ctrl_c().await.is_err() {
+                std::future::pending::<()>().await;
+            }
+        };
+        let deadline = reply_deadline();
+        let exchanged = exchange(
+            &mut stream,
+            &request,
+            deadline,
+            READ_STALL,
+            first,
+            tokio::signal::ctrl_c(),
+            interrupted,
+            {
+                let print = crate::cli::tool_call::progress_printer(
+                    crate::cli::tool_call::stderr_is_terminal(),
+                );
+                move |line: &str| {
+                    if let Some(print) = &print {
+                        print(line);
+                    }
+                }
+            },
+        )
+        .await;
+        let (printed, notices) = match exchanged {
+            Ok(reply) => (reply.printed, reply.notices),
+            Err(Failed::Fallback(reason)) => {
+                eprintln!("# octocode: warm server failed ({reason}); running {tool} in process.");
+                return None;
+            }
+            Err(Failed::Stalled(silence)) => {
+                discard_stalled(&target.socket, bound);
+                eprintln!(
+                    "# octocode: warm server failed ({}); running {tool} in process.",
+                    stalled_reason(silence)
+                );
+                return None;
+            }
+            Err(Failed::Interrupted(_)) => return Some(Answered::Exit(130)),
+            Err(Failed::Deadline) => (
+                Printed::finish(
+                    tool,
+                    Err(octocode_native::runtime::RuntimeError {
+                        code: ErrorCode::Timeout,
+                        message: format!(
+                            "The warm server sent no {tool} reply within {} s; the call was not run again in process.",
+                            deadline.unwrap_or_default().as_secs()
+                        ),
+                        payload: None,
+                        validation_issues: None,
+                    }),
+                    json_out,
+                    &serde_json::Value::Null,
+                    None,
+                ),
+                Vec::new(),
+            ),
+        };
+        warn();
+        // What the call said on stderr while it ran, as in process.
+        for notice in notices {
+            eprintln!("{}", octocode_io::notice::as_note(&notice));
+        }
+        Some(Answered::Printed(printed))
+    }
 }
 
 /// Leave a server that went silent behind: its socket is unlinked, so the

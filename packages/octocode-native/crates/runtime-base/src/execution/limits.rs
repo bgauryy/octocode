@@ -39,10 +39,13 @@ pub struct RuntimeLimits {
     /// row's client-side waits (quota pacing, a rate-limit reset, a
     /// `retry-after`). MCP hosts give up on a request after 60 s by default
     /// (the MCP SDKs' request timeout) and drop the answer, so a wait that
-    /// would outlast the host is not sat out: the row answers what it knows
-    /// (`languageServerIndexing`, or `rateLimited` with its `retryAfter`)
-    /// with the call that runs it again, which reaches the host where the
-    /// waited-for answer would not. The margin under 60 s covers shaping and
+    /// would outlast the host is sat out only up to the budget: the row
+    /// answers what it knows (`languageServerIndexing`, or `rateLimited` with
+    /// the rest of the wait as `retryAfter`) with the call that runs it
+    /// again, which reaches the host where the waited-for answer would not.
+    /// An agent cannot sleep, so it runs that call at once: a GitHub wait
+    /// spent up to the budget leaves the retry a rest it can sit out. The
+    /// margin under 60 s covers shaping and
     /// sending the reply. It ends only those waits: it never times a request
     /// out, and a request already sent is never cut by it. Not a setting: a
     /// caller that grants more time says so with its own budget, which wins,

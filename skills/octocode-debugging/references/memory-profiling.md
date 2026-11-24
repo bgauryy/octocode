@@ -19,11 +19,17 @@ When RSS grows and the managed heap after GC is flat, the growth is garbage the 
 
 | Question | Evidence | Capture |
 |---|---|---|
-| Churn: allocating too much per operation | Allocation rate, GC frequency, GC share of CPU, allocator frames in CPU samples | Allocation sampling over a fixed number of operations; divide by operation count |
+| Churn: allocating too much per operation | Allocation rate, GC frequency, GC share of CPU, allocator frames in CPU samples | Allocation sampling over a fixed number of operations, read per operation (for Node, [profile summary](../scripts/profile-top.mjs) `--ops`) |
 | Retention: memory not released | Heap after GC, sampled at the same lifecycle point, rising across equivalent cycles | Heap snapshots or live-allocation profiles at cycles 1, k and 2k of at least ten equivalent cycles; diff them |
 | Peak: memory too high at one moment | High-water mark, OOM kills, container limit hits | A time series across the spike plus the allocation tree at the peak (Massif, heaptrack) |
 
-Cumulative allocation (`alloc_space`, an allocation timeline) answers churn; live or in-use views answer retention; one large snapshot proves neither. Prove a leak with a slope over equivalent cycles after cleanup, and a cache by its plateau.
+Cumulative allocation (`alloc_space`, an allocation timeline) answers churn; live or in-use views answer retention; one large snapshot proves neither. Prove a leak with a slope over equivalent cycles after cleanup, and a cache by its plateau: record the heap after GC at the same lifecycle point of each cycle, one row per cycle with `cycle` and the value, and run:
+
+```bash
+node "$skill/scripts/compare-runs.mjs" --file "$out/cycles.csv" --growth cycle
+```
+
+`growing` means the later half still rises by more than its noise (the leak signature), `plateau` that the series rose and then stopped (a cache filling), `flat` or `falling` neither; `perCycle` and `latePerCycle` are the fitted slopes in the value's unit per cycle. Fewer than 6 cycles give `insufficient-cycles`; prefer ten or more.
 
 ## Garbage collection
 

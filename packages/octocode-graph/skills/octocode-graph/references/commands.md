@@ -20,6 +20,7 @@ Pass a file to build or serve a graph of that file alone. Pass its enclosing dir
 | Reopen a finished run | `octocode-graph serve --replay <result-dir>` |
 | The shared graph cache | `octocode-graph cache stats` (entries and bytes by kind, JSON) or `octocode-graph cache prune --max-bytes N` (evicts the least recently used until the entries hold at most N bytes) |
 | Briefs again (after `model.json`) | `octocode-graph render --data <dir>/data.json` |
+| Tool calls, errors and time of a run | `octocode-graph events <result-dir\|project-dir> [--json]`: summarizes `events.jsonl` (below) |
 
 Every build and refresh registers its result for its root in the per-user graph registry: `graph-registry/` in the Octocode home (`OCTOCODE_HOME`, else `~/.octocode`), one small file per result. `query`, `refresh`, `diff`, `openGraph` and MCP `query_graph`, `refresh_graph` and `diff_graph` with a project directory consult it after the default places, newest graph first, and drop entries whose result directory is gone. A registered result answers only for the root its own `events.jsonl` header names.
 
@@ -47,7 +48,7 @@ The viewer can chat with the agent that opened it (click a node, ask; the reply 
 
 Event batches travel as lossless gzipped WebSocket frames, decoded in arrival order. `octocode-graph serve` binds 127.0.0.1 on a random (or `--port`) port, serves only its own assets, and requires the run token in the page and WebSocket URLs plus a same-server `Origin`. The pipeline starts with the server; a reconnecting page sends `hello {since}` to recover missed events. The server remains available after `done` for AST outlines (`astSearch symbols`) and LSP `callers`, `callees` or `references`; those answers are events too.
 
-Each line of `events.jsonl` records an event with a sequence number and elapsed milliseconds. Count distinct tool IDs or start events for call volume. Use terminal events for summed tool time and phase boundaries for wall time.
+Each line of `events.jsonl` records an event with a sequence number and elapsed milliseconds. `octocode-graph events <dir>` summarizes it: per tool and in total, the calls (each tool id once), cursor pages, failed calls, calls answered with an error row, unfinished calls, rows, bytes and summed call time; per run (the build, each refresh, then later events), the wall time from its first event to its last and each phase's duration; and whether every id started exactly once. `--json` writes every field.
 
 | type | Carries |
 |---|---|

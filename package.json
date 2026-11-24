@@ -22,7 +22,9 @@
   "workspaces": [
     "packages/*",
     "packages/octocode-native/npm/*",
-    "skills/common"
+    "skills/common",
+    "skills/octocode-brainstorming",
+    "skills/octocode-scraping"
   ],
   "resolutions": {
     "octocode@npm:20.2.0": "workspace:packages/octocode",

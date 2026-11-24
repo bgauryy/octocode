@@ -223,7 +223,8 @@ pub(super) fn declared_read(
 }
 
 /// The same read of the names a literal read's declaration heads declare
-/// (`pub fn apply(` names `apply`), with the lines it selects and the names
+/// (`pub fn apply(` names `apply`), each as a whole identifier, with the
+/// lines it selects and the names
 /// joined; `None` when no pattern is a head, the read is a regex, or the
 /// names select no line.
 fn named_read(
@@ -245,7 +246,31 @@ fn named_read(
     if names.iter().all(|name| patterns.contains(name)) {
         return None;
     }
-    let query = local_fetch_query::updated(q, serde_json::json!({ "matchString": names })).ok()?;
+    // Each name matches as a whole identifier (the readers take no
+    // `wholeWord`): `emitt` is not a use of the name inside `EventEmitter`.
+    let whole = |name: &str| {
+        let edge = |c: Option<char>| {
+            if c.is_some_and(|c| c.is_alphanumeric() || c == '_') {
+                r"\b"
+            } else {
+                ""
+            }
+        };
+        format!(
+            "{}{}{}",
+            edge(name.chars().next()),
+            regex::escape(name),
+            edge(name.chars().next_back())
+        )
+    };
+    let query = local_fetch_query::updated(
+        q,
+        serde_json::json!({
+            "matchString": names.iter().map(|name| whole(name)).collect::<Vec<_>>(),
+            "regexEngine": "rust",
+        }),
+    )
+    .ok()?;
     let count = super::extraction::extract(&query, text, written)
         .ok()
         .and_then(|extraction| extraction.count)

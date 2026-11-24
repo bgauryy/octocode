@@ -39,6 +39,7 @@ const COMMANDS = [
   'locate',
   'cache',
   'check',
+  'events',
 ];
 const BINS = new Set(COMMANDS.map(name => `runtime/${name}.js`));
 // Copied verbatim beside the bundles.

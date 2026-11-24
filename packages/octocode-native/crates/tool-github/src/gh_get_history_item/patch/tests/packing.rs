@@ -75,7 +75,7 @@ fn single_file_and_three_hundred_file_commits_stay_lossless() {
 #[test]
 fn windows_end_at_a_file_boundary_unless_one_file_overflows() {
     let files = vec![file("a.rs", "AB"), file("b.rs", "CDEF"), file("c.rs", "G")];
-    let query = |offset: usize| with_budget(window(json!({"offset":offset})), 10);
+    let query = |offset: usize| with_window(window(json!({"offset":offset})), 4);
     let shown = |page: &PatchPage| {
         page.rows
             .iter()
@@ -111,18 +111,18 @@ fn windows_end_at_a_file_boundary_unless_one_file_overflows() {
 #[test]
 fn a_cut_patch_ends_at_a_line_boundary() {
     let lines = vec![file("a.rs", "+one\n+two\n+three\n")];
-    let page = shape_patch_page(lines.clone(), &with_budget(window(json!({})), 30));
+    let page = shape_patch_page(lines.clone(), &with_window(window(json!({})), 12));
     assert_eq!(page.rows[0]["patch"], "+one\n+two\n");
     assert_eq!(page.cursor, Some(10));
     let rest = shape_patch_page(
         lines,
-        &with_budget(window(json_fixture(r#"{"offset": 10}"#)), 30),
+        &with_window(window(json_fixture(r#"{"offset": 10}"#)), 12),
     );
     assert_eq!(rest.rows[0]["patch"], "+three\n");
     assert_eq!(rest.cursor, None);
     let long = shape_patch_page(
         vec![file("a.rs", "abcdefgh")],
-        &with_budget(window(json!({})), 10),
+        &with_window(window(json!({})), 4),
     );
     assert_eq!(long.cursor, Some(4));
 }

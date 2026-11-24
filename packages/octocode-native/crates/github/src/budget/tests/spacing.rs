@@ -32,6 +32,92 @@ async fn spacing_rejection_names_its_own_resource() {
     );
 }
 
+/// The spacing waits `waits` recorded, in milliseconds.
+fn spacing_ms(waits: &ClientWaits) -> u64 {
+    waits
+        .summed()
+        .iter()
+        .filter(|wait| wait.kind == octocode_contract_base::ClientWaitKind::Spacing)
+        .map(|wait| wait.ms.unsigned_abs())
+        .sum()
+}
+
+/// A spacing wait that outlasts the wait bound (an MCP host's reply budget)
+/// but ends before the deadline is slept up to the bound, then refused unsent
+/// with only the rest as `retryAfter`, holding no slot: the retry that
+/// refusal hands back waits out the rest within its own bound and is
+/// admitted. An agent cannot sleep, so a refusal that slept nothing hands
+/// back a retry that is refused the same way. The refusal names the limit it
+/// passed, the wait bound, not the deadline.
+#[tokio::test]
+async fn a_spacing_wait_past_the_wait_bound_is_slept_to_the_bound_and_its_retry_admitted() {
+    let spacing = Duration::from_millis(1500);
+    let (budget, state) = limited(ExecutorConfig {
+        graphql_spacing: spacing,
+        ..ExecutorConfig::relaxed()
+    });
+    drop(
+        admit(
+            &state,
+            &budget,
+            Group::Graphql,
+            Instant::now() + spacing * 10,
+        )
+        .await
+        .expect("first start"),
+    );
+    let bound = spacing / 3;
+    let first = ClientWaits::default();
+    let started = Instant::now();
+    let limit = WaitLimit {
+        deadline: started + spacing * 10,
+        sleep_by: started + bound,
+    };
+    let error = state
+        .admit(
+            Some(Group::Graphql),
+            budget.config(),
+            limit,
+            &Cancellation::new(),
+            &first,
+        )
+        .await
+        .err()
+        .expect("the spacing outlasts the bound");
+    assert_eq!(error.kind, ProviderErrorKind::RateLimited, "{error:?}");
+    assert!(!error.message.contains("deadline"), "{}", error.message);
+    assert!(
+        spacing_ms(&first) >= millis(bound) * 9 / 10,
+        "{:?}",
+        first.summed()
+    );
+    let rest = error
+        .rate_limit
+        .and_then(|rate| rate.retry_after_seconds)
+        .expect("the rest of the spacing");
+    assert!(rest <= ceil_secs(spacing - bound), "retryAfter {rest}s");
+
+    let retry = ClientWaits::default();
+    let now = Instant::now();
+    let limit = WaitLimit {
+        deadline: now + spacing * 10,
+        sleep_by: now + spacing,
+    };
+    drop(
+        state
+            .admit(
+                Some(Group::Graphql),
+                budget.config(),
+                limit,
+                &Cancellation::new(),
+                &retry,
+            )
+            .await
+            .expect("the rest fits the retry's bound"),
+    );
+    assert!(spacing_ms(&retry) > 0, "{:?}", retry.summed());
+}
+
 #[tokio::test]
 async fn search_starts_within_quota_burst() {
     let (budget, state) = limited(quota_paced());

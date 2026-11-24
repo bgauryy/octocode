@@ -93,6 +93,14 @@ pub(super) async fn refs(
     // Copy the semantic request before adding the next saved page position.
     let asked = query_row(query, &["page"]);
     let wanted = RefLists::of(&asked);
+    // A failed whole-list read remains a typed failure: substituting
+    // GitHub's page order would change the cursor's ordering. A glob's
+    // literal start is GitHub's to match: only refs that can match are read,
+    // branches and tags alike.
+    let prefix = match (&pattern, query.ref_.as_deref()) {
+        (Some(_), Some(glob)) => literal_prefix(glob),
+        _ => "",
+    };
     let branches = async {
         match (wanted.branches, &pattern) {
             (false, _) => Ok(None),
@@ -100,20 +108,13 @@ pub(super) async fn refs(
                 .repository_refs(owner, repo, RefKind::Branches, page, per_page, context)
                 .await
                 .map(Some),
-            // A pattern selects from every branch: GitHub filters none, so
-            // a page of the matches is cut from the whole list.
+            // A pattern selects from the branches under its literal start,
+            // in name order: a page of the matches is cut from them.
             (true, Some(pattern)) => transport
-                .all_refs(owner, repo, RefKind::Branches, context)
+                .branch_refs(owner, repo, prefix, context)
                 .await
                 .map(|all| Some(matching_page(all, pattern, page, per_page))),
         }
-    };
-    // A failed whole-list read remains a typed failure: substituting
-    // GitHub's page order would change the cursor's ordering. A glob's
-    // literal start is GitHub's to match: only refs that can match are read.
-    let prefix = match (&pattern, query.ref_.as_deref()) {
-        (Some(_), Some(glob)) => literal_prefix(glob),
-        _ => "",
     };
     let tags = async {
         if wanted.tags {
@@ -303,7 +304,7 @@ fn literal_prefix(glob: &str) -> &str {
 }
 
 /// Page `page` of the refs in `all` whose name `pattern` matches, in
-/// GitHub's order.
+/// GitHub's (name) order.
 fn matching_page(
     all: Vec<NamedRef>,
     pattern: &globset::GlobMatcher,

@@ -1,8 +1,8 @@
 # Method
 
 How a benchmark round is run, measured, judged and recorded. Agents run it by direct calls and
-judgement: there are no driver scripts. A one-line count (`| wc -c`, `time`) is fine; don't keep
-it. What to compare against is in [COMPARISONS.md](COMPARISONS.md); how to check each tool's
+judgement; checked-in scripts do the exact, repeated parts (`dev pin`, `dev walk`, `harness-tally.mjs`), and
+nothing else is kept as a driver. What to compare against is in [COMPARISONS.md](COMPARISONS.md); how to check each tool's
 behavior, security and skills is in [CHECKS.md](CHECKS.md). Every round ends in one
 [scorecard](briefs/SCORECARD.md).
 
@@ -81,7 +81,7 @@ Setting up the agents, tool allowlists, Octocode home, clones and cleanup is in 
 | **Characters** | text that reached the model: every tool result read, every call written, and the final answer, in Unicode code points | Count from receipts/transcripts with a Unicode-aware counter. `wc -c` measures bytes, so record UTF-8 bytes separately. Character/token ratios vary; token cost stays unknown without provider usage. Capture both CLI streams. Setup/help/schema and failed calls remain separately visible; do not charge shared environment bookkeeping on every logical request or claim unread captured help was model context |
 | **Calls** and **failed calls** | from the transcript | name the cause of each failure (a guessed field name, a refused command) |
 | **Time** | wall clock per question; Octocode first and repeat call separately; warm (session server running) and cold | compare only arms timed in the same round on the same machine |
-| **Provider tokens and cost** | host-reported, when available | report beside characters; unknown stays unknown, never zero |
+| **Provider tokens and cost** | host-reported, when available | report beside characters; unknown stays unknown, never zero. Split new input (uncached plus cache writes), cached re-reads and output. A run within the cache lifetime of a run with the same prompts re-reads that run's question text and early turns: its first call writes nothing and its cost is understated (2026-11-24: $1.56 against $1.93 on a fresh prompt). Check each session's first-call cache write before comparing cost across runs |
 
 ### Workflow receipts
 

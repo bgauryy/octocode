@@ -1,37 +1,33 @@
 ---
 name: octocode-context-audit
-description: "Load this skill first when asked to measure configured agent context (instructions, skills, MCP schemas, duplicate installs, Claude transcript usage): its script reports sizes without guessing. Behavioral diagnosis: octocode-agentic."
+description: "Load this skill first when asked to measure configured agent context (instructions, skills, MCP schemas, duplicate installs, Claude transcript usage): its script measures sizes and use instead of guessing. Behavioral diagnosis: octocode-agentic."
 ---
 
 # Context audit
 
-## Run
-
-Capture a baseline with the dependency-free [audit script](scripts/context-audit.mjs).
+Run the dependency-free [audit script](scripts/context-audit.mjs):
 
 ```bash
-node <skill>/scripts/context-audit.mjs --workspace <repo> --no-probe
+node skills-dev/octocode-context-audit/scripts/context-audit.mjs --workspace <repo> --no-probe
 ```
 
-Keep `--no-probe` when a configured server may have startup side effects. Omit it to measure stdio servers via `initialize` and every `tools/list` page. A deadline, invalid page or repeated cursor leaves that server unmeasured. Keep stderr private.
+- `--no-probe` starts no MCP server; keep it when a configured server may have startup side effects. Without it, each stdio server gets `initialize` and every `tools/list` page within 20 s; a timeout, invalid page or repeated cursor leaves that server unmeasured (a `high` finding).
+- `--days N` (default 30) selects this workspace's Claude transcripts by file mtime. Use `--all-projects` only for a cross-project audit the user asked for.
+- Each run writes `context-audit.json` to a fresh `<workspace>/.octocode/octocode-context-audit/<date>-audit-*/`; `--out DIR` writes there instead and can overwrite a baseline. `--json` also prints the report, `--html` adds `context-audit.html`, and `--render <context-audit.json>` renders a saved report later without collecting.
 
-Use `--days N` to select Claude transcripts by file mtime. The default scope is this workspace. Use `--all-projects` only for a cross-project audit the user asked for; report counts and tool names, never prompt or transcript text. Each run saves `context-audit.json` under a fresh dated directory in `<workspace>/.octocode/octocode-context-audit/`. An explicit `--out DIR` can overwrite a baseline. `--json` also prints the full report.
+## What it measures
 
-## What it collects
+Sizes are characters against `BUDGET` in `scripts/lib/audit-common.mjs`; tokens are characters ÷ 4, an estimate, not billed input.
 
-| Surface | Read the evidence as |
-|---|---|
-| Instructions, rules and memory index | Separate always-loaded files from nested rules. Nested repos and agent worktrees are listed separately. |
-| User and workspace skills | Look for long descriptions, broken links and a name installed from different sources in Claude or workspace agent directories. |
-| Claude user/project and Cursor MCP configurations | Compare instructions, tool descriptions and schemas with the report’s character budgets. The estimate of four characters per token cannot establish actual model input or billing. |
-| Claude Code transcripts | Check tool and skill calls, error rates and shell reads against research calls. Judge only Claude-loaded surfaces. With missing sessions or malformed lines, report the calls actually observed. Absence and window-wide error rates remain unknown. |
+| Surface | Read from | Flags |
+|---|---|---|
+| Instructions | `AGENTS.md`, `CLAUDE.md`, `CLAUDE.local.md`, `GEMINI.md`, `.cursorrules`, `copilot-instructions.md`, `.cursor/rules/*.mdc` in the workspace; `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, the project's `MEMORY.md` | Files and always-loaded total over budget. Nested files load only in their directory; nested repositories go to `nestedRepositoriesSkipped`; `.claude/worktrees` is skipped |
+| Skills | `~/.claude/skills`, `.claude/skills`, `.agents/skills` | Long descriptions, broken links, one name installed from different sources |
+| MCP | `~/.claude.json` (user and this project), `.mcp.json`, `~/.cursor/mcp.json` | Instructions, tool descriptions, schemas and server totals over budget |
+| Usage | Claude Code transcripts | Servers, tools and skills never called; error rates; shell reads outnumbering research calls. Cursor servers and `.agents` skills are not judged, and malformed lines or read failures suppress these flags |
 
-## Act on the report
+## Act on it
 
-Start with `high` findings. Read each flag against its measured scope and budget. Move reference detail out of always-loaded files, keep per-turn rules, and retain one canonical skill installation. Check routing and schemas with `octocode-agentic` before treating zero calls in a short window as grounds for deletion. Use `octocode-skills` for structural or installation repairs.
+Start with `high` findings. Report sizes, counts and tool names; never quote prompt or transcript text. Zero calls in a short window is no reason to delete: check routing with `octocode-agentic` first, and leave installation repairs to `octocode-skills`. After a repair, rerun to a new `--out` and compare with `node skills-dev/octocode-context-audit/scripts/context-audit.mjs --compare <before>/context-audit.json <after>/context-audit.json`: each surface's size delta and the findings resolved and new. Done when each high finding has its measured size, owning file and a repair or a reason to keep it.
 
-If repairs are authorized, change the owning source, rerun to a fresh destination and compare the saved evidence and retained behavior. Follow [output.md](output.md) for the BLUF, each high finding in 5W2H, the before/after delta and HTML delivery. Use `--html` when requested up front or `--render <saved-context-audit.json>` to render the accepted snapshot later.
-
-When changing a collector, budget or output mode, run `node --test <skill>/scripts/tests/*.test.mjs`.
-
-Done when each high finding has a measured size, owning file and a repair or reason to keep it, and each repair has a rerun delta.
+After changing a collector, budget or output mode, run `node --test skills-dev/octocode-context-audit/scripts/tests/*.test.mjs`.

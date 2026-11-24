@@ -252,9 +252,6 @@ fn review_selection_packs_source_files_by_churn() {
             "src/main/java/com/acme/Latest.java"
         ]
     );
-    // A literal search fills the page share without the metadata reserve.
-    assert_eq!(literal_patch_window(None), 16_000);
-    assert_eq!(literal_patch_window(Some(20_000)), 16_000);
 }
 
 /// Example programs show a change in use, as tests show it checked: the

@@ -2,9 +2,8 @@
 //! page-stream cursor that continues it, and the file rows it shows.
 use super::super::HistoryItemRequest;
 use super::super::inventory::*;
-use super::super::text::needle;
 use super::super::util::str_at;
-use super::super::window::{literal_patch_window, patch_window};
+use super::super::window::patch_window;
 use super::hunks::history_patch_view;
 use crate::gh_get_history_item::gh_get_history_item_query;
 use octocode_runtime_base::response::pages::SpanFacts;
@@ -76,23 +75,13 @@ pub(in crate::gh_get_history_item) fn shape_patch_page_reserving(
     let offset = gh_get_history_item_query::char_offset(query)
         .unwrap_or(0)
         .min(total);
-    let window = match needle(query) {
-        // A literal search returns many short hit runs: their row headers
-        // are small, so the hits may fill the page share without the fixed
-        // metadata reserve.
-        Some(_) => literal_patch_window(query.auto_page_chars),
-        _ => patch_window(query.auto_page_chars),
-    };
-    let window = window.saturating_sub(reserve).max(window / 4).max(1);
+    let share = patch_window(query.auto_page_chars);
+    let window = share.saturating_sub(reserve).max(share / 4).max(1);
     // The first window also lists every patch-less file of the page as a
     // metadata row on the same response page: a window that would push the
     // row past the page's patch share shrinks by those rows (an explicit
     // smaller `length` already fits). The quarter floor keeps a walk moving.
     let window = if offset == 0 {
-        let share = match needle(query) {
-            Some(_) => literal_patch_window(query.auto_page_chars),
-            None => patch_window(query.auto_page_chars),
-        };
         let used = reserve + patchless_rows_chars(&files, &views, &lengths);
         window.min(share.saturating_sub(used).max(share / 4)).max(1)
     } else {

@@ -56,7 +56,8 @@ pub(super) fn map_pr(v: Value) -> Value {
         "author":v.pointer("/user/login").and_then(Value::as_str).unwrap_or(""),
         "createdAt":utc_value(v.get("created_at")),
         // A listing's pull request names its target branch (a backport's
-        // is not the default); a search result carries none.
+        // is not the default); a search item's is read when picked
+        // ([`super::pull_facts`]).
         "baseRef":v.pointer("/base/ref"),
     });
     if row["createdAt"].is_null() {
@@ -133,9 +134,9 @@ fn state_updated(row: &mut Value, item: &Value) {
 /// unknown. The page decides which of these a default row needs.
 /// `commentsCount` is the conversation count GitHub's item carries;
 /// `totalCommentsCount` the whole count a pull-request page read
-/// ([`super::comment_counts`]).
+/// ([`super::pull_facts`]).
 fn state_counts(row: &mut Value, item: &Value) {
-    let whole = format!("/{}", super::comment_counts::ITEM_KEY);
+    let whole = format!("/{}", super::pull_facts::ITEM_KEY);
     for (pointer, key) in [
         ("/comments", "commentsCount"),
         (whole.as_str(), "totalCommentsCount"),

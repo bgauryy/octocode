@@ -102,6 +102,13 @@ pub(super) async fn execute_page(
         Ok(path) => path,
         Err(failure) => return failure::path_failure(&query, paths, failure),
     };
+    // A request without `line` becomes the one that sends the line of the
+    // name's one declaration, before any rung reads it.
+    if let Some(anchored) =
+        anchor::anchored_by_name(&query, &path).map_err(LspFailure::invalid_query)?
+    {
+        query = anchored;
+    }
     // Boxed: the ladder's future is large, and this one holds it.
     let (answered, about) = server_text::naming_files(Box::pin(run_page(
         &query,

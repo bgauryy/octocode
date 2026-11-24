@@ -29,8 +29,9 @@ Frame the question, corpus/revision and evidence that would settle it. Read a kn
 | Need | Read |
 |---|---|
 | Select a tool, view, scout or cross-source route | [Tool flow](references/tool-flow.md) |
-| Invocation, paging, failed calls or unavailable tools | [MCP/CLI usage](references/octocode-usage.md) |
+| A CLI reply with `next` | Add `--all-pages` to the call to follow every page |
 | Source identity, semantic proof or coverage limits | [Evidence rules](references/evidence.md) |
+| GitHub token, classification key or another setting | [Configuration](references/configuration.md) |
 | Root-cause proof, campaigns, repository comparisons or handoff | [Method](references/method.md) |
 | Authorized behavior change, deletion or refactor | [Prove, then act](references/workflows.md) |
 | Saved report or detailed result contract | [Output](output.md), [renderer](scripts/render-report.mjs) |

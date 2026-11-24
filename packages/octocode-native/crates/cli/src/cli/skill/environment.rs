@@ -56,6 +56,7 @@ pub(super) fn status(runtime: &ToolRuntime, name: &str, github_auth: bool) -> Va
                 "SERPER_API_KEY",
                 "Optional Google web, news and Scholar search",
             ),
+            ("DEEPSEEK_API_KEY", "Optional DeepSeek web search"),
         ]);
     }
     if name == "octocode-scraping" {

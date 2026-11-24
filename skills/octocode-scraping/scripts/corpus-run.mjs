@@ -16,7 +16,7 @@
 import { readFile, writeFile, stat, mkdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { paginate } from './lib/pagination.mjs';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import {
@@ -36,6 +36,11 @@ function usage(code = 2) {
   corpus-run.mjs --session-dir <scrapeSession> --regex <pattern> [--flags <gimsu>] [--roots text,extracts,cdp,snippets,reports,indexes,graph,sources] [--limit 50] [--concat-parts] [--write-full-clean]
   corpus-run.mjs --artifact-dir <chrome-devtools-run> --regex <pattern> [...]
   corpus-run.mjs --session-dir <dir> --script <file.mjs> [--script-arg key=value]
+
+--script runs a trusted module that exports async function run(ctx); ctx = { root, roots, files [{rel, abs, root}],
+read(relOrAbs) -> text, write(rel, text) -> abs path (creates folders under the session), sessionDir, artifactDir,
+args (from --script-arg), matches }. Its return value is saved under indexes/script-results/ and printed as
+script.result (inline when at most 4000 bytes; otherwise follow script.result.next.continue); {ok:false} exits 1.
 
 Default roots follow the documented search order; add raw to audit extraction. The sources root covers the top-level files
 (sources.jsonl, AGENT_INDEX.json, manifest.json, page-map.json, MAP.md).
@@ -199,6 +204,9 @@ const ctxBase = {
   async write(rel, content) {
     const base = sessionDir || artifactDir;
     const abs = join(base, rel);
+    const inside = relative(base, abs);
+    if (!inside || inside.startsWith('..') || isAbsolute(inside)) throw new Error(`ctx.write path must stay inside ${base}: ${rel}`);
+    await mkdir(dirname(abs), { recursive: true });
     await writeFile(abs, content);
     return abs;
   },
@@ -214,7 +222,8 @@ if (scriptArg) {
   if (typeof mod.run !== 'function') {
     fail('invalidScript', 'script must export async function run(ctx)', 2);
   }
-  scriptResult = await mod.run(ctxBase);
+  try { scriptResult = await mod.run(ctxBase); }
+  catch (error) { fail('scriptFailed', error instanceof Error ? error.message : String(error), 1, { script: absScript }); }
   const value = JSON.stringify(scriptResult ?? null);
   inlineScriptResult = Buffer.byteLength(value) <= 4000 ? scriptResult : null;
   const digest = createHash('sha256').update(value).digest('hex');

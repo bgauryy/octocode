@@ -25,3 +25,29 @@ test('reject malformed, combined, empty and nonmonotonic captures', () => {
     assert.throws(() => seriesFrom(input));
   }
 });
+test('resource counters, GC count and loop utilization are differenced per interval; --json reports the exit record', async (t) => {
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs');
+  const { spawnSync } = await import('node:child_process');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const record = (event, elapsedMs, n) => ({ event, elapsedMs, cpuMs: { user: n, system: 0 }, memoryBytes: { rss: 2 ** 20, heapUsed: 0, external: 0 },
+    resources: { fsRead: 10 * n, fsWrite: n, maxRSS: 1024 * n }, eventLoop: { idle: 3 * n, active: n, delayMs: null }, gc: { count: 2 * n, durationMs: n } });
+  const text = jsonl(start, record('sample', 100, 1), record('exit', 300, 4));
+  const rows = seriesFrom(text);
+  assert.deepEqual(rows.map((r) => [r.fsRead, r.fsWrite, r.gcCount, r.loopUtilization, r.maxRssMiB]), [[10, 1, 2, 0.25, 1], [30, 3, 6, 0.25, 4]]);
+  assert.equal(rows[1].intervalMs, 200);
+  const dir = mkdtempSync(join(tmpdir(), 'metrics-report-test-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'run.metrics.jsonl'), text);
+  const script = new URL('../metrics-report.mjs', import.meta.url).pathname;
+  const out = spawnSync(process.execPath, [script, join(dir, 'run.metrics.jsonl'), '--json'], { encoding: 'utf8' });
+  assert.equal(out.status, 0, out.stdout + out.stderr);
+  const report = JSON.parse(out.stdout);
+  assert.equal(report.exitRecorded, true);
+  assert.equal(report.intervals, rows.length);
+  writeFileSync(join(dir, 'cut.metrics.jsonl'), jsonl(start, record('sample', 100, 1)));
+  assert.equal(JSON.parse(spawnSync(process.execPath, [script, join(dir, 'cut.metrics.jsonl'), '--json'], { encoding: 'utf8' }).stdout).exitRecorded, false);
+  const bad = spawnSync(process.execPath, [script, join(dir, 'missing.jsonl'), '--json'], { encoding: 'utf8' });
+  assert.equal(bad.status, 2);
+  assert.equal(JSON.parse(bad.stdout).ok, false);
+});

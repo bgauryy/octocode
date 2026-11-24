@@ -20,7 +20,7 @@ flowchart LR
 1. State the question as a measurement: "where do the 800 ms of the search call go" or "heap after GC flat over 50 cycles". A diagnosis needs no target: it stops when attribution explains the cost. Ask for a target only before optimizing, and record the measured baseline it is compared with.
 2. Go from coarse to fine: OS counters first (CPU time, RSS, I/O bytes, context switches), then a sampler, then allocation tracking or instrumentation on the narrowed phase only. Each capture must shrink the set of rivals; if it does not, change what you measure.
 3. Change one variable per iteration. Keep build, input, warmup, concurrency and host load equal ([host usage](host-usage.md)). A change of two things explains neither.
-4. Prefer several equivalent cycles to one run: they show slope and spread. Keep a window long enough to include the event, since rare stalls and tail latency need it. Call a difference real only when it exceeds the run-to-run spread. A cost that grows with input size shows only across sizes: measure at three (say 2, 10 and 40 KB) to tell linear from quadratic; one size shows constants.
+4. Prefer several equivalent cycles to one run: they show slope and spread. Keep a window long enough to include the event, since rare stalls and tail latency need it. A difference is real only when it exceeds the run-to-run spread: let the [run comparison](#compare-builds-on-a-shared-host) decide. A cost that grows with input size shows only across sizes: measure at three or more (say 2, 10 and 40 KB), one row per run with `size` and the metric, then run `node "$skill/scripts/compare-runs.mjs" --file "$out/sizes.csv" --growth size`. Its `nearestPower` is 0 for constant, 1 for linear and 2 for quadratic cost, `exponent` the fitted log-log slope; one size shows only constants.
 5. Compare captures with a diff tool: `go tool pprof -base`, `perf diff`, heap snapshot comparison, `tracemalloc` `compare_to`.
 6. Stop narrowing when the attributed frames, waits or bytes add up to most of the observed cost. By Amdahl's law, a frame with 5% of the time caps its fix at 5%.
 7. Account for the observer: instrumenting profilers inflate many small calls; allocation tracking and snapshots slow and pause the target. Confirm a final gain on an uninstrumented run.
@@ -31,7 +31,13 @@ Memory questions (GC, heap, references, allocators, struct layout) follow the sa
 
 ## Compare builds on a shared host
 
-Keep the old build runnable beside the new one, where it still resolves its dependencies, and alternate rounds (old, new, old, new) with the same driver and input. Other work on the host moves wall time and RSS between rounds more than many fixes do, so decide on per-process CPU time and on deterministic counters: bytes allocated or calls made per operation, file and bundle sizes. Report every round's numbers, not only the best. When a fix comes with a test, run that test against the base revision (a separate worktree, or the file from the base commit) to see it fail; an index that tooling stages on its own is not a baseline.
+Keep the old build runnable beside the new one, where it still resolves its dependencies, and run the [run comparison](../scripts/compare-runs.mjs) from the directory the commands expect:
+
+```bash
+node "$skill/scripts/compare-runs.mjs" --old "$old_command" --new "$new_command" --rounds 5 --warmup 1
+```
+
+It runs both commands through `/bin/sh` in alternating rounds (old, new, old, new) and prints JSON: for each metric (`wallMs`, `cpuMs`, and `parsed` when `--parse '<regex>'` captures a number the command prints) every round's value, the median, the spread and a `verdict`. `lower` or `higher` means the new median differs from the old by more than both spreads; `within-spread` means the rounds do not separate the builds. Exit 1 means a round failed; its stderr tail is in the error. Other work on the host moves wall time and RSS between rounds more than many fixes do, so decide on `cpuMs` and on deterministic counters: bytes allocated or calls made per operation, file and bundle sizes. Rounds measured another way go in with `--file` (JSON, JSON lines or CSV rows with `variant` and metric columns). Report every round's numbers, not only the best. When a fix comes with a test, run that test against the base revision (a separate worktree, or the file from the base commit) to see it fail; an index that tooling stages on its own is not a baseline.
 
 ## Drive an interactive program
 

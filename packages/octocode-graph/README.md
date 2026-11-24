@@ -20,7 +20,10 @@ The package exports two native tools, `graphBuild` to create a snapshot and `gra
 npx octocode-graph graphBuild '{"queries":[{"path":"."}]}' --json
 npx octocode-graph graphQuery '{"queries":[{"path":".","operation":"stats"}]}' --json
 npx octocode-graph schema graphQuery --view variants
+npx octocode-graph graphQuery '{"queries":[{"path":".","operation":"cycles"}]}' --all-pages
 ```
+
+`--all-pages` reads a `graphQuery` call to its end (every page, `rowPart` fragment, evidence list and cycle member list, each checked against its stated count) and prints one JSON reply without `next`, each row once.
 
 To connect an MCP client, add a stdio server entry.
 
@@ -65,6 +68,7 @@ Each new build needs a fresh result directory. Omit `--out` to allocate one auto
 | `octocode-graph html <result-dir> <new.html>` | Save a self-contained interactive HTML file with the full replay and queryable graph. Open it directly in a modern browser with WebGL. Saved queries run in a browser worker. |
 | `octocode-graph serve <directory>` | Open an interactive graph. |
 | `octocode-graph serve --replay <result-dir>` | Reopen a saved run, including runs created by the former viewer skill. |
+| `octocode-graph events <result-dir>` | Summarize the run's `events.jsonl`: tool calls, cursor pages, errors, rows, bytes and time per tool; wall time and phases per build and refresh. |
 
 See the [viewer commands](skills/octocode-graph/references/commands.md) for scope, LSP options and progress.
 
@@ -83,7 +87,7 @@ npx octocode-graph query .octocode/first-run 'trace src/main.ts DEFINES CALLS+' 
 
 The first query lists prerequisite groups before their consumers, including the source evidence for each crossing. The second follows declarations and one or more calls, returning matching endpoints and the witnesses on accepting walks. Both commands also work in the viewer. [Saved query syntax](skills/octocode-graph/references/query.md)
 
-To attach a SCIP JSON index, per-test LLVM coverage, LLVM control-flow and dominance graphs, or OTLP JSON spans, run `octocode-graph enrich data.json manifest.json enriched.json`. Query the new file directly. [Provider manifest and evidence](skills/octocode-graph/references/providers.md)
+To attach a SCIP JSON index, per-test LLVM coverage, LLVM control-flow and dominance graphs, or OTLP JSON spans, write the manifest with `octocode-graph enrich --manifest-from data.json manifest.json --revision <rev> --provider <format> <file>` (it records every digest), then run `octocode-graph enrich data.json manifest.json enriched.json`. Query the new file directly. [Provider manifest and evidence](skills/octocode-graph/references/providers.md)
 
 ## Develop and pack
 

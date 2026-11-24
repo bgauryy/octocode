@@ -37,7 +37,7 @@ python3 "$RELAY" ask --workspace "$REPO" --to WORKER --text "Which check is stil
 | Error | Fix |
 |---|---|
 | `predates the parts message schema` | Put a current build first on PATH as `octocode-agents-communication`. |
-| `Expected one live peer` | Use an exact ID from the store's peers ([routes](references/routes.md)). |
+| `Expected one live peer` | Use an exact `store[].id` from `python3 "$RELAY" peers --workspace "$REPO"` ([routes](references/routes.md)). |
 | `Proxy failed: Vendor error … usageLimitExceeded` | Rerun with the other `--vendor`. |
 | `No reply within` | The message stays pending: raise `--timeout` or check the worker. |
 

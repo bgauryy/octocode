@@ -11,7 +11,7 @@ mod pages;
 #[cfg(test)]
 mod tests;
 
-pub(super) use budget::{auto_page, literal_patch_window, patch_window};
+pub(super) use budget::{auto_page, patch_window};
 use pages::mark_capped;
 pub(super) use pages::{
     lift_page_limits, paginate_window, reconcile_collection_total, reconcile_file_totals,

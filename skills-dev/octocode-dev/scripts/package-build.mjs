@@ -147,6 +147,10 @@ export function bundleDocs(packageRoot, outDir) {
 
 if (isMainModule(import.meta.url)) {
   const [command, outDir] = process.argv.slice(2);
+  if (command === '--help' || command === '-h') {
+    console.log('Usage: node package-build.mjs docs <outDir>\nCopies the repository docs/ into <cwd>/<outDir>/docs for the octocode and octocode-mcp package builds (their build scripts run it). Exit 0 on success, 2 on invalid input.');
+    process.exit(0);
+  }
   if (command !== 'docs' || !outDir) {
     console.error('Usage: node package-build.mjs docs <outDir>');
     process.exit(2);

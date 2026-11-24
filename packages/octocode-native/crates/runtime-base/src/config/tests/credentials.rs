@@ -118,23 +118,23 @@ fn classification_key_falls_back_to_config_file_without_leaking() {
     );
 }
 #[test]
-fn trusted_dotenv_credentials_use_process_then_project_then_home() {
+fn trusted_dotenv_credentials_use_process_then_home_then_project() {
     for key in [
         "GH_TOKEN",
         "GITHUB_TOKEN",
         "OCTOCODE_CLASSIFICATION_API",
         "OCTOCODE_CLASSIFICATION_API_HOST",
     ] {
+        // API keys keep the home value over a workspace one; home-trusted keys
+        // (an endpoint, the classification key) never come from a workspace.
+        assert!(
+            super::super::dotenv::is_api_key(key) || HOME_TRUSTED_ENV_KEYS.contains(&key),
+            "{key}"
+        );
         for (explicit, expected) in [
-            (None, "project-secret"),
+            (None, "home-secret"),
             (Some("process-secret"), "process-secret"),
         ] {
-            // Home-trusted keys (e.g. an endpoint) never come from a workspace.
-            let expected = if expected == "project-secret" && HOME_TRUSTED_ENV_KEYS.contains(&key) {
-                "home-secret"
-            } else {
-                expected
-            };
             let value = |label: &str| valid_value(key, label);
             let expected = value(expected);
             let env = explicit
@@ -251,15 +251,33 @@ fn token_variables_obey_source_precedence_before_token_priority() {
                         .iter()
                         .filter_map(|key| out.env_value(key))
                         .find(|value| !value.trim().is_empty());
+                    // Tokens are API keys: process, then home, then workspace,
+                    // whichever alias each source uses.
                     assert_eq!(
                         selected,
                         Some(if process {
                             "process-secret"
                         } else {
-                            "workspace-secret"
+                            "home-secret"
                         }),
                         "{higher_alias} vs {lower_alias}"
                     );
+                    if !process {
+                        // A workspace token fills in only when the home file has none.
+                        i.global_env = FileInput::Read {
+                            path: "/home/.env".into(),
+                            text: "HOME_ONLY=home".into(),
+                        };
+                        let filled = resolve_config(&i);
+                        assert_eq!(
+                            group
+                                .iter()
+                                .filter_map(|key| filled.env_value(key))
+                                .find(|value| !value.trim().is_empty()),
+                            Some("workspace-secret"),
+                            "workspace {higher_alias} fills"
+                        );
+                    }
                     assert_eq!(
                         out.token
                             .as_ref()

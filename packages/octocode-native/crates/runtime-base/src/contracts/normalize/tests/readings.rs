@@ -358,18 +358,22 @@ fn a_cursor_in_the_one_row_reads_as_the_cursor_call() {
     assert_eq!(input, kept);
 }
 
-/// What a call states: a reading that changes no value or meaning (the
-/// envelope, JSON text, a one-item list, an integral float, an ordered pair,
-/// a cursor in its row) is made silently; a regex bracket read as text
-/// changes the pattern, so the call says so.
+/// What a call states: a reading that changes no value or meaning (JSON
+/// text, a one-item list, an integral float, an ordered pair, a cursor in
+/// its row) is made silently; a regex bracket read as text changes the
+/// pattern, and bare fields hold one row where `queries` batches several,
+/// so the call says both.
 #[test]
-fn only_a_reading_that_changes_meaning_is_stated() {
+fn only_a_reading_that_changes_meaning_or_the_next_call_is_stated() {
     for (tool, sent) in [
         (
             "localSearch",
-            json!({"path": ".", "matchString": "x", "exclude": "[\"target\"]"}),
+            json!({"queries": [{"path": ".", "matchString": "x", "exclude": "[\"target\"]"}]}),
         ),
-        ("localFetch", json!({"path": "a.rs", "ranges": [[3, 9]]})),
+        (
+            "localFetch",
+            json!({"queries": [{"path": "a.rs", "ranges": [[3, 9]]}]}),
+        ),
         (
             "localFetch",
             json!({"queries": [{"path": "a.rs", "limit": 3.0}]}),
@@ -388,6 +392,12 @@ fn only_a_reading_that_changes_meaning_is_stated() {
         panic!("one warning: {said:?}");
     };
     assert!(note.contains("matchString[0] as `def route\\(`"), "{note}");
+    assert!(note.contains("bare fields as"), "{note}");
+    let (_, said) = normalized_input("localFetch", json!({"path": "a.rs", "ranges": [[3, 9]]}));
+    let [note] = said.as_slice() else {
+        panic!("one warning: {said:?}");
+    };
+    assert!(note.contains("one row: queries batches several"), "{note}");
 }
 
 /// The brief fields a tool other than clasify does not declare are dropped,
@@ -406,4 +416,67 @@ fn a_brief_field_is_dropped_and_said_outside_clasify() {
         panic!("one warning: {said:?}");
     };
     assert!(note.contains("mainGoal, reasoning dropped"), "{note}");
+}
+
+/// An empty `queries` beside row fields holds no row: the bare fields are
+/// its one reading, said like any bare fields (2026-11-24: workflow W3's
+/// first call was refused this way in 3 of 3 runs).
+#[test]
+fn an_empty_queries_beside_row_fields_reads_as_the_bare_row() {
+    let sent = json!({"operation": "pullRequest", "owner": "o", "repo": "r", "queries": []});
+    let (input, said) = normalized_input("ghSearchHistory", sent);
+    assert_eq!(
+        input,
+        json!({"queries": [{"operation": "pullRequest", "owner": "o", "repo": "r"}]})
+    );
+    let [note] = said.as_slice() else {
+        panic!("one warning: {said:?}");
+    };
+    assert!(note.contains("bare fields as"), "{note}");
+    let kept = json!({"queries": []});
+    assert_eq!(normalized_input("ghSearchHistory", kept.clone()).0, kept);
+}
+
+/// A bare row's unknown field travels with the row: the call is refused in
+/// queries[0], beside that row's own repair, not as a request field with a
+/// generic example (2026-11-24: an agent dropped a read after the generic one).
+#[test]
+fn a_bare_rows_unknown_field_is_refused_in_the_row() {
+    let sent = json!({"owner": "o", "repo": "r", "path": "a.js", "limit": 1});
+    let (input, _) = normalized_input("ghGetFileContent", sent);
+    assert_eq!(input["queries"][0]["limit"], 1, "{input}");
+    let error = match crate::contracts::prepare_rows("ghGetFileContent", input) {
+        Err(error) => error,
+        Ok(rows) => rows
+            .into_iter()
+            .find_map(Result::err)
+            .expect("the row is refused"),
+    };
+    let shown = crate::contracts::format_input_error("ghGetFileContent", &error, &Value::Null);
+    let line = shown["error"].as_str().unwrap_or_default();
+    assert!(
+        line.starts_with("Unknown field 'limit' in queries[0]"),
+        "{line}"
+    );
+}
+
+/// A row field repeated beside `queries` with the value every row already
+/// holds says nothing new: it is dropped and the rows run (2026-11-24: 4 of
+/// 11 failed calls sent `operation` both beside and inside the rows). A
+/// differing value, or a row without it, still goes to validation's refusal.
+#[test]
+fn a_row_field_repeated_beside_queries_with_the_rows_value_is_dropped() {
+    let rows = json!([{"operation": "match", "path": "src", "rule": {"pattern": "fn $F()"}}]);
+    let (input, _) = normalized_input(
+        "astSearch",
+        json!({"operation": "match", "queries": rows.clone()}),
+    );
+    assert_eq!(input, json!({"queries": rows}));
+    for kept in [
+        json!({"operation": "symbols", "queries": [{"operation": "match", "path": "src", "rule": {"pattern": "x"}}]}),
+        json!({"operation": "match", "queries": [{"path": "src", "rule": {"pattern": "x"}}]}),
+    ] {
+        let (input, _) = normalized_input("astSearch", kept.clone());
+        assert_eq!(input["operation"], kept["operation"], "{input}");
+    }
 }

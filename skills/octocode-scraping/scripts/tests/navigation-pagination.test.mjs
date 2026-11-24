@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { chunkTextByBytes } from '../lib/text.mjs';
 import { initCorpus, writePage } from '../lib/corpus.mjs';
-import { node, withDir } from './helpers.mjs';
+import { node, readSource, withDir } from './helpers.mjs';
 
 const scripts = fileURLToPath(new URL('../', import.meta.url));
 const invoke = (command, args) => { const result = spawnSync(command, args, { encoding: 'utf8' }); assert.equal(result.status, 0, result.stderr); return JSON.parse(result.stdout); };
@@ -38,10 +38,10 @@ test('oversized query values have reconstructable source pages', () => {
   try {
     mkdirSync(join(dir,'extracts')); const row={kind:'button',text:'🧠'.repeat(10000)};
     writeFileSync(join(dir,'extracts/elements.jsonl'),JSON.stringify(row));
-    let page=invoke(process.execPath,[join(scripts,'dom-find.mjs'),'--session-dir',dir]);
-    const continuation=page.matches[0].next.continue; page=invoke(continuation.command,continuation.args); const parts=[];
-    for(;;){parts.push(Buffer.from(page.content,'base64'));if(!page.next)break;page=invoke(page.next.continue.command,page.next.continue.args);}
-    assert.deepEqual(JSON.parse(Buffer.concat(parts)),{...row,pageUrl:null,evidenceFile:'extracts/elements.jsonl',textEvidence:null});
+    const page=invoke(process.execPath,[join(scripts,'dom-find.mjs'),'--session-dir',dir]);
+    const {bytes,encodings}=readSource(page.matches[0].next.continue);
+    assert(encodings.every(e=>e==='utf8'),'a JSON value pages as text');
+    assert.deepEqual(JSON.parse(bytes),{...row,pageUrl:null,evidenceFile:'extracts/elements.jsonl',textEvidence:null});
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 test('downloaded raw and cleaned text survive configured view sizes and Unicode chunk boundaries', async () => {
@@ -97,9 +97,7 @@ test('specialized script results retain every field through bounded source pages
     const script=join(dir,'custom.mjs');writeFileSync(script,`export async function run(){return ${JSON.stringify(expected)};}`);
     const result=invoke(process.execPath,[join(scripts,'corpus-run.mjs'),'--session-dir',dir,'--script',script]);
     assert(Buffer.byteLength(JSON.stringify(result))<22000);
-    let page=invoke(result.script.result.next.continue.command,result.script.result.next.continue.args);const parts=[];
-    for(;;){parts.push(Buffer.from(page.content,'base64'));if(!page.next)break;page=invoke(page.next.continue.command,page.next.continue.args);}
-    assert.deepEqual(JSON.parse(Buffer.concat(parts)),expected);
+    assert.deepEqual(JSON.parse(readSource(result.script.result.next.continue).bytes),expected);
   }finally{rmSync(dir,{recursive:true,force:true});}
 });
 

@@ -1017,12 +1017,23 @@ function symbolCalls(
   const via = countBy(rows, 'via');
   const files = new Set(rows.map(r => r.id));
   const coverage = dir === 'callers' ? callerCoverage(I, sym) : null;
+  // With --tests, callers count the ones in test files: 0 means no test calls the symbol directly.
+  const fromTests =
+    dir === 'callers' && I.tests ? rows.filter(r => r.test) : null;
   return {
     symbol: sym,
     rows,
     edges,
     nodes: [file, ...files],
-    stats: { calls: rows.length, files: files.size, via },
+    stats: {
+      calls: rows.length,
+      files: files.size,
+      via,
+      ...(fromTests && {
+        testCalls: fromTests.length,
+        testFiles: new Set(fromTests.map(r => r.id)).size,
+      }),
+    },
     // Every caller list is syntax evidence: its lspSearch confirmation comes with it; warnings only when they exist.
     ...(coverage?.warnings.length && { warnings: coverage.warnings }),
     ...(coverage?.partialReasons && {
@@ -1034,7 +1045,7 @@ function symbolCalls(
       Object.entries(via)
         .map(([k, n]) => `${k} ${n}`)
         .join(', ') || 'none'
-    })${coverage?.partialReasons ? `; may be incomplete (${coverage.partialReasons.join(', ')}): see warnings` : ''}`,
+    })${fromTests ? `; ${plural(fromTests.length, 'caller')} in test files` : ''}${coverage?.partialReasons ? `; may be incomplete (${coverage.partialReasons.join(', ')}): see warnings` : ''}`,
   };
 }
 

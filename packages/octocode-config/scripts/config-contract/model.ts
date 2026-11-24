@@ -95,7 +95,17 @@ export function orderedEnvironment(fields: FlatField[], contract: Contract) {
   );
   tokens.sort(([, left], [, right]) => (left.tokenPriority ?? 0) - (right.tokenPriority ?? 0));
   const tokenNames = tokens.map(([name]) => name);
+  // Every API key a person sets: environment credentials of type key, then credential settings.
+  const apiKeys = [
+    ...Object.entries(contract.environment)
+      .filter(([, definition]) => definition.type === 'key')
+      .map(([name, definition]) => ({ name, dotenv: definition.dotenv ?? 'all', group: definition.group, description: definition.description, docsUrl: definition.docsUrl })),
+    ...fields
+      .filter(field => field.credential === true && field.env)
+      .map(field => ({ name: field.env!.name, dotenv: field.env!.dotenv ?? 'all', group: field.group, description: field.description, docsUrl: field.docsUrl })),
+  ].map(key => Object.fromEntries(Object.entries(key).filter(([, value]) => value !== undefined)));
   return {
+    apiKeys,
     fieldBindings,
     protectedNames: [...new Set(protectedNames)],
     homeTrusted: [...new Set(homeTrusted)],

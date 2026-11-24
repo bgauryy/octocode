@@ -1,4 +1,5 @@
-Load when a finding, absence claim, repair, or completion claim needs proof. Source: `skills/common`; installed copies are generated.
+Load when a finding, absence claim, repair, or completion claim needs proof.
+<!-- Source: skills/common; installed copies are generated. -->
 
 ## Match proof to the claim
 

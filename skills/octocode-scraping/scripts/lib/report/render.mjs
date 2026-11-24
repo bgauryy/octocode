@@ -4,7 +4,7 @@ import path from 'node:path';
 import { mdKit } from './markdown.mjs';
 import { pageHtml } from './page.mjs';
 import { KINDS, PRIMARY, SCRIPT_SKILL_DIR, collect, skillFor, toPosix } from './workspace.mjs';
-import { checkReport, contractFor, outline, supportingFile } from './checks.mjs';
+import { SCRIPT_SKILL, checkReport, contractFor, outline, reportSkill, supportingFile } from './checks.mjs';
 
 const IMAGE_TYPES = {'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.gif':'image/gif','.webp':'image/webp','.svg':'image/svg+xml','.avif':'image/avif'};
 
@@ -43,8 +43,33 @@ function reportTitle(options, payload, rels) {
   return files[0].meta.title || (firstH1 || rels[0]).replace(/[`*_]/g, '');
 }
 
+// Collects a file or folder and every validation warning (contract, widgets, images); writes nothing.
+function validate(target, options) {
+  const collected = collect(target, options);
+  const { workspace, root, files } = collected;
+  const kit = mdKit();
+  const warnings = [...new Set(files.flatMap((f) => [
+    ...checkReport(path.join(root, f.path), f.meta, f.body, workspace, { check: options.check, owner: options.owner }),
+    ...widgetWarnings(kit, f),
+  ]))];
+  embedImages(files, kit, workspace, warnings);
+  return { ...collected, warnings };
+}
+
+// --check: the validation --strict applies, without building or writing HTML.
+// A report saved outside <workspace>/.octocode/ answers to this script's own skill.
+export function checkReports(target, options = {}) {
+  const owner = SCRIPT_SKILL;
+  const { root, files, workspace, warnings } = validate(target, { workspace: options.workspace, check: true, owner });
+  const reports = files.map((f) => path.join(root, f.path)).filter((full, i) => !supportingFile(full, files[i].meta, workspace));
+  const skills = [...new Set(reports.map((full) => reportSkill(full, workspace, owner)).filter(Boolean))];
+  // A supporting file alone (a run log, a case) is no report: passing it would claim a check that never ran.
+  if (!reports.length) warnings.push(`${target}: no report to check; check the folder's README.md (or RFC.md) instead`);
+  return { validation: warnings.length ? 'failed' : 'passed', files: reports.length, skills, ...(warnings.length ? { warnings } : {}) };
+}
+
 export function buildReport(target, options = {}) {
-  const { abs, isDir, workspace, root, rels, files, underOctocode } = collect(target, options);
+  const { abs, isDir, workspace, root, rels, files, underOctocode, warnings } = validate(target, options);
   const top = rels.find((r) => !r.includes('/') && PRIMARY.includes(r.toLowerCase()));
   const rootName = underOctocode ? `${path.basename(workspace)} – Octocode output` : path.basename(root);
   const payload = {
@@ -56,12 +81,6 @@ export function buildReport(target, options = {}) {
     files,
   };
   const title = reportTitle(options, payload, rels);
-  const kit = mdKit();
-  const warnings = [...new Set(files.flatMap((f) => [
-    ...checkReport(path.join(root, f.path), f.meta, f.body, workspace),
-    ...widgetWarnings(kit, f),
-  ]))];
-  embedImages(files, kit, workspace, warnings);
   return { html: pageHtml(payload, title), files: rels, workspace, isDir, abs, warnings };
 }
 

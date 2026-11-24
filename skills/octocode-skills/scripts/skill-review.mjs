@@ -2,6 +2,7 @@
 // Structural checks for Agent Skill folders. Trigger quality and prose require human review.
 import { existsSync, realpathSync, statSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { frontmatter, jsonDescriptionProblem } from './lib/frontmatter.mjs';
 
@@ -19,16 +20,26 @@ function filesUnder(root) {
   return files;
 }
 
-function localPaths(text) {
-  const paths = new Set();
-  const links = /\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+["'][^\n]*?["'])?\s*\)|^\s*\[[^\]]+\]:\s*(?:<([^>]+)>|(\S+))/gm;
-  for (const match of text.matchAll(links)) {
+const lineAt = (text, index) => text.slice(0, index).split('\n').length;
+
+// Every inline or reference-style link to a file, with the line it is on. A URL scheme (https:, mailto:)
+// or a bare #anchor is not a file; a root-absolute /path is kept, flagged `rooted`.
+function linkTargets(text) {
+  const links = [];
+  const pattern = /\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+["'][^\n]*?["'])?\s*\)|^\s*\[[^\]]+\]:\s*(?:<([^>]+)>|(\S+))/gm;
+  for (const match of text.matchAll(pattern)) {
     const raw = match[1] || match[2] || match[3] || match[4];
     const target = raw.split('#')[0];
-    if (/^(?:[a-z]+:|\/|#)/i.test(target)) continue;
-    if (target) { try { paths.add(decodeURIComponent(target)); } catch { paths.add(target); } }
+    if (!target || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(target)) continue;
+    let decoded = target;
+    try { decoded = decodeURIComponent(target); } catch { /* keep the spelling as written */ }
+    links.push({ target: decoded, rooted: target.startsWith('/'), line: lineAt(text, match.index + match[0].indexOf(raw)) });
   }
-  return paths;
+  return links;
+}
+
+function localPaths(text) {
+  return new Set(linkTargets(text).filter((link) => !link.rooted).map((link) => link.target));
 }
 
 // GitHub-style heading slugs, so a renamed section breaks its #anchor links visibly.
@@ -59,9 +70,10 @@ function anchorLinks(text) {
   return links;
 }
 
-// Fenced blocks hold commands and examples, not Markdown links.
+// Fenced blocks hold commands and examples, not Markdown links. Their lines stay as blank lines, so
+// line numbers in the rest of the file still match the source.
 function withoutFences(text) {
-  return text.replace(/^ {0,3}(```|~~~)[^\n]*\n[\s\S]*?^ {0,3}\1[^\n]*$/gm, '');
+  return text.replace(/^ {0,3}(```|~~~)[^\n]*\n[\s\S]*?^ {0,3}\1[^\n]*$/gm, (block) => block.replace(/[^\n]/g, ''));
 }
 
 function supportPaths(text) {
@@ -120,14 +132,24 @@ function checkConventions({ name, files, texts, dir, add }) {
 
 const templated = (target) => target.includes('<') || target.includes('{') || target.includes('*') || target.includes('…');
 
+const insideSkill = (dir, full) => full === dir || full.startsWith(`${dir}/`);
+
 function checkDocLinks({ dir, texts, add }, path, text) {
   const prose = withoutFences(text);
   for (const target of localPaths(prose)) {
     if (templated(target)) continue;
     const full = resolve(dirname(join(dir, path)), target);
-    if (!full.startsWith(`${dir}/`) && full !== dir) continue; // cross-skill handoffs are allowed
-    if (!existsSync(full)) add('ERROR', 'missing-path', `${path} references missing ${target}.`);
+    if (insideSkill(dir, full) && !existsSync(full)) add('ERROR', 'missing-path', `${path} references missing ${target}.`);
   }
+  // A link out of the folder resolves in this checkout but not where the skill is installed alone. Repo-only
+  // skills (the skills-dev collection) are never installed alone, so their links into the repository stay.
+  if (basename(dirname(realpathSync(dir))) === 'skills-dev') return;
+  const escaping = new Map();
+  for (const { target, rooted, line } of linkTargets(prose)) {
+    if (templated(target) || (!rooted && insideSkill(dir, resolve(dirname(join(dir, path)), target)))) continue;
+    escaping.set(target, [...(escaping.get(target) || []), line]);
+  }
+  for (const [target, lines] of escaping) add('WARN', 'link-escapes-skill', `${path}:${[...new Set(lines)].join(',')} links to ${target}, outside the skill folder; a standalone install does not ship it. Bundle the file, link a public URL, or name the other skill in plain text.`, { file: path, line: lines[0] });
   const inProse = new Set(supportPaths(prose));
   for (const target of new Set(supportPaths(text))) {
     if (existsSync(join(dir, target))) continue;
@@ -160,12 +182,147 @@ function checkRouting({ dir, files, texts, add }) {
   for (const path of files.filter((item) => item.startsWith('references/') && item.endsWith('.md') || /^scripts\/[^/]+\.(mjs|js|sh|py)$/.test(item))) {
     if (!reachable.has(path)) add('WARN', 'unrouted-resource', `${path} has no route from SKILL.md.`);
   }
+  return reachable;
 }
 
-function review(dir) {
+// With --sizes: UTF-8 bytes of what a host reads at each stage: the discovery description, the activated entry,
+// and each document routed from it (scripts are run, not read, so they are not counted).
+function routeSizes({ dir, skill }, reachable) {
+  const bytes = (text) => Buffer.byteLength(text, 'utf8');
+  const raw = (skill.match(/^description:[ \t]*(.*)$/m) || [])[1] || '';
+  let description = raw.trim();
+  try { if (description.startsWith('"')) description = JSON.parse(description); } catch { /* reported by the frontmatter checks */ }
+  const routed = Object.fromEntries([...reachable].filter((path) => path !== 'SKILL.md' && path.endsWith('.md')).toSorted().map((path) => [path, statSync(join(dir, path)).size]));
+  return { description: bytes(description), entry: bytes(skill), routed, routedTotal: Object.values(routed).reduce((sum, size) => sum + size, 0) };
+}
+
+// A shipped script is code the agent should run instead of doing the work by hand: the text must
+// show its command, and the script must explain its inputs, outputs and exit codes on --help.
+// Tests are run by the test runner, and a script another script calls is documented by its caller.
+const RUNNERS = { py: 'python3', sh: 'bash' };
+function checkScripts({ dir, files, texts, add }) {
+  const source = (path) => readFileSync(join(dir, path), 'utf8');
+  const code = new Map(files.filter((item) => /^scripts\/.+\.(mjs|js|cjs|sh|py)$/.test(item) && !/\.test\.[a-z]+$/.test(item)).map((path) => [path, source(path)]));
+  const docText = [...texts.values()].join('\n');
+  const docLines = docText.split('\n');
+  const fenced = [...docText.matchAll(/^(`{3,}|~{3,})[^\n]*\n([\s\S]*?)^\1/gm)].map(([, , body]) => body).join('\n');
+  for (const path of [...code.keys()].filter((item) => /^scripts\/[^/]+$/.test(item))) {
+    const file = basename(path);
+    const stem = file.replace(/\.[a-z]+$/, '');
+    const imports = new RegExp(`^\\s*(?:import\\s+${stem}\\b|from\\s+${stem}\\s+import\\b)`, 'm');
+    if ([...code].some(([other, text]) => other !== path && (text.includes(file) || (file.endsWith('.py') && imports.test(text))))) continue;
+    // A command: the path on a line that runs an interpreter, or the path followed by an argument.
+    const named = new RegExp(`(?:^|[\\s\`'"(/=])${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w.-])`);
+    const runs = /\b(?:node|python3?|bash|sh|bun|deno|NODE_OPTIONS)\b|--(?:import|require|loader)\b/;
+    const argued = new RegExp(`${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+(?:--?[A-Za-z]|<)`);
+    const runner = RUNNERS[file.split('.').pop()] || 'node';
+    // A code block naming the script (a command, or a variable a later command runs) also documents it.
+    if (!docLines.some((line) => named.test(line) && (runs.test(line) || argued.test(line))) && !named.test(fenced)) add('WARN', 'script-usage-missing', `${path} has no documented command (such as \`${runner} <skill-folder>/${path} --help\`); show it in the step that needs it, with when to run it and how to read its result.`);
+    // --help may live in a module the script imports (an argument parser in scripts/lib).
+    const own = code.get(path);
+    const imported = [...own.matchAll(/from\s+['"](\.{1,2}\/[^'"]+)['"]/g)].map(([, target]) => relative(dir, resolve(dir, dirname(path), target))).filter((target) => code.has(target)).map((target) => code.get(target));
+    if (![own, ...imported].some((text) => /--help\b|\bargparse\b|\bgetopts\b/.test(text))) add('WARN', 'script-help-missing', `${path} does not answer --help; document its inputs, outputs, effects and exit codes there.`);
+  }
+}
+
+// With --commands: every flag a documented command passes to a shipped script must appear in that script's
+// --help. Runs each script's --help once (no other arguments); a script that cannot answer is reported by
+// script-help-missing instead.
+function checkCommandFlags({ dir, files, texts, add }) {
+  const scripts = new Set(files.filter((item) => /^scripts\/[^/]+\.(mjs|js|cjs|sh|py)$/.test(item)));
+  const help = new Map();
+  const helpOf = (path) => {
+    if (!help.has(path)) {
+      const runner = RUNNERS[path.split('.').pop()] || process.execPath;
+      const run = spawnSync(runner, [join(dir, path), '--help'], { cwd: dir, encoding: 'utf8', timeout: 15_000, env: { PATH: process.env.PATH, HOME: process.env.HOME } });
+      help.set(path, run.status === 0 ? `${run.stdout}\n${run.stderr}` : null);
+    }
+    return help.get(path);
+  };
+  for (const [doc, raw] of texts) {
+    // A shell command continued with a trailing backslash is one command.
+    const text = raw.replace(/\\\n[ \t]*/g, ' ');
+    for (const [, name, rest] of text.matchAll(/scripts\/([\w.-]+\.(?:mjs|js|cjs|sh|py))[`'"]?((?:[ \t]+[^`\n|]*)?)/g)) {
+      const path = `scripts/${name}`;
+      if (!scripts.has(path)) continue;
+      // Arguments after a bare `--` belong to the program the script runs.
+      const own = rest.split(/\s--(?:\s|$)/)[0];
+      const flags = [...new Set([...own.matchAll(/(?:^|\s)(--[a-z][\w-]*)/g)].map(([, flag]) => flag))].filter((flag) => flag !== '--help');
+      if (!flags.length) continue;
+      const usage = helpOf(path);
+      if (usage === null) continue;
+      for (const flag of flags) if (!new RegExp(`${flag}(?![\\w-])`).test(usage)) add('WARN', 'command-flag-unknown', `${doc} passes ${flag} to ${path}, which its --help does not list.`);
+    }
+  }
+}
+
+// With --tells: the writing tells a script can find exactly; references/writing-tells.md judges each one.
+// Uppercase MUST/NEVER outside code, counted per file, and sentences that repeat across a skill's documents.
+// A slash-joined spelling (MUST/NEVER) names the words instead of using them.
+const SHOUTED = /(?<![\w/])(?:MUST|NEVER)(?![\w/])/g;
+const withoutFrontmatter = (text) => text.replace(/^---\s*\n[\s\S]*?\n---[^\n]*/, (block) => block.replace(/[^\n]/g, ''));
+const withoutCodeSpans = (line) => line.replace(/(`+)[^`\n]+?\1/g, '');
+// A cell or item that is only code spans and links is a command or a citation, not a sentence.
+const hasProse = (sentence) => /\p{L}/u.test(withoutCodeSpans(sentence).replace(/\[[^\]]*\]\([^)]*\)/g, ''));
+// Shorter repeats ("Do not install.") are labels and verdicts, not a rule stated twice.
+const MIN_SENTENCE_WORDS = 4;
+
+// Sentences of a document's prose, each with its starting line: paragraphs, list items and table cells are
+// split at terminal punctuation; headings, table header rows and rules, fenced code and frontmatter are not prose.
+function sentences(text) {
+  const found = [];
+  let parts = [];
+  const flush = () => {
+    let joined = '';
+    const starts = [];
+    for (const part of parts) { starts.push([joined.length, part.line]); joined += `${part.text} `; }
+    for (const match of joined.matchAll(/\S[\s\S]*?(?:[.!?]+[)"'\]\u201d\u2019*_]*(?=\s|$)|(?=\s*$))/g)) {
+      const sentence = match[0].trim();
+      if (sentence.split(/\s+/).length < MIN_SENTENCE_WORDS || !hasProse(sentence)) continue;
+      found.push({ sentence, line: starts.findLast(([offset]) => offset <= match.index)[1] });
+    }
+    parts = [];
+  };
+  const rule = (line = '') => /^\|?[\s:|-]*-[\s:|-]*$/.test(line.trim());
+  const lines = withoutFrontmatter(withoutFences(text)).split('\n');
+  lines.forEach((raw, index) => {
+    const line = raw.trim();
+    if (!line || /^#{1,6}\s/.test(line) || rule(line) || line.startsWith('<!--') || (line.startsWith('|') && rule(lines[index + 1]))) { flush(); return; }
+    if (line.startsWith('|')) {
+      flush();
+      for (const cell of line.split(/(?<!\\)\|/).map((item) => item.trim()).filter(Boolean)) { parts.push({ text: cell, line: index + 1 }); flush(); }
+      return;
+    }
+    const item = line.match(/^(?:[-*+]|\d+[.)]|>)\s+(.*)$/);
+    if (item) flush();
+    parts.push({ text: item ? item[1] : line, line: index + 1 });
+  });
+  flush();
+  return found;
+}
+
+function checkTells({ texts, add }) {
+  for (const [path, text] of texts) {
+    const lines = withoutFences(text).split('\n').flatMap((line, index) => (withoutCodeSpans(line).match(SHOUTED) || []).map(() => index + 1));
+    if (lines.length) add('WARN', 'tell-must-never', `${path}:${[...new Set(lines)].join(',')} has ${lines.length} MUST/NEVER; keep them for safety, authority and hard contracts, and write other rules as plain imperatives.`, { file: path, line: lines[0] });
+  }
+  const seen = new Map();
+  for (const [path, text] of texts) {
+    for (const { sentence, line } of sentences(text)) {
+      const key = sentence.toLowerCase().replace(/\s+/g, ' ');
+      seen.set(key, [...(seen.get(key) || []), { file: path, line, sentence }]);
+    }
+  }
+  for (const places of seen.values()) {
+    if (new Set(places.map((place) => place.file)).size < 2) continue;
+    add('WARN', 'tell-repeated-sentence', `"${places[0].sentence}" repeats at ${places.map((place) => `${place.file}:${place.line}`).join(', ')}; keep one owner and link to it.`, { file: places[0].file, line: places[0].line });
+  }
+}
+
+function review(dir, { commands = false, sizes = false, tells = false } = {}) {
   const name = basename(dir);
   const findings = [];
-  const add = (level, code, message) => findings.push({ level, code, message });
+  const add = (level, code, message, at = {}) => findings.push({ level, code, message, ...at });
   if (!existsSync(join(dir, 'SKILL.md'))) {
     add('ERROR', 'skill-missing', 'SKILL.md is missing.');
     return { skill: name, path: dir, findings };
@@ -177,8 +334,11 @@ function review(dir) {
   checkLayout(ctx);
   checkConventions(ctx);
   for (const [path, text] of texts) checkDocLinks(ctx, path, text);
-  checkRouting(ctx);
-  return { skill: name, path: dir, findings };
+  const reachable = checkRouting(ctx);
+  checkScripts(ctx);
+  if (commands) checkCommandFlags(ctx);
+  if (tells) checkTells(ctx);
+  return { skill: name, path: dir, findings, ...(sizes ? { sizes: routeSizes(ctx, reachable) } : {}) };
 }
 
 // Self-test, part 1: generic output guides, public descriptions, saved report, missing paths.
@@ -290,8 +450,8 @@ function selfTestCollections(dir, skill) {
   writeFileSync(join(single, 'SKILL.md'), '---\nname: single-skill\ndescription: "Use when one file is enough."\n---\n\n# Single\n\nAnswer inline.\n');
   if (review(single).findings.length) throw new Error(`a single-file skill was rejected: ${JSON.stringify(review(single).findings)}`);
   mkdirSync(join(single, 'scripts'));
-  writeFileSync(join(single, 'scripts', 'run.py'), 'print("done")\n');
-  writeFileSync(join(single, 'SKILL.md'), `${readFileSync(join(single, 'SKILL.md'), 'utf8')}\nRun [the helper](scripts/run.py); its result format is inline above.\n`);
+  writeFileSync(join(single, 'scripts', 'run.py'), 'import argparse\nargparse.ArgumentParser().parse_args()\nprint("done")\n');
+  writeFileSync(join(single, 'SKILL.md'), `${readFileSync(join(single, 'SKILL.md'), 'utf8')}\nRun [the helper](scripts/run.py) with \`python3 scripts/run.py\`; its result format is inline above.\n`);
   if (review(single).findings.length) throw new Error(`a single instruction file with an executable helper was rejected: ${JSON.stringify(review(single).findings)}`);
   writeFileSync(join(single, 'notes.md'), '# Notes\n');
   if (skillDirs(join(single, 'notes.md'), true)[0] !== join(single, 'notes.md')) throw new Error('non-directory collection root was silently skipped');
@@ -313,6 +473,73 @@ function selfTestBrokenPackage(collection) {
   if (!findings.some((item) => item.level === 'ERROR' && item.code === 'skill-missing')) throw new Error(`the discovered broken package was not reported as skill-missing: ${JSON.stringify(findings)}`);
 }
 
+// Part 5: a routed script needs a documented command and --help.
+function selfTestScripts(skill) {
+  const source = readFileSync(join(skill, 'SKILL.md'), 'utf8');
+  mkdirSync(join(skill, 'scripts'), { recursive: true });
+  writeFileSync(join(skill, 'scripts/count-rows.mjs'), 'console.log(1);\n');
+  writeFileSync(join(skill, 'SKILL.md'), `${source}\nCount rows with the [counter](scripts/count-rows.mjs).\n`);
+  const codes = () => review(skill).findings.map((item) => item.code).toSorted();
+  if (codes().join() !== 'script-help-missing,script-usage-missing') throw new Error(`a script without a command or --help passed: ${codes()}`);
+  writeFileSync(join(skill, 'scripts/count-rows.mjs'), "if (process.argv.includes('--help')) console.log('Usage: count-rows.mjs --file <path>');\n");
+  writeFileSync(join(skill, 'SKILL.md'), `${source}\nCount rows with the [counter](scripts/count-rows.mjs): \`node <skill-folder>/scripts/count-rows.mjs --file rows.jsonl\`.\n`);
+  if (codes().length) throw new Error(`a documented script with --help was flagged: ${codes()}`);
+  writeFileSync(join(skill, 'SKILL.md'), source);
+  rmSync(join(skill, 'scripts'), { recursive: true });
+}
+
+// Part 6: --commands compares documented flags with the script's --help.
+function selfTestCommandFlags(skill) {
+  const source = readFileSync(join(skill, 'SKILL.md'), 'utf8');
+  mkdirSync(join(skill, 'scripts'), { recursive: true });
+  writeFileSync(join(skill, 'scripts/count-rows.mjs'), "if (process.argv.includes('--help')) console.log('Usage: count-rows.mjs --file <path> [--json]');\n");
+  writeFileSync(join(skill, 'SKILL.md'), `${source}\nCount rows ([counter](scripts/count-rows.mjs)):\n\n\`\`\`bash\nnode <skill-folder>/scripts/count-rows.mjs --file rows.jsonl \\\n  --jsonl\n\`\`\`\n`);
+  const flagged = review(skill, { commands: true }).findings.filter((item) => item.code === 'command-flag-unknown');
+  if (flagged.length !== 1 || !flagged[0].message.includes('--jsonl')) throw new Error(`an unknown documented flag was missed or a known one flagged: ${JSON.stringify(flagged)}`);
+  if (review(skill).findings.some((item) => item.code === 'command-flag-unknown')) throw new Error('flags were checked without --commands');
+  const { sizes } = review(skill, { sizes: true });
+  if (!sizes || sizes.entry !== Buffer.byteLength(readFileSync(join(skill, 'SKILL.md'), 'utf8')) || !(sizes.description > 0)) throw new Error(`--sizes miscounted: ${JSON.stringify(sizes)}`);
+  writeFileSync(join(skill, 'SKILL.md'), source);
+  rmSync(join(skill, 'scripts'), { recursive: true });
+}
+
+// Part 7: links that leave the skill folder are portability warnings; fenced code and URLs are not links.
+function selfTestEscapingLinks(skill) {
+  const source = readFileSync(join(skill, 'SKILL.md'), 'utf8');
+  writeFileSync(join(skill, 'SKILL.md'), `${source}\nSee [the guide](../other-skill/SKILL.md), [again](../other-skill/SKILL.md#use), [docs](/docs/guide.md), [web](https://example.com/a.md), [mail](mailto:a@example.com) and [ours](output.md).\n\n\`\`\`md\n[fenced](../fenced.md)\n\`\`\`\n`);
+  const line = readFileSync(join(skill, 'SKILL.md'), 'utf8').split('\n').findIndex((text) => text.startsWith('See [the guide]')) + 1;
+  const escaping = review(skill).findings.filter((item) => item.code === 'link-escapes-skill');
+  const got = escaping.map((item) => `${item.level} ${item.file}:${item.line} ${item.message.split(' links to ')[1].split(',')[0]}`).toSorted();
+  const want = [`WARN SKILL.md:${line} ../other-skill/SKILL.md`, `WARN SKILL.md:${line} /docs/guide.md`];
+  if (got.join('|') !== want.join('|') || review(skill).findings.length !== 2) throw new Error(`escaping links were missed, merged wrongly or over-reported: ${JSON.stringify(review(skill).findings)}`);
+  const devSkill = join(dirname(skill), 'skills-dev', 'repo-skill');
+  mkdirSync(devSkill, { recursive: true });
+  writeFileSync(join(devSkill, 'SKILL.md'), readFileSync(join(skill, 'SKILL.md'), 'utf8').replace('name: example-skill', 'name: repo-skill'));
+  if (review(devSkill).findings.some((item) => item.code === 'link-escapes-skill')) throw new Error('a repo-only skills-dev skill was held to standalone link portability');
+  rmSync(join(dirname(skill), 'skills-dev'), { recursive: true });
+  writeFileSync(join(skill, 'SKILL.md'), source);
+}
+
+// Part 8: --tells counts MUST/NEVER outside code and finds sentences repeated across files after folding.
+function selfTestTells(skill) {
+  const source = readFileSync(join(skill, 'SKILL.md'), 'utf8');
+  const tells = (options = { tells: true }) => review(skill, options).findings.filter((item) => item.code.startsWith('tell-'));
+  writeFileSync(join(skill, 'SKILL.md'), `${source}\nYou MUST keep the cache in the skill folder.\nNEVER delete it. Reserve MUST/NEVER for safety; \`MUST\` in code is a mention.\n\n\`\`\`text\nMUST NEVER\n\`\`\`\n`);
+  const mustLine = readFileSync(join(skill, 'SKILL.md'), 'utf8').split('\n').findIndex((text) => text.startsWith('You MUST')) + 1;
+  const shouted = tells().filter((item) => item.code === 'tell-must-never');
+  if (shouted.length !== 1 || shouted[0].level !== 'WARN' || shouted[0].line !== mustLine || !shouted[0].message.startsWith(`SKILL.md:${mustLine},${mustLine + 1} has 2 MUST/NEVER`)) throw new Error(`MUST/NEVER was miscounted: ${JSON.stringify(shouted)}`);
+  if (tells({}).length) throw new Error('tells were reported without --tells');
+  writeFileSync(join(skill, 'SKILL.md'), source);
+  writeFileSync(join(skill, 'references/a.md'), '# A\n\n| When this step runs | The rule to follow |\n|---|---|\n| Save | Keep the cache in the skill folder. |\n\n[B](b.md)\n');
+  writeFileSync(join(skill, 'references/b.md'), '# B\n\n| When this step runs | The rule to follow |\n|---|---|\n\nFirst read the plan.  keep the cache\nin   the SKILL folder. Then stop.\n\n- `node scripts/run.mjs --all now`\n\n[A](a.md)\n');
+  writeFileSync(join(skill, 'references/c.md'), '# C\n\nSay this twice in one file. Say this twice in one file.\n\n- `node scripts/run.mjs --all now`\n');
+  const repeated = tells().filter((item) => item.code === 'tell-repeated-sentence');
+  if (repeated.length !== 1 || !repeated[0].message.includes('references/a.md:5, references/b.md:6;') || repeated[0].file !== 'references/a.md' || repeated[0].line !== 5) throw new Error(`a folded repeat across files was missed, or a header row, a same-file repeat or a code-only item was reported: ${JSON.stringify(repeated)}`);
+  writeFileSync(join(skill, 'references/a.md'), '[B](b.md)\n');
+  writeFileSync(join(skill, 'references/b.md'), '[A](a.md)\n');
+  rmSync(join(skill, 'references/c.md'));
+}
+
 function selfTest() {
   const dir = mkdtempSync(join(tmpdir(), 'skill-review-'));
   try {
@@ -321,18 +548,27 @@ function selfTest() {
     selfTestBasics(dir, skill);
     selfTestContent(skill, selfTestLinks(skill));
     selfTestCollections(dir, skill);
+    selfTestScripts(skill);
+    selfTestCommandFlags(skill);
+    selfTestEscapingLinks(skill);
+    selfTestTells(skill);
     console.log('PASS skill-review-self-test');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
 const args = process.argv.slice(2);
 if (args.includes('--help') || args.includes('-h')) {
-  console.log('Usage: node scripts/skill-review.mjs [skill-dir | collection-dir ...] [--collections] [--json] [--self-test]');
+  console.log('Usage: node scripts/skill-review.mjs [skill-dir | collection-dir ...] [--collections] [--commands] [--sizes] [--tells] [--json] [--self-test]');
   console.log('--collections allows existing empty collection directories; missing roots and incomplete child skills still fail.');
+  console.log('--commands also runs each shipped script\'s --help and warns on a documented flag it does not list (command-flag-unknown).');
+  console.log('--sizes adds UTF-8 bytes per skill: description, entry (SKILL.md) and each routed document (sizes in --json; a line per skill otherwise).');
+  console.log(`--tells also warns on writing tells in each skill's Markdown, outside fenced code: tell-must-never (uppercase MUST or NEVER outside code spans, counted per file with its lines; a slash-joined MUST/NEVER names the words and is not counted) and tell-repeated-sentence (a sentence, list item or table cell of ${MIN_SENTENCE_WORDS} or more words found in two or more files after case and whitespace folding, with every file:line; table headers and items that are only code or links are skipped).`);
+  console.log('Every run also warns on link-escapes-skill: a Markdown link outside fenced code that resolves outside the skill folder (a ../ path out of it or a root-absolute /path), which a standalone install does not ship; URLs such as https: are not checked, and repo-only skills in a skills-dev collection are exempt.');
+  console.log('Output: findings carry level, code and message; link-escapes-skill and the tell findings also carry file and line. Exit 1 when any ERROR is found; WARN alone exits 0.');
   process.exit(0);
 }
 if (args.includes('--self-test')) { selfTest(); process.exit(0); }
-const unknown = args.find((arg) => arg.startsWith('-') && !['--json', '--collections', '-h'].includes(arg));
+const unknown = args.find((arg) => arg.startsWith('-') && !['--json', '--collections', '--commands', '--sizes', '--tells', '-h'].includes(arg));
 if (unknown) { console.error(`Unknown option: ${unknown}`); process.exit(1); }
 const json = args.includes('--json');
 const targets = args.filter((arg) => !arg.startsWith('--')).map((arg) => resolve(arg));
@@ -349,7 +585,7 @@ function skillDirs(target, collection = false) {
 }
 const dirs = [...new Set(targets.flatMap(target => skillDirs(target, args.includes('--collections'))))];
 const results = dirs.map((dir) => {
-  try { return review(dir); }
+  try { return review(dir, { commands: args.includes('--commands'), sizes: args.includes('--sizes'), tells: args.includes('--tells') }); }
   catch (error) { return { skill: basename(dir), path: dir, findings: [{ level: 'ERROR', code: 'read-failed', message: error.message }] }; }
 });
 const errorCount = results.flatMap((item) => item.findings).filter((item) => item.level === 'ERROR').length;
@@ -358,6 +594,7 @@ if (json) console.log(JSON.stringify({ errorCount, warnCount, results }, null, 2
 else {
   for (const item of results) {
     console.log(`${item.skill}: ${item.findings.length ? item.findings.map((f) => `${f.level} ${f.code}: ${f.message}`).join('\n  ') : 'OK'}`);
+    if (item.sizes) console.log(`  bytes: description ${item.sizes.description}, entry ${item.sizes.entry}, routed ${item.sizes.routedTotal} in ${Object.keys(item.sizes.routed).length} documents`);
   }
   console.log(`${errorCount} errors, ${warnCount} warnings`);
 }

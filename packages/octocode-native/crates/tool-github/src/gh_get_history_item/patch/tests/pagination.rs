@@ -145,14 +145,17 @@ fn a_last_pull_request_window_is_stated_once_on_the_section() {
     assert!(row["files"][0].get("patchPagination").is_none(), "{row}");
 }
 
-/// A patch window fills most of the automatic response page: a 100k-char
-/// patch reads in three calls at the default 50k page, not thirteen.
+/// A patch window fills most of its response page and never more: a
+/// 100k-char patch reads in three calls at a 50k page, not thirteen.
 #[test]
 fn patch_window_is_one_budget_for_the_whole_page() {
-    assert_eq!(patch_window(None), 15_000);
-    assert_eq!(patch_window(Some(50_000)), 40_000);
-    assert_eq!(100_071usize.div_ceil(patch_window(Some(50_000))), 3);
-    // An explicit length wins up to the budget.
+    let default = octocode_runtime_base::execution::RuntimeLimits::DEFAULT.auto_page_chars;
+    assert_eq!(patch_window(None), patch_window(Some(default)));
+    for page in [1_000, default / 3, default, 50_000] {
+        let window = patch_window(Some(page));
+        assert!(window > page / 2 && window < page, "{page}: {window}");
+    }
+    assert!(100_071usize.div_ceil(patch_window(Some(50_000))) <= 3);
 }
 
 /// A walk with an explicit `length` far above the response page reads
@@ -229,7 +232,7 @@ fn oversized_char_length_walk_reads_every_patch_exactly_once() {
 #[test]
 fn patch_rows_report_per_file_offsets_and_the_page_cursor_separately() {
     let files = vec![file("a.rs", &"a".repeat(3)), file("b.rs", &"b".repeat(20))];
-    let first = shape_patch_page(files.clone(), &with_budget(window(json!({})), 25));
+    let first = shape_patch_page(files.clone(), &with_window(window(json!({})), 10));
     let b = &first.rows[1]["patchPagination"];
     assert_eq!(b["offset"], 0);
     assert_eq!(b["length"], 7);
@@ -237,7 +240,7 @@ fn patch_rows_report_per_file_offsets_and_the_page_cursor_separately() {
     assert_eq!(first.cursor, Some(10));
     let second = shape_patch_page(
         files,
-        &with_budget(window(json_fixture(r#"{"offset": 10}"#)), 25),
+        &with_window(window(json_fixture(r#"{"offset": 10}"#)), 10),
     );
     let b = &second.rows[0]["patchPagination"];
     assert_eq!(b["offset"], 7);
@@ -245,7 +248,7 @@ fn patch_rows_report_per_file_offsets_and_the_page_cursor_separately() {
     assert_eq!(second.cursor, Some(20));
     let page = shape_patch_page(
         vec![file("a.rs", "aaa"), file("b.rs", &"b".repeat(20))],
-        &with_budget(window(json!({})), 25),
+        &with_window(window(json!({})), 10),
     )
     .compact();
     assert_eq!(page.rows[1]["patchPagination"]["length"], 7);
@@ -266,7 +269,7 @@ fn a_later_patch_page_names_its_file_by_path_only() {
     loop {
         let page = shape_patch_page(
             files.clone(),
-            &with_budget(window(json!({ "offset": offset })), 25),
+            &with_window(window(json!({ "offset": offset })), 10),
         )
         .compact();
         let row = &page.rows[0];
@@ -301,7 +304,8 @@ fn a_later_patch_page_names_its_file_by_path_only() {
 /// so a page of patches still fits one automatic response page.
 #[test]
 fn patch_window_derives_from_the_effective_auto_page() {
-    assert_eq!(patch_window(Some(1_000)), 400);
+    let window = patch_window(Some(1_000));
+    assert!(window < 1_000, "{window}");
     let mut query = patch_request(json_fixture(r#"{"offset": 0}"#));
     query.auto_page_chars = Some(1_000);
     let patch = "+x\n".repeat(2_000);
@@ -311,6 +315,50 @@ fn patch_window_derives_from_the_effective_auto_page() {
     );
     let shaped = &page.rows[0];
     let text = shaped["patch"].as_str().expect("patch");
-    assert!(text.encode_utf16().count() <= 400, "{}", text.len());
+    assert!(text.encode_utf16().count() <= window, "{}", text.len());
     assert_eq!(shaped["patchPagination"]["hasMore"], true);
+}
+
+/// A one-file patch of `lines` added code lines.
+fn added_lines(lines: usize) -> String {
+    let body = (1..=lines)
+        .map(|i| format!("+    let value_{i} = compute(input_{i}, &config);\n"))
+        .collect::<String>();
+    format!("@@ -0,0 +1,{lines} @@\n{body}")
+}
+
+/// The patch view chars of `patch` in one window wide enough to hold it.
+fn view_chars(patch: &str) -> usize {
+    let page = shape_patch_page(
+        vec![file("a.rs", patch)],
+        &with_budget(patch_request(json!({"sections": ["patches"]})), 1_000_000),
+    );
+    page.stream.to_value()["total"].as_u64().unwrap_or(0) as usize
+}
+
+/// A patch that fits its response page beside its row arrives whole, so
+/// no row-level `next.patches` is left for an agent to skip. Benchmarks
+/// (2026-11-23/24, v20) cut 14 of 119 patch reads that fit their page and
+/// agents followed none of the 14 continuations: vuejs/core#15035 sent
+/// 14,752 of 15,153 patch chars (a 248-char file summary beside it) in a
+/// 16.5k reply of a 20k page; a three-row batch sent 2,626 of 4,540 in
+/// its 20k/3 share. Each case here is that stream at that page, and the
+/// whole published row still fits its page.
+#[test]
+fn a_patch_that_fits_its_page_arrives_whole() {
+    let page = octocode_runtime_base::execution::RuntimeLimits::DEFAULT.auto_page_chars;
+    for (share, stream, reserve) in [(page, 15_153, 248), (page / 3, 4_540, 0)] {
+        let lines = (1..)
+            .find(|lines| view_chars(&added_lines(*lines)) >= stream)
+            .expect("a patch of that size");
+        let patch = added_lines(lines);
+        let query = with_budget(patch_request(json!({"sections": ["patches"]})), share);
+        let shaped = shape_patch_page_reserving(vec![file("a.rs", &patch)], &query, reserve);
+        assert_eq!(shaped.cursor, None, "{share}: cut at {:?}", shaped.stream);
+        let published = octocode_engine::json_size::utf16_units(&shaped.rows).unwrap_or(0);
+        assert!(
+            published + reserve <= share,
+            "{share}: {published} + {reserve}"
+        );
+    }
 }

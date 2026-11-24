@@ -15,8 +15,8 @@ disallowed-methods = [
     { path = "tokio::time::sleep", reason = "a guessed wait: wait on the event, or under the request deadline" },
     { path = "tokio::time::timeout", reason = "a fixed timeout: use the request deadline" },
     # Each new child process is a code-execution and environment-leak question.
-    { path = "std::process::Command::new", reason = "a child process: state its environment and its bound; see engine process_env and tools/bounded_process.rs" },
-    { path = "tokio::process::Command::new", reason = "a child process: state its environment and its bound; see engine process_env and tools/bounded_process.rs" },
+    { path = "std::process::Command::new", reason = "a child process: state its environment and its bound; see engine process_env and tools-shared bounded_process.rs" },
+    { path = "tokio::process::Command::new", reason = "a child process: state its environment and its bound; see engine process_env and tools-shared bounded_process.rs" },
     # One client carries the proxy, trust and redirect policy.
     { path = "reqwest::Client::new", reason = "build HTTP clients in octocode_io::http" },
     { path = "reqwest::Client::builder", reason = "build HTTP clients in octocode_io::http" },

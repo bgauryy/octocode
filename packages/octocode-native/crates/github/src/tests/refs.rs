@@ -262,6 +262,64 @@ async fn a_tag_prefix_is_asked_of_github_and_bounds_the_names() {
 
 /// A GraphQL responder for `object(oid:$tN)` reads: each asked tag object's
 /// answer from `targets` (`None`: GitHub names no object).
+/// Branches take a prefix the way tags do: one `matching-refs/heads/<prefix>`
+/// read per page (a glob's literal start reads only the branches that can
+/// match, not every branch page), each branch with the commit it names.
+#[tokio::test]
+async fn a_branch_prefix_is_asked_of_github_and_bounds_the_names() {
+    let server = MockServer::builder().start().await;
+    for (route, names) in [
+        (
+            "/api/v3/repos/o/r/git/matching-refs/heads/release/",
+            &["release/4.x", "release/5.x"][..],
+        ),
+        (
+            "/api/v3/repos/o/r/git/matching-refs/heads",
+            &["main", "release/4.x", "../x"][..],
+        ),
+    ] {
+        Mock::given(method("GET"))
+            .and(path(route))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                names
+                    .iter()
+                    .map(|name| serde_json::json!({"ref": format!("refs/heads/{name}"), "object": {"sha": "c0ffee", "type": "commit"}}))
+                    .collect::<Vec<_>>(),
+            ))
+            .mount(&server)
+            .await;
+    }
+    let transport = anonymous_transport(&mock_endpoint(&server));
+    let context = RequestContext::with_timeout(Duration::from_secs(10), 1 << 20);
+    for (prefix, route) in [
+        (
+            "release/",
+            "/api/v3/repos/o/r/git/matching-refs/heads/release/",
+        ),
+        ("", "/api/v3/repos/o/r/git/matching-refs/heads"),
+        // A route segment GitHub cannot carry lists every branch, still bounded.
+        ("../", "/api/v3/repos/o/r/git/matching-refs/heads"),
+    ] {
+        let before = server.received_requests().await.expect("requests").len();
+        let branches = transport
+            .branch_refs("o", "r", prefix, &context)
+            .await
+            .expect("branch refs");
+        assert!(
+            branches
+                .iter()
+                .all(|named| named.name.starts_with(prefix) && named.sha == "c0ffee"),
+            "{prefix}: {branches:?}"
+        );
+        let asked = server.received_requests().await.expect("requests");
+        let paths = asked[before..]
+            .iter()
+            .map(|request| request.url.path().to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(paths, [route], "{prefix}");
+    }
+}
+
 fn tag_targets_answer(
     targets: Vec<(String, Option<serde_json::Value>)>,
 ) -> impl Fn(&wiremock::Request) -> ResponseTemplate {

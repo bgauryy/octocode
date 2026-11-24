@@ -123,25 +123,26 @@ impl CancellationCheck for FlagCancel {
     }
 }
 
+/// What the cancellation fixture may spend reaching its cancellation point,
+/// and again on its child being reaped after the kill.
+#[cfg(unix)]
+const FIXTURE_BUDGET: Duration = Duration::from_secs(10);
+
+/// How long the fixture's child sleeps: past both budgets, so a child that
+/// survives the cancellation is still running when the reap check ends.
+#[cfg(unix)]
+const FIXTURE_CHILD_SECONDS: u64 = 30;
+
 #[cfg(unix)]
 #[test]
 fn system_git_cancellation_kills_and_reaps_process_group() {
-    use std::os::unix::fs::PermissionsExt;
+    assert!(Duration::from_secs(FIXTURE_CHILD_SECONDS) > FIXTURE_BUDGET * 2);
     let root = test_support::Fixture::new();
-    let script = root.0.join("git-fixture.sh");
     let pid_file = root.0.join("child.pid");
-    fs::write(
-        &script,
-        "#!/bin/sh\nfor pid_file do :; done\nsleep 30 &\nchild=$!\nprintf '%s' \"$child\" > \"$pid_file\"\nwait \"$child\"\n",
-    )
-    .expect("script");
-    let mut permissions = fs::metadata(&script).expect("metadata").permissions();
-    permissions.set_mode(0o700);
-    fs::set_permissions(&script, permissions).expect("permissions");
     let cancellation = Arc::new(FlagCancel(AtomicBool::new(false)));
     let trigger = cancellation.clone();
     let trigger_pid_file = pid_file.clone();
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + FIXTURE_BUDGET;
     let join = std::thread::spawn(move || {
         while Instant::now() < deadline {
             if let Some(pid) = fs::read_to_string(&trigger_pid_file)
@@ -157,11 +158,25 @@ fn system_git_cancellation_kills_and_reaps_process_group() {
         }
         None
     });
-    let runner = SystemGit::new(&script);
+    // Installed git runs the fixture through its shell, so nothing here
+    // executes a freshly written file: the OS assesses a new executable on
+    // its first run, which under parallel load takes seconds (macOS) and
+    // would spend the deadline before the fixture starts. git leads the
+    // process group; its shell and that shell's sleep are the descendants
+    // cancellation must kill.
+    let runner = SystemGit::default();
     let result = runner.run(
         &GitRunRequest {
-            args: vec![pid_file.as_os_str().to_owned()],
-            timeout: Duration::from_secs(10),
+            args: vec![
+                "-c".into(),
+                format!(
+                    "alias.octocode-fixture=!sleep {FIXTURE_CHILD_SECONDS} & child=$!; printf '%s' \"$child\" > \"$1\"; wait \"$child\"; :"
+                )
+                .into(),
+                "octocode-fixture".into(),
+                pid_file.as_os_str().to_owned(),
+            ],
+            timeout: FIXTURE_BUDGET,
             label: "cancellation fixture".into(),
             authorization: None,
             authorization_url: None,
@@ -176,23 +191,25 @@ fn system_git_cancellation_kills_and_reaps_process_group() {
     let (pid, cancelled_at) = join
         .join()
         .expect("trigger")
-        .expect("fixture must publish its child pid within the unchanged execution deadline");
+        .expect("fixture must publish its child pid within the execution deadline");
     assert_eq!(result.expect_err("cancel").code, ErrorCode::Cancelled);
     assert!(
-        cancelled_at.elapsed() < Duration::from_secs(1),
-        "ready process-group cancellation must finish promptly"
+        Instant::now() < deadline,
+        "the cancellation, not the execution deadline, ended the run"
     );
-    // A killed grandchild can remain briefly visible as a zombie until the OS
-    // reaper runs. Poll only for that bounded reaping window; a live sleep would
-    // remain for 30 seconds and fail this check.
-    let child_gone = (0..100).any(|_| {
+    // A killed child stays visible as a zombie until its new parent reaps
+    // it, which load can delay; a live child sleeps past this window.
+    let reaped_by = cancelled_at + FIXTURE_BUDGET;
+    let child_gone = loop {
         // SAFETY: signal zero only checks whether the fixture child still exists.
-        let gone = unsafe { libc::kill(pid, 0) } == -1;
-        if !gone {
-            std::thread::sleep(Duration::from_millis(10));
+        if unsafe { libc::kill(pid, 0) } == -1 {
+            break true;
         }
-        gone
-    });
+        if Instant::now() >= reaped_by {
+            break false;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
     assert!(
         child_gone,
         "fixture child survived process-group cancellation"
@@ -311,7 +328,6 @@ fn system_git_timeout_and_failure_output_are_bounded_and_redacted() {
         stored.message
     );
 
-    let started = Instant::now();
     let timed_out = runner
         .run(
             &GitRunRequest {
@@ -330,7 +346,10 @@ fn system_git_timeout_and_failure_output_are_bounded_and_redacted() {
         )
         .expect_err("timeout fixture");
     assert_eq!(timed_out.code, ErrorCode::Timeout);
-    assert!(started.elapsed() < Duration::from_secs(2));
+    assert!(
+        Instant::now() < control.deadline,
+        "the request timeout, not the call deadline, ended the run"
+    );
 }
 
 #[cfg(unix)]

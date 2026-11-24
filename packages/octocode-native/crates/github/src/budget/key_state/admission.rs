@@ -1,7 +1,7 @@
 //! Admission on one key: waiting out blocks, taking permits and spacing or window slots, and
 //! releasing a reservation.
 use super::{Admission, KeyFacts, KeyState};
-use crate::budget::slots::{Queued, Reserved, ReservedSlot, SlotPlan, Subject};
+use crate::budget::slots::{Fit, PlannedStart, Queued, Reserved, ReservedSlot, SlotPlan, Subject};
 use crate::budget::{ClientWaits, ExecutorConfig, Group, WaitLimit, acquire, now_ms, waits};
 use crate::{ProviderError, ProviderErrorKind};
 use octocode_contract_base::ClientWaitKind;
@@ -14,7 +14,9 @@ impl KeyState {
     /// Pre-send gate: wait out a block that ends before the deadline, or
     /// fail fast without sending: an open circuit, a spent quota the client
     /// does not pace ([`super::Block::waited_out`]), or a reset or `retry-after`
-    /// that falls past the deadline.
+    /// that falls past the deadline. A block that ends past the wait bound
+    /// but before the deadline is slept up to the bound, then refused with
+    /// the rest as `retryAfter` ([`crate::budget::WaitLimit::part_within_bound`]).
     pub(crate) async fn wait_unblocked(
         self: &Arc<Self>,
         resource: &str,
@@ -32,14 +34,22 @@ impl KeyState {
             };
             let now = now_ms();
             let wait = block.wait(now);
-            if !block.waited_out() || !limit.takes(wait) {
+            if !block.waited_out() {
                 return Err(block.error(now));
             }
+            let sleep = if limit.takes(wait) {
+                wait
+            } else if let Some(part) = limit.part_within_bound(wait) {
+                part
+            } else {
+                return Err(block.error(now));
+            };
+            let rest = wait.saturating_sub(sleep);
             client_waits
                 .timed(
                     waits::block_kind(&block),
-                    pause_reporting(wait, deadline, cancellation, |left| {
-                        waits::blocked(&block, left)
+                    pause_reporting(sleep, deadline, cancellation, |left| {
+                        waits::blocked(&block, left + rest)
                     }),
                 )
                 .await?;
@@ -176,13 +186,32 @@ impl KeyState {
             if persisted {
                 self.refresh_off_thread().await;
             }
-            let facts = self.facts();
-            let (entered, ahead) = lane.map(Queued::enter).unzip();
-            queued = entered;
-            let peeked = plan.start_after(&facts, now_ms(), ahead.unwrap_or_default());
-            drop(facts);
-            if let Some(refusal) = plan.refusal(peeked, Subject::Request) {
-                return Err(refusal);
+            let peeked = {
+                let facts = self.facts();
+                let (entered, ahead) = lane.map(Queued::enter).unzip();
+                queued = entered;
+                plan.start_after(&facts, now_ms(), ahead.unwrap_or_default())
+            };
+            match plan.fit(peeked) {
+                Fit::Whole => {}
+                Fit::Refused(refusal) => return Err(refusal),
+                // Queued behind starts past this request's wait bound: it
+                // takes no permit (a permit wait ends only at the deadline)
+                // and no slot, sleeps to the bound and is refused with the
+                // rest, which the retry's own bound fits.
+                Fit::ToBound { part } => {
+                    drop(queued);
+                    let start = peeked.start;
+                    return Err(spaced_to_bound(
+                        &plan,
+                        part,
+                        start,
+                        deadline,
+                        cancellation,
+                        client_waits,
+                    )
+                    .await);
+                }
             }
         }
         if let Some(lane) = lane {
@@ -193,12 +222,14 @@ impl KeyState {
         }
         // Take the start slot from this key's facts: the spacing after the
         // group's last start that the reported (or assumed) quota derives.
-        // The deadline alone bounds the wait.
+        // A start past the deadline is refused; one past the wait bound (a
+        // slot a peer process took after the peek) is taken, slept to the
+        // bound and handed back below.
         let reserve = |facts: &mut KeyFacts| {
             drop(queued);
             let now = now_ms();
             let planned = plan.start(facts, now);
-            if let Some(refusal) = plan.refusal(planned, Subject::Request) {
+            if let Fit::Refused(refusal) = plan.fit(planned) {
                 return Err(refusal);
             }
             let start = planned.start;
@@ -218,15 +249,23 @@ impl KeyState {
             state: Arc::clone(self),
             slot: Some((group, start, previous, persisted)),
         };
+        let wait = PlannedStart {
+            start,
+            now: now_ms(),
+        }
+        .wait();
+        let sleep = if limit.takes(wait) {
+            wait
+        } else {
+            limit.part_within_bound(wait).unwrap_or_default()
+        };
+        let rest = wait.saturating_sub(sleep);
         if let Err(error) = client_waits
             .timed(
                 kind,
-                pause_reporting(
-                    Duration::from_millis(start.saturating_sub(now_ms())),
-                    deadline,
-                    cancellation,
-                    |left| waits::paced(group, left),
-                ),
+                pause_reporting(sleep, deadline, cancellation, |left| {
+                    waits::paced(group, left + rest)
+                }),
             )
             .await
         {
@@ -234,6 +273,12 @@ impl KeyState {
             // throttle later requests.
             reserved.release().await;
             return Err(error.into());
+        }
+        if !rest.is_zero() {
+            // Slept to the wait bound: the start is handed back unsent and
+            // the retry waits out the rest.
+            reserved.release().await;
+            return Err(plan.refused(rest, Subject::Request));
         }
         Ok((Some(reserved), permits))
     }
@@ -277,5 +322,32 @@ impl KeyState {
             state.refresh_from_disk();
         }))
         .await;
+    }
+}
+
+/// Sleep `part` of the wait to a start the wait bound does not reach,
+/// reported as spacing, then the refusal naming the rest of the wait to
+/// `start` (unless the deadline or a cancellation ends the sleep first).
+async fn spaced_to_bound(
+    plan: &SlotPlan<'_>,
+    part: Duration,
+    start: u64,
+    deadline: std::time::Instant,
+    cancellation: &Cancellation,
+    client_waits: &ClientWaits,
+) -> ProviderError {
+    let group = plan.group;
+    let rest = |now: u64| PlannedStart { start, now }.wait();
+    let slept = client_waits
+        .timed(
+            ClientWaitKind::Spacing,
+            pause_reporting(part, deadline, cancellation, |_| {
+                waits::paced(group, rest(now_ms()))
+            }),
+        )
+        .await;
+    match slept {
+        Err(error) => error.into(),
+        Ok(()) => plan.refused(rest(now_ms()), Subject::Request),
     }
 }

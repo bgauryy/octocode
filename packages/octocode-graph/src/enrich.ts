@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { dirname, relative, resolve, sep } from 'node:path';
 import { writeNewFile } from './output.ts';
 import { list, record, string } from './json-fields.ts';
 import { adapters } from './providers.ts';
@@ -8,6 +8,68 @@ import type { Observation } from './providers.ts';
 
 const hash = (bytes: Buffer) =>
   createHash('sha256').update(bytes).digest('hex');
+
+// The export a manifest attests: an original graph export (its files listed, no enrichment yet).
+function readExport(bytes: Buffer) {
+  const data = record(JSON.parse(bytes.toString('utf8')));
+  list(data.files, 'graph files');
+  if (data.enrichment)
+    throw new Error('Start from the original export to replace its enrichment');
+  return data;
+}
+
+/** One provider of a manifest to write: its format and file, and the options its adapter reads. */
+export interface ManifestProvider {
+  format: string;
+  file: string;
+  testId?: string;
+  workload?: string;
+  sourceRoot?: string;
+  workingDirectory?: string;
+  moduleFile?: string;
+}
+
+/**
+ * Write the manifest `enrichExport` reads, with the digests of the bytes on disk now: the export's `baseSha256`, each
+ * provider's `sha256` (and an LLVM module's `moduleSha256`), every provider at `revision`. File paths are relative to
+ * the manifest, as the importer resolves them. Refuses to replace an existing file.
+ */
+export async function writeManifest(
+  baseFile: string,
+  manifestFile: string,
+  { revision, providers }: { revision: string; providers: ManifestProvider[] }
+) {
+  const at = dirname(resolve(manifestFile));
+  const path = (file: string) =>
+    relative(at, resolve(file)).split(sep).join('/');
+  const bytes = await readFile(baseFile);
+  readExport(bytes);
+  const manifest = {
+    revision: string(revision, 'revision'),
+    baseSha256: hash(bytes),
+    providers: await Promise.all(
+      providers.map(async ({ format, file, moduleFile, ...options }) => {
+        if (!Object.hasOwn(adapters, format))
+          throw new Error(
+            `Unsupported provider ${format}: one of ${Object.keys(adapters).join(', ')}`
+          );
+        return {
+          format,
+          file: path(file),
+          sha256: hash(await readFile(file)),
+          revision,
+          ...options,
+          ...(moduleFile && {
+            moduleFile: path(moduleFile),
+            moduleSha256: hash(await readFile(moduleFile)),
+          }),
+        };
+      })
+    ),
+  };
+  await writeNewFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+  return manifest;
+}
 
 /** Materialize an explicitly attested set of provider artifacts alongside the source graph. */
 export async function enrichExport(
@@ -20,10 +82,7 @@ export async function enrichExport(
   const revision = string(manifest.revision, 'revision');
   if (hash(bytes) !== manifest.baseSha256)
     throw new Error('Snapshot digest mismatch');
-  const data = record(JSON.parse(bytes.toString('utf8')));
-  list(data.files, 'graph files');
-  if (data.enrichment)
-    throw new Error('Start from the original export to replace its enrichment');
+  const data = readExport(bytes);
   const edges: Observation[] = [],
     kinds = new Set<string>();
   const providers = [];

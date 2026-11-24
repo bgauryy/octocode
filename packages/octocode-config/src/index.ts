@@ -18,6 +18,10 @@ export {
   propagateOctocodeEnv,
 } from './dotenv.js';
 export { devOverridesAllowed } from './config/devOverrides.js';
+export { getKey, keyFiles, listKeys, setKey, runKeysCli } from './keys.js';
+export type { KeyFiles, KeyLookup, KeyOptions, KeyScope, KeySource, KeyStatus, KeysCliResult } from './keys.js';
+export { API_KEYS } from './config/contract.generated.js';
+export type { ApiKeySpec } from './config/contract.generated.js';
 
 /** Every setting's generated default (the native resolver's base layer). */
 export const DEFAULT_CONFIG = Object.freeze(DEFAULT_CONFIG_VALUE);

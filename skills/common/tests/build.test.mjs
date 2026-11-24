@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync, existsSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { build, COLLECTIONS, routeGraph, sharedAssets, sharedTargets } from '../build.mjs';
 import { stageSkills } from '../../../packages/octocode/scripts/stage-skills.mjs';
@@ -83,12 +82,11 @@ test('a nested reference selects only its shared guide and its transitive depend
   const dir = join(root, 'skills-dev/example');
   mkdirSync(join(dir, 'references/nested'), { recursive: true });
   writeFileSync(join(dir, 'SKILL.md'), '# Example\n[Task](references/nested/task.md)\n');
-  writeFileSync(join(dir, 'references/nested/task.md'), '[Tools](../octocode-usage.md#discover-and-invoke)\n');
-  const expected = ['octocode-usage.md', 'configuration.md', 'evidence.md', 'protocol-catalog.md'].map(name => `skills-dev/example/references/${name}`);
-  expected.push('skills-dev/example/scripts/lib/config-env.mjs');
+  writeFileSync(join(dir, 'references/nested/task.md'), '[Proof](../evidence.md#match-proof-to-the-claim)\n');
+  const expected = ['evidence.md', 'protocol-catalog.md'].map(name => `skills-dev/example/references/${name}`);
   const first = build({ root, check: true });
   assert.deepEqual(first.stale.toSorted(byText), expected.toSorted(byText));
-  assert.equal(existsSync(join(dir, 'references/octocode-usage.md')), false);
+  assert.equal(existsSync(join(dir, 'references/evidence.md')), false);
   build({ root });
   for (const path of expected) assert.equal(existsSync(join(root, path)), true);
   const canonical = sharedAssets(dir);
@@ -97,8 +95,8 @@ test('a nested reference selects only its shared guide and its transitive depend
 
   assert.equal(existsSync(join(dir, 'scripts/render-report.mjs')), false);
   assert.deepEqual(build({ root, check: true }).stale, []);
-  rmSync(join(dir, 'references/configuration.md'));
-  assert.deepEqual(build({ root, check: true }).stale, ['skills-dev/example/references/configuration.md']);
+  rmSync(join(dir, 'references/protocol-catalog.md'));
+  assert.deepEqual(build({ root, check: true }).stale, ['skills-dev/example/references/protocol-catalog.md']);
 });
 
 test('architecture consumers get the canonical graph template without receiving an unused report renderer', t => {
@@ -173,32 +171,3 @@ test('network consumers restore a missing guard from its documented resource rou
   assert.equal(existsSync(guard), true);
 });
 
-test('provider configuration bundles the config owner into a standalone skill with process > workspace > home precedence', t => {
-  const root = mkdtempSync(join(tmpdir(), 'skills-config-env-'));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-  const dir = join(root, 'skills/provider');
-  mkdirSync(join(dir, 'references'), { recursive: true });
-  writeFileSync(join(dir, 'SKILL.md'), '# Provider\n[Configuration](references/configuration.md)\n');
-  writeFileSync(join(dir, 'references/configuration.md'), readFileSync(new URL('../references/configuration.md', import.meta.url)));
-
-  build({ root });
-  const loader = join(dir, 'scripts/lib/config-env.mjs');
-  assert.equal(existsSync(loader), true);
-  assert.doesNotMatch(readFileSync(loader, 'utf8'), /@octocodeai\/config/);
-
-  const home = join(root, 'home');
-  const workspace = join(root, 'workspace');
-  mkdirSync(home, { recursive: true });
-  mkdirSync(join(workspace, '.octocode'), { recursive: true });
-  writeFileSync(join(home, '.env'), 'TAVILY_API_KEY=home-value\nEXA_API_KEY=home-exa\nSERPER_API_KEY=home-serper\n');
-  writeFileSync(join(workspace, '.octocode/.env'), 'EXA_API_KEY=workspace-value\nSERPER_API_KEY=workspace-serper\n');
-  const check = `import assert from 'node:assert/strict';\nconst { loadOctocodeEnv } = await import(${JSON.stringify(pathToFileURL(loader).href)});\nloadOctocodeEnv();\nassert.equal(process.env.TAVILY_API_KEY, 'home-value');\nassert.equal(process.env.EXA_API_KEY, 'workspace-value');\nassert.equal(process.env.SERPER_API_KEY, 'process-value');\n`;
-  const result = spawnSync(process.execPath, ['--input-type=module', '--eval', check], {
-    cwd: workspace,
-    env: { PATH: process.env.PATH, OCTOCODE_HOME: home, SERPER_API_KEY: 'process-value' },
-    encoding: 'utf8',
-  });
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout, '');
-  assert.equal(existsSync(join(root, 'node_modules')), false);
-});

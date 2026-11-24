@@ -1,8 +1,6 @@
 //! The page's rows: files ordered, shown rows projected, and each hit
 //! annotated with its match keys and enclosing declaration.
 use crate::local_search::local_search_query::View;
-use octocode_contract_types::CaseMode;
-use octocode_contract_types::RegexEngine;
 use octocode_engine::types::SearchSort;
 
 use super::super::enclosing::{annotate_enclosing, annotate_match_keys};
@@ -42,7 +40,9 @@ pub(super) fn annotate_rows<'q>(
         ..
     } = *scope;
     let (mut files, shown_redacted) = project_files(query, layout, (scanned, facts), redacted);
-    let symbol = searched_symbol(query, layout);
+    let declaring = (!layout.list)
+        .then(|| super::super::enclosing::declaring_symbol(query))
+        .flatten();
     let mut notes = Vec::new();
     annotate_match_keys(&mut files, output_root, expected_digest, security);
     // A matchOnly row is the hit's text and place; content rows name its owner.
@@ -51,9 +51,7 @@ pub(super) fn annotate_rows<'q>(
     } else {
         annotate_enclosing(
             &mut files,
-            symbol.filter(|_| {
-                super::super::enclosing::declaration_search(local_search_query::pattern(query))
-            }),
+            declaring,
             output_root,
             expected_digest,
             outlines,
@@ -66,17 +64,6 @@ pub(super) fn annotate_rows<'q>(
         shown_redacted,
         notes,
     }
-}
-
-/// The symbol a page marks declarations of: a searched symbol declared on a
-/// shown hit line is marked as its declaration.
-fn searched_symbol<'q>(query: &'q LocalSearchQuery, layout: &Layout) -> Option<&'q str> {
-    (!layout.list
-        && local_search_query::case_mode(query) != CaseMode::Insensitive
-        && local_search_query::regex_mode(query) != RegexEngine::Pcre2
-        && local_search_query::invert_match(query) != Some(true))
-    .then(|| super::super::enclosing::searched_symbol(local_search_query::pattern(query)))
-    .flatten()
 }
 
 /// A file's time under the key `query`'s time order ranked it by;

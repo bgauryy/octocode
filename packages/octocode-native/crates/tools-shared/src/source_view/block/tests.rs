@@ -432,6 +432,27 @@ fn javascript_member_assigned_functions_are_blocks() {
     assert!(warnings.is_empty(), "{warnings:?}");
 }
 
+/// A call site inside the declaration another hit returns whole is already
+/// read: no warning sends the reader to widen it again.
+#[test]
+fn a_call_site_inside_a_returned_declaration_is_not_named() {
+    let mut warnings = vec![];
+    let windows = widen_matches(
+        PY,
+        "m.py",
+        &[3, 4],
+        vec![
+            LineRange { start: 3, end: 3 },
+            LineRange { start: 4, end: 4 },
+        ],
+        &mut warnings,
+        &mut vec![],
+        &mut NextCalls::default(),
+    );
+    assert_eq!(windows[0], LineRange { start: 3, end: 5 });
+    assert!(warnings.is_empty(), "{warnings:?}");
+}
+
 /// A call-site hit keeps its window when a declaration hit exists; the
 /// widened declaration is named.
 #[test]

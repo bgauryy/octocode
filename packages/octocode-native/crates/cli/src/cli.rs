@@ -1,3 +1,4 @@
+mod all_pages;
 mod catalog;
 mod commands;
 mod config;
@@ -71,9 +72,10 @@ Route by where the evidence is: this checkout (local tools, lspSearch), a packag
 Which tool, how little to ask for: schema --view flow.
 
 Tools: one JSON envelope: {"queries":[…]}, optionally with "responseChars" (page
-size target; the rest pages, nothing dropped), or {"cursor":"…"} alone. A query
-takes mainGoal (the task) and reasoning (why this query). --input FILE|- reads the
-same JSON from a file or stdin; clasify --content - reads one row's text from stdin."#;
+size target; the rest pages, nothing dropped), or {"cursor":"…"} alone. A clasify
+query takes mainGoal (the task) and reasoning (why this query). --input FILE|-
+reads the same JSON from a file or stdin; clasify --content - reads one row's text
+from stdin."#;
 
 /// The long root help after the required fields: discovery and output rules.
 const ROOT_HELP_TAIL: &str = r#"Discovery, smallest first: schema <tool> --view variants (operations, required

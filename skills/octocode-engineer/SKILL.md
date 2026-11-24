@@ -33,7 +33,7 @@ For consequential choices, include crash, replay, overload or isolation failures
 | Folder organization | [Repository layouts](references/repository-layouts.md) |
 | Code review, wiring or evidence coverage | [Analysis](references/analysis.md), [checks](references/checks.md) |
 | Refactor, removal or unification | [Change discipline](references/change-discipline.md) |
-| Proof limits or Octocode calls | [Evidence](references/evidence.md), [MCP/CLI guide](references/octocode-usage.md) |
+| Proof limits | [Evidence](references/evidence.md) |
 | Decision record or saved report | [Output](output.md); run the [renderer](scripts/render-report.mjs) for accepted HTML |
 
 Use `octocode-clean-agentic-code` for proven removals, `octocode-agentic` for agent contracts and `octocode-rfc-generator` when the deliverable is a proposal. For a standalone engineering review, the [analysis](references/analysis.md) and [verification checks](references/checks.md) cover consumers and failure paths.

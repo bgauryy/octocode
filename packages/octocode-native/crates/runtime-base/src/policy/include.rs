@@ -28,10 +28,18 @@ pub const GLOB_MISS_HINT: &str = "Nothing searched: include/exclude matched no f
 /// the caller respelling a glob that already works. It states the count and
 /// the cause, and names no file: a withheld name is disclosed only where the
 /// path policy itself discloses it. With nothing withheld it is
-/// [`GLOB_MISS_HINT`].
-pub fn glob_miss_hint(withheld: usize) -> std::borrow::Cow<'static, str> {
+/// [`GLOB_MISS_HINT`] followed by each glob as it was read
+/// ([`globs_as_read`]).
+pub fn glob_miss_hint(
+    withheld: usize,
+    include: &[String],
+    exclude: &[String],
+) -> std::borrow::Cow<'static, str> {
     if withheld == 0 {
-        return GLOB_MISS_HINT.into();
+        return match globs_as_read(include, exclude) {
+            Some(read) => format!("{GLOB_MISS_HINT} {read}").into(),
+            None => GLOB_MISS_HINT.into(),
+        };
     }
     let (files, them) = if withheld == 1 {
         ("1 withheld file".to_owned(), "it")
@@ -42,6 +50,26 @@ pub fn glob_miss_hint(withheld: usize) -> std::borrow::Cow<'static, str> {
         "Nothing searched: include/exclude matched {files} and no other file. The security path policy withholds {them} (credential-named files and sensitive directories), and no query field lifts that: do not respell the globs to reach {them}."
     )
     .into()
+}
+
+/// The globs of a request as they were read, each list with its count: a
+/// caller who meant several globs and sent one string sees one glob.
+fn globs_as_read(include: &[String], exclude: &[String]) -> Option<String> {
+    let listed = |name: &str, globs: &[String]| {
+        (!globs.is_empty()).then(|| {
+            let each = globs
+                .iter()
+                .map(|glob| format!("`{glob}`"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{} {name} ({each})", globs.len())
+        })
+    };
+    let lists = [listed("include", include), listed("exclude", exclude)]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    (!lists.is_empty()).then(|| format!("Globs as read: {}.", lists.join(", ")))
 }
 
 #[cfg(test)]

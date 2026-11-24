@@ -49,6 +49,7 @@ To see the result on a machine: `npx octocode config list`.
 ## Public API
 
 - `getOctocodeHome(env?)` resolves `OCTOCODE_HOME` or the platform default.
+- `getKey(name, options?)` returns `{ value, source, files }` for one API key: the process environment, then the home `.env`, then the workspace `.octocode/.env` (first nonblank wins; home-only keys never come from a workspace). `listKeys(names?, options?)` reports every key in `API_KEYS` (or the named ones) as set or missing with its source, never a value; `setKey(name, value, { scope })` saves one to the home (default) or workspace `.env`, owner-only; `runKeysCli(argv)` is the `list`/`get`/`set` CLI that skills ship as `scripts/keys.mjs`. Skill scripts read keys only this way.
 - `loadOctocodeEnv(options)` loads the home and workspace `.env` files, legacy names read as their current ones; `applyOctocodeEnv(map, options)` applies them under the protected-key policy; `propagateOctocodeEnv(options)` does both.
 - `CONFIG_FIELDS` (every setting's metadata), `DEFAULT_CONFIG` (generated defaults), `configFieldEnvName(path)` (a setting's env variable), and `ENV_TOKEN_VARS` (GitHub token names, priority order) come from the contract.
 - `devOverridesAllowed(env, { bundled })` gates the dev-only `OCTOCODE_NATIVE_BIN` override for the launchers; `RuntimeSurface` names the runtime surfaces.

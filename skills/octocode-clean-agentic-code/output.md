@@ -12,6 +12,6 @@ Save when requested, required by project instructions, or a durable removal reco
 
 For the report viewer, use the [shared header](references/report-output.md#report-header), then a title and `## Removed`, `## Deferred`, `## Checks`. Choose concise prose, a table or a focused diff; empty sections can say `None.`. These fields belong to the viewer format, not ordinary answers. Accepted `status` values: `Done`, `Partial`.
 
-Put report-only defects under `Deferred`, explaining the masked failure, impact and recommended repair. Distinguish them from candidates whose redundancy remains unresolved. Under `Checks`, compare the relevant baseline and post-change results, separate existing failures from introduced ones, and name blocked or unrun checks without treating them as passes.
+Put report-only defects under `Deferred`, explaining the masked failure, impact and recommended repair. Distinguish them from candidates whose redundancy remains unresolved. Under `Checks`, report the [check-diff](scripts/check-diff.mjs) result of the baseline and post-change runs: `introduced`, `preExisting`, `fixed` and `missing` by check name, plus the coverage-diff `lost` files when tests changed. Name blocked or unrun checks without treating them as passes.
 
 Use the [format guide](references/report-output.md#choose-the-format) only when presentation needs it. For accepted HTML, follow [rendering and retrieval](references/report-output.md#render-and-retrieve) and [delivery](references/presentation.md#html-delivery).

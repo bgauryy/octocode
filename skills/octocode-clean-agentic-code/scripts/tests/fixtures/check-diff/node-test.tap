@@ -1,0 +1,30 @@
+TAP version 13
+# Subtest: parser
+    # Subtest: reads a header
+    ok 1 - reads a header
+      ---
+      duration_ms: 0.4
+      ...
+    # Subtest: rejects \# comments
+    not ok 2 - rejects \# comments
+      ---
+      error: 'expected throw'
+      ...
+    1..2
+not ok 1 - parser
+  ---
+  error: '1 subtest failed'
+  ...
+# Subtest: server
+    # Subtest: starts
+    ok 1 - starts
+    1..1
+not ok 2 - server
+  ---
+  error: 'after hook failed'
+  ...
+# Subtest: skipped case
+ok 3 - skipped case # SKIP needs network
+# Subtest: known bug
+not ok 4 - known bug # TODO fix later
+1..4

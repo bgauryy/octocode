@@ -54,8 +54,8 @@ pub use ref_memo::{RefMemo, SettleOnDrop};
 pub use refs::{NamedRef, RefKind, RefMatch, RefPage, TagObject, TagRef};
 pub use search::{
     CodeSearchItem, CodeSearchPage, CodeSearchRequest, RepositoryMetadata, RepositorySearchItem,
-    RepositorySearchPage, RepositorySearchRequest, SEARCH_RESULT_CAP, TextMatch, TreeEntry,
-    TreeRequest, TreeResponse,
+    RepositorySearchPage, RepositorySearchRequest, SEARCH_RESULT_CAP, SearchRepository, TextMatch,
+    TreeEntry, TreeRequest, TreeResponse,
 };
 pub use security::{
     AdvisoryCredit, AdvisoryCvss, AdvisoryCwe, AdvisoryEpss, AdvisoryPackage, AdvisoryPage,

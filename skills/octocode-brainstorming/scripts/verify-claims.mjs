@@ -11,8 +11,11 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { guardedFetch } from './lib/net-guard.mjs';
+import { getKey } from './keys.mjs';
 
-const USAGE = `Usage: verify-claims.mjs --ledger <claims.jsonl|claims.json> [--out <verified.jsonl>] [--concurrency <1-8>]
+const USAGE = `Usage: verify-claims.mjs --ledger <claims.jsonl|claims.json> [--ledger <another>]... [--out <verified.jsonl>]
+                        [--reuse <earlier.verified.jsonl>] [--since YYYY-MM-DD] [--until YYYY-MM-DD]
+                        [--concurrency <1-8>] [--via auto|exa|tavily|none]
 
 Each ledger row: {"id","claim","url","quote", ...}. A row with "asset" (a file saved by fetch-asset.mjs, relative to the
 ledger) must match that run's assets/manifest.jsonl by path, URL, and SHA-256. It is checked as text, Markdown, CSV, JSON, or HTML directly, PDF through pdftotext when installed. The quote must be copied from the page, at least 20 characters;
@@ -21,6 +24,21 @@ fetch-failed, blocked (a bot check answered), unsupported-content, refused (a pr
 A row the script cannot read (blocked, unsupported-content, fetch-failed) that a person or the host fetch tool checked
 may carry "verifiedBy":"manual" and a "method" naming how; it then reports verified-manual. Manual marks never
 override quote-not-found. --out writes every row with a "verification" object added.
+A page the script cannot read (blocked, fetch-failed, unsupported-content) is read once more through a provider copy of
+the same URL: Exa /contents, then Tavily /extract, whichever has a key (--via picks one; none turns it off). A quote
+found there reports verified with "via" naming the copy; a quote missing from it keeps the original status.
+--ledger repeats (one per worker); the summary then counts each ledger and the total; --out takes one ledger.
+--reuse keeps an earlier verified or verified-manual result for a row with the same url, quote and asset, so a
+rerun fetches only new or changed rows. --since/--until add dateInWindow (yes, no or unknown) from the page's
+published or modified date (a dated sentence in the text, such as "Last updated on ...", when the page has none; never
+the server's Last-Modified header, which is a deploy time, nor a timestamp two or more pages of one site share, marked
+publishedFrom:"site-build"); dateWindow counts yes, no and unknown. Optional row fields:
+decides (the id of the deciding claim or option the row is evidence for), direction (supports or refutes), claimStatus
+(proven, contradicted or unresolved: the status of that deciding claim), primary (true or false), stake (who gains;
+passed through only). decidingClaims summarizes each decides id: rows, verified, distinctSources, supports, refutes,
+the claimStatus values given and conflictingStatus when they differ. Rows citing one source under different URLs get
+sameSourceAs; distinctSources counts sources per decides id (else per claim text). providerCopies totals the
+provider-copy spend, and reusedPages the rows that still rest on an earlier copy.
 Exit 0 when every claim is verified or verified-manual, 1 otherwise, 2 for invalid input.`;
 
 
@@ -81,9 +99,21 @@ export function pageDates(html) {
   };
   const ld = (key) => (html.match(new RegExp(`"${key}"\\s*:\\s*"([^"]+)"`)) || [])[1] || null;
   return {
-    published: meta(['article:published_time', 'datePublished', 'citation_publication_date', 'citation_date', 'dc.date', 'date']) || ld('datePublished') || (html.match(/<time[^>]+datetime=["']([^"']+)["']/i) || [])[1] || null,
-    modified: meta(['article:modified_time', 'dateModified', 'og:updated_time']) || ld('dateModified'),
+    published: meta(['article:published_time', 'datePublished', 'citation_publication_date', 'citation_date', 'dc.date', 'dcterms.date', 'DC.date.issued', 'publish_date', 'publication_date', 'parsely-pub-date', 'sailthru.date', 'date']) || ld('datePublished') || (html.match(/<time[^>]+datetime=["']([^"']+)["']/i) || [])[1] || meta(['ms.date']) || null,
+    modified: meta(['article:modified_time', 'dateModified', 'og:updated_time', 'updated_at', 'dcterms.modified', 'last-modified', 'revised']) || ld('dateModified'),
   };
+}
+
+const MONTHS = 'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?';
+const DATED = new RegExp(`\\b(?:last\\s+(?:updated|modified|reviewed|tested|revised)|updated|published|posted|revised)(?:\\s+on)?\\s*:?\\s*(\\d{4}-\\d{2}-\\d{2}|(?:${MONTHS})\\.?\\s+\\d{1,2},?\\s+\\d{4}|\\d{1,2}\\s+(?:${MONTHS})\\.?\\s+\\d{4})`, 'i');
+
+/** The date of a "Last updated on …" style sentence in the page text, as YYYY-MM-DD, or null. */
+export function textDate(text) {
+  const found = DATED.exec(String(text || '').slice(0, 200_000));
+  if (!found) return null;
+  if (/^\d{4}-/.test(found[1])) return found[1];
+  const parsed = Date.parse(`${found[1].replace(/\.(?=\s)/, '').replace(',', '')} UTC`);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString().slice(0, 10) : null;
 }
 
 const CHALLENGE = /checking your browser|just a moment|attention required|are you a robot|access denied|verify you are human|captcha/i;
@@ -107,16 +137,73 @@ async function readPage(url) {
     const isHtml = /html|xml/i.test(type) || /<html|<body/i.test(body.slice(0, 2000));
     const title = isHtml ? pageTitle(body) : null;
     if (botWall(title, body)) return { status: 'blocked', error: `bot check (${title || 'challenge page'}); verify with the host fetch tool or octocode-scraping`, finalUrl: res.finalUrl };
-    return { text: isHtml ? htmlToText(body) : body, title, ...(isHtml ? pageDates(body) : { published: null, modified: null }), finalUrl: res.finalUrl };
+    const dates = isHtml ? pageDates(body) : { published: null, modified: null };
+    // The server's Last-Modified header is the fallback when the page names no update date.
+    if (!dates.modified && res.headers.get('last-modified')) Object.assign(dates, { modified: res.headers.get('last-modified'), modifiedFrom: 'http' });
+    const text = isHtml ? htmlToText(body) : body;
+    return { text, title, ...dates, ...(dates.published ? {} : { textDate: textDate(text) }), finalUrl: res.finalUrl };
   } catch (error) {
     if (error.guard) return { status: 'refused', error: error.message, finalUrl: error.guard };
     return { status: 'fetch-failed', error: error.name === 'TimeoutError' ? 'timeout after 25 s' : error.message };
   }
 }
 
-function loadPage(url) {
-  if (!pageCache.has(url)) pageCache.set(url, readPage(url));
-  return pageCache.get(url);
+// A provider reads the page for us when a bot wall, an error or a PDF stops the direct read. Each returns the text
+// of that exact URL, or throws; the copy can be cached, so its source and date travel with the result.
+const COPIERS = {
+  async exa(key, url) {
+    const base = getKey('EXA_BASE_URL').value || 'https://api.exa.ai';
+    const j = await postJson(`${base}/contents`, { 'x-api-key': key }, { urls: [url], text: true });
+    const status = j.statuses?.[0];
+    if (status && status.status !== 'success') throw new Error(status.error?.tag || 'no copy');
+    const page = j.results?.[0];
+    if (!page?.text) throw new Error('no text');
+    return { text: page.text, title: page.title || null, published: page.publishedDate || null, source: status?.source || null, costDollars: j.costDollars?.total ?? null };
+  },
+  async tavily(key, url) {
+    const base = getKey('TAVILY_BASE_URL').value || 'https://api.tavily.com';
+    const j = await postJson(`${base}/extract`, { Authorization: `Bearer ${key}` }, { urls: [url], format: 'text', include_usage: true });
+    const page = j.results?.[0];
+    if (!page?.raw_content) throw new Error(j.failed_results?.[0]?.error || 'no text');
+    return { text: page.raw_content, title: null, published: page.published_date || null, source: null, credits: Number(j.usage?.credits) || null };
+  },
+};
+const COPY_KEYS = { exa: 'EXA_API_KEY', tavily: 'TAVILY_API_KEY' };
+const COPY_STATUSES = new Set(['blocked', 'fetch-failed', 'unsupported-content']);
+let via = 'auto';
+export const VIA_MODES = ['auto', 'none', ...Object.keys(COPIERS)];
+
+async function postJson(url, headers, body) {
+  const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000) });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return JSON.parse(text);
+}
+
+/** The direct read, or for an unreadable public page the first provider copy that has text. */
+async function readWithCopy(url, mode) {
+  const page = await readPage(url);
+  if (!COPY_STATUSES.has(page.status) || mode === 'none') return page;
+  const attempts = [];
+  for (const name of mode === 'auto' ? Object.keys(COPIERS) : [mode]) {
+    const key = getKey(COPY_KEYS[name]).value;
+    if (!key) continue;
+    try {
+      const copy = await COPIERS[name](key, url);
+      const cost = copy.costDollars != null ? { costDollars: copy.costDollars } : copy.credits != null ? { credits: copy.credits } : {};
+      return { text: copy.text, title: copy.title || page.title || null, published: copy.published, modified: null, finalUrl: url, via: { provider: name, ...(copy.source ? { source: copy.source } : {}), ...cost }, direct: { status: page.status, error: page.error } };
+    } catch (error) {
+      attempts.push(`${name}: ${String(error.message).replaceAll(key, '[key]')}`);
+    }
+  }
+  return attempts.length ? { ...page, error: `${page.error}; provider copies failed (${attempts.join('; ')})` } : page;
+}
+
+/** One cited page as text, read directly or through a provider copy (`mode`: auto, none, exa, tavily). */
+export function loadSource(url, mode = via) {
+  const key = `${mode} ${url}`;
+  if (!pageCache.has(key)) pageCache.set(key, readWithCopy(url, mode));
+  return pageCache.get(key);
 }
 
 const TEXT_EXT = new Set(['.txt', '.md', '.csv', '.json', '.html', '.htm']);
@@ -198,9 +285,11 @@ async function checkClaim(row, { baseDir = process.cwd() } = {}) {
   const problem = rowProblem(row);
   if (problem) return problem;
   if (row.asset) return checkAsset(row, baseDir);
-  const page = await loadPage(row.url);
-  const meta = { finalUrl: page.finalUrl || row.url, title: page.title || null, published: page.published || null, modified: page.modified || null };
+  const page = await loadSource(row.url);
+  const meta = { finalUrl: page.finalUrl || row.url, title: page.title || null, published: page.published || null, modified: page.modified || null, ...(page.modifiedFrom ? { modifiedFrom: page.modifiedFrom } : {}), ...(page.textDate ? { textDate: page.textDate } : {}), ...(page.via ? { via: page.via } : {}) };
   if (page.status) return { status: page.status, reason: page.error, ...meta };
+  // A provider copy can miss what the page shows, so a quote absent from it is unread, not refuted.
+  if (page.via && !quoteInText(row.quote, page.text)) return { status: page.direct.status, reason: `${page.direct.error}; the quote is not in the ${page.via.provider} copy either: recopy it exactly or read the page another way`, ...meta };
   if (!quoteInText(row.quote, page.text)) return { status: 'quote-not-found', reason: 'the quote is not in the fetched page text; recopy it exactly, or the page may render with JavaScript', ...meta };
   return { status: 'verified', ...meta };
 }
@@ -217,40 +306,205 @@ function readLedger(path) {
   return rows;
 }
 
+const REUSABLE = new Set(['verified', 'verified-manual']);
+const CLAIM_STATUSES = new Set(['proven', 'contradicted', 'unresolved']);
+const sameRow = (a, b) => a.url === b.url && a.quote === b.quote && (a.asset ?? null) === (b.asset ?? null);
+
+/** A day (YYYY-MM-DD) or a year (YYYY) from a page or vendor date, or null when unreadable. */
+export function dayOf(raw) {
+  const text = String(raw ?? '').trim();
+  if (/^\d{4}$/.test(text)) return text;
+  const ymd = text.match(/^(\d{4})[-/](\d{2})[-/](\d{2})/);
+  if (ymd) return `${ymd[1]}-${ymd[2]}-${ymd[3]}`;
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString().slice(0, 10) : null;
+}
+
+/** yes, no or unknown: whether a page date falls in [since, until]; a bare year compares by year. */
+export function dateInWindow(result, since, until) {
+  // A deploy header says when the site was published, not the article: it never decides the window.
+  const published = result.publishedFrom === 'site-build' ? null : result.published;
+  const day = dayOf(published) || (result.modifiedFrom === 'http' ? null : dayOf(result.modified)) || dayOf(result.textDate);
+  if (!day) return 'unknown';
+  const cut = (bound) => (day.length === 4 ? bound.slice(0, 4) : bound);
+  return (since && day < cut(since)) || (until && day > cut(until)) ? 'no' : 'yes';
+}
+
+function parseArgs(args) {
+  const opts = { ledgers: [], out: null, reuse: null, since: null, until: null, concurrency: 4, via: 'auto' };
+  for (let i = 0; i < args.length; i += 2) {
+    const [flag, value] = [args[i], args[i + 1]];
+    if (!['--ledger', '--out', '--reuse', '--since', '--until', '--concurrency', '--via'].includes(flag)) fail('invalidArguments', `Unknown option: ${flag} (see --help)`, 2);
+    if (value == null || value.startsWith('--')) fail('invalidArguments', `missing value for ${flag}`, 2);
+    if (flag === '--ledger') opts.ledgers.push(value);
+    else opts[flag.slice(2)] = flag === '--concurrency' ? Number(value) : value;
+  }
+  if (!opts.ledgers.length) fail('invalidArguments', '--ledger is required', 2);
+  if (opts.out && opts.ledgers.length > 1) fail('invalidArguments', '--out takes one --ledger; run once per ledger to write each verified copy', 2);
+  if (!Number.isSafeInteger(opts.concurrency) || opts.concurrency < 1 || opts.concurrency > 8) fail('invalidArguments', '--concurrency must be 1-8', 2);
+  if (!VIA_MODES.includes(opts.via)) fail('invalidArguments', `--via must be one of ${VIA_MODES.join(', ')}`, 2);
+  for (const flag of ['since', 'until']) if (opts[flag] && !/^\d{4}-\d{2}-\d{2}$/.test(opts[flag])) fail('invalidArguments', `--${flag} must be YYYY-MM-DD`, 2);
+  return opts;
+}
+
+function earlierResults(path) {
+  if (!path) return [];
+  return readLedger(resolve(path)).filter((row) => REUSABLE.has(row?.verification?.status));
+}
+
+/** A timestamp (with a time of day) that two or more different pages of one host share is the site's build stamp. */
+export function markBuildStamps(rows, results) {
+  const pages = new Map();
+  results.forEach((r, i) => {
+    if (!r.published || !/\d:\d/.test(r.published)) return;
+    let host;
+    try { host = new URL(r.finalUrl || rows[i]?.url).hostname; } catch { return; }
+    const key = `${host} ${r.published}`;
+    const entry = pages.get(key) || { paths: new Set(), indexes: [] };
+    entry.paths.add(canonicalSource(r.finalUrl || rows[i]?.url));
+    entry.indexes.push(i);
+    pages.set(key, entry);
+  });
+  for (const { paths, indexes } of pages.values()) if (paths.size > 1) for (const i of indexes) results[i].publishedFrom = 'site-build';
+}
+
+/** Rows that cite one source (same final URL) under different ledger URLs, and distinct sources per claim text. */
+function sourceLinks(rows, results) {
+  const bySource = new Map();
+  rows.forEach((row, i) => {
+    const source = canonicalSource(results[i].finalUrl || row?.url);
+    if (!source) return;
+    bySource.set(source, [...(bySource.get(source) || []), i]);
+  });
+  const sameSourceAs = new Map();
+  for (const indexes of bySource.values()) {
+    if (new Set(indexes.map((i) => rows[i].url)).size < 2) continue;
+    for (const i of indexes) sameSourceAs.set(i, indexes.filter((j) => j !== i && rows[j].url !== rows[i].url).map((j) => rows[j]?.id ?? j + 1));
+  }
+  const byClaim = new Map();
+  rows.forEach((row, i) => {
+    const key = groupOf(row);
+    if (!REUSABLE.has(results[i].status) || !key) return;
+    const sources = byClaim.get(key) || new Set();
+    sources.add(canonicalSource(results[i].finalUrl || row.url));
+    byClaim.set(key, sources);
+  });
+  return { sameSourceAs, distinct: (row) => byClaim.get(groupOf(row))?.size ?? 0 };
+}
+
+/** The deciding claim a row serves (`decides`), else its own claim text. */
+const groupOf = (row) => (typeof row?.decides === 'string' && row.decides) ? `decides:${row.decides}` : typeof row?.claim === 'string' ? `claim:${row.claim}` : null;
+
+/** Per deciding claim: rows, verified rows, independent sources, supporting and refuting rows, and the statuses given. */
+function decidingClaims(rows, results, links) {
+  const out = {};
+  rows.forEach((row, i) => {
+    if (typeof row?.decides !== 'string' || !row.decides) return;
+    const entry = (out[row.decides] ||= { rows: 0, verified: 0, distinctSources: 0, supports: 0, refutes: 0, claimStatus: [] });
+    entry.rows += 1;
+    if (REUSABLE.has(results[i].status)) entry.verified += 1;
+    entry.distinctSources = links.distinct(row);
+    if (row.direction === 'supports') entry.supports += 1;
+    if (row.direction === 'refutes') entry.refutes += 1;
+    if (row.claimStatus && !entry.claimStatus.includes(row.claimStatus)) entry.claimStatus.push(row.claimStatus);
+  });
+  for (const entry of Object.values(out)) {
+    entry.claimStatus.sort();
+    entry.conflictingStatus = entry.claimStatus.length > 1;
+  }
+  return out;
+}
+
+function canonicalSource(raw) {
+  try {
+    const u = new URL(raw);
+    return `${u.hostname.toLowerCase().replace(/^www\./, '')}${u.pathname.replace(/\/+$/, '')}`;
+  } catch { return null; }
+}
+
 if (isMainModule(import.meta.url)) {
   const args = process.argv.slice(2);
   if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); process.exit(0); }
-  const opts = { ledger: null, out: null, concurrency: 4 };
-  for (let i = 0; i < args.length; i += 2) {
-    const [flag, value] = [args[i], args[i + 1]];
-    if (!['--ledger', '--out', '--concurrency'].includes(flag)) fail('invalidArguments', `Unknown option: ${flag} (see --help)`, 2);
-    if (value == null || value.startsWith('--')) fail('invalidArguments', `missing value for ${flag}`, 2);
-    opts[flag.slice(2)] = flag === '--concurrency' ? Number(value) : value;
-  }
-  if (!opts.ledger) fail('invalidArguments', '--ledger is required', 2);
-  if (!Number.isSafeInteger(opts.concurrency) || opts.concurrency < 1 || opts.concurrency > 8) fail('invalidArguments', '--concurrency must be 1-8', 2);
-  const rows = readLedger(resolve(opts.ledger));
+  const opts = parseArgs(args);
+  via = opts.via;
+  const earlier = earlierResults(opts.reuse);
+  const rows = [];
+  const ledgerOf = [];
+  for (const ledger of opts.ledgers) for (const row of readLedger(resolve(ledger))) { rows.push(row); ledgerOf.push(resolve(ledger)); }
   const results = Array.from({ length: rows.length });
   let next = 0;
   await Promise.all(Array.from({ length: Math.min(opts.concurrency, rows.length) }, async () => {
-    while (next < rows.length) { const i = next++; results[i] = await verifyClaim(rows[i], { baseDir: dirname(resolve(opts.ledger)) }); }
+    while (next < rows.length) {
+      const i = next++;
+      const kept = rows[i] && typeof rows[i] === 'object' ? earlier.find((old) => sameRow(old, rows[i])) : null;
+      results[i] = kept ? { ...kept.verification, reused: true } : await verifyClaim(rows[i], { baseDir: dirname(ledgerOf[i]) });
+    }
   }));
+  markBuildStamps(rows, results);
+  if (opts.since || opts.until) results.forEach((r) => { r.dateInWindow = dateInWindow(r, opts.since, opts.until); });
+  const links = sourceLinks(rows, results);
   const checkedAt = new Date().toISOString();
-  const byStatus = {};
-  for (const r of results) byStatus[r.status] = (byStatus[r.status] || 0) + 1;
-  if (opts.out) writeFileSync(resolve(opts.out), `${rows.map((row, i) => JSON.stringify({ ...row, verification: { ...results[i], checkedAt } })).join('\n')}\n`);
-  const verified = (byStatus.verified || 0) + (byStatus['verified-manual'] || 0);
-  const allVerified = verified === rows.length;
+  const count = (indexes) => {
+    const byStatus = {};
+    for (const i of indexes) byStatus[results[i].status] = (byStatus[results[i].status] || 0) + 1;
+    const verified = (byStatus.verified || 0) + (byStatus['verified-manual'] || 0);
+    return { total: indexes.length, verified, unverified: indexes.length - verified, byStatus };
+  };
+  const all = rows.map((_, i) => i);
+  const totals = count(all);
+  if (opts.out) writeFileSync(resolve(opts.out), `${rows.map((row, i) => JSON.stringify({ ...row, verification: { checkedAt, ...results[i] } })).join('\n')}\n`);
+  const tally = (field, allowed) => {
+    const out = {};
+    for (const row of rows) if (row?.[field] != null) out[String(row[field])] = (out[String(row[field])] || 0) + 1;
+    const invalid = allowed ? Object.keys(out).filter((value) => !allowed.has(value)) : [];
+    return Object.keys(out).length ? { counts: out, ...(invalid.length ? { invalid } : {}) } : null;
+  };
+  const spend = {};
+  for (const r of results) {
+    if (!r.via) continue;
+    const p = (spend[r.via.provider] ||= { pages: 0 });
+    if (r.reused) { p.reusedPages = (p.reusedPages || 0) + 1; continue; }
+    p.pages += 1;
+    if (r.via.costDollars != null) p.costDollars = Number(((p.costDollars || 0) + r.via.costDollars).toFixed(4));
+    if (r.via.credits != null) p.credits = (p.credits || 0) + r.via.credits;
+  }
+  const allVerified = totals.verified === rows.length;
+  const claimStatus = tally('claimStatus', CLAIM_STATUSES);
+  const primary = tally('primary');
+  const deciding = decidingClaims(rows, results, links);
+  const window = opts.since || opts.until ? { since: opts.since, until: opts.until, yes: 0, no: 0, unknown: 0 } : null;
+  if (window) for (const r of results) window[r.dateInWindow] += 1;
   console.log(JSON.stringify({
     ok: allVerified,
-    total: rows.length,
-    verified,
-    unverified: rows.length - verified,
-    verifiedRatio: rows.length ? Number((verified / rows.length).toFixed(3)) : 0,
-    byStatus,
+    ...totals,
+    verifiedRatio: rows.length ? Number((totals.verified / rows.length).toFixed(3)) : 0,
+    ...(opts.ledgers.length > 1 ? { ledgers: opts.ledgers.map((ledger) => ({ ledger: resolve(ledger), ...count(all.filter((i) => ledgerOf[i] === resolve(ledger))) })) } : {}),
+    ...(results.some((r) => r.reused) ? { reused: results.filter((r) => r.reused).length } : {}),
+    ...(claimStatus ? { claimStatus } : {}),
+    ...(primary ? { primary } : {}),
+    ...(Object.keys(deciding).length ? { decidingClaims: deciding } : {}),
+    ...(window ? { dateWindow: window } : {}),
+    ...(Object.keys(spend).length ? { providerCopies: spend } : {}),
     ...(opts.out ? { out: resolve(opts.out) } : {}),
-    claims: rows.map((row, i) => ({ id: row?.id ?? i + 1, status: results[i].status, url: row?.url, ...(results[i].reason ? { reason: results[i].reason } : {}), title: results[i].title ?? null, published: results[i].published ?? null })),
-    ...(allVerified ? {} : { error: { code: verified ? 'someUnverified' : 'noneVerified', message: `${rows.length - verified} of ${rows.length} claims are not verified; recopy quotes, fix URLs, or drop those claims from the evidence` } }),
+    claims: rows.map((row, i) => ({
+      id: row?.id ?? i + 1,
+      status: results[i].status,
+      url: row?.url,
+      ...(results[i].reason ? { reason: results[i].reason } : {}),
+      title: results[i].title ?? null,
+      published: results[i].published ?? null,
+      modified: results[i].modified ?? null,
+      ...(results[i].publishedFrom ? { publishedFrom: results[i].publishedFrom } : {}),
+      ...(results[i].textDate ? { textDate: results[i].textDate } : {}),
+      ...(results[i].dateInWindow ? { dateInWindow: results[i].dateInWindow } : {}),
+      ...(results[i].via ? { via: results[i].via } : {}),
+      ...(results[i].reused ? { reused: true } : {}),
+      ...(row?.claimStatus ? { claimStatus: row.claimStatus } : {}),
+      ...(links.sameSourceAs.has(i) ? { sameSourceAs: links.sameSourceAs.get(i) } : {}),
+      ...(row?.decides ? { decides: row.decides } : {}),
+      ...(groupOf(row) && REUSABLE.has(results[i].status) ? { distinctSources: links.distinct(row) } : {}),
+    })),
+    ...(allVerified ? {} : { error: { code: totals.verified ? 'someUnverified' : 'noneVerified', message: `${rows.length - totals.verified} of ${rows.length} claims are not verified; recopy quotes, fix URLs, or drop those claims from the evidence` } }),
   }, null, 2));
   process.exit(allVerified ? 0 : 1);
 }

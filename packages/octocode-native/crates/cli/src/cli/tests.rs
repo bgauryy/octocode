@@ -328,6 +328,7 @@ fn tool_input_reads_a_file_and_rejects_bad_json() {
         args: Vec::new(),
         input: Some(path),
         content_stdin: false,
+        all_pages: false,
     };
     assert_eq!(
         super::tool_call::tool_input("localSearch", &args),
@@ -337,6 +338,7 @@ fn tool_input_reads_a_file_and_rejects_bad_json() {
         args: vec!["{".into()],
         input: None,
         content_stdin: false,
+        all_pages: false,
     };
     assert!(
         super::tool_call::tool_input("localSearch", &bad)
@@ -346,6 +348,7 @@ fn tool_input_reads_a_file_and_rejects_bad_json() {
         args: Vec::new(),
         input: None,
         content_stdin: false,
+        all_pages: false,
     };
     assert!(
         super::tool_call::tool_input("localSearch", &missing)
@@ -391,6 +394,7 @@ fn content_from_stdin_fills_exactly_one_row_that_names_no_input() {
         args: Vec::new(),
         input: Some("-".into()),
         content_stdin: true,
+        all_pages: false,
     };
     assert!(tool_input("clasify", &both).is_err_and(|e| e.contains("both read stdin")));
 }

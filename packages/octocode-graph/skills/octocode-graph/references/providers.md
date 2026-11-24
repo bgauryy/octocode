@@ -2,7 +2,14 @@
 
 Run `octocode-graph enrich <data.json> <manifest.json> <new-data.json>` from an installed graph package. The new export carries the original graph and a separate evidence layer. Query it with `octocode-graph query <new-data.json> "<query>" --json`.
 
-Choose artifacts collected from the same source revision and build configuration. Set the manifest's `baseSha256` to the digest of the exact graph export and each provider's `sha256` to the digest of its original bytes. Obtain them with `shasum -a 256 <file>`. The importer checks both digests and the revision labels. The producer attests which revision the files describe.
+Choose artifacts collected from the same source revision and build configuration, then write the manifest with one `--provider` per artifact; each option after a `--provider` belongs to it:
+
+```sh
+octocode-graph enrich --manifest-from data.json manifest.json --revision build-42 \
+  --provider llvm-cov coverage.json --test-id addition --source-root /build/project
+```
+
+It records the SHA-256 of the export (`baseSha256`) and of each file (`sha256`) as they are on disk, names each file relative to the manifest, refuses to replace an existing manifest, and prints the `enrich` command to run next. Provider options: `--test-id`, `--workload`, `--source-root`, `--working-directory`, `--module-file`. The importer checks both digests and the revision labels. The producer attests which revision the files describe. The manifest it writes:
 
 ```json
 {
@@ -50,7 +57,7 @@ dot -Tjson0 .choose.dot -o cfg.json
 dot -Tjson0 domonly.choose.dot -o dom.json
 ```
 
-Add one provider entry per JSON file with `format` set to `llvm-graphviz`, its file digest, revision, `moduleFile` pointing to `choose.ll` and `moduleSha256` holding that file's digest. The importer qualifies each block by module digest, function name and block name. The control-flow and dominator printers may assign different Graphviz node IDs.
+Pass each JSON file as `--provider llvm-graphviz <file.json> --module-file choose.ll`: the manifest records the module's `moduleSha256` beside the file's digest. The importer qualifies each block by module digest, function name and block name. The control-flow and dominator printers may assign different Graphviz node IDs.
 
 From `llvm:<moduleSha256>`, trace `DEFINES CONTAINS` to list block IDs. From a block, trace `BRANCHES_TO+` for possible successor blocks or `IMMEDIATELY_DOMINATES+` for blocks it strictly dominates. Edges cite the supplying graph artifact. These are compiler basic blocks for the supplied IR and optimization settings. Instruction-level data flow requires separate facts.
 

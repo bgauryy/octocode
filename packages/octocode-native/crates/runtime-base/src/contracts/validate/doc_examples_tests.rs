@@ -161,10 +161,10 @@ fn every_documented_request_is_accepted_by_native_and_the_published_schema() {
         let text = std::fs::read_to_string(&file).expect("markdown");
         examples_in(&file, &text, &mut examples, &mut unattributed);
     }
+    // The extractor itself is proven on a fixture (below); the docs only have to show requests.
     assert!(
-        examples.len() > 20,
-        "the extractor found {} examples",
-        examples.len()
+        !examples.is_empty(),
+        "the docs and skills show no tool request"
     );
     let mut failures: Vec<String> = unattributed
         .into_iter()
@@ -233,4 +233,38 @@ fn every_core_example_is_accepted_by_native_admission() {
     }
     assert!(count >= ToolId::ALL.len(), "{count} examples");
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+}
+
+/// Each request form the docs use is found: a command, a `{"tool","input"}` call, and a fenced
+/// `json` block under a heading that names one tool. A form the extractor missed would let a
+/// wrong example in that form go unchecked.
+#[test]
+fn the_extractor_finds_every_request_form() {
+    let text = concat!(
+        "# Guide\n",
+        "Run `octocode localSearch '{\"queries\":[{\"path\":\".\",\"matchString\":[\"x\"]}]}'`.\n",
+        "{\"tool\":\"localFetch\",\"input\":{\"queries\":[{\"path\":\"README.md\"}]}}\n",
+        "## lspSearch\n",
+        "```json\n",
+        "{\"queries\":[{\"path\":\"a.ts\",\"symbolName\":\"f\",\"lineHint\":1}]}\n",
+        "```\n",
+    );
+    let mut examples = Vec::new();
+    let mut unattributed = Vec::new();
+    examples_in(
+        &repository_root().join("fixture.md"),
+        text,
+        &mut examples,
+        &mut unattributed,
+    );
+    let tools: Vec<&str> = examples
+        .iter()
+        .map(|example| example.tool.as_str())
+        .collect();
+    assert_eq!(
+        tools,
+        ["localSearch", "localFetch", "lspSearch"],
+        "{tools:?}"
+    );
+    assert!(unattributed.is_empty(), "{unattributed:?}");
 }

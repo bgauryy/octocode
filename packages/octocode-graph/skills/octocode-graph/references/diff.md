@@ -40,7 +40,7 @@ octocode-graph graphQuery '{"queries":[{"operation":"drift","path":"packages/api
 octocode-graph graphQuery '{"queries":[{"operation":"impact","path":"packages/api","since":"main"}]}'
 ```
 
-`drift` counts `filesAdded`, `filesRemoved`, `filesChanged`, `cyclesAdded`, `cyclesResolved`, `relationsAdded` and `relationsRemoved`, and pages its rows; follow `next` to the end. It does not detect renames, so a renamed file appears removed and added.
+`drift` counts `filesAdded`, `filesRemoved`, `filesChanged`, `cyclesAdded`, `cyclesResolved`, `relationsAdded` and `relationsRemoved`, and pages its rows: add `--all-pages` to read them all in one reply. It does not detect renames, so a renamed file appears removed and added.
 
 ## Review a change by its structure
 

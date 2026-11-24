@@ -19,7 +19,7 @@ mod pagination;
 mod summary;
 
 fn patch_query(offset: usize) -> HistoryItemRequest {
-    with_budget(patch_request(json!({"offset":offset})), 5)
+    with_window(patch_request(json!({"offset":offset})), 2)
 }
 
 fn patch_request(fields: serde_json::Value) -> HistoryItemRequest {
@@ -89,4 +89,17 @@ fn follow_commit_page(
 fn with_budget(mut query: HistoryItemRequest, page_chars: usize) -> HistoryItemRequest {
     query.auto_page_chars = Some(page_chars);
     query
+}
+
+/// The smallest automatic page whose patch window holds `chars`: a test
+/// states the window it means, not the page share behind it.
+fn page_for_window(chars: usize) -> usize {
+    (1..)
+        .find(|page| patch_window(Some(*page)) >= chars)
+        .expect("a page holds every window")
+}
+
+/// `query` at the page whose patch window is `chars`.
+fn with_window(query: HistoryItemRequest, chars: usize) -> HistoryItemRequest {
+    with_budget(query, page_for_window(chars))
 }

@@ -273,6 +273,19 @@ test('symbol lookups and typed walks do not materialize a weighted file projecti
   assert.equal(runQuery(d,'trace a.ts#a CALLS').rows.length,1);
 });
 
+test('callers --tests counts the callers in test files: the comparison with production callers is a field', () => {
+  const d = { files: [{id:'a.ts'},{id:'b.ts'},{id:'t.test.ts',roles:['test']}],
+    calls: [{source:'a.ts#a',target:'b.ts#b',confidence:'high'},{source:'t.test.ts#check',target:'b.ts#b',confidence:'high',test:true},{source:'t.test.ts#check2',target:'b.ts#b',confidence:'high',test:true}] };
+  const production = runQuery(d,'callers b.ts#b');
+  assert.equal(production.stats.testCalls, undefined, 'without --tests test callers are not read, so not counted');
+  const all = runQuery(d,'callers b.ts#b --tests');
+  assert.deepEqual([all.stats.calls, all.stats.testCalls, all.stats.testFiles], [3, 2, 1]);
+  assert.equal(all.stats.calls - all.stats.testCalls, production.stats.calls);
+  assert.match(all.summary, /2 callers in test files/);
+  assert.equal(runQuery(d,'callers a.ts#a --tests').stats?.testCalls, 0);
+  assert.equal(runQuery(d,'callees t.test.ts#check --tests').stats.testCalls, undefined, 'callees state no test count');
+});
+
 test('cycle weight and identity describe the selected component', () => {
   const data = { files: ['a','b','c'].map(id => file(id,'root')), symbols: [],
     imports: [imp('a','b',1), imp('b','a',2)],

@@ -13,6 +13,9 @@ pub(super) struct ToolArgs {
     /// Read the JSON query from a file, or from stdin with `-`.
     #[arg(long, value_name = "FILE|-")]
     pub input: Option<std::path::PathBuf>,
+    /// Follow every page: send each reply's top-level `next` until none is left, then print one reply with the pages joined (rows of one index in order, `rowPart` pieces as one row). Row `next.*` calls stay listed; a failed page ends the walk, reported with its error and `next`.
+    #[arg(long)]
+    pub all_pages: bool,
     /// `clasify --content -`: stdin is the one query row's `content`
     /// ([`content_from_stdin`]); only that command defines the flag.
     #[arg(skip)]

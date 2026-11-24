@@ -46,7 +46,6 @@
     "github": {
       "crates/github/src/budget/config.rs": 2,
       "crates/github/src/budget/key_state.rs": 1,
-      "crates/github/src/budget/key_state/admission.rs": 1,
       "crates/github/src/budget/key_state/facts.rs": 1,
       "crates/github/src/budget/slots.rs": 1,
       "crates/github/src/transport.rs": 1,

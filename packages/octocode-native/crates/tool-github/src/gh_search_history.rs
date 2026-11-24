@@ -1,11 +1,11 @@
 //! GitHub history *search* — pull requests, issues, and commits.
 //!
 //! The transport reads current REST listings and indexed search pages.
-mod comment_counts;
 mod failures;
 mod fetch;
 mod filters;
 mod leads;
+mod pull_facts;
 mod query;
 pub(crate) mod rows;
 pub mod selected;
@@ -134,7 +134,6 @@ pub async fn execute(
     let Fetched {
         mut result,
         terms,
-        warnings,
         rename,
     } = match fetched {
         Ok(fetched) => fetched,
@@ -166,14 +165,14 @@ pub async fn execute(
         unconfirmed = confirm_commit_users(transport, &query, context).await?;
     }
     result.warnings.splice(0..0, unconfirmed);
-    result.warnings.extend(warnings);
     rows::sanitize_items(&mut result.items, security).map_err(history_failure)?;
-    // Rows that state a pull request's whole comment count read it: the
-    // count GitHub's sort and filters use (`totalCommentsCount`).
-    if comment_counts::shown(&query)
-        && let Some(note) = comment_counts::whole_counts(transport, &mut result.items, context)
-            .await
-            .map_err(history_failure)?
+    // Rows that state a fact a search item lacks read it: a pull request's
+    // whole comment count (the count GitHub's sort and filters use) and its
+    // target branch.
+    let wanted = pull_facts::Wanted::of(&query, &result.items);
+    if let Some(note) = pull_facts::read(transport, wanted, &mut result.items, context)
+        .await
+        .map_err(history_failure)?
     {
         result.warnings.push(note);
     }

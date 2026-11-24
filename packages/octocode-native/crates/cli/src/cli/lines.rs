@@ -309,9 +309,11 @@ fn location_rows(data: &Map<String, Value>) -> Option<Vec<Value>> {
     Some(rows)
 }
 
-/// `matches` with each hit's `enclosing` replaced by the declaration it
-/// names, so a line can state it. A merged window's `enclosing` may be one
-/// index per `matchedLines` entry; each resolves to its own declaration.
+/// `matches` with each hit's `enclosing` and `declaration` replaced by the
+/// declaration it names, so a line can state it. A merged window's
+/// `enclosing` may be one index per `matchedLines` entry, and its
+/// `declaration` one per declaring hit; each resolves to its own
+/// declaration.
 fn with_declarations(matches: Value, declarations: Option<&Value>) -> Value {
     let Value::Array(mut rows) = matches else {
         return matches;
@@ -321,17 +323,19 @@ fn with_declarations(matches: Value, declarations: Option<&Value>) -> Value {
         declarations?.get(index).cloned()
     };
     for row in &mut rows {
-        let named = match row.get("enclosing") {
-            Some(Value::Array(indexes)) => indexes
-                .iter()
-                .map(&declaration)
-                .collect::<Option<Vec<_>>>()
-                .map(Value::Array),
-            Some(index) => declaration(index),
-            None => None,
-        };
-        if let (Some(named), Some(row)) = (named, row.as_object_mut()) {
-            row.insert("enclosing".into(), named);
+        for field in ["enclosing", "declaration"] {
+            let named = match row.get(field) {
+                Some(Value::Array(indexes)) => indexes
+                    .iter()
+                    .map(&declaration)
+                    .collect::<Option<Vec<_>>>()
+                    .map(Value::Array),
+                Some(index) => declaration(index),
+                None => None,
+            };
+            if let (Some(named), Some(row)) = (named, row.as_object_mut()) {
+                row.insert(field.into(), named);
+            }
         }
     }
     Value::Array(rows)

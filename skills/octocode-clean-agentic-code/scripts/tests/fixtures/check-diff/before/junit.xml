@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- pytest-style report: the baseline run -->
+<testsuites>
+  <testsuite name="pytest" tests="5" failures="2">
+    <testcase classname="tests.test_api" name="test_list" time="0.01"/>
+    <testcase classname="tests.test_api" name="test_flaky_network" time="0.02">
+      <failure message="timeout &gt; 5s"><![CDATA[<testcase name="not a real case"/> stack trace]]></failure>
+    </testcase>
+    <testcase classname="tests.test_api" name="test_create" time="0.01"/>
+    <testcase classname="tests.test_api" name="test_delete" time="0.01"></testcase>
+    <testcase classname="tests.test_db" name="test_migrate" time="0.03">
+      <error message="db locked"/>
+    </testcase>
+  </testsuite>
+</testsuites>

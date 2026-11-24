@@ -8,13 +8,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { buildReport, defaultOut, manifestPage } from './lib/report/render.mjs';
+import { buildReport, checkReports, defaultOut, manifestPage } from './lib/report/render.mjs';
 import { selfTest } from './lib/report/self-test.mjs';
 
 const HELP = `Render skill Markdown output as one self-contained HTML report. The page stays closed.
 
 Usage:
   node scripts/render-report.mjs <file.md | folder> [--out <file.html>] [--title <text>] [--workspace <dir>] [--open] [--json] [--strict]
+  node scripts/render-report.mjs <file.md | folder> --check [--json] [--workspace <dir>]
   node scripts/render-report.mjs <file.md | folder> --manifest [--query <text>] [--limit <n>] [--offset <n>] [--all]
   node scripts/render-report.mjs --self-test
   node scripts/render-report.mjs --help
@@ -36,6 +37,14 @@ accepted and keeps the page closed. CI, or Linux with no display, also stays clo
 --manifest writes no HTML. Default: 20 compact records (path/title/status/question), with a
 next argument array to reach the rest. --query filters titles, paths and questions. --limit and
 --offset select a page. --all explicitly returns the full unabridged catalog for file processing.
+--check writes no HTML. It validates each saved report with the rules --strict applies: header
+status among the owning skill's accepted statuses, a question, the dated name and folder layout,
+every required ## section in contract order, the either-or sections, graph/chart data and local
+images. The owner's report-contract is in its output.md; the owner is the .octocode/<skill>/ folder
+the report is saved in, else the skill this script is installed in. Exit 0: passed. Exit 2: one
+"violation: <file>: <problem>" line each (--json: {"validation":"failed","files":n,"skills":[...],
+"warnings":[...]}); fix each and rerun. Exit 1: the check could not run (missing file, bad option,
+malformed contract).
 --strict rejects validation warnings with exit 2 before writing HTML. JSON render results always
 say render: unverified: file generation does not establish browser rendering success. Open the
 page and inspect its Render check before claiming the diagrams work.`;
@@ -54,7 +63,7 @@ function openFile(file) {
 const VALUE_OPTIONS = new Map([['--out', 'out'], ['--title', 'title'], ['--workspace', 'workspace']]);
 const FLAG_OPTIONS = new Map([
   ['--open', ['open', true]], ['--no-open', ['open', false]], ['--json', ['json', true]], ['--manifest', ['manifest', true]],
-  ['--strict', ['strict', true]], ['--all', ['all', true]], ['--help', ['help', true]], ['-h', ['help', true]], ['--self-test', ['selfTest', true]],
+  ['--strict', ['strict', true]], ['--check', ['check', true]], ['--all', ['all', true]], ['--help', ['help', true]], ['-h', ['help', true]], ['--self-test', ['selfTest', true]],
 ]);
 
 // Reads the option at argv[i] into args; returns the index of the last argument it consumed.
@@ -103,12 +112,25 @@ function render(args) {
   }
 }
 
+// Writes no HTML. Exit 0 passed, 2 violations, 1 when the check could not run.
+function check(args) {
+  if (args.manifest || args.out || args.open || args.title) { console.error('--check writes nothing: drop --manifest, --out, --open and --title'); return 1; }
+  let result;
+  try { result = checkReports(args.positional[0], { workspace: args.workspace }); } catch (e) { console.error(e.message); return 1; }
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  if (args.json) console.log(JSON.stringify(result));
+  else if (result.warnings) console.log([...result.warnings.map((w) => `violation: ${w}`), `failed: ${plural(result.warnings.length, 'violation')} in ${plural(result.files, 'report')}`].join('\n'));
+  else console.log(`passed: ${plural(result.files, 'report')} checked against ${result.skills.join(', ') || 'no contract'}`);
+  return result.warnings ? 2 : 0;
+}
+
 function main() {
   let args;
   try { args = parseArgs(process.argv.slice(2)); } catch (e) { console.error(e.message); return 1; }
   if (args.help) { console.log(HELP); return 0; }
   if (args.selfTest) return selfTest(fileURLToPath(import.meta.url));
   if (args.positional.length !== 1) { console.error(HELP); return 1; }
+  if (args.check) return check(args);
   if (args.manifest) {
     try { console.log(JSON.stringify(manifestPage(args.positional[0], args))); return 0; } catch (e) { console.error(e.message); return 1; }
   }

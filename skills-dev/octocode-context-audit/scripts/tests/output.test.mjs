@@ -76,3 +76,20 @@ test('default audits stay in the selected workspace and preserve earlier snapsho
   assert.equal(readFileSync(first, 'utf8'), original);
   assert.equal(existsSync(second), true);
 });
+
+test('--compare reports per-surface size deltas and findings resolved and new', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ctx-compare-'));
+  try {
+    const before = { ...snapshot(), instructions: { files: [], alwaysLoadedTokens: 900 }, mcp: [{ name: 'octocode', toolTokens: 5000 }], findings: [{ severity: 'high', area: 'mcp', subject: 'octocode', message: 'over budget' }, { severity: 'low', area: 'skills', subject: 'x', message: 'long' }] };
+    const after = { ...snapshot(), instructions: { files: [], alwaysLoadedTokens: 600 }, mcp: [{ name: 'octocode', toolTokens: 4200 }], findings: [{ severity: 'low', area: 'skills', subject: 'x', message: 'long' }, { severity: 'medium', area: 'usage', subject: 'y', message: 'unused' }] };
+    writeFileSync(join(dir, 'a.json'), JSON.stringify(before));
+    writeFileSync(join(dir, 'b.json'), JSON.stringify(after));
+    const run = spawnSync(process.execPath, [cli, '--compare', join(dir, 'a.json'), join(dir, 'b.json')], { encoding: 'utf8' });
+    assert.equal(run.status, 0, run.stderr);
+    const out = JSON.parse(run.stdout);
+    assert.deepEqual(out.surfaces.instructions.alwaysLoadedTokens, { before: 900, after: 600, delta: -300 });
+    assert.equal(out.surfaces.mcp.octocode.toolTokens.delta, -800);
+    assert.deepEqual(out.findings, { resolved: ['high | mcp | octocode'], new: ['medium | usage | y'], stillOpen: 1 });
+    assert.equal(spawnSync(process.execPath, [cli, '--compare', join(dir, 'missing.json'), join(dir, 'b.json')]).status, 2);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

@@ -179,10 +179,8 @@ fn issue_terms(q: &HistorySearch, out: &mut SearchTerms) -> Result<(), ProviderE
     Ok(())
 }
 
-/// The search terms and the invalid-value warnings collected on the way.
-pub(super) fn build_query_with_warnings(
-    q: &HistorySearch,
-) -> Result<(String, Vec<String>), ProviderError> {
+/// The search terms a query runs.
+pub(super) fn build_query(q: &HistorySearch) -> Result<String, ProviderError> {
     validate_history_scope(q)?;
     let mut out = SearchTerms::new(gh_search_history_query::keywords(q));
     match gh_search_history_query::operation(q) {
@@ -191,5 +189,5 @@ pub(super) fn build_query_with_warnings(
             issue_terms(q, &mut out)?;
         }
     }
-    Ok((out.finish(), Vec::new()))
+    Ok(out.finish())
 }

@@ -27,6 +27,10 @@ pub(super) struct Printed {
     pub(super) error_text: Option<String>,
     /// Text-mode notes for stderr (counts, pages, leads) beside line output.
     pub(super) notes: Option<String>,
+    /// The saved request a `{"cursor":…}` call continued, beside a JSON
+    /// body, which does not state it: `--all-pages` renders a walk that
+    /// starts at a cursor from it, as a text body is ([`ToolOutcome::continued`]).
+    pub(super) continued: Option<Value>,
 }
 
 impl Printed {
@@ -48,26 +52,19 @@ impl Printed {
             Ok(outcome) => {
                 let structured = &outcome.structured_content;
                 let query = outcome.continued.as_ref().unwrap_or(query);
-                // Text prints each row's content, then the facts that decide
-                // "am I done" ([`super::lines::render`]).
-                let view = ToolId::from_name(tool)
-                    .filter(|_| !json_out)
-                    .and_then(|id| super::lines::render(id, structured, query, cwd));
-                let (body, json, notes) = match view {
-                    Some(text) => (
-                        text.out,
-                        false,
-                        Some(text.notes).filter(|notes| !notes.is_empty()),
-                    ),
-                    None => (wire_json(structured), true, None),
-                };
-                Self {
-                    exit: exit_code(outcome.exit_class()),
-                    body,
-                    json,
-                    error_text: None,
-                    notes,
+                let mut printed = Self::reply(
+                    tool,
+                    structured,
+                    exit_code(outcome.exit_class()),
+                    json_out,
+                    query,
+                    cwd,
+                    || wire_json(structured),
+                );
+                if printed.json {
+                    printed.continued.clone_from(&outcome.continued);
                 }
+                printed
             }
             // A rejected call states its outcome on stdout as a failed row
             // does: stdout alone tells it from an empty answer.
@@ -89,13 +86,48 @@ impl Printed {
                     json: json_out,
                     error_text,
                     notes: None,
+                    continued: None,
                 }
             }
         }
     }
 
+    /// A tool's reply (`structured`, a result envelope) as printed: its view
+    /// when it has one and JSON was not asked for, else `compact`, its JSON.
+    /// Text prints each row's content, then the facts that decide "am I
+    /// done" ([`super::lines::render`]). `query` is the call as it ran.
+    pub(super) fn reply(
+        tool: &str,
+        structured: &Value,
+        exit: u8,
+        json_out: bool,
+        query: &Value,
+        cwd: Option<&std::path::Path>,
+        compact: impl FnOnce() -> String,
+    ) -> Self {
+        let view = ToolId::from_name(tool)
+            .filter(|_| !json_out)
+            .and_then(|id| super::lines::render(id, structured, query, cwd));
+        let (body, json, notes) = match view {
+            Some(text) => (
+                text.out,
+                false,
+                Some(text.notes).filter(|notes| !notes.is_empty()),
+            ),
+            None => (compact(), true, None),
+        };
+        Self {
+            exit,
+            body,
+            json,
+            error_text: None,
+            notes,
+            continued: None,
+        }
+    }
+
     /// The warm server's reply line: `{exit, body, json[, errorText,
-    /// notes]}`.
+    /// notes, continued]}`.
     #[cfg(unix)]
     pub(super) fn to_json(&self) -> Value {
         let mut reply = json!({"exit": self.exit, "body": self.body, "json": self.json});
@@ -104,6 +136,9 @@ impl Printed {
         }
         if let Some(notes) = &self.notes {
             reply["notes"] = json!(notes);
+        }
+        if let Some(continued) = &self.continued {
+            reply["continued"] = continued.clone();
         }
         reply
     }
@@ -127,6 +162,10 @@ impl Printed {
                 Value::String(text) => Some(text),
                 Value::Null => None,
                 _ => return None,
+            },
+            continued: match reply["continued"].take() {
+                Value::Null => None,
+                continued => Some(continued),
             },
         })
     }

@@ -99,13 +99,13 @@ Dynamic suffix:
 - Mode, breakpoints, TTL, minimum length and price come from the provider's current docs for that model and endpoint, never memory.
 - Cache only when writes plus expected reads (with expiry and misses) beat no-cache cost for `N` repeats, without adding retries, staleness or base drift.
 - Check: record mode, keys and retention → byte-diff cold vs identical-prefix requests → run cold, warm and tail-only change, reading cache-read/write fields, not latency → classify the miss (too short, prefix drift, key change, expiry, routing, telemetry misread) before editing the prompt.
-- On a miss, continue and log the diverging prefix; never retry with nothing new. Log input, cached, written and output tokens, hit rate and p50/p95 beside task success.
+- On a miss, continue and log the diverging prefix; never retry with nothing new. Log one line per attempt (`task`, `arm`, `success`, `latencyMs`, `costUsd`, `tokens` {`input`, `cacheRead`, `cacheWrite`, `output`}) and run `node <skill-folder>/scripts/run-stats.mjs <runs.jsonl>` ([run-stats.mjs](../scripts/run-stats.mjs)); report each arm's `cacheHitRate`, `latencyMs.p50`/`p95` and token buckets beside `successRate`.
 
 Compaction can change the prefix and reduce reuse. A cache is neither a permission boundary, compaction nor long-term memory; review retention separately. A new base version starts a new cache lineage ([frozen base](models-and-delegation.md#frozen-base-prompt)).
 
 ## Cost
 
-- Cost per successful task = `(request costs + retry and recovery costs) / successful tasks`.
+- Cost per successful task: record each attempt's `costUsd` with its retries and recovery included, then read `costPerSuccess` from run-stats.mjs. It is `null` when a run lacks a cost or none succeeded: fill the gap instead of estimating.
 - Price by vendor usage buckets (uncached input, cache write, cache read, output and reasoning, paid tools) at current prices, never a fixed multiplier. Freeze task, quality target, model, tools and traffic; count prefix, dynamic input, history and output separately; price cold, warm, miss, retry and compaction paths; record model, endpoint, tokenizer and date.
 - Drop no-op instructions, defer rare tools, and use a cheaper model for bounded work.
 - Keep a change only if held-out success and safety hold and cost per success or latency improves; report absolute cost with model, requests, context length, output size and cache telemetry.

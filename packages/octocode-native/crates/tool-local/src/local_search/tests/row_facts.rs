@@ -287,3 +287,153 @@ fn a_finished_walk_writes_no_sampled_key() {
         assert!(!out.contains("sampled"), "{out}");
     }
 }
+
+/// The declaration rows a row's `declaration` names, in order.
+fn declared(file: &Value, row: &Value) -> Vec<Value> {
+    let listed = |index: &Value| {
+        let index = usize::try_from(index.as_u64().expect("an index")).expect("index");
+        let declaration = &file["declarations"][index];
+        match declaration.as_str() {
+            Some(text) => {
+                octocode_runtime_base::response::symbol_outline::outline_row(text)
+                    .expect("an outline line")
+                    .1
+            }
+            None => declaration.clone(),
+        }
+    };
+    match &row["declaration"] {
+        Value::Array(indexes) => indexes.iter().map(listed).collect(),
+        Value::Null => Vec::new(),
+        index => vec![listed(index)],
+    }
+}
+
+/// A function holding two local bindings, a top-level constant and a class
+/// with a method.
+const DECLARING_TS: &str = "export function outer(a: number) {\n  const inner = a + 1;\n  let other = inner;\n  return other;\n}\nexport const top = 1;\nclass Box {\n  run() { return 1; }\n}\n";
+
+/// P5: a hit on a declared name names that declaration by index, and its
+/// row states where it ends, so the read after it needs no guessed range.
+/// `enclosing` stays the declaration around the hit. The outline is the one
+/// source: a hit it does not list (a local binding, a file of a language
+/// with no outline) carries no `declaration`.
+#[test]
+fn a_declaring_hit_names_its_own_declaration_and_where_it_ends() {
+    let dir = tempfile::tempdir().expect("fixture");
+    let root = dir.path().canonicalize().expect("real root");
+    fs::write(root.join("a.ts"), DECLARING_TS).expect("fixture");
+    fs::write(root.join("b.txt"), "function plain() {\n}\nlet y = 2\n").expect("fixture");
+    let out = served(
+        &root,
+        json!({
+            "path": root,
+            "matchString": ["outer", "inner", "run", "plain", "y"],
+            "wholeWord": true
+        }),
+    );
+    let files = data(&out)["files"].as_array().expect("files");
+    let file = |name: &str| {
+        files
+            .iter()
+            .find(|file| {
+                file["path"]
+                    .as_str()
+                    .is_some_and(|path| path.ends_with(name))
+            })
+            .unwrap_or_else(|| panic!("{name}: {out}"))
+    };
+    let source = file("a.ts");
+    let row = |line: u64| {
+        source["matches"]
+            .as_array()
+            .expect("rows")
+            .iter()
+            .find(|row| row["line"] == line)
+            .unwrap_or_else(|| panic!("line {line}: {out}"))
+    };
+    let spans = |row: &Value| {
+        declared(source, row)
+            .iter()
+            .map(|d| {
+                (
+                    d["symbolName"].as_str().expect("name").to_owned(),
+                    d["line"].as_u64().expect("line"),
+                    d["endLine"]
+                        .as_u64()
+                        .unwrap_or_else(|| d["line"].as_u64().expect("line")),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    // The function's name line: its own declaration and its last line.
+    assert_eq!(spans(row(1)), [("outer".to_owned(), 1, 5)], "{out}");
+    assert!(row(1).get("enclosing").is_none(), "{out}");
+    // A method: its own declaration, inside its class.
+    assert_eq!(spans(row(8)), [("run".to_owned(), 8, 8)], "{out}");
+    assert_eq!(owners(source, row(8)), ["Box"], "{out}");
+    // A local binding the outline does not list declares nothing here; a
+    // use is no declaration either.
+    assert!(row(2).get("declaration").is_none(), "{out}");
+    assert_eq!(owners(source, row(2)), ["outer"], "{out}");
+    assert!(row(3).get("declaration").is_none(), "{out}");
+    // A file without an outline: no declaration to point at.
+    let text = file("b.txt");
+    assert!(text.get("declarations").is_none(), "{out}");
+    for row in text["matches"].as_array().expect("rows") {
+        assert!(row.get("declaration").is_none(), "{out}");
+    }
+}
+
+/// A merged window holding several declaring hits names each one's
+/// declaration, in hit order; each declaration's name line is its hit line.
+#[test]
+fn a_merged_window_names_every_declaration_its_hits_declare() {
+    let dir = tempfile::tempdir().expect("fixture");
+    let root = dir.path().canonicalize().expect("real root");
+    fs::write(root.join("two.rs"), THREE_FNS).expect("fixture");
+    let out = served(
+        &root,
+        json!({
+            "path": root,
+            "matchString": ["alpha", "beta", "gamma"],
+            "contextLines": {"before": 3, "after": 3}
+        }),
+    );
+    let file = &data(&out)["files"][0];
+    let rows = file["matches"].as_array().expect("rows");
+    assert_eq!(rows.len(), 1, "one merged window: {out}");
+    let lines = rows[0]["matchedLines"].as_array().expect("merged lines");
+    let named = declared(file, &rows[0]);
+    assert_eq!(
+        named.iter().map(|d| d["line"].clone()).collect::<Vec<_>>(),
+        *lines,
+        "{out}"
+    );
+    assert_eq!(
+        named
+            .iter()
+            .map(|d| d["symbolName"].as_str())
+            .collect::<Vec<_>>(),
+        [Some("alpha"), Some("beta"), Some("gamma")],
+        "{out}"
+    );
+}
+
+/// A declaration search's hit starts at the head's first word: it still
+/// names the declaration the head declares.
+#[test]
+fn a_declaration_search_names_the_declaration_it_found() {
+    let dir = tempfile::tempdir().expect("fixture");
+    let root = dir.path().canonicalize().expect("real root");
+    fs::write(root.join("two.rs"), THREE_FNS).expect("fixture");
+    let out = served(&root, json!({"path": root, "matchString": ["fn beta"]}));
+    let file = &data(&out)["files"][0];
+    let rows = file["matches"].as_array().expect("rows");
+    assert_eq!(rows.len(), 1, "{out}");
+    let named = declared(file, &rows[0]);
+    assert_eq!(named.len(), 1, "{out}");
+    assert_eq!(named[0]["symbolName"], "beta", "{out}");
+    assert_eq!(named[0]["line"], rows[0]["line"], "{out}");
+    assert_eq!(named[0]["endLine"], 8, "{out}");
+}

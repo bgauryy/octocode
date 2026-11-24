@@ -4,7 +4,7 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ROOT, SKILL_ROOTS } from './lib/workspaces.mjs';
+import { ROOT, SKILL_ROOTS, discoverWorkspaces } from './lib/workspaces.mjs';
 import { skillTestCommand } from './lib/skill-tests.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -20,15 +20,20 @@ const slotted = ([command, args], options) => ['node', [path.join(NATIVE, 'scrip
 // Shared assets have a private workspace; skill folders remain independently installable.
 const skill = (rel, ...args) => ['node', [path.join(ROOT, 'skills', rel), ...args]];
 const skillChecks = () => [
-  skill('octocode-skills/scripts/skill-review.mjs', '--collections', ...SKILL_ROOTS.map(dir => path.join(ROOT, dir))),
+  skill('octocode-skills/scripts/skill-review.mjs', '--collections', '--commands', ...SKILL_ROOTS.map(dir => path.join(ROOT, dir))),
   skill('octocode-skills/scripts/skill-review.mjs', '--self-test'),
   skill('octocode-skills/scripts/skill-sync.mjs', '--self-test'),
   skillTestCommand(ROOT),
 ];
 // Shrink-only ratchet: the oxlint violations that predate a rule (the one repo-wide oxlint run).
 const OXLINT_BASELINE = script('oxlint-baseline.mjs');
-// The shared skill workspace's own lint/test; test:ci and lint:ci reach them through the workspace run.
-const SKILLS_COMMON = [yarn('workspace', '@octocodeai/skills-common', 'lint'), yarn('workspace', '@octocodeai/skills-common', 'test')];
+// The shared skill workspace's own lint/test, then each skill workspace's lint (its scripts/ bundles are current);
+// test:ci and lint:ci reach them through the workspace run.
+const SKILLS_COMMON = () => [
+  yarn('workspace', '@octocodeai/skills-common', 'lint'),
+  yarn('workspace', '@octocodeai/skills-common', 'test'),
+  ...discoverWorkspaces().filter(ws => ws.kind === 'skill' && ws.name !== '@octocodeai/skills-common').map(ws => yarn('workspace', ws.name, 'lint')),
+];
 
 /** task → [description, steps]; a step is [command, args, spawn options?]; extra CLI args go to the last step. */
 const TASKS = {
@@ -39,16 +44,18 @@ const TASKS = {
   test: ['Run every workspace test script', [health('run', 'test')]],
   'test:ci': ['Skill checks, the release build without native (the tests import dist/), then tests in parallel without native, each under its coverage floors when it declares test:coverage', () => [...skillChecks(), health('run', 'build', '--parallel', ...CI_EXCLUDE), health('run', 'test', '--parallel', '--prefer', 'test:coverage', ...CI_EXCLUDE)]],
   'test:dev': ['Focused Rust tests: the test:rust build, then only the test binaries asked for, side by side, in a build slot ([--crate tool-github]... [--lib] [--] [libtest filter, e.g. local_search::])', [['node', [path.join(NATIVE, 'scripts', 'rust-tests.cjs'), 'dev'], { cwd: NATIVE }]]],
-  'skills:check': ['Skill lint, shared report viewer, and skill script tests', () => [...skillChecks(), ...SKILLS_COMMON]],
+  'skills:check': ['Skill lint, shared report viewer, skill script tests, and each skill workspace bundle check', () => [...skillChecks(), ...SKILLS_COMMON()]],
   'answers:record': ['Re-record the provider answers native mocks replay, live, read-only and public (test-utils/provider-answers; needs build:dev; [id,...])', [script('providers/record.mjs')]],
   check: ['Fast local static check: oxlint baseline, rustfmt, the clippy ratchet, every other workspace lint:own and typecheck, in parallel. No build, no tests: pair it with a focused test', [OXLINT_BASELINE, yarn('workspace', '@octocodeai/octocode-native', 'fmt:rust:check'), script('rust-lint.mjs'), health('run', 'lint:own', '--parallel', '--exclude', '@octocodeai/octocode-native'), health('run', 'typecheck', '--parallel')]],
+  pin: ['Freeze the built native binary as the round\'s pin under .octocode/octocode-dev/pins/: prints {path, sha256, version}, keeps the current and previous pin, refuses without a build ([--from <binary>])', [script('pin.mjs')]],
+  walk: ['Follow every top-level next of one CLI call to its end; checks termination, no repeated page or cursor, and that each query index rebuilds from its parts once; exit 1 on a violation (<tool> \'<json>\' [--bin <pin>] [--max-pages N] [--out FILE])', [script('walk.mjs')]],
   slots: ['Who holds each machine-wide Rust build slot now (pid, lane, command, time held)', [['node', [path.join(NATIVE, 'scripts', 'build-slot.cjs'), '--status']]]],
   // The whole release gate set as a dependency graph with one summary table (gates.mjs).
   gates: ['Release gate set in one run: build:dev, then check, contract check, config tests, docs:verify, skills:check and test:rust side by side (cargo queues on the build slots), then the sibling core tests and typecheck; one summary table, exit 1 on any failure', [script('gates.mjs')]],
   'lint:rust': ['Local clippy ratchet: plain clippy plus production-only bans and lints, whose old findings may only shrink ([--write], [--adopt])', [script('rust-lint.mjs')]],
   lint: ['Oxlint baseline (the one oxlint run), then every workspace lint:own script', [OXLINT_BASELINE, health('run', 'lint:own', '--parallel')]],
   'lint:ci': ['Lint without native workspace scripts (the oxlint baseline still covers them)', [OXLINT_BASELINE, health('run', 'lint:own', ...CI_EXCLUDE)]],
-  format: ['Fix the formatting lint checks: every workspace `format` script (prettier --write)', [yarn('workspaces', 'foreach', '-Apt', 'run', 'format')]],
+  format: ['Fix the formatting lint checks: every workspace `format` script except native (prettier --write); for Rust, rustfmt --edition 2024 only the files you changed', [yarn('workspaces', 'foreach', '-Apt', ...CI_EXCLUDE, 'run', 'format')]],
   typecheck: ['Run every workspace typecheck script', [health('run', 'typecheck', '--parallel')]],
   'typecheck:ci': ['Typecheck without native', [health('run', 'typecheck', ...CI_EXCLUDE)]],
   verify: ['Full repo contract: oxlint baseline (the one oxlint run), core lint-copy sync, dedupe, docs, per-package verify:own', [OXLINT_BASELINE, script('core-lint-sync.mjs'), health('verify')]],

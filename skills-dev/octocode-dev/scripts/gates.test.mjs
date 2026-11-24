@@ -41,7 +41,7 @@ test('every dev task a gate runs is a task the runner lists', () => {
 test('contract regeneration is one locked run that typechecks core before anything else', async () => {
   const { STEPS } = await import('./contracts-regen.mjs');
   assert.equal(STEPS[0][0], 'core typecheck');
-  assert.deepEqual(STEPS.map(([what]) => what).slice(1), ['core build', 'refresh the copy of core', 'generate the tool contract', 'tool-flow route table']);
+  assert.deepEqual(STEPS.map(([what]) => what).slice(1), ['core build', 'install pinned dependencies', 'generate the tool contract', 'tool-flow route table']);
   const { stdout } = spawnSync('node', [DEV, '--help'], { encoding: 'utf8' });
   assert.match(stdout, /contracts:regen\s+Regenerate the tool contract, one run at a time/);
 });

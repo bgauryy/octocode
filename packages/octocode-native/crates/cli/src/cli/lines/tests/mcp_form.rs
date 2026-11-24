@@ -168,9 +168,13 @@ fn a_call_keeps_its_reason_in_the_call() {
 fn hits_in_two_declarations() -> Value {
     json!({"results": [{"index": 0, "data": {"files": [{
         "path": "a.rs",
-        "declarations": ["1\tfunction first (end 5)", "6\tfunction second (end 9)"],
+        "declarations": [
+            "1\tfunction first (end 5)",
+            "6\tfunction second (end 9)",
+            "2\tfunction nested (end 2)"
+        ],
         "matches": [
-            {"line": 2, "value": "needle();", "enclosing": 0, "declaration": true},
+            {"line": 2, "value": "needle();", "enclosing": 0, "declaration": 2},
             {"line": 3, "value": "needle();", "enclosing": 0},
             {"line": 4, "value": "needle();", "enclosing": 0},
             {"line": 7, "value": "needle();", "enclosing": 1},
@@ -210,7 +214,48 @@ fn a_declaration_is_stated_once_for_the_hits_it_encloses() {
             let hit = format!("{line}:needle();");
             assert_eq!(text.out.matches(&hit).count(), 1, "{hit} in\n{}", text.out);
         }
-        assert!(text.out.contains("declaration true"), "{}", text.out);
+        // The declaring hit states the declaration it declares, after the
+        // one around it.
+        let declaring = text.out.lines().find(|line| line.starts_with("2:"));
+        assert!(
+            declaring.is_some_and(|line| line
+                .ends_with("[1\tfunction first (end 5) declares 2\tfunction nested (end 2)]")),
+            "{}",
+            text.out
+        );
+    }
+}
+
+/// A declaring hit's declaration prints as words in either row form, one
+/// per declaring hit of a merged window; no index is left for the reader
+/// to resolve.
+#[test]
+fn a_declaring_hit_states_the_declaration_it_declares() {
+    let result = json!({"results": [{"index": 0, "data": {"files": [{
+        "path": "a.rs",
+        "declarations": [
+            {"symbolName": "first", "kind": "function", "line": 1, "endLine": 5},
+            "6\tfunction second (end 9)"
+        ],
+        "matches": [
+            {"line": 1, "value": "fn first() {", "declaration": 0},
+            {"line": 6, "value": "fn second() {", "declaration": [1, 0]}
+        ]
+    }]}}]});
+    for form in [Form::TERMINAL, Form::MCP] {
+        let text = render_as(ToolId::LocalSearch, &result, &json!({}), None, form).expect("lines");
+        assert!(
+            text.out.contains("[declares function first 1-5]"),
+            "{}",
+            text.out
+        );
+        assert!(
+            text.out
+                .contains("[declares 6\tfunction second (end 9), function first 1-5]"),
+            "{}",
+            text.out
+        );
+        assert!(!text.out.contains("declaration "), "{}", text.out);
     }
 }
 

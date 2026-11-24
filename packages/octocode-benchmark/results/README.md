@@ -14,6 +14,9 @@ previous version and the stored baselines.
 
 | Version | Date | Build | Round (scorecard or stored folder) | Headline |
 |---|---|---|---|---|
+| 20.2.0 surface before vs after context efficiency | 2026-11-24 | one 20.2.0 build, SHA-256 `6ec8617b…3474`; each arm's `tools/list` served by a proxy | [Results](rounds/20.2.0-2026-11-24-context-efficiency/README.md) | 69 questions (29 GitHub, 40 local): input tokens per answer 0.900× (95% CI 0.848–0.953), tool calls and output unchanged; correctness not judged |
+| 20.2.0 vs 19.1.0 vs `gh`: workflows | 2026-11-24 | 20.2.0 vs `octocode-mcp` 19.1.0 vs read-only `gh` | [Results](rounds/20.2.0-2026-11-24-workflows/README.md) | 10 questions that each take several tools, judged against answer keys: GitHub W1–W6 v20 9.7, `gh` 9.3, v19 7.4; on disk W7–W10 v20 9.8, v19 9.3 |
+| 20.2.0 vs 19.1.0 vs `gh` | 2026-11-24 | 20.2.0 vs `octocode-mcp` 19.1.0 vs read-only `gh` | [Results](rounds/20.2.0-2026-11-24-v19-v20-gh/README.md) · [upgrade guide](../../../docs/V19_V20.md) | All 60 questions (30 GitHub, 30 on code on disk), fresh Sonnet 5.5 per version, blind Opus 5.5 judge: quality 9.69 vs 9.34 (v20 5 wins, v19 3, 49 ties, 3 unresolved); failed calls 26% → 5%, 51% fewer characters, 45% fewer input tokens counting cached, 26% lower cost. GitHub: `gh` 9.57, v20 9.52, v19 8.97; `gh` re-reads 73% fewer cached tokens |
 | 20.2.0 vs 19.1.0 vs `gh`: workflows | 2026-11-23 | 20.2.0 vs `octocode-mcp` 19.1.0 vs read-only `gh` | [Results](rounds/20.2.0-2026-11-23-workflows/README.md) | 10 questions that each take several tools, judged against answer keys: GitHub W1–W6 v20 10.0, `gh` 9.3, v19 7.6; on disk W7–W10 v19 9.6, v20 8.9 (an estimated count where an exact one was asked) |
 | 20.2.0 vs 19.1.0 vs `gh` | 2026-11-23 | 20.2.0 vs `octocode-mcp` 19.1.0 vs read-only `gh` | [Results](rounds/20.2.0-2026-11-23-v19-v20-gh/README.md) · [upgrade guide](../../../docs/V19_V20.md) | All 60 questions (30 GitHub, 30 on code on disk), fresh Sonnet 5.5 per version, blind Opus 5.5 judge: quality 9.59 vs 9.32 (v20 5 wins, v19 2, 52 ties); 47% fewer characters, 38% fewer input tokens counting cached, 43% lower cost. GitHub: `gh` 9.55, v20 9.45, v19 8.95; `gh` re-reads 79% fewer cached tokens |
 | 20.2.0 | 2026-11-22 | staged host `881395dd…15813` | [Staged tool and core audit](rounds/20.2.0-2026-11-22-staged-audit/SCORECARD.md) | All 17 tools exercised. The public clone workflow and three older connected regressions passed. A contradictory Go release warning caps artifactSearch at 4.0. Provisional mean 8.6/10. |
@@ -56,6 +59,9 @@ The 22 November 2026 core-context round includes the [blocker inventory and rati
 Every folder under `rounds/` is listed here; add a line when a round lands. Keep the newest scorecards; fold older ones into a timeline row.
 
 `rounds/<version>-<date>/SCORECARD.md`, one per round, from the [scorecard template](../briefs/SCORECARD.md).
+- [20.2.0 vs 19.1.0 vs `gh`, 2026-11-24](rounds/20.2.0-2026-11-24-v19-v20-gh/README.md): all 60 research questions
+  again on fresh Sonnet 5.5 agents, with new, cached and output tokens per question; the
+  [workflow questions](rounds/20.2.0-2026-11-24-workflows/README.md) beside it.
 - [20.2.0 vs 19.1.0 vs `gh`, 2026-11-23](rounds/20.2.0-2026-11-23-v19-v20-gh/README.md): all 60 research questions on
   fresh Sonnet 5.5 agents, with new, cached and output tokens per question.
 - [20.2.0 — rating round 4, 2026-11-21](rounds/20.2.0-2026-11-21-ratings-round-4/SCORECARD.md): the same 8 lanes and

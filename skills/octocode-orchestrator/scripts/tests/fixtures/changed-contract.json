@@ -1,0 +1,11 @@
+{
+  "available": ["request"],
+  "tasks": [
+    { "id": "contract", "owner": "worker-a", "inputs": ["request"], "output": "contract", "status": "accepted" },
+    { "id": "producer", "owner": "worker-b", "inputs": ["contract"], "output": "producer-impl", "status": "accepted" },
+    { "id": "consumer", "owner": "worker-c", "inputs": ["contract"], "output": "consumer-impl", "status": "running" },
+    { "id": "integrate", "owner": "worker-a", "inputs": ["producer-impl", "consumer-impl"], "acceptance": "end-to-end suite passes" },
+    { "id": "research", "owner": "worker-d", "inputs": ["request"], "output": "notes", "status": "accepted" },
+    { "id": "final-report", "owner": "worker-a", "inputs": ["notes"] }
+  ]
+}

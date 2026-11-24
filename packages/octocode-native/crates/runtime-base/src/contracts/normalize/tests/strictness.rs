@@ -90,9 +90,11 @@ fn a_value_without_one_typed_reading_is_refused() {
     }
 }
 
-/// A row field beside `queries` is never given to the rows: the request is
-/// refused, and the refusal says where the field goes. Held for the first
-/// field of every example.
+/// A row field beside `queries` with a value the rows do not hold is never
+/// given to them: the request is refused, and the refusal says where the
+/// field goes. Held for the first field of every example. (A copy every row
+/// already holds is dropped instead:
+/// `a_row_field_repeated_beside_queries_with_the_rows_value_is_dropped`.)
 #[test]
 fn a_row_field_beside_queries_is_refused_saying_where_it_goes() {
     for (tool, row) in examples() {
@@ -104,7 +106,7 @@ fn a_row_field_beside_queries_is_refused_saying_where_it_goes() {
             continue;
         };
         let mut sent = request(&row);
-        sent[field] = value.clone();
+        sent[field] = differs(value);
         assert_eq!(
             normalized_readings(tool.as_str(), sent.clone()),
             (sent.clone(), Vec::new()),
@@ -203,5 +205,18 @@ fn an_undeclared_field_is_refused_naming_a_declared_one() {
     }
     for (word, _) in FOREIGN_WORDS {
         assert!(used.contains(word), "no tool is told what `{word}` means");
+    }
+}
+
+/// A value of the same JSON kind that differs from `value`.
+fn differs(value: &Value) -> Value {
+    match value {
+        Value::String(text) => Value::String(format!("{text}-other")),
+        Value::Number(number) => serde_json::json!(number.as_f64().unwrap_or_default() + 1.0),
+        Value::Bool(flag) => Value::Bool(!flag),
+        Value::Array(items) if items.is_empty() => serde_json::json!([null]),
+        Value::Array(_) => serde_json::json!([]),
+        Value::Object(_) => serde_json::json!({"other": true}),
+        Value::Null => serde_json::json!(true),
     }
 }

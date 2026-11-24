@@ -1,10 +1,13 @@
 // `.env` loading and propagation with the shared dotenv policy (the native
 // resolver applies the same rules): parse, merge home then workspace, and
-// apply into an environment without overriding what it already sets.
+// apply into an environment without overriding what it already sets. A
+// workspace value wins per key, except for API keys (`API_KEYS`), where the
+// home value stands and a workspace only fills a key the home file lacks.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  API_KEYS,
   CONFIG_FIELDS,
   ENV_TOKEN_VARS,
   HOME_TRUSTED_ENV_KEYS,
@@ -13,6 +16,9 @@ import {
   WORKSPACE_NARROW_ONLY_ENV,
 } from './config/contract.generated.js';
 import { getOctocodeHome } from './home.js';
+
+/** API keys: the home `.env` value beats a workspace one (process > home > workspace). */
+const API_KEY_NAMES: ReadonlySet<string> = new Set(API_KEYS.map(key => key.name));
 
 /** Keys restricted by the shared dotenv policy (infrastructure and security controls). */
 export const PROTECTED_KEYS: ReadonlySet<string> = new Set(PROTECTED_KEY_NAMES);
@@ -61,7 +67,7 @@ export function parseEnv(
   return out;
 }
 
-function sameFile(left: string, right: string): boolean {
+export function sameFile(left: string, right: string): boolean {
   if (path.resolve(left) === path.resolve(right)) return true;
   try {
     return fs.realpathSync(left) === fs.realpathSync(right);
@@ -82,7 +88,7 @@ function readTextIfExists(filePath: string): string {
  * One `.env` file's nonblank entries, each legacy name moved to its current
  * name unless the file sets that one (as the native resolver reads them).
  */
-function fileEnv(filePath: string): Record<string, string> {
+export function fileEnv(filePath: string): Record<string, string> {
   const entries = Object.entries(parseEnv(readTextIfExists(filePath))).filter(([, v]) => v.trim());
   const map = Object.fromEntries(entries);
   for (const [legacy, current] of Object.entries(LEGACY_ENV_NAMES)) {
@@ -106,7 +112,8 @@ export interface LoadOctocodeEnvResult {
 }
 
 /**
- * Load merged Octocode env from global then project (project wins).
+ * Load merged Octocode env from global then project: project wins, except an
+ * API key the global file sets, which stays global.
  * Returns { map, sources } where sources[key] = 'global' | 'project' (names only, no values).
  * The workspace file is loaded by default; hosts can explicitly opt out with trusted:false.
  */
@@ -132,6 +139,8 @@ export function loadOctocodeEnv({
       // A workspace value for a protected key is dropped later; it must not
       // also evict the trusted home value for that key.
       if (k in map && isProtectedKey(k) && !workspaceMayNarrow(k, v)) continue;
+      // A repository only fills an API key the user has not set globally.
+      if (k in map && API_KEY_NAMES.has(k)) continue;
       map[k] = v;
       sources[k] = 'project';
     }
@@ -149,7 +158,7 @@ export interface ApplyOctocodeEnvOptions {
  * present-but-blank in the process env, it disables every classification
  * feature and no file may refill it.
  */
-const CLASSIFICATION_KILL_SWITCH = CONFIG_FIELDS.find(
+export const CLASSIFICATION_KILL_SWITCH = CONFIG_FIELDS.find(
   field => field.path === 'classification.api'
 )?.env?.name;
 
@@ -162,7 +171,7 @@ function workspaceMayNarrow(key: string, value: string): boolean {
 }
 
 /** Each variable's names: the current one, then its legacy ones (from the config contract). */
-function namesOf(key: string): string[] {
+export function namesOf(key: string): string[] {
   const current = LEGACY_ENV_NAMES[key] ?? key;
   return [
     current,
@@ -200,17 +209,18 @@ export function applyOctocodeEnv(
   const skippedProtected: string[] = [];
   const skippedExisting: string[] = [];
 
-  // Resolve source precedence before token-name priority. Otherwise a home
-  // `GH_TOKEN` could outrank a process or workspace `GITHUB_TOKEN`.
+  // Resolve source precedence before token-name priority. Otherwise a
+  // workspace `GH_TOKEN` could outrank a process or home `GITHUB_TOKEN`.
   const shadowed = new Set<string>();
   // What the environment set before any file, under any name of each variable.
   const before = { ...env };
   const processSelected = TOKEN_NAMES.some(key => Boolean(before[key]?.trim()));
-  const workspaceSelected = TOKEN_NAMES.some(
-    key => sources[key] === 'project' && Boolean(map?.[key]?.trim())
+  // Tokens are API keys: a home token shadows every workspace token.
+  const homeSelected = TOKEN_NAMES.some(
+    key => sources[key] === 'global' && Boolean(map?.[key]?.trim())
   );
   for (const key of TOKEN_NAMES) {
-    if (processSelected || (workspaceSelected && sources[key] !== 'project'))
+    if (processSelected || (homeSelected && sources[key] === 'project'))
       shadowed.add(key);
   }
 

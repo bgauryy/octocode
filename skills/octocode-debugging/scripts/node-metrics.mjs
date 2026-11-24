@@ -1,10 +1,31 @@
-// Preload with --import; observe the main thread without opening an inspector or retaining the event loop.
-import { closeSync, mkdirSync, openSync, writeSync } from "node:fs";
+// Runtime metrics preload: NODE_METRICS_DIR="$out" node --import node-metrics.mjs app.mjs
+// Samples the main thread of the launched program without opening an inspector or keeping the event loop alive, and
+// leaves the program's stdout untouched. metrics-report.mjs turns the capture into intervals (--json) or HTML.
+// Inputs (environment):
+//   NODE_METRICS_DIR          capture folder (required; created if missing)
+//   NODE_METRICS_INTERVAL_MS  milliseconds between samples, 10 to 2147483647 (default 1000)
+// Output: <dir>/<pid>-<epoch ms>.metrics.jsonl, mode 0600, one JSON record per line: "start" (pid, ppid, node,
+//   platform, interval), then "sample" every interval and "exit" (with exitCode) at exit. Each measurement record
+//   holds cumulative elapsedMs, cpuMs {user, system}, memoryBytes (process.memoryUsage()), resources
+//   (process.resourceUsage(): maxRSS KiB, fsRead, fsWrite ...), eventLoop (utilization since start; delayMs p50,
+//   p99, max since start) and gc {count, durationMs}. A run killed by a signal has no exit record.
+// Effects: an unref'd timer, a GC PerformanceObserver and an event-loop delay histogram in the main thread.
+// Exit: an unset NODE_METRICS_DIR or a bad interval throws at load, so the program exits 1 unstarted.
+// Run directly, node node-metrics.mjs --help prints this text and exits 0; any other direct run prints it and exits 2.
+import { closeSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { monitorEventLoopDelay, performance, PerformanceObserver } from "node:perf_hooks";
+import { fileURLToPath } from "node:url";
 import { isMainThread } from "node:worker_threads";
+import { isMainModule } from "./lib/entrypoint.mjs";
 
-if (isMainThread) start();
+if (isMainModule(import.meta.url)) {
+	// Run as a program rather than preloaded: print the header above as usage.
+	const usage = readFileSync(fileURLToPath(import.meta.url), "utf8").match(/^(?:\/\/.*\n)+/)[0].replace(/^\/\/ ?/gm, "");
+	const help = process.argv.slice(2).includes("--help");
+	(help ? process.stdout : process.stderr).write(usage);
+	process.exitCode = help ? 0 : 2;
+} else if (isMainThread) start();
 
 function start() {
 	const directory = process.env.NODE_METRICS_DIR;

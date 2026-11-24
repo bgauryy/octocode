@@ -1,4 +1,4 @@
-"""Use when messaging another agent: detect the host, send directly, relay one message with ask, or start a small proxy."""
+"""Use when messaging another agent: detect the host, list peers, send directly, relay one message with ask, wait for a reply, or start a small proxy."""
 import argparse
 from hashlib import sha256
 import json
@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -284,6 +285,148 @@ def ask(args, cli):
     sys.exit(one_shot.ask(args, comm, operator, plan_proxy, proxy_command))
 
 
+class Failure(Exception):
+    """A JSON subcommand's failure: printed as {ok:false, error:{code, message}} with exit status 1."""
+
+    def __init__(self, code, message, **extra):
+        super().__init__(message)
+        self.code, self.extra = code, extra
+
+
+def json_command(run):
+    """Run a subcommand whose result is JSON on stdout; report its failure the same way and return the exit status."""
+    try:
+        return run()
+    except Failure as error:
+        print(json.dumps({"ok": False, **error.extra, "error": {"code": error.code, "message": str(error)}}, ensure_ascii=False))
+    except SystemExit as error:
+        if not isinstance(error.code, str):
+            raise
+        print(json.dumps({"ok": False, "error": {"code": "commFailed", "message": error.code}}, ensure_ascii=False))
+    return 1
+
+
+# Vendors with no roster this launcher can read: reach them through their store binding.
+UNLISTED = {
+    "codex": "codex agents is an interactive roster with no JSON output",
+    "cursor": "no native roster",
+    "grok": "no native roster",
+    "pi": "no native roster",
+    "octocode": "the host's agent tool lists Octocode agents (type coordinate, list)",
+}
+STORE_FIELDS = ("id", "name", "status", "task", "branch", "workspace", "expiresAt")
+NATIVE_FIELDS = ("name", "pid", "cwd", "kind", "status", "startedAt")
+
+
+def claude_roster(workspace):
+    """Claude's native sessions started under workspace, or the reason none were read."""
+    if not shutil.which("claude"):
+        return None, {"skipped": "claude not installed"}
+    result = probe(["claude", "agents", "--cwd", workspace, "--json"])
+    try:
+        roster = json.loads(result.stdout) if result.returncode == 0 else None
+    except ValueError:
+        roster = None
+    if not isinstance(roster, list):
+        return None, {"error": (result.stderr.strip() or result.stdout.strip() or f"claude agents exited {result.returncode}")[:500]}
+    return roster, {"count": len(roster)}
+
+
+def merge_peers(store, roster, operator, session):
+    """One row per confirmed vendor/native ID: store peers and Claude sessions with the same ID merge."""
+    rows = {}
+    for peer in store:
+        native = peer.get("vendorSession")
+        key = (peer["vendor"], native) if native else ("store", peer["id"])
+        row = rows.setdefault(key, {"vendor": peer["vendor"], "nativeId": native, "store": [], "native": None})
+        row["store"].append({k: peer[k] for k in STORE_FIELDS if peer.get(k) is not None})
+    for entry in roster:
+        if not entry.get("sessionId"):
+            continue
+        row = rows.setdefault(("claude", entry["sessionId"]),
+                              {"vendor": "claude", "nativeId": entry["sessionId"], "store": [], "native": None})
+        row["native"] = {k: entry[k] for k in NATIVE_FIELDS if entry.get(k) is not None}
+    peers = []
+    for row in rows.values():
+        row["self"] = (any(item["id"] == session for item in row["store"]) or
+                       bool(row["native"] and operator["pid"] is not None and row["native"].get("pid") == operator["pid"]))
+        row["routes"] = (["store"] if row["store"] else []) + (["native"] if row["native"] and operator["vendor"] == "claude" else [])
+        if not row["routes"]:
+            row["reason"] = ("Claude session with no store binding: only a Claude operator reaches it natively; "
+                             "bind it from its own host (octocode-agentic) for the store routes")
+        peers.append(row)
+    return sorted(peers, key=lambda row: (row["vendor"], row["nativeId"] or "", row["store"][0]["id"] if row["store"] else ""))
+
+
+def unmatched_processes(table, workspace, operator, peers):
+    """Agent processes in the workspace that no peer row ties to a confirmed ID (only Claude rosters carry pids)."""
+    pids = {row["native"]["pid"] for row in peers if row["native"] and "pid" in row["native"]}
+    stored = {row["vendor"] for row in peers if row["store"]}
+    out = []
+    for process in hosts.running(table, workspace, operator["pid"]):
+        if process["self"] or process["inWorkspace"] is not True or process["pid"] in pids:
+            continue
+        bound = process["vendor"] in stored
+        out.append({"vendor": process["vendor"], "pid": process["pid"], "cwd": process["cwd"],
+                    "binding": "unconfirmed" if bound else "none",
+                    "reason": (f"a live {process['vendor']} store peer exists, but no ID ties it to this process" if bound
+                               else "no store binding or native roster entry: unreachable until it binds from its own host")})
+    return out
+
+
+def peers(args):
+    """Merged, deduplicated peer list across the store and the Claude roster; read-only."""
+    workspace = str(Path(args.workspace).resolve())
+    table = hosts.process_table()
+    operator = operator_of(args) if args.operator_vendor else hosts.operator(table)
+    rosters, failures = {}, []
+    try:
+        comm = one_shot.Comm(comm_command(), workspace, args.database)
+        store = list(comm.items("peers", args.session))
+        rosters["store"] = {"count": len(store)}
+    except SystemExit as error:
+        if not isinstance(error.code, str):
+            raise
+        store, rosters["store"] = [], {"error": error.code}
+        failures.append(f"store: {error.code}")
+    roster, rosters["claude"] = claude_roster(workspace)
+    if "error" in rosters["claude"]:
+        failures.append(f"claude: {rosters['claude']['error']}")
+    rosters["notListed"] = UNLISTED
+    merged = merge_peers(store, roster or [], operator, args.session)
+    processes = unmatched_processes(table, workspace, operator, merged)
+    result = {"operator": {**operator, "session": args.session}, "peers": merged, "processes": processes,
+              "unreachable": sum(not row["routes"] for row in merged) + sum(p["binding"] == "none" for p in processes),
+              "rosters": rosters}
+    if failures:
+        raise Failure("rosterUnread", "; ".join(failures), **result)
+    print(json.dumps({"ok": True, **result}, ensure_ascii=False))
+    return 0
+
+
+def wait(args):
+    """Wait for the final answer to one sent message, complete it and print it; exit 0 only for completed."""
+    comm = one_shot.Comm(comm_command(), str(Path(args.workspace).resolve()), args.database)
+    if not comm.call(["binding"], session=args.session).get("active"):
+        raise Failure("bindingInactive", "--session is not a live binding in this workspace and store.")
+    answer = one_shot.await_reply(comm, args.session, args.receipt, time.monotonic() + args.timeout)
+    if answer is None:
+        raise Failure("noReply", f"No pending answer to message {args.receipt} within {args.timeout}s: unanswered "
+                      "(it stays pending), or its answer was already completed.")
+    comm.call(["complete"], {"message": answer["id"]}, args.session)
+    print(json.dumps({"sent": args.receipt, "answer": answer["id"], "outcome": answer["outcome"],
+                      "reply": answer.get("parts", []), "from": answer.get("sender"), "fromName": answer.get("senderName"),
+                      "contextId": answer.get("contextId")}, ensure_ascii=False))
+    return 0 if answer["outcome"] == "completed" else 1
+
+
+def positive_int(value):
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError("must be a positive message ID")
+    return number
+
+
 def main():
     cli = argparse.ArgumentParser(description=__doc__)
     commands = cli.add_subparsers(dest="command", required=True)
@@ -331,7 +474,30 @@ def main():
     question.add_argument("--workspace", default=os.getcwd())
     question.add_argument("--database")
     question.add_argument("--dry-run", action="store_true", help="resolve operator, worker and proxy without starting it")
-    for command in (found, direct, start, question):
+    roster = commands.add_parser(
+        "peers", help="read-only: merge the store's live peers with Claude's native roster, one row per confirmed "
+        "vendor/native ID, and list agent processes no roster confirms",
+        description="Prints JSON: ok, operator, peers [{vendor, nativeId, store[], native, self, routes, reason?}], "
+        "processes [{vendor, pid, cwd, binding: unconfirmed|none, reason}], unreachable (count), rosters "
+        "{store, claude, notListed}. Message rows whose routes is nonempty: store means ask --to or send --session "
+        "with a store id; native means send --to claude:nativeId. Exit 0 when every roster was read; 1 with "
+        "{ok:false, error:{code:rosterUnread}} and the partial lists when one failed; 2 bad arguments.")
+    roster.add_argument("--session", help="your Octocode binding, to mark your own row (optional)")
+    roster.add_argument("--workspace", default=os.getcwd())
+    roster.add_argument("--database")
+    reply = commands.add_parser(
+        "wait", help="wait for the final answer to a message you sent, complete it and print it",
+        description="Waits until the --session inbox holds an answer whose replyTo is --receipt and that has an "
+        "outcome, completes (acknowledges) that answer, then prints JSON: sent, answer, outcome, reply (parts, "
+        "verbatim), from, fromName, contextId. Exit 0 only for outcome completed; 1 for another outcome, or "
+        "{ok:false, error:{code, message}} with code noReply (timeout: the message stays pending), "
+        "bindingInactive or commFailed; 2 bad arguments.")
+    reply.add_argument("--receipt", required=True, type=positive_int, metavar="ID", help="the id of the send_message receipt")
+    reply.add_argument("--session", required=True, help="the sender's live Octocode binding")
+    reply.add_argument("--timeout", type=float, default=600, help="seconds to wait (default 600)")
+    reply.add_argument("--workspace", default=os.getcwd())
+    reply.add_argument("--database")
+    for command in (found, direct, start, question, roster):
         command.add_argument("--operator-vendor", choices=hosts.AGENTS,
                              help="the operator's host when process detection is wrong or finds none")
     for command in (found, start):
@@ -343,6 +509,10 @@ def main():
         return send(args, cli)
     if args.command == "ask":
         return ask(args, cli)
+    if args.command == "peers":
+        sys.exit(json_command(lambda: peers(args)))
+    if args.command == "wait":
+        sys.exit(json_command(lambda: wait(args)))
     if args.native and args.vendor == "auto":
         if args.worker_vendor not in HOSTS:
             cli.error("--native needs --vendor or --worker-vendor claude|codex: native tools reach only the same vendor")

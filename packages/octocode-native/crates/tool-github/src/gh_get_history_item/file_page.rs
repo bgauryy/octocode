@@ -232,7 +232,8 @@ pub(super) fn first_page(query: &HistoryItemRequest) -> bool {
 
 /// An `include` scope that matched none of the listed changed files:
 /// `include matched 0 of N changed files`, with up to
-/// [`NEAREST_DIRS`] changed directories, closest to the scope first.
+/// [`NEAREST_DIRS`] changed directories, closest to the scope first: most
+/// leading segments shared, then the longest run of its segments held.
 /// `complete` says whether `files` is the whole list (else N is a floor).
 pub(super) fn empty_scope_warning(
     files: &[Value],
@@ -262,10 +263,37 @@ pub(super) fn empty_scope_warning(
             .take_while(|(a, b)| a == b && !a.is_empty())
             .count()
     };
-    // Most leading segments shared with the scope first; GitHub's order
-    // among equals.
+    // The longest run of the scope's segments a directory holds anywhere:
+    // a scope written without the repository's leading directories
+    // (`click/core.py` for `src/click/core.py`) still finds `src/click/`.
+    let wanted = target
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>();
+    let held = |dir: &str| {
+        let segments = dir.split('/').filter(|s| !s.is_empty()).collect::<Vec<_>>();
+        (0..segments.len())
+            .flat_map(|at| (0..wanted.len()).map(move |from| (at, from)))
+            .map(|(at, from)| {
+                segments[at..]
+                    .iter()
+                    .zip(&wanted[from..])
+                    .take_while(|(a, b)| a == b)
+                    .count()
+            })
+            .max()
+            .unwrap_or(0)
+    };
+    // Most leading segments shared with the scope first, then the longest
+    // run of its segments held deeper; GitHub's order among equals.
     let mut ranked = dirs.into_iter().enumerate().collect::<Vec<_>>();
-    ranked.sort_by_key(|(index, dir)| (std::cmp::Reverse(shared(dir)), *index));
+    ranked.sort_by_key(|(index, dir)| {
+        (
+            std::cmp::Reverse(shared(dir)),
+            std::cmp::Reverse(held(dir)),
+            *index,
+        )
+    });
     let nearest = ranked
         .into_iter()
         .take(NEAREST_DIRS)

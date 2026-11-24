@@ -77,6 +77,7 @@ fn an_input_file_with_a_byte_order_mark_reads_as_its_json() {
         args: Vec::new(),
         input: Some(file),
         content_stdin: false,
+        all_pages: false,
     };
     assert_eq!(
         args.query_text().expect("readable"),

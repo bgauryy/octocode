@@ -27,10 +27,30 @@ const SERVED: Served[] = tools.flatMap(entry =>
   })
 );
 
+/** Whether a view defines a schema that refers to itself: a grammar the listed row states as a note. */
+function keepsRecursiveGrammar(view: unknown): boolean {
+  const schema = isJson(view) && isJson(view.querySchema) ? view.querySchema : {};
+  const defs = isJson(schema.$defs) ? schema.$defs : {};
+  const refs = (name: string): string[] =>
+    [...JSON.stringify(defs[name] ?? {}).matchAll(/"#\/\$defs\/([^"]+)"/g)].map(match => match[1] ?? '');
+  return Object.keys(defs).some(start => {
+    const seen = new Set<string>();
+    const queue = refs(start);
+    for (let next = queue.pop(); next !== undefined; next = queue.pop()) {
+      if (next === start) return true;
+      if (!seen.has(next)) {
+        seen.add(next);
+        queue.push(...refs(next));
+      }
+    }
+    return false;
+  });
+}
+
 function largerThanFull(): string[] {
   return SERVED.flatMap(({ tool, form, full, selections }) =>
     Object.entries(selections)
-      .filter(([, selected]) => size(selected) > size(full))
+      .filter(([, selected]) => size(selected) > size(full) && !keepsRecursiveGrammar(selected))
       .map(([name]) => `${tool} ${form} ${name}`)
   );
 }

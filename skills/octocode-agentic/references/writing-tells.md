@@ -1,4 +1,5 @@
-Load when writing, reviewing or cleaning text a reader must spend time on: docs, comments, reports, commit and PR text, agent instructions. Source: `skills/common`; installed copies are generated.
+Load when writing, reviewing or cleaning text a reader must spend time on: docs, comments, reports, commit and PR text, agent instructions.
+<!-- Source: skills/common; installed copies are generated. -->
 
 # Writing tells
 
@@ -7,6 +8,7 @@ Slop is text that cost less effort to produce than it costs the reader to unders
 ## Judge before flagging
 
 - Single-instance defects, in any text in scope: chat leftovers, notes for the prompter, placeholders, tool residue and phantom references. Each one is a finding.
+- Find tool residue and placeholders with [residue-scan.mjs](../scripts/residue-scan.mjs), not by reading: `node <skill-folder>/scripts/residue-scan.mjs <files or folders>`. Exit 1 lists `findings[]` as `{file,line,family,match}`; judge each by the skip rule below. Exit 0 means no pattern matched, not that the text is clean; exit 2 is a bad path or option. `--help` lists the patterns.
 - Stylistic families (framing, padding, rhythm, inflation, hedges, formatting): judge density in context. One instance is coincidence; several in one passage is the signal. Judge text the change added, or the text a cleanup request names.
 - Skip quotations, fixtures, transcripts, test data and documented examples.
 - Detectors and readers both misjudge AI text: a stylistic finding is a rewrite candidate, never an accusation.
@@ -35,6 +37,6 @@ Slop is text that cost less effort to produce than it costs the reader to unders
 
 ## Make it not recur
 
-Automate only deterministic residue (tool markers, tracking parameters, placeholder patterns) with a search in the docs or lint gate. For stylistic tells, propose a prose-linter rule such as [Vale](https://vale.sh/) to the owner; the owner decides, since a phrase ban turns into a keyword list. The general rule for recurring defects is in [evidence](evidence.md#verify-a-change).
+Deterministic residue (tool markers, tracking parameters, placeholder patterns) is automated: run `residue-scan.mjs` in the docs or lint gate, and add a new marker to its `PATTERNS` table. For stylistic tells, propose a prose-linter rule such as [Vale](https://vale.sh/) to the owner; the owner decides, since a phrase ban turns into a keyword list. The general rule for recurring defects is in [evidence](evidence.md#verify-a-change).
 
 Sources: [No AI Slop manifesto](https://www.slopmanifesto.com/), [Wikipedia: Signs of AI writing](https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing), [tropes.fyi](https://tropes.fyi/), [claudisms.ai](https://claudisms.ai/), [Please stop the slop](https://tej.as/blog/please-stop-the-slop), [Ghostty AI policy](https://github.com/ghostty-org/ghostty/blob/main/AI_POLICY.md).

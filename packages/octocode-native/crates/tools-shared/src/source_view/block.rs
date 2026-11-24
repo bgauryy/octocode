@@ -385,6 +385,9 @@ pub(super) fn widen_matches(
     let mut unenclosed = vec![];
     let mut one_line = 0;
     let mut call_sites = vec![];
+    // The declarations this read returns whole: a call site inside one is
+    // already read.
+    let mut returned: Vec<LineRange> = vec![];
     let widened = hits
         .iter()
         .zip(windows)
@@ -401,6 +404,7 @@ pub(super) fn widen_matches(
                 if let Some(owner) = declarations::innermost(declared, hit) {
                     name_block(blocks, owner, start);
                 }
+                returned.push(LineRange { start, end });
                 LineRange { start, end }
             }
             None if outline.is_one_line(hit) => {
@@ -413,6 +417,14 @@ pub(super) fn widen_matches(
             }
         })
         .collect();
+    // A call site inside a declaration this read returns whole kept a window
+    // that declaration already holds: naming it would send the reader to
+    // read it again.
+    call_sites.retain(|&hit| {
+        !returned
+            .iter()
+            .any(|block| block.start <= hit && hit <= block.end)
+    });
     // Every hit reads its whole declaration, so no context window is left
     // for `contextLines` to size.
     if context_asked && call_sites.len() + one_line + unenclosed.len() == 0 {

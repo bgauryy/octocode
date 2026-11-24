@@ -27,7 +27,8 @@ export const OWN_SCRIPTS = { lint: 'lint:own', verify: 'verify:own' };
 // - native's build.rs embeds octocode-config's config-contract.json and
 //   contract/, which config's build regenerates.
 const BUILD_INPUTS = {
-  octocode: ['@octocodeai/skills-common'],
+  // Staging copies every skill, including the bundles a skill workspace builds into its scripts/.
+  octocode: ['@octocodeai/skills-common', '@octocodeai/skill-brainstorming', '@octocodeai/skill-scraping'],
   '@octocodeai/octocode-native': ['@octocodeai/config'],
   '@octocodeai/codex-plugin': ['octocode'],
   '@octocodeai/claude-plugin': ['octocode'],

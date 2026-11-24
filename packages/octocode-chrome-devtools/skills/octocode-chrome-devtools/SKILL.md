@@ -19,7 +19,7 @@ Guides come from MCP `skill` or `/cli skill --topic <name> --json` (`operating` 
 |---|---|
 | Plan a transition or find an operation; reuse or save a flow | `intents`, `browser-execution`, `/cli schema --command run` (add `--operation goto`); `flows` (`flow` tool, opt-in with `--tools flows`: `list`, `show`, `run`, `save`) |
 | Research or cite a capture; search saved page data (HAR, HTML, storage, console, step results); inspect a failed action | `web-research`, `clasify-screen`, `evidence-files`; `recovery` |
-| Script sources and source maps; storage, IndexedDB, WebSocket/SSE, throttling and mocks; coverage, trace, heap, PDF | `check --recipe` (full preset or `/cli`): `scripts-and-sourcemaps`, `storage-and-network`, `coverage-trace-flags` |
+| Script sources and source maps; storage, IndexedDB, WebSocket/SSE, throttling and mocks; coverage, trace, heap, PDF | Topics `scripts-and-sourcemaps`, `storage-and-network`, `coverage-trace-flags`; each names its `check --recipe` (full preset or `/cli`), such as `script-sources`, `source-map`, `storage-dump`, `coverage`, `trace-capture` |
 | Tools a page declares (WebMCP: prefer over DOM clicks, same authority as clicks); raw CDP or scripts; which domain to enable | `intents` (WebMCP), `/cli check --recipe webmcp-tools`; `cdp-protocol`, `cdp-checks`, `cdp-domains` (`protocol *`, `check --recipe cdp-domain`), `script-patterns` |
 | Transport, launch flags, stealth (opt-in); several tabs, attach, origins; live CDP for another client | `mcp-cli`, `coverage-trace-flags`, `launch-stealth`; `tabs-and-policy` (`group` tab groups; `open` fields `attach`, `allowOrigins`, `noSandbox`); `cdp-proxy` (full preset) |
 

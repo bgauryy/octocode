@@ -11,7 +11,8 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 /// The flags a tool command owns, apart from help.
-const ENVELOPE_FLAGS: [&str; 1] = ["input"];
+// `--all-pages` follows a reply's `next` pages; it names no schema field.
+const ENVELOPE_FLAGS: [&str; 2] = ["input", "all-pages"];
 
 /// The flags of a tool whose row field can come from stdin: the field, read
 /// with `-` and nothing else.

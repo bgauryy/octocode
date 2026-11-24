@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { RATCHET, adopt, clippyArgs, collect, compare, ratchetConfig, ratchetKey, serialize, shrink } from './rust-lint.mjs';
+import { RATCHET, adopt, clippyArgs, collect, compare, ratchetConfig, ratchetKey, rekey, rekeyPrefix, serialize, shrink } from './rust-lint.mjs';
 
 const record = (code, message, file, line = 1, kind = ['lib']) => ({
   reason: 'compiler-message',
@@ -108,4 +108,28 @@ process.exit(1);
   assert.match(run.stderr, /rust-lint: clippy failed/);
   assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n').map(line => JSON.parse(line)), [['lint:rust']]);
   assert.deepEqual(fs.readdirSync(slots).filter(name => name.endsWith('.json')), []);
+});
+
+test('--rekey moves findings under a prefix to the new crate key and keeps every lint total', () => {
+  const baseline = {
+    lint: { runtime: { 'crates/runtime/src/contracts/a.rs': 2, 'crates/runtime/src/other.rs': 1 }, 'runtime-base': { 'crates/runtime-base/src/contracts/a.rs': 1 } },
+    other: { runtime: { 'crates/runtime/src/contracts/b.rs': 4 } },
+  };
+  const { entries, moved, lints } = rekey(baseline, 'crates/runtime/src/contracts/', 'crates/runtime-base/src/contracts/');
+  assert.deepEqual(entries, {
+    lint: { runtime: { 'crates/runtime/src/other.rs': 1 }, 'runtime-base': { 'crates/runtime-base/src/contracts/a.rs': 3 } },
+    other: { 'runtime-base': { 'crates/runtime-base/src/contracts/b.rs': 4 } },
+  });
+  assert.deepEqual(moved, { files: 2, findings: 6 });
+  assert.deepEqual(lints, { lint: 4, other: 4 });
+  assert.deepEqual(rekey(baseline, 'crates/absent/', 'crates/x/').moved, { files: 0, findings: 0 });
+});
+
+test('--rekey takes a bare crate name as its folder and refuses paths outside the native package', () => {
+  assert.equal(rekeyPrefix('runtime'), 'crates/runtime/');
+  assert.equal(rekeyPrefix('./crates/io/src/'), 'crates/io/src/');
+  for (const bad of ['', undefined, '/abs/x', '../x/y']) assert.throws(() => rekeyPrefix(bad), { code: 'invalidArguments' });
+  const run = spawnSync(process.execPath, [fileURLToPath(new URL('./rust-lint.mjs', import.meta.url)), '--rekey', 'io', 'io'], { encoding: 'utf8' });
+  assert.equal(run.status, 2);
+  assert.equal(JSON.parse(run.stdout).error.code, 'invalidArguments');
 });

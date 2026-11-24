@@ -29,25 +29,28 @@ describe('trusted dotenv credential fallbacks', () => {
   afterEach(() => rmSync(root, { recursive: true, force: true }));
 
   it.each(['GH_TOKEN', 'GITHUB_TOKEN'])(
-    '%s uses process > trusted project > home per key',
+    '%s uses process > home > trusted project per key',
     key => {
       writeFileSync(join(home, '.env'), `${key}=home-secret\nHOME_ONLY=home`);
       writeFileSync(join(cwd, '.octocode', '.env'), `${key}=project-secret`);
       for (const [trusted, initial, expected] of [
-        [undefined, undefined, 'project-secret'],
+        [undefined, undefined, 'home-secret'],
         [false, undefined, 'home-secret'],
-        [true, undefined, 'project-secret'],
+        [true, undefined, 'home-secret'],
         [true, 'process-secret', 'process-secret'],
       ] as const) {
         const env: Record<string, string | undefined> = { [key]: initial };
         const result = propagateOctocodeEnv({ home, cwd, trusted, env });
         expect(env[key]).toBe(expected);
         expect(env.HOME_ONLY).toBe('home');
-        expect(result.sources[key]).toBe(
-          trusted !== false ? 'project' : 'global'
-        );
+        expect(result.sources[key]).toBe('global');
         expect(JSON.stringify(result)).not.toContain('-secret');
       }
+      // A workspace fills the key only where the home file does not set it.
+      writeFileSync(join(home, '.env'), 'HOME_ONLY=home');
+      const filled: Record<string, string | undefined> = {};
+      expect(propagateOctocodeEnv({ home, cwd, env: filled }).sources[key]).toBe('project');
+      expect(filled[key]).toBe('project-secret');
     }
   );
 
@@ -129,7 +132,7 @@ describe('trusted dotenv credential fallbacks', () => {
   for (const group of [ENV_TOKEN_VARS]) {
     for (const higherAlias of group)
       for (const lowerAlias of group) {
-        it(`${higherAlias} source priority beats ${lowerAlias} alias priority`, () => {
+        it(`home ${lowerAlias} beats workspace ${higherAlias}: source priority before alias priority`, () => {
           const pick = (env: Record<string, string | undefined>) =>
             group.map(k => env[k]?.trim()).find(Boolean);
           writeFileSync(join(home, '.env'), `${lowerAlias}=home-secret`);
@@ -137,9 +140,10 @@ describe('trusted dotenv credential fallbacks', () => {
             join(cwd, '.octocode', '.env'),
             `${higherAlias}=workspace-secret`
           );
-          const workspace: Record<string, string | undefined> = {};
-          propagateOctocodeEnv({ home, cwd, env: workspace });
-          expect(pick(workspace)).toBe('workspace-secret');
+          // The home source beats the workspace one, whichever alias each uses.
+          const fromFiles: Record<string, string | undefined> = {};
+          propagateOctocodeEnv({ home, cwd, env: fromFiles });
+          expect(pick(fromFiles)).toBe('home-secret');
           const process: Record<string, string | undefined> = {
             [higherAlias]: 'process-secret',
           };
@@ -239,15 +243,15 @@ describe('legacy variable names', () => {
   });
 
   it.each(legacyPairs.filter(([, current]) => (ENV_TOKEN_VARS as readonly string[]).includes(current)))(
-    'a workspace token shadows a home %s',
-    legacy => {
+    'a home %s shadows every workspace token',
+    (legacy, current) => {
       writeFileSync(join(home, '.env'), `${legacy}=home-secret`);
       for (const workspaceToken of ENV_TOKEN_VARS) {
         writeFileSync(join(cwd, '.octocode', '.env'), `${workspaceToken}=workspace-secret`);
         const env: Record<string, string | undefined> = {};
         propagateOctocodeEnv({ home, cwd, env });
         const set = Object.entries(env).filter(([, value]) => value !== undefined);
-        expect(set).toEqual([[workspaceToken, 'workspace-secret']]);
+        expect(set).toEqual([[current, 'home-secret']]);
       }
     }
   );

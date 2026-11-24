@@ -99,6 +99,124 @@ fn row_chars_price_the_row_as_shown() {
     }
 }
 
+/// A page cut charges a file's names what the reply delivers for them: each
+/// declaration as the outline string the response stage lists it by, with
+/// its comma, and each row's `enclosing` or `declaration` key. The charge is
+/// read from the delivered row, so it follows the form the stage sends.
+#[test]
+fn names_are_charged_as_the_declarations_the_reply_delivers() {
+    use super::super::enclosing::{Outline, annotate_enclosing};
+    // Six functions, a non-ASCII name among them: the first three are hit
+    // in their bodies (each row names its own declaration around it), the
+    // last three on their names (each row names the one it declares).
+    let names = [
+        "alpha",
+        "beta",
+        "größe_λ",
+        "delta",
+        "epsilon_with_a_long_name",
+        "zeta",
+    ];
+    let source = names
+        .iter()
+        .map(|name| format!("pub fn {name}() {{\n    needle();\n}}\n"))
+        .collect::<String>();
+    let mut matches = Vec::new();
+    for (index, name) in names.iter().enumerate() {
+        let first = u32::try_from(index * 3 + 1).expect("line");
+        let (line, text) = if index < 3 {
+            (first + 1, "    needle();".to_owned())
+        } else {
+            (first, format!("pub fn {name}() {{"))
+        };
+        let at = if index < 3 { "needle" } else { name };
+        let byte = u32::try_from(text.find(at).expect("hit")).expect("byte");
+        matches.push(TextSearchMatch {
+            byte_offset: byte,
+            value: text,
+            ..hit(line)
+        });
+    }
+    let file = TextSearchFile {
+        sort_time: None,
+        term_counts: Vec::new(),
+        path: "src/names.rs".into(),
+        match_count: 6,
+        counted: Default::default(),
+        matches,
+        source: None,
+    };
+    let outline = Outline::of(&source, "price-test/names.rs").expect("rust outline");
+    let FilePrice::Owners(owners) = FilePrice::of(&file, Some(&outline), None) else {
+        panic!("an outlined file is priced by its owners");
+    };
+    let charged = owners.values().map(|owner| owner.full).sum::<usize>();
+
+    // The same rows as a page shows them, through the response stage.
+    let root = std::path::Path::new("/price-test");
+    let mut shown = vec![super::super::types::SearchFile {
+        path: file.path.clone(),
+        sorted_at: None,
+        match_keys: Vec::new(),
+        declarations: Vec::new(),
+        matches: Some(
+            file.matches
+                .iter()
+                .map(|matched| project_match(matched, false))
+                .collect(),
+        ),
+        total_occurrences: None,
+        total_matched_lines: None,
+        term_counts: None,
+        pagination: None,
+        next: None,
+        lines: None,
+    }];
+    let note = annotate_enclosing(
+        &mut shown,
+        None,
+        root,
+        &|_| super::super::sources::Expected::Fresh,
+        HashMap::from([(root.join(&file.path), Some(outline))]),
+        &octocode_runtime_base::security::ContentSecurity::new(),
+    );
+    assert_eq!(note, None);
+    let mut data = serde_json::json!({"files": shown})
+        .as_object()
+        .expect("data")
+        .clone();
+    octocode_runtime_base::response::hoist::apply_on(
+        octocode_runtime_base::id::ToolId::LocalSearch,
+        &mut data,
+    );
+    let delivered = &data["files"][0];
+    let listed = delivered["declarations"].as_array().expect("declarations");
+    assert_eq!(listed.len(), names.len(), "{delivered}");
+    assert!(
+        listed.iter().all(serde_json::Value::is_string),
+        "{delivered}"
+    );
+    let rows = delivered["matches"].as_array().expect("rows");
+    let keys = rows
+        .iter()
+        .flat_map(|row| {
+            ["enclosing", "declaration"]
+                .into_iter()
+                .filter(|key| row.get(*key).is_some())
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(keys.len(), names.len(), "{delivered}");
+    let sent = listed
+        .iter()
+        .map(|entry| octocode_engine::json_size::utf16_units(entry).expect("size") + 1)
+        .sum::<usize>()
+        + keys
+            .iter()
+            .map(|key| format!(",\"{key}\":").len())
+            .sum::<usize>();
+    assert_eq!(charged, sent, "{delivered}");
+}
+
 /// Page `page` of `files` cut over `root` with `known` prices: the
 /// layout, every price known after the cut, and the files it outlined.
 /// Each row's declaration is named on the line before it, unless the

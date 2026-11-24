@@ -48,12 +48,33 @@ impl WaitLimit {
         // no instant.
         wait < by.saturating_duration_since(Instant::now())
     }
+
+    /// The part of `wait` slept when the wait bound, not the deadline,
+    /// refuses it whole: the time left to the bound. The bound stands for a
+    /// host that stops listening (an MCP reply budget), not for a caller
+    /// that will not wait, and an agent cannot sleep: a refusal that slept
+    /// nothing hands back a retry that is refused the same way. Sleeping up
+    /// to the bound leaves the retry only the rest, which its own bound
+    /// fits. `None` when the deadline refuses the wait too, or no time is
+    /// left to the bound.
+    pub(crate) fn part_within_bound(&self, wait: Duration) -> Option<Duration> {
+        let now = Instant::now();
+        let to_bound = self.sleep_by.saturating_duration_since(now);
+        let to_deadline = self.deadline.saturating_duration_since(now);
+        (self.sleep_by < self.deadline
+            && !to_bound.is_zero()
+            && to_bound <= wait
+            && wait < to_deadline)
+            .then_some(to_bound)
+    }
 }
 
 /// One group's slot rules for an admission: the spacing after its last start
 /// (derived from the reported or assumed quota when the group is
-/// quota-paced) and the limit bounding the wait. A start is refused only
-/// when its wait is not taken ([`WaitLimit::takes`]).
+/// quota-paced) and the limit bounding the wait. A start is refused when its
+/// wait is not taken ([`WaitLimit::takes`]); one request's start past the
+/// wait bound but before the deadline is slept to the bound first
+/// ([`SlotPlan::fit`]).
 pub(super) struct SlotPlan<'a> {
     pub(super) group: Group,
     pub(super) config: &'a ExecutorConfig,
@@ -69,12 +90,31 @@ pub(super) struct PlannedStart {
     pub(super) now: u64,
 }
 
+impl PlannedStart {
+    /// The wait from `now` to the start.
+    pub(super) fn wait(self) -> Duration {
+        Duration::from_millis(self.start.saturating_sub(self.now))
+    }
+}
+
 /// What a refusal is about: one admission, or a row of `n` code searches
 /// checked before its first is sent.
 #[derive(Clone, Copy)]
 pub(super) enum Subject {
     Request,
     Batch(usize),
+}
+
+/// How one request's planned start fits its [`WaitLimit`].
+pub(super) enum Fit {
+    /// Its wait ends before the wait bound: slept whole.
+    Whole,
+    /// Its wait ends past the wait bound but before the deadline: slept up
+    /// to the bound (`part`), then refused with the rest, which the retry
+    /// it hands back fits ([`WaitLimit::part_within_bound`]).
+    ToBound { part: Duration },
+    /// Its wait ends past the deadline: refused at once.
+    Refused(ProviderError),
 }
 
 impl<'a> SlotPlan<'a> {
@@ -157,23 +197,43 @@ impl<'a> SlotPlan<'a> {
     }
 
     /// The refusal for a start whose wait is not taken, labelled by its
-    /// subject. It carries only what the client decided, the wait: GitHub
-    /// reported no exhausted bucket, so no `remaining` or reset is claimed.
+    /// subject: a row of searches is refused before its first, never slept
+    /// to the bound, since a refusal midway would spend quota on a page that
+    /// is then discarded.
     pub(super) fn refusal(&self, planned: PlannedStart, subject: Subject) -> Option<ProviderError> {
-        let wait = Duration::from_millis(planned.start.saturating_sub(planned.now));
+        let wait = planned.wait();
+        (!self.limit.takes(wait)).then(|| self.refused(wait, subject))
+    }
+
+    /// How one request's planned start fits the limit ([`Fit`]).
+    pub(super) fn fit(&self, planned: PlannedStart) -> Fit {
+        let wait = planned.wait();
         if self.limit.takes(wait) {
-            return None;
+            return Fit::Whole;
         }
+        match self.limit.part_within_bound(wait) {
+            Some(part) => Fit::ToBound { part },
+            None => Fit::Refused(self.refused(wait, Subject::Request)),
+        }
+    }
+
+    /// The refusal of a start `wait` away, labelled by its subject. It
+    /// carries only what the client decided, the wait: GitHub reported no
+    /// exhausted bucket, so no `remaining` or reset is claimed. The wait
+    /// limit is the request's wait bound or its deadline, whichever refused.
+    pub(super) fn refused(&self, wait: Duration, subject: Subject) -> ProviderError {
         let group = self.group.name();
         let message = match subject {
             Subject::Request => {
-                format!("GitHub {group} request spacing exceeds the deadline; request not sent.")
+                format!(
+                    "GitHub {group} request spacing passes this call's wait limit; request not sent."
+                )
             }
             Subject::Batch(searches) => format!(
-                "GitHub {group} request spacing cannot fit this row's {searches} searches before the deadline; requests not sent."
+                "GitHub {group} request spacing cannot fit this row's {searches} searches within this call's wait limit; requests not sent."
             ),
         };
-        Some(rate_limited_error(
+        rate_limited_error(
             &message,
             RateLimit {
                 remaining: None,
@@ -181,7 +241,7 @@ impl<'a> SlotPlan<'a> {
                 retry_after_seconds: Some(ceil_secs(wait)),
                 resource: Some(self.group.bucket().into()),
             },
-        ))
+        )
     }
 }
 

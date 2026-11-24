@@ -40,9 +40,9 @@ scorecard; their owners keep the details.
 
 ## Rules
 
-- **No saved harness scripts.** Scripts hard-code inputs, break when a field or default changes, and then
-  report the script's error as the tool's. Call the tool, read the answer, decide. A shell one-liner to count
-  characters or time a call is fine; do not keep it.
+- **Scripts own exact, repeated work; you own the judgment.** Pins, page walks, transcript tallies and the graph
+  battery run as checked-in scripts (`dev pin`, `dev walk`, `harness-tally.mjs`, `battery.mjs`). Call the tool,
+  read the answer, decide; do not write throwaway drivers that hard-code inputs.
 - **Judge the output, not an exit code.** For each call ask: is the answer right, is it on page 1, can the
   next call be made from what is shown, is anything there that the question did not need?
 - **Compare against the lean alternative an expert writes** (`gh … --json/--jq`, `rg -o`, `sed -n`,

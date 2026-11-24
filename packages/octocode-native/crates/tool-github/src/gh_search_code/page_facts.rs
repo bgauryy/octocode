@@ -100,27 +100,15 @@ pub(super) fn walked(
     }
 }
 
-/// Each default resolved file offers its pinned source. Files whose hit
-/// lines were capped, cut or unresolved offer the remaining hits.
+/// Files whose hit lines were capped, cut or unresolved offer the remaining
+/// hits. A fully listed file offers no read: its row already holds every hit
+/// line, and the description says how to read one (2026-11-24: a pinned
+/// source lead was followed once in 31 offers).
 pub(super) fn add_reads(value: &mut serde_json::Value, reads: code_output::PageReads) {
-    let target = ToolId::GhGetFileContent;
-    for (position, chunk) in reads.sources.chunks(*SOURCE_BATCH).enumerate() {
-        value["calls"][octocode_runtime_base::id::numbered("readSource", position)] =
-            octocode_runtime_base::response::result::Continuation::continued_input(
-                target,
-                json!({"queries": chunk}),
-            )
-            .build();
-    }
     for (position, read) in reads.hits.into_iter().enumerate() {
         value["calls"][octocode_runtime_base::id::numbered("readHits", position)] = read;
     }
 }
-
-/// Resolved source rows that one ghGetFileContent request can carry.
-pub(super) static SOURCE_BATCH: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| {
-    octocode_runtime_base::response::result::rows_per_call(ToolId::GhGetFileContent)
-});
 
 /// What the page says about its own completeness: provider-index
 /// completeness on every page, apart from whether another page exists; a

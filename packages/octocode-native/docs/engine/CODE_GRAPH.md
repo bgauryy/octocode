@@ -1063,9 +1063,9 @@ publication limits, snapshot retention, structural diff
 identity, reverse-graph invariants, SCC partitioning, and native response parity. Run:
 
 ```bash
-cargo test --manifest-path packages/octocode-native/Cargo.toml -p octocode-engine --no-default-features graph::
-cargo test --manifest-path packages/octocode-native/Cargo.toml -p octocode-engine --no-default-features --test graph_benchmark frozen_graph_correctness_receipt_is_stable -- --exact
-cargo test --manifest-path packages/octocode-native/Cargo.toml -p octocode-tool-graph ast_graph
+node packages/octocode-native/scripts/build-slot.cjs -- cargo test --manifest-path packages/octocode-native/Cargo.toml -p octocode-engine --no-default-features graph::
+node packages/octocode-native/scripts/build-slot.cjs -- cargo test --manifest-path packages/octocode-native/Cargo.toml -p octocode-engine --no-default-features --test graph_benchmark frozen_graph_correctness_receipt_is_stable -- --exact
+node packages/octocode-native/scripts/build-slot.cjs -- cargo test --manifest-path packages/octocode-native/Cargo.toml -p octocode-tool-graph ast_graph
 ```
 
 The language battery ingests one pinned repository per grammar
@@ -1155,7 +1155,7 @@ untyped forms listed under Known limits; 122 of them cross crates.
 Timing is a criterion benchmark, not a CI threshold. It builds and queries the same frozen graph (`OCTOCODE_GRAPH_BENCH_FILES`, default 20,000 files, and `OCTOCODE_GRAPH_BENCH_FANOUT`, default 4):
 
 ```bash
-cargo bench --manifest-path packages/octocode-native/Cargo.toml -p octocode-engine --bench graph
+node packages/octocode-native/scripts/build-slot.cjs -- cargo bench --manifest-path packages/octocode-native/Cargo.toml -p octocode-engine --bench graph
 ```
 
 Measure any proposed graph library or incremental parsing against the same correctness test and benchmark before adopting it.

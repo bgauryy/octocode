@@ -3,7 +3,6 @@ import { existsSync, readdirSync, readFileSync, mkdirSync, writeFileSync, chmodS
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isMainModule } from './scripts/lib/entrypoint.mjs';
-import { buildSync } from 'esbuild';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const bundles = [
@@ -25,16 +24,17 @@ const bundles = [
     files: ['scripts/lib/net-guard.mjs'],
   },
   {
+    // Reached from references/writing-tells.md: deterministic writing-tell residue.
+    trigger: 'scripts/residue-scan.mjs',
+    files: ['scripts/residue-scan.mjs', 'scripts/lib/entrypoint.mjs', 'scripts/lib/fail.mjs'],
+  },
+  {
     trigger: 'scripts/lib/fail.mjs',
     files: ['scripts/lib/fail.mjs'],
   },
   {
     trigger: 'scripts/lib/entrypoint.mjs',
     files: ['scripts/lib/entrypoint.mjs'],
-  },
-  {
-    trigger: 'scripts/lib/config-env.mjs',
-    files: [{ source: 'scripts/config-env.entry.mjs', target: 'scripts/lib/config-env.mjs', bundle: true }],
   },
 ];
 
@@ -50,7 +50,7 @@ function referencedPaths(text, file, root) {
     .map(([, target]) => relative(root, resolve(dirname(file), target)).replaceAll('\\', '/'));
 }
 
-const fileEntry = (file) => typeof file === 'string' ? { source: file, target: file, bundle: false } : { bundle: false, ...file };
+const fileEntry = (file) => typeof file === 'string' ? { source: file, target: file } : file;
 
 /** The skill collections at the repository root: the one list every skill gate walks. */
 export const COLLECTIONS = ['skills', 'skills-dev'];
@@ -159,9 +159,9 @@ function selectBundles(dir) {
 function bundleOutputs(selected) {
   const outputs = new Map();
   for (const bundle of selected) {
-    for (const { source, target, bundle: usesBundle } of bundle.files.map(fileEntry)) {
-      if (outputs.has(target) && (outputs.get(target).source !== source || outputs.get(target).bundle !== usesBundle)) throw new Error(`Conflicting shared sources for ${target}`);
-      outputs.set(target, { source, bundle: usesBundle });
+    for (const { source, target } of bundle.files.map(fileEntry)) {
+      if (outputs.has(target) && outputs.get(target) !== source) throw new Error(`Conflicting shared sources for ${target}`);
+      outputs.set(target, source);
     }
   }
   return outputs;
@@ -189,38 +189,26 @@ function removeCopy(dir, target, content, check) {
 }
 
 /** Installed paths and canonical bytes of the given bundles, including bundled transitive guide dependencies. */
-function canonicalAssets(selected, bundledResources) {
+function canonicalAssets(selected) {
   const outputs = new Map();
-  for (const [target, { source, bundle }] of bundleOutputs(selected)) {
-    let content;
-    if (bundle) {
-      if (!bundledResources.has(source)) {
-        // This is generated distribution code; keep the bundle compact while the authored entry stays readable.
-        const result = buildSync({ absWorkingDir: here, entryPoints: [source], bundle: true, platform: 'node', format: 'esm', target: 'node24', minify: true, write: false });
-        bundledResources.set(source, Buffer.from(result.outputFiles[0].contents));
-      }
-      content = bundledResources.get(source);
-    } else {
-      content = readFileSync(join(here, source));
-    }
-    outputs.set(target, content);
+  for (const [target, source] of bundleOutputs(selected)) {
+    outputs.set(target, readFileSync(join(here, source)));
   }
   return outputs;
 }
 
 /** Installed paths and canonical bytes for the bundles a skill's routes reach. */
-export function sharedAssets(dir, bundledResources = new Map()) {
-  return canonicalAssets(selectBundles(dir), bundledResources);
+export function sharedAssets(dir) {
+  return canonicalAssets(selectBundles(dir));
 }
 
 export function build({ root = resolve(here, '../..'), check = false } = {}) {
   const stale = [];
   let copies = 0;
   const dirs = skillDirs(root);
-  const bundledResources = new Map();
-  const everything = canonicalAssets(new Set(bundles), bundledResources);
+  const everything = canonicalAssets(new Set(bundles));
   for (const dir of dirs) {
-    const wanted = sharedAssets(dir, bundledResources);
+    const wanted = sharedAssets(dir);
     for (const [target, content] of wanted) {
       const destination = join(dir, target);
       copies++;

@@ -161,7 +161,11 @@ fn an_include_glob_that_matches_no_file_gets_the_shared_glob_hint_and_lead() {
     assert_eq!(out["status"], "empty", "{out}");
     assert_eq!(
         out["hints"],
-        json!([octocode_runtime_base::policy::include::GLOB_MISS_HINT]),
+        json!([octocode_runtime_base::policy::include::glob_miss_hint(
+            0,
+            &["wrong/src/*.rs".to_owned()],
+            &[]
+        )]),
         "{out}"
     );
     let lead =
@@ -196,8 +200,10 @@ fn globs_that_match_only_a_withheld_file_say_so_and_name_no_file() {
         assert!(!out["hints"].to_string().contains(".env"), "{out}");
         out["hints"].clone()
     };
-    let miss = octocode_runtime_base::policy::include::GLOB_MISS_HINT;
-    let withheld = octocode_runtime_base::policy::include::glob_miss_hint(1);
+    let globs = |glob: &str| [glob.to_owned()];
+    let miss =
+        octocode_runtime_base::policy::include::glob_miss_hint(0, &globs("absent/*.rs"), &[]);
+    let withheld = octocode_runtime_base::policy::include::glob_miss_hint(1, &globs(".env*"), &[]);
     assert_ne!(withheld, miss);
     for hidden in [true, false] {
         assert_eq!(hints(".env*", hidden), json!([withheld]));

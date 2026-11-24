@@ -70,7 +70,7 @@ pub async fn run(
             if error.reason == Some(octocode_github::ProviderErrorReason::SearchWindowExceeded) =>
         {
             let window_last = SearchWindow::PageEnd.last_page(per_search(query, limit(query)));
-            let first = search_page(provider, query, 1, limit(query), context)
+            let first = search_page(provider, query, 1, limit(query), context, withholds)
                 .await
                 .ok();
             let last = first
@@ -91,7 +91,7 @@ pub async fn run(
             repo,
         );
         if failure.error.kind == octocode_github::ProviderErrorKind::RateLimited {
-            failure = with_file_read(failure, query);
+            failure = with_file_read(failure, query, withholds);
         }
         if let Some((last, reachable)) = window {
             // Stated in the query's `limit`: each merged search's own page
@@ -146,12 +146,23 @@ pub async fn run(
 
 /// A search the code-search quota refused whose `path` names one file (its
 /// last part has an extension) also leads to reading that file for the same
-/// terms: a file read spends none of the code-search quota.
-fn with_file_read(mut failure: GhFailure, query: &GhSearchCodeQuery) -> GhFailure {
+/// terms: a file read spends none of the code-search quota. The search ran
+/// only because the read before it could not type the path
+/// ([`search_page::search_page`]: a file over the scan bound, a failed read,
+/// a path missing at a requested ref); a path the policy withholds is never
+/// offered, since its read is refused.
+fn with_file_read(
+    mut failure: GhFailure,
+    query: &GhSearchCodeQuery,
+    withholds: Withholds<'_>,
+) -> GhFailure {
     let row = serde_json::to_value(query).unwrap_or_default();
     let (Some(repo), Some(path)) = (row["repo"].as_str(), row["path"].as_str()) else {
         return failure;
     };
+    if withholds(path.trim_matches('/')) {
+        return failure;
+    }
     let names_file = path
         .rsplit('/')
         .next()
@@ -238,7 +249,7 @@ async fn execute_within(
     // A ref search's lines are read at the ref's commit, which does not
     // depend on the hits: resolve it during the index search, not after.
     let (data, commit) = futures_util::future::join(
-        search_page(provider, query, current, per, context),
+        search_page(provider, query, current, per, context, withholds),
         code_output::line_commit(provider, query, context),
     )
     .await;
@@ -247,7 +258,10 @@ async fn execute_within(
     // that check read also answers the empty page's scope check.
     let mut checked = None;
     if let Some(repo) = query.repo.as_deref()
-        && search_may_be_renamed(&data, |page| page.fetched == 0 && page.total == 0)
+        && search_may_be_renamed(&data, |page| {
+            // A file read at its path answered it: the repository resolved.
+            page.fetched == 0 && page.total == 0 && page.read.is_none()
+        })
     {
         let rerun = |renamed: GhSearchCodeQuery| async move {
             Box::pin(execute_within(
@@ -358,7 +372,9 @@ async fn execute_within(
     }
     // Every page of a ref search states the index scope (a page can be read
     // on its own); the head the first page read rides the continuation.
-    let head = if items.is_empty() {
+    // A page read from the file its path names matched and listed lines at
+    // one commit: no index scope to state.
+    let head = if items.is_empty() || data.read.is_some() {
         None
     } else {
         code_output::index_head(provider, query, context).await?
@@ -377,7 +393,7 @@ async fn execute_within(
     // read of the rest.
     let hits_unlisted = !reads.hits.is_empty();
     add_reads(&mut value, reads);
-    if !items.is_empty() {
+    if !items.is_empty() && data.read.is_none() {
         code_output::disclose_index_ref(provider, &mut value, query, resolved_sha, head, context)
             .await?;
     }
@@ -392,9 +408,15 @@ async fn execute_within(
         code_output::owner_exists(&query.owner, &provider.transport, context).await?;
     }
     if data.fetched == 0 && !past_end {
-        empty::page(provider, query, context, checked, &mut output).await?;
+        match data.read.as_ref() {
+            Some(read) => empty::read_file(query, read, &mut output),
+            None => empty::page(provider, query, context, checked, &mut output).await?,
+        }
     }
-    disclose_coverage(&mut output, provider.transport.endpoint());
+    // A page read from the file its path names used no index.
+    if data.read.is_none() {
+        disclose_coverage(&mut output, provider.transport.endpoint());
+    }
     octocode_runtime_base::response::result::finish_calls(&mut output.data);
     Ok(output)
 }

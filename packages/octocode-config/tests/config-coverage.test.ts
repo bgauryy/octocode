@@ -36,7 +36,8 @@ function walk(directory: string, keep: (path: string) => boolean): string[] {
 }
 
 function sources(): string[] {
-  const isTest = /tests?[./]|\/tests\/|\.test\.|config-env\.mjs$|node_modules|process_fixture\.rs$/;
+  // A skill's scripts/keys.mjs is this package, bundled: it carries the whole contract.
+  const isTest = /tests?[./]|\/tests\/|\.test\.|\/scripts\/keys\.mjs$|node_modules|process_fixture\.rs$/;
   return [
     ...walk('packages/octocode/src', path => path.endsWith('.ts')),
     // The graph package's TypeScript runtime (CLI, saved-graph commands, channel) reads configuration too.
@@ -102,8 +103,12 @@ describe('the configuration contract is complete', () => {
 describe('what derives from the contract', () => {
   it('search.mjs defaults match the endpoints the contract documents', () => {
     const script = readFileSync(`${ROOT}/skills/octocode-brainstorming/scripts/search.mjs`, 'utf8');
-    for (const name of ['TAVILY_BASE_URL', 'EXA_BASE_URL', 'SERPER_BASE_URL']) {
-      expect(script).toContain(`process.env.${name} || '${contract.environment[name]?.displayDefault}'`);
+    const endpoints = Object.entries(contract.environment)
+      .filter(([, entry]) => entry.group === 'Web search' && entry.type === 'url')
+      .map(([name]) => name);
+    expect(endpoints.length).toBeGreaterThan(0);
+    for (const name of endpoints) {
+      expect(script).toContain(`getKey('${name}').value || '${contract.environment[name]?.displayDefault}'`);
     }
   });
 

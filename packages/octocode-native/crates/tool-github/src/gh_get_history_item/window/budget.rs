@@ -3,10 +3,12 @@
 
 /// Patch characters one call carries across a page's files by default,
 /// derived from the effective automatic response page (the runtime's
-/// `auto_page_chars`, or a call's `responseChars`). Rendered text prints
-/// patches verbatim (no escaping), so the default window takes 4/5 of the
-/// page less a fixed reserve for the row header and metadata, never below
-/// 2/5 of it: a default window plus row metadata fits one response page.
+/// `auto_page_chars`, or a call's `responseChars`, or a batch row's share
+/// of it). The window takes 4/5 of the page and leaves the rest to the
+/// row's header, metadata and escaping: a patch that fits its page beside
+/// its row arrives whole, since agents skip a row's `next.patches` (0 of
+/// 14 followed in the 2026-11-23/24 benchmarks, each cut in a reply with
+/// room to spare under the former fixed 5,000-char reserve).
 /// An explicit `length` is honoured up to that one-row budget: a larger
 /// window would only be re-sliced into response `rowPart`s, more calls for
 /// the same patch text. A row that still outgrows its page is lossless:
@@ -16,8 +18,6 @@
 /// A bigger window comes with a bigger response page (`responseChars`).
 const PATCH_DEFAULT_SHARE: (usize, usize) = (4, 5);
 
-const PATCH_DEFAULT_RESERVE: usize = 5_000;
-
 /// The page a call carries: the runtime's, else (direct callers, tests) the
 /// constant automatic page.
 pub(in crate::gh_get_history_item) fn auto_page(auto_page: Option<usize>) -> usize {
@@ -26,24 +26,11 @@ pub(in crate::gh_get_history_item) fn auto_page(auto_page: Option<usize>) -> usi
         .unwrap_or(octocode_runtime_base::execution::RuntimeLimits::DEFAULT.auto_page_chars)
 }
 
-/// The default window of a `matchString` view: the page share without the
-/// fixed reserve.
-pub(in crate::gh_get_history_item) fn literal_patch_window(
-    auto_page_chars: Option<usize>,
-) -> usize {
-    let page = auto_page(auto_page_chars);
-    let (num, den) = PATCH_DEFAULT_SHARE;
-    (page * num / den).max(1)
-}
-
 /// The patch window of one row: most of its response page. An explicit
 /// `length` is clamped to that budget, so one row's window always fits one
 /// response page.
 pub(in crate::gh_get_history_item) fn patch_window(auto_page_chars: Option<usize>) -> usize {
     let page = auto_page(auto_page_chars);
     let (num, den) = PATCH_DEFAULT_SHARE;
-    (page * num / den)
-        .min(page.saturating_sub(PATCH_DEFAULT_RESERVE))
-        .max(page * 2 / 5)
-        .max(1)
+    (page * num / den).max(1)
 }

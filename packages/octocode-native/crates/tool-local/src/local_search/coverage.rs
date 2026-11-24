@@ -245,8 +245,13 @@ impl Coverage {
     /// The empty row's fact when include/exclude left the walk no file: the
     /// globs matched none, or only files the security path policy withholds
     /// ([`octocode_runtime_base::policy::include::glob_miss_hint`]).
-    fn scope_miss_hint(&self) -> String {
-        octocode_runtime_base::policy::include::glob_miss_hint(self.withheld).into_owned()
+    fn scope_miss_hint(&self, query: &LocalSearchQuery) -> String {
+        octocode_runtime_base::policy::include::glob_miss_hint(
+            self.withheld,
+            local_search_query::include(query),
+            local_search_query::exclude(query),
+        )
+        .into_owned()
     }
 
     /// The empty row's fact when `keyPath` left out every file in scope.
@@ -260,11 +265,11 @@ impl Coverage {
     /// repository, where the path and glob advice does not hold (the row's
     /// warning says what is on disk). Unreadable paths are stated in
     /// `warnings`; a plain miss has none.
-    pub(super) fn scope_hint(&self, sparse: bool) -> Option<String> {
+    pub(super) fn scope_hint(&self, sparse: bool, query: &LocalSearchQuery) -> Option<String> {
         if self.key_path_miss.is_some() {
             None
         } else if self.scope_miss {
-            (!sparse).then(|| self.scope_miss_hint())
+            (!sparse).then(|| self.scope_miss_hint(query))
         } else if self.nothing_walked && self.withheld == 0 && self.error_count == 0 {
             (!sparse).then(|| NOTHING_WALKED_HINT.into())
         } else if self.error_count > 0 {

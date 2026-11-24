@@ -14,7 +14,7 @@ Own the user-facing result and integration. Coordinate through the host's availa
 ## Coordinator loop
 
 1. **Observe.** Reconcile worker reports with current artifacts. Keep ownership, dependencies, acceptance, evidence and next actions in one tracker. Verify the work even if its worker has finished.
-2. **Choose.** Identify the unmet condition and the action that can advance it. Map producer and consumer dependencies before releasing work. Use [execution and dependency graphs](references/loops.md#execution-graph) for blocked or branching tasks.
+2. **Choose.** Identify the unmet condition and the action that can advance it. Map producer and consumer dependencies before releasing work, and check them with [dep-graph](scripts/dep-graph.mjs) as [dependency graphs](references/loops.md#dependency-graph) describes. Use the [execution graph](references/loops.md#execution-graph) for blocked or branching tasks.
 3. **Assign or execute.** Give each separable task one owner and a [task contract](references/protocol-catalog.md#delegate-and-coordinate) with scope, authority, inputs, expected result and checks. Ask for each claim, its source and its check status. Add workers for distinct capabilities or independent checks. Serialize conflicting writes and shared builds.
 4. **Integrate.** Recheck decisive anchors using the [evidence rules](references/evidence.md). Resolve disagreements with a distinguishing check. Invalidate stale checks and release ready dependencies as results arrive.
 5. **Recover or finish.** Use [recovery and resume](references/recovery.md) for stalled tasks, uncertain effects, cancellation or lost context. Continue while an authorized action advances acceptance. Finish when the integrated result passes its required checks or report the missing prerequisite.
@@ -29,7 +29,7 @@ Use these neighbors when installed and relevant; this skill works without instal
 |---|---|
 | Choose or compose a workflow; reuse its ledger and acceptance | `octocode-workflows` |
 | Diagnose the agent harness, prompting, context, model routing or communication setup | `octocode-agentic` |
-| Establish repository claims | `octocode-research`; discover available tools through the [MCP/CLI guide](references/octocode-usage.md) |
+| Establish repository claims | `octocode-research` |
 | Execute or verify a domain change | Its domain skill; for Octocode development, `octocode-dev` owns builds and gates |
 | Relay between separate agent systems | `octocode-messages-proxy`, only with the required messaging authority |
 | Offload bounded text/image work to an installed local model | `octocode-orchestrator-local-worker`; coordinator retains verification and final decisions |

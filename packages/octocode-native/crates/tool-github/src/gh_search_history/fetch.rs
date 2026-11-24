@@ -10,7 +10,6 @@ use serde_json::Value;
 pub(super) struct Fetched {
     pub(super) result: HistoryPage,
     pub(super) terms: String,
-    pub(super) warnings: Vec<String>,
     /// The commit the path's history ends at, when it renamed the path.
     pub(super) rename: Option<RenameEnd>,
 }
@@ -32,7 +31,7 @@ pub(super) async fn fetch(
     searching: bool,
     context: &RequestContext,
 ) -> Result<Fetched, ProviderError> {
-    let (terms, warnings) = query::build_query_with_warnings(query)?;
+    let terms = query::build_query(query)?;
     let (sort, order) = query::search_order(query);
     let request = HistoryRequest {
         query: terms,
@@ -63,7 +62,6 @@ pub(super) async fn fetch(
     Ok(Fetched {
         result,
         terms: request.query,
-        warnings,
         rename,
     })
 }
@@ -109,7 +107,6 @@ async fn list_commits(
     context: &RequestContext,
 ) -> Result<HistoryPage, ProviderError> {
     let (o, r) = query::required_repo(query)?;
-    // Invalid-value warnings were already collected by the terms.
     let (since, until) = query::resolve_commit_window(query);
     transport
         .list_commits_by_committer(

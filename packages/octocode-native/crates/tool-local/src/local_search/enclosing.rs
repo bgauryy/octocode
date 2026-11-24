@@ -15,9 +15,14 @@
 //! on a declaration's name line up to the end of its name names the
 //! declaration around that one. Every hit row inside a declaration names
 //! it, so no row reads as having none. A declaration search (`fn foo`)
-//! names the owners of declaring hits only. A searched symbol whose
-//! declaration is among the hits also yields a ready lspSearch references
-//! lead.
+//! names the owners of declaring hits only.
+//!
+//! A hit that starts on a declaration's name declares it: the file lists
+//! that declaration too and the hit names it by a `declaration` index, so
+//! its `line`–`endLine` is the range that reads it. The outline is the one
+//! source of that fact: a hit the outline cannot place (a local binding, a
+//! language without an extractor, a file over [`ENCLOSING_MAX_BYTES`])
+//! carries no `declaration`.
 
 use super::types::*;
 use octocode_runtime_base::security::ContentSecurity;
@@ -36,12 +41,14 @@ struct Declaration {
     name: String,
     /// The name line.
     line: u32,
-    start: u32,
+    /// The last line.
     end: u32,
     /// Where the declaration starts and ends (exclusive), and where its
-    /// name ends: what [`Outline::owner`] compares a hit with.
+    /// name starts and ends: what [`Outline::owner`] and
+    /// [`Outline::declared`] compare a hit with.
     from: At,
     to: At,
+    name_from: At,
     name_end: At,
 }
 
@@ -98,10 +105,10 @@ impl Outline {
                     kind: item.kind.clone(),
                     name: item.name.clone(),
                     line: item.selection_range.start.line.saturating_add(1),
-                    start,
                     end: item.range.end.line.saturating_add(1).max(start),
                     from,
                     to: at(&item.range.end).max(from),
+                    name_from: at(&item.selection_range.start),
                     name_end: at(&item.selection_range.end),
                 }
             })
@@ -174,17 +181,44 @@ impl Outline {
 
     /// Whether `line` is the name line of a declaration named `name`.
     pub(super) fn declares(&self, name: &str, line: u32) -> bool {
-        self.declaration(name, line).is_some()
+        self.named(name, line).is_some()
     }
 
-    /// The declaration named `name` on name line `line`: its kind and its
-    /// first and last line.
-    pub(super) fn declaration(&self, name: &str, line: u32) -> Option<(&str, u32, u32)> {
+    /// The declaration named `name` on name line `line` (its index in the
+    /// outline).
+    fn named(&self, name: &str, line: u32) -> Option<usize> {
         self.declarations
             .iter()
-            .find(|d| d.line == line && d.name == name)
-            .map(|d| (d.kind.as_str(), d.start, d.end))
+            .position(|d| d.line == line && d.name == name)
     }
+
+    /// The declaration the hit at `byte` of `line` declares: the one whose
+    /// name the hit starts on (its index in the outline), or, for a
+    /// declaration search of `symbol` (a hit that starts at the head's
+    /// first word, before the name), the one named `symbol` on that line.
+    pub(super) fn declared(&self, line: u32, byte: u32, symbol: Option<&str>) -> Option<usize> {
+        let hit = (line, byte);
+        self.declarations
+            .iter()
+            .position(|d| d.name_from <= hit && hit < d.name_end)
+            .or_else(|| self.named(symbol?, line))
+    }
+}
+
+/// The symbol a declaration search of `query` names (`fn foo`: `foo`),
+/// whose declarations its hits declare; `None` for any other search, and
+/// for one whose pattern does not read as written (case-insensitive, PCRE2
+/// or inverted). The page cut prices rows by it and the page names them by
+/// it, so both agree.
+pub(super) fn declaring_symbol(query: &octocode_contract_types::LocalSearchQuery) -> Option<&str> {
+    use super::local_search_query;
+    let pattern = local_search_query::pattern(query);
+    (local_search_query::case_mode(query) != octocode_contract_types::CaseMode::Insensitive
+        && local_search_query::regex_mode(query) != octocode_contract_types::RegexEngine::Pcre2
+        && local_search_query::invert_match(query) != Some(true)
+        && declaration_search(pattern))
+    .then(|| searched_symbol(pattern))
+    .flatten()
 }
 
 /// Whether the search names a declaration (`fn foo`, `pub fn foo`,
@@ -215,12 +249,51 @@ pub(super) fn searched_symbol(search_text: &str) -> Option<&str> {
 /// Serialized chars an `enclosing` field adds besides its value.
 pub(super) const ENCLOSING_FIELD_CHARS: usize = ",\"enclosing\":".len();
 
+/// Serialized chars a `declaration` field adds besides its value.
+pub(super) const DECLARATION_FIELD_CHARS: usize = ",\"declaration\":".len();
+
+/// Serialized chars one declaration takes in its file's `declarations`,
+/// with its comma: the line-first outline string the response stage lists
+/// it by (`response::hoist`, formed by
+/// [`octocode_runtime_base::response::symbol_outline::outline_lines`], the
+/// function this prices through), which is the form every reply carries.
+/// A declaration that would not form a string is priced as the object it
+/// would stay.
+pub(super) fn listed_chars(declaration: &super::types::Enclosing) -> usize {
+    use octocode_engine::json_size::utf16_units_or;
+    let object = || utf16_units_or(declaration, usize::MAX);
+    let Ok(row) = serde_json::to_value(declaration) else {
+        return object();
+    };
+    let lines =
+        octocode_runtime_base::response::symbol_outline::outline_lines(std::slice::from_ref(&row));
+    match lines.as_slice() {
+        [line] => utf16_units_or(line, usize::MAX),
+        _ => object(),
+    }
+    .saturating_add(1)
+}
+
 /// What a page cut reserves per hit row of a file it has not outlined (a
 /// later page's, or one it could not read; see
-/// [`super::layout::NamePricing`]) for its `enclosing` name: the field, the
-/// object's keys, a kind, two line numbers and a typical symbol name. A
-/// longer name still goes on its row; the page runs that much over budget.
-pub(super) const ENCLOSING_RESERVE_CHARS: usize = ENCLOSING_FIELD_CHARS + 80;
+/// [`super::layout::NamePricing`]) for its `enclosing` name: the field and
+/// one listed declaration ([`listed_chars`]) of a typical size, a
+/// `function` with four-digit lines and a name of
+/// [`TYPICAL_NAME_CHARS`]. A longer name still goes on its row; the page
+/// runs that much over budget.
+pub(super) static ENCLOSING_RESERVE_CHARS: std::sync::LazyLock<usize> =
+    std::sync::LazyLock::new(|| {
+        ENCLOSING_FIELD_CHARS
+            + listed_chars(&super::types::Enclosing {
+                symbol_name: "n".repeat(TYPICAL_NAME_CHARS),
+                kind: "function".to_owned(),
+                line: 1000,
+                end_line: 1000,
+            })
+    });
+
+/// The symbol name length [`ENCLOSING_RESERVE_CHARS`] reserves for.
+const TYPICAL_NAME_CHARS: usize = 18;
 
 /// The current outline of a shown file, or `None` when it is too large,
 /// unreadable, unsupported, or no longer the bytes a stored scan matched.
@@ -292,8 +365,9 @@ pub(super) fn row_lines(row: &SearchMatch) -> Vec<u32> {
     }
 }
 
-/// Name the enclosing declaration of every hit row of a page's files. A file lists each
-/// declaration once and a hit names its own by index.
+/// Name the enclosing declaration of every hit row of a page's files, and
+/// the declaration a hit declares. A file lists each declaration once and a
+/// hit names them by index.
 /// Each file is parsed once. The page cut charged the names' size, so a
 /// name is never traded for budget; rows of a file over 1 MiB are counted
 /// in the returned note, never dropped silently.
@@ -305,8 +379,7 @@ pub(super) fn annotate_enclosing(
     mut outlines: super::verify::Outlines,
     security: &ContentSecurity,
 ) -> Option<String> {
-    let mut names: Vec<Vec<Vec<Option<Vec<super::types::Enclosing>>>>> =
-        Vec::with_capacity(files.len());
+    let mut names = Vec::with_capacity(files.len());
     let mut oversized_rows = 0usize;
     for file in files.iter() {
         let Some(matches) = file.matches.as_ref().filter(|rows| !rows.is_empty()) else {
@@ -331,19 +404,25 @@ pub(super) fn annotate_enclosing(
             names.push(Vec::new());
             continue;
         };
-        names.push(row_owners(&outline, matches, declaring));
+        names.push(
+            row_owners(&outline, matches, declaring)
+                .into_iter()
+                .zip(row_declared(&outline, matches, declaring))
+                .collect(),
+        );
     }
     for (file, names) in files.iter_mut().zip(names) {
         let mut declarations = Vec::new();
-        for (row, owners) in file.matches.iter_mut().flatten().zip(names) {
+        for (row, (owners, declared)) in file.matches.iter_mut().flatten().zip(names) {
             row.enclosing = owners_of(&mut declarations, owners);
+            row.declaration = declared_of(&mut declarations, declared);
         }
         file.declarations = declarations;
     }
 
     (oversized_rows > 0).then(|| {
         format!(
-            "Enclosing declarations (enclosing) are not named in files over 1 MiB; {} there {} none.",
+            "Enclosing declarations (enclosing) and the ones hits declare (declaration) are not named in files over 1 MiB; {} there {} none.",
             hit_rows(oversized_rows),
             have(oversized_rows)
         )
@@ -414,6 +493,43 @@ fn index_of(declarations: &mut Vec<super::types::Enclosing>, name: super::types:
             declarations.len() - 1
         });
     octocode_engine::num::saturating_u32(index)
+}
+
+/// A row's `declaration`, from the declarations its hits declare, each
+/// listed in `declarations`: one index, or one per declaring hit, in
+/// order.
+fn declared_of(
+    declarations: &mut Vec<super::types::Enclosing>,
+    declared: Vec<super::types::Enclosing>,
+) -> Option<super::types::Declared> {
+    use super::types::Declared;
+    let mut indexes = declared
+        .into_iter()
+        .map(|declaration| index_of(declarations, declaration))
+        .collect::<Vec<_>>();
+    indexes.dedup();
+    match indexes.as_slice() {
+        [] => None,
+        [one] => Some(Declared::One(*one)),
+        _ => Some(Declared::Each(indexes)),
+    }
+}
+
+/// The declarations each row's hits declare ([`Outline::declared`]), in
+/// hit order; `declaring` is the symbol of a declaration search.
+pub(super) fn row_declared(
+    outline: &super::enclosing::Outline,
+    rows: &[SearchMatch],
+    declaring: Option<&str>,
+) -> Vec<Vec<super::types::Enclosing>> {
+    rows.iter()
+        .map(|row| {
+            hits_of(row)
+                .filter_map(|(line, byte)| outline.declared(line, byte, declaring))
+                .filter_map(|index| outline.label(index))
+                .collect()
+        })
+        .collect()
 }
 
 pub(super) fn row_owners(

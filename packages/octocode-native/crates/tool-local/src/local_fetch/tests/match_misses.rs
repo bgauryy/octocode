@@ -367,7 +367,13 @@ fn a_miss_reads_the_file_again_before_searching_its_folder() {
     let (hints, next, order) = leads(&two, "pub fn apply(");
     let lead = &next["read"]["input"]["queries"][0];
     assert_eq!(next["read"]["tool"], "localFetch", "{next}");
-    assert_eq!(lead["matchString"], serde_json::json!(["apply"]), "{next}");
+    // The name matches as a whole identifier: no wholeWord field exists.
+    assert_eq!(
+        lead["matchString"],
+        serde_json::json!(["\\bapply\\b"]),
+        "{next}"
+    );
+    assert_eq!(lead["regexEngine"], "rust", "{next}");
     assert_eq!(lead["block"], true, "{next}");
     assert_eq!(hints.len(), 1, "{hints:?}");
     assert!(hints[0].contains("2 lines match `apply`"), "{hints:?}");
@@ -403,9 +409,9 @@ fn a_declaration_whose_line_repeats_keeps_the_lead() {
     assert_eq!(row.status, ReadStatus::Empty, "{row:?}");
 }
 
-/// The read of a misremembered head's names is a plain read of them: it
-/// matches any line holding a name, inside a longer one too, and the lines
-/// its hint counts are the lines that read selects when run.
+/// The read of a misremembered head's names matches each as a whole
+/// identifier (`apply`, not `apply_all`), and the lines its hint counts are
+/// the lines that read selects when run.
 #[test]
 fn a_names_lead_selects_the_lines_its_hint_counts() {
     let t = Fixture::new();
@@ -423,10 +429,14 @@ fn a_names_lead_selects_the_lines_its_hint_counts() {
     assert_eq!(row.status, ReadStatus::Empty, "{row:?}");
     let next = serde_json::to_value(row.next.as_ref().expect("next")).expect("json");
     let lead = &next["read"]["input"]["queries"][0];
-    assert_eq!(lead["matchString"], serde_json::json!(["apply"]), "{next}");
+    assert_eq!(
+        lead["matchString"],
+        serde_json::json!(["\\bapply\\b"]),
+        "{next}"
+    );
     let lead: LocalFetchQuery = serde_json::from_value(lead.clone()).expect("a reader form");
     let read = fetch(&lead, &paths);
-    assert_eq!(read.matched_lines, vec![2, 5, 7], "{read:?}");
+    assert_eq!(read.matched_lines, vec![2, 5], "{read:?}");
     let [hint] = row.hints.as_slice() else {
         panic!("one hint: {row:?}")
     };

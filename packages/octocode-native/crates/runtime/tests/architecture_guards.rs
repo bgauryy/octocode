@@ -171,6 +171,45 @@ fn workspace_crate_edges_are_the_declared_ones() {
     assert_eq!(members, declared, "a crate is missing from CRATE_EDGES");
 }
 
+/// `ARCHITECTURE.md` states the crate edges in one sentence (`a` → `b`, `c`;
+/// leaves named without an arrow); it lists exactly `CRATE_EDGES`.
+#[test]
+fn architecture_doc_lists_the_declared_crate_edges() {
+    let doc = std::fs::read_to_string(crates_dir().join("../ARCHITECTURE.md")).expect("read doc");
+    let line = doc
+        .lines()
+        .find(|line| line.contains("`CRATE_EDGES`):"))
+        .expect("the crate-edge sentence");
+    let names = |text: &str| -> BTreeSet<String> {
+        text.split('`')
+            .skip(1)
+            .step_by(2)
+            .map(str::to_owned)
+            .collect()
+    };
+    let mut documented = BTreeMap::new();
+    for part in line.split_once("):").expect("edge list").1.split(';') {
+        match part.split_once('→') {
+            Some((krate, edges)) => {
+                let krate = names(krate).into_iter().next().expect("crate name");
+                documented.insert(krate, names(edges));
+            }
+            None => documented.extend(names(part).into_iter().map(|leaf| (leaf, BTreeSet::new()))),
+        }
+    }
+    let declared = CRATE_EDGES
+        .iter()
+        .map(|(krate, edges)| {
+            let edges = edges.iter().map(|name| (*name).to_owned()).collect();
+            ((*krate).to_owned(), edges)
+        })
+        .collect::<BTreeMap<_, BTreeSet<_>>>();
+    assert_eq!(
+        documented, declared,
+        "ARCHITECTURE.md crate edges differ from CRATE_EDGES"
+    );
+}
+
 #[test]
 fn workspace_crate_edges_form_no_cycle() {
     let position: BTreeMap<&str, usize> = CRATE_EDGES

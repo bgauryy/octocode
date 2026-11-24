@@ -63,6 +63,7 @@ const CANONICAL = [
   'TAVILY_BASE_URL',
   'EXA_BASE_URL',
   'SERPER_BASE_URL',
+  'DEEPSEEK_BASE_URL',
   // Each can read or redirect every request: process environment only.
   'HTTPS_PROXY',
   'HTTP_PROXY',

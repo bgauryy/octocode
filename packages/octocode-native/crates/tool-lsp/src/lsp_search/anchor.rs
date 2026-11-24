@@ -80,14 +80,18 @@ pub(super) fn resolve_anchor(
         let source = source.ok_or_else(|| {
             "symbolName anchors require a readable source file in path".to_owned()
         })?;
-        if let Some(asked) = lsp_search_query::anchor_line(query) {
-            past_the_end(source, name, asked)?;
-        }
+        // No `line`: the one declaration of the name in the file is the
+        // line, and the answer is the one a request sending it gets.
+        let asked = match lsp_search_query::anchor_line(query) {
+            Some(asked) => asked,
+            None => declared_line(path, source, name)?,
+        };
+        past_the_end(source, name, asked)?;
         let resolved = resolve_symbol(
             path,
             source,
             name,
-            lsp_search_query::anchor_line(query),
+            Some(asked),
             lsp_search_query::occurrence(query),
         )?;
         // The receipt adds what the request did not say: the column, and the
@@ -100,9 +104,7 @@ pub(super) fn resolve_anchor(
         if let Some(occurrence) = lsp_search_query::occurrence(query) {
             symbol["occurrence"] = json!(occurrence);
         }
-        if resolved.line_offset != 0
-            || lsp_search_query::anchor_line(query) != Some(resolved.found_at_line)
-        {
+        if resolved.line_offset != 0 || asked != resolved.found_at_line {
             symbol["foundAtLine"] = json!(resolved.found_at_line);
         }
         if resolved.line_offset != 0 {
@@ -111,14 +113,11 @@ pub(super) fn resolve_anchor(
         if last_member_start(name).is_none() {
             disclose_same_line(&mut symbol, &resolved, name);
         }
-        if let Some(asked) =
-            lsp_search_query::anchor_line(query).filter(|_| resolved.line_offset != 0)
-        {
+        if resolved.line_offset != 0 {
             disclose_rival_lines(&mut symbol, path, source, name, asked, &resolved);
         }
-        let warning = lsp_search_query::anchor_line(query)
-            .filter(|_| resolved.line_offset != 0)
-            .map(|asked| moved_anchor(name, asked, source, &resolved, &symbol));
+        let warning = (resolved.line_offset != 0)
+            .then(|| moved_anchor(name, asked, source, &resolved, &symbol));
         let related = match (&warning, lsp_search_query::path(query)) {
             (Some(_), Some(asked)) => {
                 super::failure::line_finders(name, &super::render::uri_to_path(asked))
@@ -134,6 +133,81 @@ pub(super) fn resolve_anchor(
         });
     }
     Err("lspSearch requires symbolName and line".to_owned())
+}
+
+/// The one-based name line of the one declaration named `name` in `source`:
+/// the anchor of a request that sends no `line`. Several declarations of the
+/// name are several identities, and none leaves only uses: both are refused
+/// with the lines a corrected request sends, never chosen among. An `impl`
+/// block names its type and declares nothing of that name.
+fn declared_line(path: &str, source: &str, name: &str) -> Result<u32, String> {
+    let Some(outline) = octocode_tools_shared::declarations::file_document(source, path) else {
+        return Err(format!(
+            "No declaration outline for this file type, so `{name}` cannot anchor by name: send the line that spells it (find it with localSearch)."
+        ));
+    };
+    let declared = outline
+        .declarations
+        .iter()
+        .filter(|declaration| declaration.name == name && declaration.kind != "impl")
+        .collect::<Vec<_>>();
+    match declared.as_slice() {
+        [one] => Ok(one.selection_range.start.line.saturating_add(1)),
+        [] => Err(format!(
+            "path declares no `{name}`, and without line symbolName anchors at its one declaration: send the line of a use (find it with localSearch)."
+        )),
+        several => {
+            let candidates = several
+                .iter()
+                .map(|declaration| {
+                    let line = declaration.selection_range.start.line.saturating_add(1);
+                    // `parent` is a declaration id: its name is what a reader knows.
+                    let parent = declaration.parent.as_ref().and_then(|id| {
+                        outline
+                            .declarations
+                            .iter()
+                            .find(|holder| holder.id == *id)
+                            .map(|holder| &holder.name)
+                    });
+                    let holder = parent.or(declaration.owner.as_ref());
+                    match holder {
+                        Some(holder) => format!("line {line} ({} in {holder})", declaration.kind),
+                        None => format!("line {line} ({})", declaration.kind),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            Err(format!(
+                "path declares `{name}` {} times: {candidates}. Send the line of the one meant.",
+                several.len()
+            ))
+        }
+    }
+}
+
+/// `query` with its `line` set to the one declaration of its `symbolName` in
+/// the file at `path`, when it is anchored and sends none: every rung then
+/// reads the request a caller sending that line makes. `Ok(None)` leaves the
+/// request as sent (it has a line or no anchor, or the file cannot be read,
+/// which the rung reading it reports); `Err` is the refusal of a name the
+/// file declares several times or not at all.
+pub(super) fn anchored_by_name(
+    query: &LspSearchQuery,
+    path: &str,
+) -> Result<Option<LspSearchQuery>, String> {
+    let Some(name) = lsp_search_query::symbol_name(query) else {
+        return Ok(None);
+    };
+    if lsp_search_query::anchor_line(query).is_some() {
+        return Ok(None);
+    }
+    let Ok(source) = super::source::read_bounded_source(std::path::Path::new(path)) else {
+        return Ok(None);
+    };
+    let line = declared_line(path, &source.text, name)?;
+    lsp_search_query::edited(query, &json!({ "line": line }))
+        .map(Some)
+        .map_err(|error| error.to_string())
 }
 
 /// A line that spells the name more than once was resolved to one

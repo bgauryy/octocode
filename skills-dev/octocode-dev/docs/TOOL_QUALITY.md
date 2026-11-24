@@ -1,115 +1,62 @@
-# Tool quality and agent workflow acceptance
+# Tool quality
 
-How to evaluate the tools in the Octocode catalog. Owners: concept [tool workflows](../../../README.md#how-an-agent-uses-octocode); routing `<repo>/skills/octocode-research/references/tool-flow.md`; parameters `<repo>/docs/OCTOCODE_TOOLS.md` and live schemas; response fields, paths, pagination, handoffs and base-call rules `<repo>/docs/TOOL_DATA_CONTRACT.md`.
+What a tool change must prove, and how to audit one tool end to end. Owners elsewhere: request, result, continuation and paging rules `<repo>/docs/TOOL_DATA_CONTRACT.md`; parameters `<repo>/docs/OCTOCODE_TOOLS.md` and the live `schema`; routing `<repo>/skills/octocode-research/references/tool-flow.md`; live checks [CHECKS.md](../../../packages/octocode-benchmark/CHECKS.md). Code locations: [where code lives](DEVELOPMENT.md#where-code-lives).
 
-Every acceptance run covers the shared contract and tool-specific behavior:
+## Acceptance
 
-- `{queries:[...]}` with one to five independent same-tool rows, or only an issued `{cursor}`; CLI and MCP repair a shape with one lossless reading (a bare row) and reject ambiguous shapes and unknown fields;
-- zero-based result index alignment and isolated row failures;
-- authored operations, defaults and typed selectors from core;
-- the reply's `next` and a row's `next.*` continue calls, related fresh calls and prose-only hints;
-- exact source evidence, complete reachable pagination and explicit terminal limits.
+Test the public request and the calls it emits; no snapshots, prose equality or test-local schema interpreters. Assert selected evidence, scope, provider effects, source identity, replay isolation and complete walks. Every tool covers:
 
-Prefer behavior tests that execute the public request and its emitted calls; remove snapshots, prose equality and test-local schema interpreters. Assert selected evidence, scope, provider effects, source identity, replay isolation and complete walks. Keep coverage floors; never weaken a claim to hide a failure.
+- `{queries:[...]}` up to the tool's batch limit, or only an issued `{cursor}`; one lossless repair (a bare row) is accepted and disclosed, ambiguous shapes and unknown fields are refused.
+- Zero-based `index` alignment and isolated row failures: a successful envelope does not mean every row succeeded.
+- Core's operations, defaults and selectors, each operation's required fields and its rejected cross-operation fields. A rejected call names a correction, and the corrected call passes through the real adapter (MCP validates before the callback) against a fixture that tells the caller's intent apart (a same-named symbol at another line, a conflicting filter, a date bound).
+- Documented examples run with observed paths and identities: schema-valid is not runtime-correct.
+- Reply `next` and row `next.*` continue; `related[]` are fresh calls; `hints[]` stay prose. `response/continuations.rs` `finalize` validates every emitted call against its receiving tool.
 
-Write each check as Given–When–Then: given a fixture, configuration and surface (CLI, MCP or both), when the public call runs, then the observable result (rows, `next`, `related`, hints, diagnostics, exit code) matches the contract. Record a failed check as a 5W2H defect: what, where (`path:line`), when (the reproducing call), who or what it affects, why, how to fix, how much; `unknown` for a slot nobody verified.
+### Surface
 
-## Inspect the surface being tested
+`$OCTO schema` shows the effective catalog. A classification key enables `clasify` (a CLI call without one answers `missingConfiguration`); MCP's other opt-ins are `OCTOCODE_BETA` (graph tools), `OCTOCODE_ENABLE_CLONE`, `OCTOCODE_SECURITY_CHECKS` ([availability matrix](../../../docs/CONFIGURATION.md#tool-availability-cli-and-mcp)). The CLI ignores MCP visibility but keeps path and content security. Discovery makes no provider request, so test missing prerequisites and provider failures at invocation; an enabled clone in memory mode stays visible and reports its storage requirement when called. Record the effective configuration per run, and test both CLI and MCP when registration, schema projection, formatting or continuation rendering changes.
 
-After building the CLI, from the repo root:
+### Evidence and output
 
-```bash
-node packages/octocode/out/octocode.js schema
-node packages/octocode/out/octocode.js schema localFetch --view query
-```
+- Check provenance and the operation's own completeness facts after shaping; there is no universal complete flag. MCP publishes no `outputSchema`; validate real results with the core/native validator.
+- Verify content views against source after redaction, transformed views separately; every row owns its evidence and its workspace-relative paths. Compare narrow field projections with the full result on known false values, missing paths at a pinned ref and unavailable lookups: an absent value and an unchecked value stay distinct.
+- Paginate before reducing size, and walk the returned continuations through the named tool: their union covers the fixture with no gap or repeat and terminates. Cover every independent partial surface (lists, file and match pages, graph data, diagnostics, source lines, transformed characters, history collections, patches); continuations keep filters, operation, view, snapshot or ref. Test tiny windows, boundary-crossing tokens, multibyte text, empty results and a short final page.
+- Numeric cursors have no schema ceiling (`no_cursor_field_declares_a_maximum`). `response/paging.rs` is the one writer of `isPartial`, `partialReasons` and `terminalLimit` (`mark_partial`, `terminal_limit`); a provider stop is disclosed by the tool that knows the provider's rule.
+- Efficiency: requests, cache reuse, returned characters, latency and fixture coverage before and after on the same corpus, query, revision and contract (cold and warm when caching changes). Reject a saving that loses a collection, evidence or reachable pagination.
 
-- This shows the effective CLI and MCP catalog. A classification key enables `clasify`; a CLI call without it answers `missingConfiguration`. MCP's other opt-ins: `OCTOCODE_BETA` (both graph tools), `OCTOCODE_ENABLE_CLONE`, `OCTOCODE_SECURITY_CHECKS`. Filters and trust rules: [configuration matrix](../../../docs/CONFIGURATION.md#tool-availability-cli-and-mcp). The CLI runs graph tools as generated tool commands.
-- Discovery makes no provider request. Test missing prerequisites and provider failures at invocation, separately from MCP visibility. An enabled clone in memory mode stays visible and reports its persistent-storage requirement when called. CLI ignores MCP visibility settings but keeps path and content security.
-- Record effective configuration and unavailable capabilities per run (enabling a tool installs no language server and grants no provider access). Test CLI and MCP when registration, schema projection, formatting or continuation rendering changes.
+### Context and descriptions
 
-## Shared acceptance requirements
+- Context size: save the enabled tools and reply mode, measure the UTF-8 bytes of the compact `tools/list` array plus `initialize.instructions` once with `node skills/octocode-agentic/scripts/mcp-surface.mjs capture --cmd 'node packages/octocode-mcp/dist/index.js' --out <file>` then `mcp-surface.mjs size <file>`, and name the tokenizer for token counts.
+- Shortening field descriptions: compare the published schemas with `node skills-dev/octocode-dev/scripts/tool-inventory.mjs <tool> --schema-diff <older tool-contract.json>` (descriptions ignored), then verify defaults, exceptions and follow-up calls on the rebuilt CLI and a fresh MCP connection. Moving detail out of discovery: replay the task with the CLI schema and the matching MCP resource. Never cut descriptions or instructions to a size target: the 2026-11-24 20% cut raised GitHub calls from 3.4 to 4.6 per question.
+- Routing claims across models need `octocode-agentic` measurement: cases, graders, schemas, instructions and model frozen before inference; tool choice, arguments, schema validity and execution scored apart.
 
-For context measurements, save the enabled tool names and reply mode. Count the UTF-8 bytes of the compact `tools/list` array and count `initialize.instructions` once. Measure fetched output references and any instruction copies a client appends separately. Report the tokenizer when giving token counts.
-
-When moving detail out of discovery, replay the same task using the selected CLI schema and the corresponding MCP resource. For validation repairs, execute the suggested request and compare its question, evidence and limits with the rejected row. A valid request can still answer a different question.
-
-When shortening field descriptions, compare the published schemas with only their description strings removed. Verify the affected defaults, exceptions and follow-up calls on the rebuilt CLI and a fresh MCP connection.
-
-### Schema and description accuracy
-
-- Through public validation, exercise each operation's required fields, defaults, selectors and rejected cross-operation fields; compare `schema` with the input schema.
-- Execute documented examples with observed paths and identities (schema-valid is not runtime-correct).
-- Through the real adapter (MCP validates before the callback), a rejected call names a valid correction and the corrected call passes.
-- Run the correction against a fixture that distinguishes the caller's intent: a same-named symbol at another line, a conflicting filter, or a date bound. A schema-valid example can still select the wrong evidence.
-
-### Agent routing measurements
-
-- Test the actual host envelope with the exported input JSON Schema (defaults stay optional). Score tool selection, semantic arguments, schema validity, transport validity and completed execution separately; grade negatives (wrong refs, unnecessary calls, prose that names a capability without using it).
-- Freeze cases, graders, schemas, instructions, model digest and runtime before inference; keep old runs when you repair a grader. Report sensor vs model failures and first attempts vs bounded repair apart; use untouched cases for acceptance.
-- Check context after provider-specific rendering with silent truncation disabled; a returned token count may describe an already-truncated prompt.
-
-### Evidence and output integrity
-
-- Check provenance and the operation's own completeness facts after response shaping; there is no universal answerReady or complete flag.
-- MCP must not publish `outputSchema`. Validate real structured results against the internal core/native validator, not static output types.
-- Verify content views against source after redaction, and transformed views separately; short is not faithful.
-- Keep source and revision anchors; every output row owns its evidence; verify workspace-relative paths against the configured workspace. Check mixed success/error batches: a successful MCP envelope does not prove every query succeeded.
-- Compare narrow field projections with the full result on known false values, missing paths at a pinned ref, and unavailable provider lookups. Keep the source identity and the distinction between an absent value and an unchecked value.
-
-### Lossless reachable pagination
-
-- Paginate before reducing response size: never clip or summarize requested evidence to meet a byte, token or `responseChars` target. Keep an indivisible oversized value whole and disclose it. Explicit transformed views and security redaction define the requested representation.
-- A `next` being present is insufficient: execute the returned continuations through the named tool and prove their union covers the fixture (termination, stable identities, no gaps, no repeats).
-- Cover every independent partial surface (lists, file/match pages, graph data, diagnostics, source lines, transformed characters, history collections, patches, response text). Continuations keep filters, operation, view, snapshot/ref and other pagination axes.
-- Requested length is a window target: validate actual offsets and coverage. Test tiny windows, boundary-crossing tokens, multibyte text, empty results, a short final page.
-- A provider or public cap that blocks continuation needs a typed terminal-limit diagnostic; a bare page number or cursor fails the contract.
-- A numeric cursor (`page`, `importerPage`, `scanOffset`, `materializeOffset`, ...) advances only through `response/paging.rs`: `next_cursor` (or `admitted`) checks the query schema `maximum`, and past it writes the terminal limit (`terminalLimit`, `partialReasons:["cursorMaximum"]`, a warning). `terminal_limit` and `mark_partial` are the one writer of those signals. The table test in `paging.rs` covers every bounded cursor field of every tool, and a source scan fails on a hand-advanced cursor.
-- An invalid continuation fails debug builds and tests. In release the continuation stage drops the invalid lead and keeps the row, marking it `partialReasons:["leadInvalid"]` with a warning.
-
-### Efficiency with preserved behavior
-
-Measure requests, cache reuse, returned characters, latency and fixture coverage before and after on the same corpus, query, revision and output contract (cold and warm when caching changes; see `<repo>/packages/octocode-benchmark/README.md`). Reject savings that lose a collection, evidence or reachable pagination.
-
-## Per-tool verification matrix
+### Per tool
 
 | Tool | Check |
 |---|---|
 | `localSearch` | Text and regex queries independently; match continuations, exclusions, zero-result diagnostics. |
 | `localFetch` | Path-only, full, range, match and each view; matched anchors, transformed windows, fallback mode, redaction, source lines. |
 | `clasify` | Noul, Choice, Score over values and unread resources; body-free answers, coverage, focus scopes, provider failures, cache reuse on exact reads. |
-| `structureSearch` | `view:"paths"` and `"details"` with name and metadata filters; listing/tree pagination, snapshots, depth bounds, exclusions. |
+| `structureSearch` | `view:"paths"` and `"details"` with name and metadata filters; listing and tree pagination, snapshots, depth bounds, exclusions. |
 | `astSearch` | `match`, `syntaxTree`, `symbols`; structural `rule` composition, parser selection, captures, nodes, parser and scan limits. |
-| `lspSearch` | Document, workspace, anchored, hierarchy operations; distinguish no server, unsupported capability, failed anchor, valid empty; provenance; snapshots. |
-| `graphBuild` | Scope, `refresh`, storage, CLI/MCP beta availability, one query per batch; freshness, durable extraction resume, source invalidation, bounded spill, failed-build preservation, corrupt checkpoint rejection. |
-| `graphQuery` | Every operation, selector, witness/resolution option and availability gate; pinned continuation union per collection; integrity errors, stale snapshots, grammar coverage, evidence, unresolved sites. |
-| `ghSearchRepo`, `ghSearchCode`, `ghStructure` | Code, repository and tree variants (one tool each); code search uses the default-branch index, and an explicit `ref` requires `repo` and re-reads its hits; immutable tree identity, metadata pages, indexing uncertainty, provider-limit diagnostics. |
+| `lspSearch` | Document, workspace, anchored, hierarchy operations; no server vs unsupported capability vs failed anchor vs valid empty; provenance; snapshots. |
+| `graphBuild` | Scope, `refresh`, storage, beta availability, one query per batch; freshness, durable extraction resume, source invalidation, bounded spill, failed-build preservation, corrupt checkpoint rejection. |
+| `graphQuery` | Every operation, selector, witness and resolution option; pinned continuation union per collection; integrity errors, stale snapshots, grammar coverage, unresolved sites. |
+| `ghSearchRepo`, `ghSearchCode`, `ghStructure` | Code search uses the default-branch index, and an explicit `ref` requires `repo` and re-reads its hits; immutable tree identity, metadata pages, indexing uncertainty, provider-limit diagnostics. |
 | `ghGetFileContent` | `content`, `compact`, `symbols`, full and windowed; local/remote parity, pinned refs, repeated-outline prevention, redaction, directory-input rejection. |
-| `ghSearchHistory` | PR, issue, commit discovery with operation scope; pages, filters, field selection, exact-detail hints, provider-incomplete results. |
-| `ghGetHistoryItem` | PR/issue, commit, compare, selected content; each of files, comments, reviews, commits, bodies, patches traversed alone; omitted-patch/error state; immutable refs. |
-| `ghCloneRepo` | Default ref, full SHA, sparse paths, full history, availability gates; ref resolved to a commit every call, a clean checkout at that commit reused without a fetch, local edits refused and preserved, concurrent mutation, rollback, cleanup, crash recovery apart. |
-| `artifactSearch` | Exact, scoped, keyword (reject mixed or empty selectors); keyword continuations, repo subdirectory, registry failures, authenticated registries. |
-| `securityCheck` | Every `operation`; `url` forms (purl, registry page, GitHub repository, commit, advisory); `release` on distributions only. Verdict equals OSV's own answer; repository facts, cautions, commit refs and advisories equal GitHub's REST record; cvss `vector` never a number, `score` only as GitHub publishes it; anonymous and authenticated, a refused GitHub read disclosed (`sourceFailed`), never clean. Live: [tool checks](../../../packages/octocode-benchmark/CHECKS.md). |
+| `ghSearchHistory` | PR, issue, commit discovery with operation scope; pages, filters, field selection, provider-incomplete results. |
+| `ghGetHistoryItem` | PR/issue, commit, compare; files, comments, reviews, commits, bodies and patches each traversed alone; omitted vs empty patch; immutable refs. |
+| `ghCloneRepo` | Default ref, full SHA, sparse paths, full history, availability gates; ref resolved to a commit every call, a clean checkout reused without a fetch, local edits refused and preserved, concurrent mutation, rollback, crash recovery. |
+| `artifactSearch` | Exact, scoped, keyword (mixed or empty selectors rejected); keyword continuations, repo subdirectory, registry failures, authenticated registries. |
+| `securityCheck` | Every `operation`; `url` forms (purl, registry page, repository, commit, advisory); `release` on distributions only. The verdict equals OSV's answer; repository facts and advisories equal GitHub's REST record; cvss `vector` never a number, `score` only as GitHub publishes it; a refused GitHub read is disclosed (`sourceFailed`), never clean. |
 
-## Minification and smart-window matrix
-
-Test only controls the public operation supports.
-
-- File fetch (local and GitHub): `content`, `compact`, `symbols`; selectors; line or UTF-8 byte windows. Compare exact source, matched text, outline, fallback metadata and the continuation union; GitHub adds pinned commit, parity and distinct offsets.
-- GitHub code search and PR/issue discovery: `fields` only (keeps each row's id), no `minify`. Snippets keep matched evidence and positions; unsupported controls are rejected.
-- PR, issue, commit and compare detail: no `minify` (GitHub's verbatim text). Compare exact text across every content surface, selector, character window and continuation; for commit/compare also `sections:["patches"]`, `include` path selection, diff lines, immutable identity and absent/omitted patch vs empty change.
-
-- Build the native minification matrix from runtime configuration, including filename overrides. Grammar fixtures, outline fixtures, graph resolution and real LSP-server runs are separate coverage dimensions (`<repo>/packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md`).
-- Fixtures: delimiter comments, comment-like strings, TS types/imports, JSX/TSX, data, markup, indentation-sensitive, empty, malformed, near-size-limit; check validity and preservation, not byte counts.
-- The chunk-boundary security property runs in the normal Rust suite. Run the manual CommonJS benchmark explicitly and record profile, fixtures and parity; an ignored test is not a pass.
+Minification and windows: file fetch (local and GitHub) tests `content`, `compact`, `symbols`, selectors and line or byte windows against exact source, outline, fallback metadata and the continuation union. GitHub code and history search take `fields` only, no `minify`. PR, issue, commit and compare detail stay GitHub's verbatim text; commit and compare also test `sections:["patches"]`, `include` path selection and absent vs omitted vs empty patches. Build the native minification matrix from runtime configuration, filename overrides included ([supported languages](../../../packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md)); fixtures cover delimiter comments, comment-like strings, TS types and imports, JSX/TSX, data, markup, indentation-sensitive, empty, malformed and near-limit files, checked for validity and preservation, not byte counts.
 
 ## Audit a tool end to end
 
-Run [tool-inventory.mjs](../scripts/tool-inventory.mjs) with the tool name. Follow the [surface map](../references/surface-map.md) from core to each interface, then [contract](../references/contract-audit.md), [implementation](../references/implementation-audit.md) and [output](../references/output-audit.md) in order, covering all three lanes. Fix a confirmed defect at its owning layer per [fix and verify](../references/fix-and-verify.md).
-
-Use the [audit template](../assets/audit-report.md), one report per tool; each 5W2H finding has source location, severity, evidence, fix and verification result, with unverified slots marked unknown. For independent audits give each actor its tool, skill, template and definition of done.
-
-## Record evidence
-
-- Follow `<repo>/AGENTS.md` and [DEVELOPMENT.md](DEVELOPMENT.md#build-test-lint). Record each check per `../references/fix-and-verify.md` (status, command, scope). A documentation fix is not a runtime improvement.
-- Separate fixtures from live providers, supported routes from installed servers, and host builds from native-target coverage; each claim names the run that supports it. Never claim all environments passed.
-- Keep open defects (5W2H records) in a dated acceptance artifact with reproducible evidence; remove an entry when its regression and real tool check pass. A historical score or backlog entry is not acceptance.
+1. **Inventory.** `node skills-dev/octocode-dev/scripts/tool-inventory.mjs <tool>` lists the module, fields and their declared effects. A zero-hit field: read the Rust request struct (`rename_all`, `rename`, `alias`) and prove it is read; unread is dead input (remove it in core) or a bug (wire it). Confirm each `consumed`, `forwarded` or `output-control` label with `lspSearch` references: deserialized and logged is not consumed.
+2. **What the agent is told.** The description is `<when>…</when><workflow>…</workflow>`, names no `next.*`, and says when a sibling fits better. Each field has one job, one default (schema `default` and native agree; flag a default re-applied in Rust), and a description that adds what the name cannot. Every `maximum` maps to a runtime or provider limit. Tool guidance belongs in core, never hand-written in `packages/octocode-mcp` or `packages/octocode`. Compare sizes with siblings: `node skills-dev/octocode-dev/scripts/tool-inventory.mjs <tool> --sizes`, and treat a recent cut in `git log -p` of the tool file as a suspect to measure.
+3. **How the call runs.** Trace one real call per variant: `$OCTO <tool> '<json>'` → `contracts/prepare.rs` → `runtime/dispatch.rs` → `crates/tool-<family>/src/<tool>/` → provider → `response/` → render, noting what each hop adds, copies or drops. Count provider requests per row and the GitHub quota each spends (code search 10 a minute, search 30 a minute, core 5,000 an hour). Flag Rust validation that duplicates core `nativeRules` and hand-mirrored enums that fall into `_ =>`. A refusal must not invite a retry that cannot succeed: a `next.retry` before its `retryAfter`, or a wait past `mcp_reply_budget` (50 s, `execution/limits.rs`). Cache keys never mix tokens or users; compare two identical calls cold and warm (`crates/runtime/tests/{tool_cache_contracts,runtime_github_cache}.rs`).
+4. **What comes back.** Run hit, empty, partial, oversized and error cases on CLI text, `--json` and MCP. Search the producer for `truncate`, `take(`, `.min(`, `[..` and clip constants: selected values must reach the shared pager whole. A continuation returns at least what the row showed. Measure characters per useful fact on a fixed query before and after; nothing is said twice (echoed inputs, metadata repeating rows, warnings restating hints). Output fields feed the next tool without reshaping (path and line, owner/repo/ref, number or SHA).
+5. **Dogfood.** From the instructions alone, plan realistic tasks that use the tool with its siblings; every call you had to guess is a finding. Give the same tasks to a fresh subagent holding only the task and the CLI, and tally calls, failed calls, characters, retries and tokens with `node skills-dev/octocode-harness-review/scripts/harness-tally.mjs <transcript.jsonl>...`; judge correctness by reading. Local benchmark transcripts (`packages/octocode-benchmark/campaigns/*/runs/*/transcript.jsonl`, gitignored) show how often agents follow each offered continuation.
+6. **Fix and verify.** Fix at the owning layer with a failing test first. Then `yarn workspace @octocodeai/config check:tool-contract`, `$OCTO schema <tool> --view query` shows the change, the reproducing call passes on the CLI and a restarted MCP server, every `next.*` it emits runs to termination (`$DEV walk <tool> '<json>'`), and `tool-inventory.mjs` no longer flags the field.

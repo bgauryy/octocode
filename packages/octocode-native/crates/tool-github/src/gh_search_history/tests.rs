@@ -1,7 +1,7 @@
 //! ghSearchHistory tests: search [`terms`] (building, routing, validation),
 //! page [`shaping`], and [`provider`]-backed searches and listings.
 use super::leads::issue_links_read;
-use super::query::{build_query_with_warnings, resolve_commit_window};
+use super::query::resolve_commit_window;
 use super::rows::{map_commit_list, map_issue, map_pr};
 use super::shape::mark_empty;
 use super::*;
@@ -18,7 +18,7 @@ fn search(q: &GhSearchHistoryQuery) -> Result<HistorySearch, ProviderError> {
 }
 
 fn build_query(q: &GhSearchHistoryQuery) -> Result<String, ProviderError> {
-    build_query_with_warnings(&search(q)?).map(|(terms, _)| terms)
+    query::build_query(&search(q)?)
 }
 
 fn should_use_search_for_prs(q: &GhSearchHistoryQuery) -> bool {

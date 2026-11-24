@@ -64,37 +64,41 @@ fn isolated_git_keeps_runtime_proxy_ca_and_path_only() {
 #[cfg(unix)]
 #[test]
 fn the_token_reaches_git_only_through_the_askpass_environment_never_disk_or_argv() {
-    use std::os::unix::fs::PermissionsExt;
     let home = octocode_runtime_base::test_support::Fixture::new();
     let dump = home.0.join("dump");
-    let script = home.0.join("git");
-    std::fs::write(
-        &script,
-        format!(
-            concat!(
-                "#!/bin/sh\n{{\n",
-                "env; printf 'arg:%s\\n' \"$@\"\n",
-                "printf 'askpass:%s\\n' \"$GIT_ASKPASS\"\n",
-                "ls -ld \"$GIT_ASKPASS\" \"$(dirname \"$GIT_ASKPASS\")\" | sed 's/^/mode:/'\n",
-                "sed 's/^/helper:/' \"$GIT_ASKPASS\"\n",
-                "printf 'user:%s\\n' \"$(\"$GIT_ASKPASS\" \"Username for 'https://github.com': \")\"\n",
-                "printf 'pass:%s\\n' \"$(\"$GIT_ASKPASS\" \"Password for 'https://x-access-token@github.com': \")\"\n",
-                "printf 'other:%s\\n' \"$(\"$GIT_ASKPASS\" \"Password for 'https://x-access-token@evil.example': \")\"\n",
-                "}} > '{}'\n"
-            ),
-            dump.display()
+    // Installed git runs the fixture as an alias through its shell, so no
+    // freshly written file is executed but the helper under test: the OS
+    // assesses a new executable on its first run, which under parallel load
+    // takes seconds (macOS). `arg:` lines carry the alias's arguments and
+    // git's own command line, read from its parent.
+    let fixture = format!(
+        concat!(
+            "alias.octocode-fixture=!{{ ",
+            "env; printf 'arg:%s\\n' \"$@\" \"$(ps -ww -o args= -p \"$PPID\")\"; ",
+            "printf 'askpass:%s\\n' \"$GIT_ASKPASS\"; ",
+            "ls -ld \"$GIT_ASKPASS\" \"$(dirname \"$GIT_ASKPASS\")\" | sed 's/^/mode:/'; ",
+            "sed 's/^/helper:/' \"$GIT_ASKPASS\"; ",
+            "printf 'user:%s\\n' \"$(\"$GIT_ASKPASS\" \"Username for 'https://github.com': \")\"; ",
+            "printf 'pass:%s\\n' \"$(\"$GIT_ASKPASS\" \"Password for 'https://x-access-token@github.com': \")\"; ",
+            "printf 'other:%s\\n' \"$(\"$GIT_ASKPASS\" \"Password for 'https://x-access-token@evil.example': \")\"; ",
+            "}} > '{}'; :"
         ),
-    )
-    .expect("fixture git");
-    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).expect("chmod");
+        dump.display()
+    );
     let token = "ghp_secretToken123";
     // The fixture runs a dozen processes; a run its timeout ended under
     // load tested nothing and is repeated with a longer one.
     let timeouts = [10, 40].map(Duration::from_secs);
     octocode_runtime_base::process_fixture::until_set_up(&timeouts, |timeout| {
-        let ran = SystemGit::new(&script).run(
+        let ran = SystemGit::default().run(
             &GitRunRequest {
-                args: vec!["clone".into(), "https://github.com/owner/repo.git".into()],
+                args: vec![
+                    "-c".into(),
+                    fixture.as_str().into(),
+                    "octocode-fixture".into(),
+                    "clone".into(),
+                    "https://github.com/owner/repo.git".into(),
+                ],
                 timeout,
                 label: "askpass fixture".into(),
                 authorization: Some(token),
@@ -141,7 +145,7 @@ fn the_token_reaches_git_only_through_the_askpass_environment_never_disk_or_argv
             let path = entry.expect("entry").path();
             if path.is_dir() {
                 pending.push(path);
-            } else if path != dump && path != script {
+            } else if path != dump {
                 let bytes = std::fs::read(&path).expect("read file");
                 assert!(
                     !String::from_utf8_lossy(&bytes).contains(token),
@@ -355,21 +359,19 @@ fn real_git_sends_the_token_after_a_challenge_from_the_authorized_origin() {
 #[cfg(unix)]
 #[test]
 fn output_limit_reports_the_failed_stage_without_suggesting_different_repo_inputs() {
-    use std::os::unix::fs::PermissionsExt;
     let home = octocode_runtime_base::test_support::Fixture::new();
-    let script = home.0.join("git");
-    std::fs::write(
-        &script,
-        "#!/bin/sh\ndd if=/dev/zero bs=65536 count=2 2>/dev/null\n",
-    )
-    .expect("fixture git");
-    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).expect("chmod");
     // A small cap and a generous timeout: under load the write must hit
-    // the cap, never race the request's own deadline.
-    let error = SystemGit::new(&script)
+    // the cap, never race the request's own deadline. Installed git runs
+    // the writer as an alias, so no freshly written file is executed.
+    let error = SystemGit::default()
         .with_max_output(64 * 1024)
         .run(
             &GitRunRequest {
+                args: vec![
+                    "-c".into(),
+                    "alias.octocode-fixture=!dd if=/dev/zero bs=65536 count=2 2>/dev/null".into(),
+                    "octocode-fixture".into(),
+                ],
                 timeout: Duration::from_secs(10),
                 ..request()
             },

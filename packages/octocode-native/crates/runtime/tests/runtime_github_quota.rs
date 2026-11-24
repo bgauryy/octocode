@@ -333,12 +333,13 @@ async fn code_searches(server: &MockServer) -> usize {
 }
 
 /// G3: an MCP host stops listening after its request timeout, so a row on
-/// the MCP channel whose caller set no budget does not sit out a quota wait
-/// longer than the reply budget: it answers `rateLimited` with the wait as
-/// `retryAfterSeconds` and the call that runs it again, having slept
-/// nothing (no `clientWaits`) and re-sent nothing.
+/// the MCP channel whose caller set no budget sits out a quota wait longer
+/// than the reply budget only up to the budget: it answers `rateLimited`
+/// with the rest as `retryAfterSeconds` and the call that runs it again,
+/// disclosing the part slept as `clientWaits`, and re-sends nothing. An
+/// agent runs that call at once, so the part slept is what lets it succeed.
 #[tokio::test]
-async fn an_mcp_row_is_refused_a_quota_wait_past_the_reply_budget() {
+async fn an_mcp_row_sleeps_a_quota_wait_past_the_reply_budget_up_to_it() {
     let reset_in = std::time::Duration::from_secs(3);
     let workspace = Workspace::new();
     let (server, runtime) = spent_code_search_runtime(&workspace, reset_in).await;
@@ -366,9 +367,17 @@ async fn an_mcp_row_is_refused_a_quota_wait_past_the_reply_budget() {
         "the named wait is the quota's: {payload}"
     );
     assert_eq!(data["next"]["retry"]["tool"], "ghSearchCode", "{payload}");
+    let slept: u64 = data["clientWaits"]
+        .as_array()
+        .unwrap_or_else(|| panic!("the part slept is disclosed: {payload}"))
+        .iter()
+        .filter_map(|wait| wait["ms"].as_u64())
+        .sum();
+    let budget = reset_in / 20;
     assert!(
-        data.get("clientWaits").is_none(),
-        "nothing was slept: {payload}"
+        u128::from(slept) >= budget.as_millis() * 8 / 10
+            && u128::from(slept) < reset_in.as_millis(),
+        "slept up to the reply budget, not the whole wait: {payload}"
     );
     assert_eq!(code_searches(&server).await, 1, "the search is not re-sent");
     assert!(

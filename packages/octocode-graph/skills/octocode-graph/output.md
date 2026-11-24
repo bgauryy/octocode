@@ -15,7 +15,7 @@ Builds create a fresh directory under `.octocode/octocode-graph/` in the current
 | `chunks/<id>/data.json.gz`, `chunks/<id>/evidence/*.jsonl.gz` | Each chunk's section result (refresh reuses it) and its raw graph pages, one JSON line per page; read with `gzip -dc` |
 | `model.json` (optional) | Authored overlay: schema exported as `@octocodeai/octocode-graph/model-schema` |
 
-Report the coverage gaps that limit a reported claim, beside that claim: failed snapshot freshness checks (`verification.staleCheck`), files whose `check.status` differs from `ok`, unbuilt or split chunks, files in no chunk, unresolved imports between chunks, skipped LSP and its reason, and partial tool results. Graph counts are graph counts.
+Report the coverage gaps that limit a reported claim, beside that claim. `render` writes them into `brief.txt` as the `COVERAGE`, `FILES` and `CALLS` lines: quote those lines instead of recounting `data.json`. They cover failed snapshot freshness checks (`verification.staleCheck`), files whose `check.status` differs from `ok`, unbuilt or split chunks, files in no chunk, unresolved imports between chunks, skipped LSP and its reason, and partial tool results. Graph counts are graph counts.
 
 ## Viewer delivery
 

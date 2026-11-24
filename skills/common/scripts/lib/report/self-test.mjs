@@ -149,6 +149,9 @@ function contractChecks(reportDir, today, check) {
     fs.utimesSync(maintained, edited, edited);
     check('editing a report preserves its original date and links', warn(`${today}-good.md`) === '');
     check('report check flags date and missing header', /written/.test(warn('2000-01-01-old.md')) && /no status/.test(warn('2000-01-01-old.md')) && /no question/.test(warn('2000-01-01-old.md')));
+    fs.writeFileSync(path.join(reportDir, `${today}-order.md`), '---\nstatus: Needs work\nquestion: Q?\n---\n# Order\n\nLead.\n\n## Checks\n\nNone.\n\n## Findings\n\nx\n\n## Decision\n\nKeep.\n');
+    check('report check flags required sections out of contract order', /out of order: ## Checks, ## Findings, ## Decision/.test(warn(`${today}-order.md`)));
+    fs.rmSync(path.join(reportDir, `${today}-order.md`));
     check('report check flags folder, status word, and section', ((w) => /single report is one file/.test(w) && /"Confirmed" is not one of/.test(w) && /## Findings/.test(w))(warn(`${today}-folder/notes.md`)));
   }
 }

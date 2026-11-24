@@ -1,6 +1,6 @@
 # Modeling
 
-Use this optional overlay to name architectural boundaries and document runtime flows. It uses file IDs from `data.json`. Validate the overlay with `octocode-graph render --model` and the model schema exported as `@octocodeai/octocode-graph/model-schema`.
+Use this optional overlay to name architectural boundaries and document runtime flows. It uses file IDs from `data.json`. Validate the overlay with `npx -y @octocodeai/octocode-graph render --data <data.json> --model <model.json>` (each problem prints to stderr) and the model schema exported as `@octocodeai/octocode-graph/model-schema`.
 
 ## Layers
 

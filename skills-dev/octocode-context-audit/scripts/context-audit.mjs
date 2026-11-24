@@ -5,6 +5,7 @@
 //   node context-audit.mjs [--workspace DIR] [--days 30] [--all-projects]
 //        [--no-probe] [--out DIR] [--json] [--html]
 //   node context-audit.mjs --render context-audit.json [--out DIR]
+//   node context-audit.mjs --compare <before.json> <after.json>
 //
 // Collects (1) instruction files (CLAUDE.md, AGENTS.md, rules, memory index),
 // (2) skill descriptions, (3) every configured MCP server's instructions and
@@ -29,8 +30,37 @@ const option = (name, fallback) => {
   return value;
 };
 if (flag("--help")) {
-  console.log("Usage: node context-audit.mjs [--workspace DIR] [--days 30] [--all-projects] [--no-probe] [--out DIR] [--json] [--html]\n       node context-audit.mjs --render context-audit.json [--out DIR] [--json]");
+  console.log("Usage: node context-audit.mjs [--workspace DIR] [--days 30] [--all-projects] [--no-probe] [--out DIR] [--json] [--html]\n       node context-audit.mjs --render context-audit.json [--out DIR] [--json]\n       node context-audit.mjs --compare <before.json> <after.json>\n--compare prints JSON: per surface (instructions, skills, each MCP server) its token sizes before, after and delta, and the findings resolved, new and still open (matched by severity, area and subject). Exit 0; 2 when a file cannot be read.");
   process.exit(0);
+}
+if (flag("--compare")) {
+  const index = args.indexOf("--compare");
+  const [beforePath, afterPath] = args.slice(index + 1, index + 3);
+  if (!beforePath || !afterPath) { console.error("--compare needs <before.json> <after.json>"); process.exit(2); }
+  let before, after;
+  try { [before, after] = [beforePath, afterPath].map((file) => JSON.parse(fs.readFileSync(path.resolve(file), "utf8"))); }
+  catch (error) { console.log(JSON.stringify({ ok: false, error: { code: "unreadableReport", message: error.message } })); process.exit(2); }
+  console.log(JSON.stringify(compareReports(before, after), null, 2));
+  process.exit(0);
+}
+
+/** Sizes per surface and findings resolved, new and still open between two context-audit.json reports. */
+export function compareReports(before, after) {
+  const numbers = (object) => Object.fromEntries(Object.entries(object ?? {}).filter(([, value]) => typeof value === "number"));
+  const delta = (a, b) => Object.fromEntries([...new Set([...Object.keys(a), ...Object.keys(b)])].map((key) => [key, { before: a[key] ?? null, after: b[key] ?? null, delta: (b[key] ?? 0) - (a[key] ?? 0) }]));
+  const servers = (report) => Object.fromEntries((report.mcp ?? []).map((server) => [server.name, numbers(server)]));
+  const [beforeServers, afterServers] = [servers(before), servers(after)];
+  const mcp = Object.fromEntries([...new Set([...Object.keys(beforeServers), ...Object.keys(afterServers)])].toSorted().map((name) => [name, delta(beforeServers[name] ?? {}, afterServers[name] ?? {})]));
+  const key = (finding) => `${finding.severity} | ${finding.area} | ${finding.subject}`;
+  const [beforeKeys, afterKeys] = [before, after].map((report) => new Map((report.findings ?? []).map((finding) => [key(finding), finding])));
+  return {
+    surfaces: { instructions: delta(numbers(before.instructions), numbers(after.instructions)), skills: delta(numbers(before.skills), numbers(after.skills)), mcp },
+    findings: {
+      resolved: [...beforeKeys.keys()].filter((k) => !afterKeys.has(k)),
+      new: [...afterKeys.keys()].filter((k) => !beforeKeys.has(k)),
+      stillOpen: [...afterKeys.keys()].filter((k) => beforeKeys.has(k)).length,
+    },
+  };
 }
 if (flag("--render")) {
   const source = option("--render");

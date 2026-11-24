@@ -79,7 +79,7 @@ Retain the artifacts supporting measured claims; link existing runner output ins
 ## Comparable measurements
 
 - Freeze model and tool versions, context, permissions, concurrency, retries, warm-up; randomize or interleave arm order; record seeds.
-- Report paired deltas, per-slice regressions, numerators, denominators, uncertainty intervals. Binomial for independent binary trials; else paired cluster bootstrap over tasks or families, repeats inside their cluster. No interval makes a tiny or unrepresentative sample generalize.
+- Report paired deltas, per-slice regressions, numerators, denominators and uncertainty intervals: `node <skill-folder>/scripts/run-stats.mjs <runs.jsonl> --baseline <arm> --candidate <arm>` ([run-stats.mjs](../scripts/run-stats.mjs); `--help` gives the line format) prints them from a paired cluster bootstrap with repeats kept inside their task. Use the family id as `task` when tasks cluster by family; run it once per slice. Read `unpaired` and `undefinedResamples` before the interval. No interval makes a tiny or unrepresentative sample generalize.
 - Never stop on a peeked win: fixed horizon or justified sequential or multiple-comparison procedure; log every candidate.
 - Count solver failures, timeouts, infrastructure and judge errors, Unknowns, missing artifacts separately, with coverage; rerun affected pairs. Missing data never raises the pass rate.
 

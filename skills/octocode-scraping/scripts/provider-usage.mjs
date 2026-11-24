@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 import { fail } from './lib/fail.mjs';
-import { loadOctocodeEnv } from './lib/config-env.mjs';
-
-loadOctocodeEnv();
+import { getKey } from './keys.mjs';
 
 const args = process.argv.slice(2);
 if (args.includes('--help') || args.includes('-h')) {
@@ -11,8 +9,8 @@ if (args.includes('--help') || args.includes('-h')) {
 }
 const unknown = args.find((arg) => arg !== '--check');
 if (unknown) fail('invalidArguments', `unknown argument ${unknown}`, 2);
-const apiKey = process.env.SCRAPING_ANT?.trim();
-if (!apiKey) fail('missingKey', 'SCRAPING_ANT missing', 1, { provider: 'scrapingant', apiKeyEnv: 'SCRAPING_ANT', key: 'missing' });
+const apiKey = getKey('SCRAPING_ANT').value;
+if (!apiKey) fail('missingKey', 'SCRAPING_ANT missing from the process environment, the home .env and the workspace .octocode/.env; save it with: node scripts/keys.mjs set SCRAPING_ANT --stdin', 1, { provider: 'scrapingant', apiKeyEnv: 'SCRAPING_ANT', key: 'missing' });
 if (args.includes('--check')) {
   console.log(JSON.stringify({ ok: true, provider: 'scrapingant', apiKeyEnv: 'SCRAPING_ANT', key: 'set' }, null, 2));
   process.exit(0);

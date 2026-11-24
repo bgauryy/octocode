@@ -66,6 +66,45 @@ fn paths_of(schema: &Value) -> BTreeSet<String> {
     out
 }
 
+/// The published fields that are an object with no listed keys: the listing
+/// states their grammar in the field note instead of a schema.
+fn open_objects(schema: &Value) -> Vec<String> {
+    fn walk(root: &Value, schema: &Value, at: &str, depth: usize, out: &mut Vec<String>) {
+        if depth > DEPTH {
+            return;
+        }
+        let resolved = crate::contracts::resolve_ref(schema, &root["$defs"]);
+        for (name, field) in resolved["properties"].as_object().into_iter().flatten() {
+            let path = if at.is_empty() {
+                name.clone()
+            } else {
+                format!("{at}.{name}")
+            };
+            let field = crate::contracts::resolve_ref(field, &root["$defs"]);
+            let keyless = [
+                "properties",
+                "additionalProperties",
+                "anyOf",
+                "oneOf",
+                "allOf",
+            ]
+            .iter()
+            .all(|keyword| field.get(keyword).is_none());
+            if field["type"] == "object" && keyless {
+                out.push(path);
+            } else {
+                walk(root, field, &path, depth + 1, out);
+            }
+        }
+        if let Some(items) = resolved.get("items").filter(|items| items.is_object()) {
+            walk(root, items, &format!("{at}[]"), depth, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(schema, schema, "", 0, &mut out);
+    out
+}
+
 /// The `x-cursor` fields still present after the walk skipped them: none
 /// may be published.
 fn mentions_private_state(schema: &Value) -> bool {
@@ -97,7 +136,17 @@ fn every_tool_publishes_exactly_the_keys_native_admits() {
         let full = &presented.get("selection").unwrap_or(presented)["mcp"]["inputSchema"];
         let plain = &presented["mcp"]["inputSchema"];
         let published = paths_of(full);
-        let hidden: Vec<_> = admitted.difference(&published).collect();
+        // An open object (a recursive grammar, listed as its note) publishes
+        // every key below it.
+        let open = open_objects(full);
+        let hidden: Vec<_> = admitted
+            .difference(&published)
+            .filter(|path| {
+                !open
+                    .iter()
+                    .any(|object| path.starts_with(&format!("{object}.")))
+            })
+            .collect();
         let rejected: Vec<_> = published.difference(&admitted).collect();
         if !hidden.is_empty() {
             failures.push(format!("{name}: admitted but not published: {hidden:?}"));

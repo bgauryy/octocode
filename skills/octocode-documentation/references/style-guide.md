@@ -6,6 +6,7 @@ Load when running a style pass, ruling on wording, structure, formatting, code, 
 
 - Precedence: [SKILL.md](../SKILL.md#writing-rules).
 - Check changed text for structure, claims, steps, terminology, links, and accessibility.
+- Run the [doc check](../SKILL.md#check-before-delivery) first. It reports the mechanical part of these rules: word-list terms, filler, `should` and `may`, the fixed replacements under Words, curly quotes, numeric dates and times, vague link text, placeholder and example names in code, heading case and end punctuation, the H1 count and skipped levels. Judge each hit in context. Read for the rest: voice, tense, list grammar, numbers, notices, alt text and claims.
 - Review comment (Conventional Comments) per material issue: label (issue, suggestion, question, nitpick, praise), blocking or not, location, rewrite, why; in a saved report, the label and blocking flag start the `Issue` cell. Group nitpicks: "`setup.md:14`: `The file is deleted by the job` → The job deletes the file."
 - Fix depends on an uncertain fact: verify with `octocode-research` first.
 - Disputed, possibly changed, or sensitive public-claim rule: check the live Google page; on conflict, follow the live page and report the discrepancy for this skill's maintainer.
@@ -18,12 +19,12 @@ Load when running a style pass, ruling on wording, structure, formatting, code, 
 - No filler: `please`, `just`, `simply`, `easy`, `of course`, exclamation marks.
 - No AI-writing tells: [writing tells](writing-tells.md).
 - Software detects; it does not see, want, or know.
-- Keep sentences focused and paragraphs easy to scan; follow the document's wrapping convention.
+- Keep sentences focused and paragraphs short enough to scan; follow the document's wrapping convention.
 - Translatable: one term per concept, keep articles and "that", no idioms, humor, or double negatives.
 
 ## Words ([word list](https://developers.google.com/style/word-list), [inclusive](https://developers.google.com/style/inclusive-documentation), [abbreviations](https://developers.google.com/style/abbreviations))
 
-- Word in question: search the bundled [word list](../assets/google-word-list.tsv) (`grep -i '<word>' <skill-folder>/assets/google-word-list.tsv`; `localSearch` only when the skill folder is inside the allowed roots); use the matching entry in context.
+- Word in question: `node <skill-folder>/scripts/doc-check.mjs --lookup <word>` prints each matching entry of the bundled [word list](../assets/google-word-list.tsv) with its verdict and guidance; `scope: sense` means the entry bans one usage of the word, not the word. Use the matching entry in context; no entry means the list has no ruling.
 - `allows you to` → lets you; `utilize`, `leverage` → use; `click on` → click; `abort`, `kill` → stop.
 - Inclusive: `whitelist`/`blacklist` → allowlist/denylist; `master`/`slave` → primary/replica; `sanity check` → quick check; `guys` → everyone; generic `he` → they.
 - Code-fixed terms stay in code font; prose uses the preferred word.
@@ -50,7 +51,7 @@ Load when running a style pass, ruling on wording, structure, formatting, code, 
 ## Formatting and UI ([text formatting](https://developers.google.com/style/text-formatting), [UI elements](https://developers.google.com/style/ui-elements), [images](https://developers.google.com/style/images))
 
 - Bold UI labels, italic defined terms (sparingly), code font for code, plain product names.
-- UI verbs: click a button; select or clear a checkbox; turn on a toggle; press a key; enter text. Never `hit`, `toggle`, `deselect`, or hover (hold the pointer over).
+- UI verbs: click a button; select or clear a checkbox; turn on a toggle; press a key; enter text. Never `hit`, `toggle`, `deselect`, or `hover` (hold the pointer over).
 - Name the goal, not the widget. Menus: **File > Open**. Keys as `<kbd>`: **Control+S** (**Command+S** on macOS).
 - No direction or color (`the button above`); use preceding and following.
 - Use images when they clarify the task; concise meaningful alt text, or `alt=""` if decorative. Keep text and code selectable; crop screenshots and cover personal data.
@@ -71,7 +72,7 @@ Load when running a style pass, ruling on wording, structure, formatting, code, 
 - No unreleased features or superlatives (`best`, `fastest`); cite performance and cost claims or cut them. Security: helps prevent, not prevents.
 - Products: official name and case, never a verb or plural; "the" before tool and API names. Link others' docs, never copy.
 - Example values: `example.com`; 800-555-0100 to 0199; IPs `192.0.2.0/24`, `2001:db8::/32`; varied names (Dana, Kai); no real data, `foo`, or `bar`.
-- Link text names the destination, never "click here"; say when a link downloads a file or leaves the site. Renaming a heading: update inbound anchors.
+- Link text names the destination, never `click here`; say when a link downloads a file or leaves the site. Renaming a heading or file: run the rename check in the [doc check](../SKILL.md#check-before-delivery).
 
 ## Controlled English ([ASD-STE100](https://www.asd-ste100.org/))
 

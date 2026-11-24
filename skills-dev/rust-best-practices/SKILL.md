@@ -1,50 +1,38 @@
 ---
 name: rust-best-practices
-description: "Load this skill first when writing, debugging, refactoring or reviewing Rust (ownership, errors, async, unsafe, Cargo, performance): it grounds the work in the repo's toolchain and measured evidence."
+description: "Load this skill first when writing, reviewing or restructuring Rust in packages/octocode-native: where code belongs, the lints and ratchet bans it must pass, test layout and the build settings measured here."
 ---
 
-# Rust Best Practices
+# Rust in octocode-native
 
-Start with the repository instructions, owning `Cargo.toml`, toolchain file, CI commands and affected code. Resolve inherited workspace settings. Identify the requested behavior, public compatibility promise, edition, minimum supported Rust version (MSRV), target and enabled features. If a setting is absent, record it as unknown rather than inventing a version.
+One Cargo workspace in `packages/octocode-native` (paths below are relative to it): 17 crates, edition 2024, resolver 3, toolchain and MSRV 1.99.1 (`rust-toolchain.toml`). [ARCHITECTURE.md](../../packages/octocode-native/ARCHITECTURE.md) owns crate roles; `CRATE_EDGES` in `crates/runtime/tests/architecture_guards.rs` enforces the allowed edges. Folders drop the `octocode-` prefix, except `crates/runtime`, which is the `octocode-native` facade.
 
-Use the host's available search, file, symbol and execution tools. Octocode and neighboring skills are optional. For Octocode development, load `octocode-dev` and [repository guidance](references/octocode.md); apply those rules only in that repository.
+## Where code goes
 
-## Work loop
+- A tool's behavior lives in its family crate (`crates/tool-*`), code two tools share in `tools-shared` (layers: `SHARED_LAYERS` in `crates/runtime/src/tools/module_boundaries/tool_edges.rs`), the layers below the tools in `runtime-base`. The facade keeps admission, dispatch and wiring only: every edit below it recompiles it and the CLI.
+- A family never imports or dev-depends on another family. Build-wide values (build identity, clocks, config) are parameters passed down, never globals.
+- Cross-crate primitives have one owner, `crates/io` (`octocode_io`): atomic writes, locks, env reads, HTTP clients, `cancellation`, the request `budget`, retries, bounded reads, `notice`. Child processes go through the engine's `process_env` and `tools-shared`'s `bounded_process`.
+- Many functions still return `Result<_, String>`: add none at a crate or module boundary, and type one when you change its callers anyway.
 
-| Stage | Action | Evidence to keep |
-|---|---|---|
-| Inspect | Trace the behavior through callers, types and error/resource boundaries. Read only relevant references below. | Source locations, active features and an observable success condition. |
-| Reproduce | For a defect, make the smallest failing regression or reproducer before fixing it. For a design choice, compare the current approach with one viable alternative. | Actual failure, or the unknown that decides the choice. |
-| Implement | Change the owning layer and its callers together. Prefer safe, concrete code and existing dependencies. Preserve behavior outside the requested change. | Why ownership, invariants and cleanup remain valid. |
-| Verify | Run the focused check, then the repository's applicable formatting, lint and test gates. Exercise the real boundary when it changed. | Commands, selected features/targets, results and unchecked scope. |
+## Lints that fail the build
 
-For a settled mechanical edit, use the existing checks without inventing an experiment or design document. If execution is unavailable, provide a reviewable change and state which checks remain unrun.
+- Workspace `[lints]` (root `Cargo.toml`) deny `dead_code`, `unused_*`, `private_interfaces`, `private_bounds`, `clippy::all`, `unwrap_used`, `expect_used`, `panic`, `todo`, `dbg_macro` and `undocumented_unsafe_blocks`; `unreachable_pub` and `mod_module_files` (`name.rs` plus `name/`, never `mod.rs`) warn, and CI denies warnings. Library `lib.rs` headers also deny prints (use `octocode_io::notice`) and warns on lossy `as` casts outside tests (use `try_from`).
+- Suppress only with `#[expect(lint, reason = "…")]` on the smallest item. `clippy.toml` already lets tests unwrap, expect, panic and print.
+- `$DEV lint:rust` adds production-only bans (`clippy-ratchet.toml`): `Duration::from_secs`/`from_millis`, `thread::sleep`, `tokio::time::{sleep, timeout}`, `Vec`/`String::truncate`, `Command::new`, `reqwest::Client` construction, `fs::read`, `fs::read_to_string`, `fs::write`, `File::create`. Older findings sit per crate in `clippy-baseline.json` and may only shrink. A site that must stay: `#[cfg_attr(octocode_clippy_ratchet, expect(clippy::disallowed_methods, reason = "…"))]`.
 
-## Resources
+## Tests
 
-Read only the row for the current decision. Use [basics](basics.md) for a short ownership and correctness refresher.
+- Unit tests: `#[cfg(test)] mod tests;` beside the code with the body in its own file, never inline. The build identity (`crates/runtime/build/`) hashes only non-test files, so a test edit in its own file recompiles one unit; inline, it rebuilds the facade and the CLI.
+- Integration tests: one binary per crate (`autotests = false`, `tests/main.rs`). A new `tests/foo.rs` compiles only once `main.rs` declares `mod foo;`.
+- Fixtures: the dev-only `crates/test-support` when they need no internals, else the owning crate's `test-support` feature.
+- One test selection (`scripts/rust-tests.cjs`, repeated by the `cargo dev-test` alias and `bacon.toml`). A new dev-dependency feature joins `dev-unify` (`crates/runtime/Cargo.toml`) in the same change, and no `[profile.test]` setting may differ from dev: either forks every crate between `build:dev` and the tests. Inject clocks; never tokio's `test-util`.
+- A test that starts a real child process joins `PROCESS_TESTS` in `rust-tests.cjs` (nextest); everything else runs under libtest.
 
-| When | Read | Why |
-|---|---|---|
-| Errors, borrowing, conversions, public APIs, cleanup or lint suppression | [Idioms](references/idioms.md) | Ownership, typed failures, clean-code rules and panic policy |
-| Threads, locks, atomics, async or cancellation | [Concurrency and async](references/concurrency-and-async.md) | Task ownership, backpressure and shutdown |
-| Structs, enums, traits or pointers | [Types and patterns](references/types-and-patterns.md) | Choose the representation |
-| Module or crate layout, dependency direction, test placement or a crate that dominates build time | [Crate structure](references/crate-structure.md) | Clean architecture: enforced layers, guarded crate edges, minimal surfaces |
-| Manifests, features, MSRV or lockfiles | [Workspace](references/workspace.md) | Workspace contract and feature forks |
-| Compile time, repeated rebuilds, concurrent builds or target size | [Build profiles](references/build-profiles.md) | Measure by CPU and recompiled units; settings measured and rejected |
-| Heavy generics, derives, generated code or large futures | [Compile cost](references/code-size.md) | Shrink monomorphized and generated code, measured |
-| Runtime, RSS or allocation | [Performance and memory](references/performance-and-memory.md) | Prove with release benchmark/profile |
-| Untrusted input, unsafe code or FFI | [Safety and FFI](references/safety-and-ffi.md) | Safety obligations, trust boundaries and verification limits |
-| Napi, streams/subprocesses, source coordinates, language or dependency claims, Octocode tools or repo, test design, related skills | [Specialized topics](references/specialized-topics.md) | Routes to napi, CLI/TUI, parsing, sources, Octocode, testing guides and neighbor skills |
+## Commands beyond AGENTS.md
 
-## Rules
+`$DEV check` (rustfmt, ratchet and lints, no build), `$DEV docs:rust`, `$DEV llvm-lines [package] [--timings]`, `$DEV profile <tool> '<json>'`, `$DEV miri`, `$DEV fuzz:smoke`, `$DEV mutants -f <file>`, `$DEV rust:tools` (pins in `dev-tools.json`). In `packages/octocode-native`: `yarn deny`, `yarn shear`, `yarn check:features`, `yarn coverage:rust`.
 
-- Distinguish language guarantees, project policy and context-dependent recommendations. Check semantics against primary documentation; check third-party APIs against the locked version. Newer stable syntax is not automatically compatible with the project's MSRV or edition.
-- Fix ownership and type design before adding clones, shared state, boxing or `unsafe` to satisfy the compiler. A justified clone or concrete type is often simpler than a new abstraction.
-- Keep code and architecture clean, change build settings only on measured evidence, and reuse std and vetted dependencies: [rules](references/rules.md) (includes the Octocode clean-code tools link).
-- Preserve errors and requested data. Apply the owning contract's limits and backpressure; use continuation, streaming or explicit refusal instead of silently returning a prefix. Do not invent quotas or deadlines.
-- Understand diagnostics before changing code. Do not silence a lint, delete a test, weaken an invariant or lower a coverage floor to obtain a green result.
+## Branches
 
-## Done
-
-The requested behavior is implemented or the review finding is reproduced, affected callers agree, and applicable checks pass or have an explicit blocker. For unsafe, concurrent or boundary code, include its failure and cleanup paths. Report the change or finding, evidence, checks and material limits using [output.md](output.md). Performance claims need comparable measurements.
+- Adding a crate, splitting one or moving code between crates: [crate structure](references/crate-structure.md).
+- Compile time, needless rebuilds, profile settings or the cost of generic and generated code: [build profiles](references/build-profiles.md).

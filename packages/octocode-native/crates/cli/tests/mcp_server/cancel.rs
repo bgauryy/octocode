@@ -127,43 +127,38 @@ async fn a_wait_within_the_reply_budget_is_waited_for() {
 }
 
 /// G3: a host stops listening after its own request timeout (60 s by
-/// default), so a quota wait that would outlast the reply budget is not sat
-/// out on MCP: the call answers at once with `rateLimited`, the wait as
-/// `retryAfterSeconds` and the call that runs it again, and the search is
-/// not sent again. (Before the reply budget this call waited out any reset,
-/// with a host long gone.)
+/// default), so a quota wait that would outlast the reply budget is sat out
+/// on MCP only up to the budget, then answered `rateLimited` with the rest
+/// (the runtime's `an_mcp_row_sleeps_a_quota_wait_past_the_reply_budget_up_to_it`).
+/// An agent cannot sleep: a call that answered at once, having waited
+/// nothing, handed back a retry refused the same way. Here the call waits,
+/// its progress line naming the whole wait, and sends nothing meanwhile.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_wait_past_the_reply_budget_answers_with_the_wait() {
+async fn a_wait_past_the_reply_budget_is_waited_up_to_it() {
     let reset_in = REPLY_BUDGET * 8;
     let github = spent_github(reset_in).await;
     let api = format!("{}/api/v3", github.uri());
-    let (id, first) = tokio::task::spawn_blocking(move || {
+    let first = tokio::task::spawn_blocking(move || {
         let workspace = Workspace::new();
-        let (server, id, first) = start_search(&workspace, &api);
+        let (mut server, id, first) = start_search(&workspace, &api);
+        cancel(&mut server, id);
         assert!(server.finish().success());
-        (id, first)
+        first
     })
     .await
     .expect("stdio exchange");
-    assert_eq!(first["id"], id, "the call answers, with no wait: {first}");
-    assert_eq!(first["result"]["isError"], true, "{first}");
-    let text = first["result"]["content"][0]["text"]
-        .as_str()
-        .expect("the result text");
-    let payload: Value = serde_json::from_str(text).expect("the JSON result");
-    let data = &payload["results"][0]["data"];
-    assert_eq!(data["errorCode"], "rateLimited", "{payload}");
-    let retry_after = data["rateLimit"]["retryAfterSeconds"]
-        .as_u64()
-        .unwrap_or_else(|| panic!("the wait is named: {payload}"));
-    assert!(
-        retry_after > REPLY_BUDGET.as_secs() && retry_after <= reset_in.as_secs() + 1,
-        "the named wait is the quota's: {payload}"
+    assert_eq!(
+        first["method"], "notifications/progress",
+        "the call waits instead of answering at once: {first}"
     );
-    assert_eq!(data["next"]["retry"]["tool"], "ghSearchCode", "{payload}");
+    let line = first["params"]["message"].as_str().expect("a line");
+    let named: u64 = line
+        .split_whitespace()
+        .find_map(|word| word.strip_suffix('s')?.parse().ok())
+        .unwrap_or_else(|| panic!("the wait is named: {line}"));
     assert!(
-        data.get("clientWaits").is_none(),
-        "nothing was slept: {payload}"
+        named > REPLY_BUDGET.as_secs() && named <= reset_in.as_secs() + 1,
+        "the line names the whole wait, not the part slept: {line}"
     );
     let searches = github
         .received_requests()

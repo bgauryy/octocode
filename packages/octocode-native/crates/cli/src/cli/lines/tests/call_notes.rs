@@ -43,7 +43,7 @@ fn match_notes_are_words() {
                         "files": [
                             {
                                 "path": "a.rs",
-                                "matches": [{"line": 3, "value": "fn a()", "declaration": true}]
+                                "matches": [{"line": 3, "value": "fn a()", "count": 2}]
                             }
                         ]
                     }
@@ -52,7 +52,7 @@ fn match_notes_are_words() {
         }"#,
     );
     let lines = render(ToolId::LocalSearch, &hit, &json!({}), None).expect("lines");
-    assert_eq!(lines.out, "a.rs:3:fn a()  [declaration true]");
+    assert_eq!(lines.out, "a.rs:3:fn a()  [count 2]");
 }
 
 #[test]

@@ -17,7 +17,7 @@ export function workspaceRootFor(cwd) {
 export const MODE_ENDPOINT = { html: 'general', markdown: 'markdown', extended: 'extended', extract: 'extract' };
 
 function usage(exitCode = 2) {
-    console.error(`Usage: fetch.mjs --url <url> [--provider scrapingant|direct|cdp] [--mode html|markdown|extended|extract] [--extract-properties <text>] [--crawl --max-pages <n> [--sitemap] [--span-hosts] [--delay-ms <n>]] [--allow-private-host] [--session <id> [--append]] [--out <dir>] [--browser] [--wait-for <selector>] [--proxy-type <type>] [--proxy-country <cc>] [--block-resource <type>]... [--no-raw] [--max-raw-bytes <n>] [--max-text-bytes <n>] [--chunk-bytes <n>] [--param k=v]... [--cdp-port <n>] [--cdp-wait-ms <n>] [--wait-text <text>] [--cdp-stealth|--no-cdp-stealth]\nLinks are always extracted. A crawl stays on the --url host unless --span-hosts is passed. Private, local, and link-local hosts are refused, including crawled links, redirects, and browser requests; --allow-private-host exempts only the --url origin (a local dev server). Tests only: --mock-status <n> --mock-body-file <file> [--mock-content-type <type>] [--mock-credit-cost <n>]\nDefault output: .octocode/octocode-scraping/tmp/<sessionId>\n`);
+    console.error(`Usage: fetch.mjs --url <url> [--provider scrapingant|direct|cdp] [--mode html|markdown|extended|extract] [--extract-properties <text>] [--crawl --max-pages <n> [--follow pagination] [--sitemap] [--span-hosts] [--delay-ms <n>]] [--max-credits <n>] [--allow-private-host] [--session <id> [--append]] [--out <dir>] [--browser] [--wait-for <selector>] [--proxy-type <type>] [--proxy-country <cc>] [--block-resource <type>]... [--no-raw] [--max-raw-bytes <n>] [--max-text-bytes <n>] [--chunk-bytes <n>] [--param k=v]... [--cdp-port <n>] [--cdp-wait-ms <n>] [--wait-text <text>] [--cdp-stealth|--no-cdp-stealth]\nLinks are always extracted. A crawl stays on the --url host unless --span-hosts is passed. Private, local, and link-local hosts are refused, including crawled links, redirects, and browser requests; --allow-private-host exempts only the --url origin (a local dev server). --follow pagination queues only rel=next/prev and pagination-class links (HTML pages), so a crawl walks every page of a listing. --max-credits <n> caps this run's hosted credits: a page is fetched only while the credits spent plus the largest per-request cost seen so far stay within <n>, and a hosted reply without a credit header stops the run; the output's creditCap lists every unfetched URL. Tests only: --mock-status <n> --mock-body-file <file> [--mock-content-type <type>] [--mock-credit-cost <n>]\nDefault output: .octocode/octocode-scraping/tmp/<sessionId>\n`);
     process.exit(exitCode);
 }
 
@@ -66,7 +66,7 @@ export function safeSessionId(input, targetUrl) {
 }
 
 const VALUE_FLAGS = new Set(['--url', '--mode', '--provider', '--extract-properties', '--max-pages', '--delay-ms', '--max-raw-bytes', '--max-text-bytes',
-  '--chunk-bytes', '--cdp-wait-ms', '--out', '--session', '--wait-for', '--proxy-type', '--proxy-country', '--block-resource', '--param',
+  '--chunk-bytes', '--cdp-wait-ms', '--follow', '--max-credits', '--out', '--session', '--wait-for', '--proxy-type', '--proxy-country', '--block-resource', '--param',
   '--mock-status', '--mock-body-file', '--mock-content-type', '--mock-credit-cost', '--cdp-port', '--wait-text']);
 const BOOLEAN_FLAGS = new Set(['--crawl', '--span-hosts', '--allow-private-host', '--sitemap', '--append', '--no-raw', '--browser', '--cdp-stealth', '--no-cdp-stealth']);
 
@@ -98,13 +98,26 @@ function readCrawl(take, has) {
   const crawl = has('--crawl');
   const maxPages = Number(take('--max-pages') || (crawl ? NaN : 1));
   if (!Number.isSafeInteger(maxPages) || maxPages < 1) throw new Error('--crawl requires --max-pages <n>');
-  return { crawl, maxPages };
+  const follow = take('--follow') || null;
+  if (follow && follow !== 'pagination') throw new Error('--follow must be pagination');
+  if (follow && !crawl) throw new Error('--follow pagination requires --crawl --max-pages <n>');
+  // A sitemap queues URLs that are not pagination links.
+  if (follow && has('--sitemap')) throw new Error('--follow pagination follows only pagination links; drop --sitemap');
+  return { crawl, maxPages, follow };
+}
+
+function readMaxCredits(take) {
+  const raw = take('--max-credits');
+  if (raw === undefined) return null;
+  const maxCredits = Number(raw);
+  if (!Number.isFinite(maxCredits) || maxCredits <= 0) throw new Error('--max-credits must be a number greater than 0');
+  return maxCredits;
 }
 
 const atLeast = (value, min) => Number.isSafeInteger(value) && value >= min;
 
 function readLimits(take, has) {
-  const { crawl, maxPages } = readCrawl(take, has);
+  const { crawl, maxPages, follow } = readCrawl(take, has);
   const delayMs = Number(take('--delay-ms') || 2000);
   const maxRawBytes = Number(take('--max-raw-bytes') || 1_000_000);
   const maxTextBytes = Number(take('--max-text-bytes') || 250_000);
@@ -114,7 +127,7 @@ function readLimits(take, has) {
   if (!atLeast(chunkBytes, 1_000)) throw new Error('--chunk-bytes must be a number >= 1000');
   if (!atLeast(delayMs, 0)) throw new Error('--delay-ms must be a non-negative integer');
   if (take('--cdp-wait-ms') && !atLeast(Number(take('--cdp-wait-ms')), 1)) throw new Error('--cdp-wait-ms must be a positive integer');
-  return { crawl, maxPages, delayMs, maxRawBytes, maxTextBytes, chunkBytes };
+  return { crawl, maxPages, follow, delayMs, maxRawBytes, maxTextBytes, chunkBytes, maxCredits: readMaxCredits(take) };
 }
 
 function readOutBase(take) {
@@ -157,7 +170,7 @@ export function parseConfig(args) {
   if (!targetUrl) usage(2);
   const target = new URL(targetUrl);
   const { mode, provider, providerDescriptor, extractProperties } = readMode(take);
-  const { crawl, maxPages, delayMs, maxRawBytes, maxTextBytes, chunkBytes } = readLimits(take, has);
+  const { crawl, maxPages, follow, delayMs, maxRawBytes, maxTextBytes, chunkBytes, maxCredits } = readLimits(take, has);
   const outBase = readOutBase(take);
   const sessionId = safeSessionId(take('--session'), targetUrl);
   return {
@@ -170,7 +183,11 @@ export function parseConfig(args) {
     extractProperties,
     crawl,
     maxPages,
+    // 'pagination': queue only links the extractor marked as pagination (rel=next/prev, pagination class).
+    follow,
     delayMs,
+    // Hosted credits this run may spend; null means no cap.
+    maxCredits,
     // Crawls stay on the --url host by default; --span-hosts follows links to other public hosts.
     spanHosts: has('--span-hosts'),
     // Only the --url origin is exempt; crawled links and redirects to other private hosts stay refused.

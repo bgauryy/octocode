@@ -1,5 +1,82 @@
-//! The OAuth and git gates: permits, cancellation and a shared cooldown.
+//! The OAuth, API and git gates: permits, cancellation and a shared cooldown.
 use super::*;
+
+/// The secondary-limit waits `waits` recorded, in milliseconds.
+fn secondary_ms(waits: &ClientWaits) -> i64 {
+    waits
+        .summed()
+        .iter()
+        .filter(|wait| wait.kind == octocode_contract_base::ClientWaitKind::SecondaryLimit)
+        .map(|wait| wait.ms)
+        .sum()
+}
+
+/// A secondary cooldown that outlasts the wait bound (an MCP host's reply
+/// budget) but ends before the deadline is slept up to the bound, then
+/// refused unsent with only the rest as `retryAfter`: the retry that refusal
+/// hands back waits out the rest within its own bound and is admitted. An
+/// agent cannot sleep, so a refusal that slept nothing hands back a retry
+/// that is refused the same way. A cooldown past the deadline itself is
+/// refused at once, sleeping nothing: the caller's deadline says it does not
+/// listen that long.
+#[tokio::test]
+async fn a_cooldown_past_the_wait_bound_is_slept_to_the_bound_and_its_retry_admitted() {
+    let (budget, state) = limited(ExecutorConfig::relaxed());
+    let cooldown = Duration::from_millis(1500);
+    let bound = cooldown / 3;
+    state.cool_down(now_ms() + millis(cooldown));
+
+    let first = ClientWaits::default();
+    let started = Instant::now();
+    let limit = WaitLimit {
+        deadline: started + cooldown * 10,
+        sleep_by: started + bound,
+    };
+    let error = state
+        .wait_unblocked("core", budget.config(), limit, &Cancellation::new(), &first)
+        .await
+        .expect_err("the cooldown outlasts the bound");
+    assert_eq!(error.kind, ProviderErrorKind::RateLimited, "{error:?}");
+    let slept = secondary_ms(&first);
+    assert!(
+        slept.unsigned_abs() >= millis(bound) * 9 / 10,
+        "slept {slept} ms"
+    );
+    let rest = error
+        .rate_limit
+        .and_then(|rate| rate.retry_after_seconds)
+        .expect("the rest of the cooldown");
+    assert!(rest < ceil_secs(cooldown), "retryAfter {rest}s");
+
+    let retry = ClientWaits::default();
+    let now = Instant::now();
+    let limit = WaitLimit {
+        deadline: now + cooldown * 10,
+        sleep_by: now + cooldown,
+    };
+    state
+        .wait_unblocked("core", budget.config(), limit, &Cancellation::new(), &retry)
+        .await
+        .expect("the rest fits the retry's bound");
+    assert!(secondary_ms(&retry) > 0, "{:?}", retry.summed());
+
+    state.cool_down(now_ms() + millis(cooldown));
+    let refused = ClientWaits::default();
+    let started = Instant::now();
+    let error = state
+        .wait_unblocked(
+            "core",
+            budget.config(),
+            started + bound,
+            &Cancellation::new(),
+            &refused,
+        )
+        .await
+        .expect_err("the cooldown ends past the deadline");
+    assert_eq!(error.kind, ProviderErrorKind::RateLimited, "{error:?}");
+    assert_eq!(secondary_ms(&refused), 0, "{:?}", refused.summed());
+    assert!(started.elapsed() < bound, "{:?}", started.elapsed());
+}
 
 #[tokio::test]
 async fn oauth_admission_holds_permits_and_honors_cancellation_and_shared_cooldown() {

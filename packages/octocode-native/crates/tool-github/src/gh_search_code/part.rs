@@ -340,45 +340,30 @@ static READ_CURSOR_CHARS: std::sync::LazyLock<usize> = std::sync::LazyLock::new(
 #[derive(Clone, Copy, Default)]
 struct ReadSizes {
     hits: usize,
-    sources: usize,
 }
 
 impl ReadSizes {
-    /// The numbered cursor entries of one row, including the enclosing
-    /// `next` object only when the page adds its first read.
-    fn add(&mut self, hits: usize, sources: usize) -> usize {
-        let mut first = self.hits + self.sources == 0;
+    /// The numbered `readHits` cursor entries of one row, including the
+    /// enclosing `next` object only when the page adds its first read.
+    fn add(&mut self, hits: usize) -> usize {
+        let mut first = self.hits == 0;
         let mut chars = 0;
-        for (name, count, added, per_call) in [
-            ("readHits", &mut self.hits, hits, 1),
-            (
-                "readSource",
-                &mut self.sources,
-                sources,
-                *super::page_facts::SOURCE_BATCH,
-            ),
-        ] {
-            for index in count.div_ceil(per_call)..(*count + added).div_ceil(per_call) {
-                let key = octocode_runtime_base::id::numbered(name, index);
-                chars += key.len()
-                    + 3
-                    + *READ_CURSOR_CHARS
-                    + if first { r#","next":{}"#.len() } else { 1 };
-                first = false;
-            }
-            *count += added;
+        for index in self.hits..self.hits + hits {
+            let key = octocode_runtime_base::id::numbered("readHits", index);
+            chars +=
+                key.len() + 3 + *READ_CURSOR_CHARS + if first { r#","next":{}"#.len() } else { 1 };
+            first = false;
         }
+        self.hits += hits;
         chars
     }
 
-    /// A page of resolved sources pays for a new cursor only when it opens
-    /// another batch. Account for that boundary separately from the file size.
+    /// Rows still to show pay for their reads when every row shown so far
+    /// offered one: the estimate the page's room is planned with.
     fn fits(self, shown: usize, count: usize, row_chars: usize, room: usize) -> bool {
         let mut next = self;
-        let guidance = if self.sources == shown {
-            next.add(0, count)
-        } else if self.hits == shown {
-            next.add(count, 0)
+        let guidance = if shown > 0 && self.hits == shown {
+            next.add(count)
         } else {
             0
         };
@@ -506,7 +491,7 @@ fn row_chars(
     let reads = shape_files(&mut rows, query, withholds, Some(resolution));
     let mut page = json!({ "files": rows });
     pick_rows(&mut page, "files", CODE_ROW_ID, &field_names(&query.fields));
-    let leads = read_sizes.add(reads.hits.len(), reads.sources.len());
+    let leads = read_sizes.add(reads.hits.len());
     let full = utf16_units(&page["files"][0]).unwrap_or(0) + 1 + leads;
     let mut data = Map::new();
     data.insert("files".into(), page["files"].take());

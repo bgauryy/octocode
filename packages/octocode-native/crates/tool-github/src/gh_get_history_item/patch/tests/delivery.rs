@@ -99,7 +99,7 @@ fn binary_files_are_reported_once_and_never_block_the_cursor() {
         file("b.rs", &"b".repeat(10)),
         json_fixture(r#"{"filename": "tail.bin", "status": "added"}"#),
     ];
-    let (calls, patches, patchless) = follow_commit_page(&files, Some(4));
+    let (calls, patches, patchless) = follow_commit_page(&files, Some(page_for_window(1)));
     assert_eq!(calls, 20);
     assert_eq!(patchless, ["logo.png", "tail.bin"]);
     assert_eq!(patches["a.rs"], "a".repeat(10));
@@ -204,7 +204,7 @@ fn patch_pages_emit_no_placeholder_rows_and_compact_headers() {
     ];
     let page = shape_patch_page(
         files.clone(),
-        &with_budget(patch_request(json_fixture(r#"{"offset": 0}"#)), 25),
+        &with_window(patch_request(json_fixture(r#"{"offset": 0}"#)), 10),
     );
     assert_eq!(page.rows.len(), 1, "{:?}", page.rows);
     assert_eq!(page.unfinished, ["b.rs", "c.rs"]);
@@ -216,7 +216,7 @@ fn patch_pages_emit_no_placeholder_rows_and_compact_headers() {
         &mut pagination,
         files,
         WindowState::COMPLETE,
-        &with_budget(patch_request(json_fixture(r#"{"offset": 0}"#)), 38),
+        &with_window(patch_request(json_fixture(r#"{"offset": 0}"#)), 15),
         true,
         None,
     );

@@ -3021,7 +3021,7 @@ workspaceRoot?: string
 limit?: number
 path: string
 symbolName: string
-line: number
+line?: number
 occurrence?: number
 operation?: ("definition" | "typeDefinition" | "implementation")
 view?: "content"
@@ -3034,7 +3034,7 @@ workspaceRoot?: string
 limit?: number
 path: string
 symbolName: string
-line: number
+line?: number
 occurrence?: number
 operation?: ("definition" | "typeDefinition" | "implementation")
 view: "files"
@@ -3043,7 +3043,7 @@ workspaceRoot?: string
 limit?: number
 path: string
 symbolName: string
-line: number
+line?: number
 occurrence?: number
 operation: "references"
 includeDeclaration?: boolean
@@ -3058,7 +3058,7 @@ workspaceRoot?: string
 limit?: number
 path: string
 symbolName: string
-line: number
+line?: number
 occurrence?: number
 operation: "references"
 includeDeclaration?: boolean
@@ -3069,7 +3069,7 @@ workspaceRoot?: string
 limit?: number
 path: string
 symbolName: string
-line: number
+line?: number
 occurrence?: number
 operation: "callers"
 depth?: number
@@ -3079,7 +3079,7 @@ workspaceRoot?: string
 limit?: number
 path: string
 symbolName: string
-line: number
+line?: number
 occurrence?: number
 operation: ("callees" | "supertypes")
 depth?: number
@@ -3088,7 +3088,7 @@ workspaceRoot?: string
 limit?: number
 path: string
 symbolName: string
-line: number
+line?: number
 occurrence?: number
 operation: "subtypes"
 depth?: number
@@ -3097,7 +3097,7 @@ workspaceRoot?: string
 limit?: number
 path: string
 symbolName: string
-line: number
+line?: number
 occurrence?: number
 operation: "hover"
 } | {

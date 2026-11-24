@@ -63,7 +63,15 @@ impl Plan<'_> {
     pub(super) fn result(&self, commit: &str, clone_dir: &Path, checkout: Checkout) -> CloneResult {
         let bytes = checkout.size;
         let on_disk = self.missing_paths(clone_dir, &checkout.withheld);
-        let paths = self.held_paths(clone_dir, &checkout.withheld);
+        // The row names what is on disk: a withheld credential file is in
+        // `skipped` alone. The scope record keeps it ([`Self::held_paths`]),
+        // so a local read of it is no path outside the scope to re-clone.
+        let paths = self.held_paths(clone_dir, &checkout.withheld).map(|paths| {
+            paths
+                .into_iter()
+                .filter(|path| super::checkout::checked_out(clone_dir, path))
+                .collect()
+        });
         let missing = self
             .absent
             .iter()

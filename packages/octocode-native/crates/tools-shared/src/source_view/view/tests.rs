@@ -104,6 +104,47 @@ fn a_misremembered_head_names_only_the_declared_name_it_served() {
     );
 }
 
+/// The name of a misremembered head counts whole identifiers only: `emitt`
+/// inside `EventEmitter` is another name, so the hint counts, and its read
+/// selects, only the line that uses `emitt` itself.
+#[test]
+fn a_misremembered_heads_name_counts_whole_identifiers_only() {
+    let source = "use(emitt);\nuse(EventEmitter);\n";
+    let read = fetch_window(
+        source,
+        &query(json!({"matchString": ["function emitt("]})),
+        50_000,
+    );
+    assert_eq!(
+        read.hints,
+        ["No line holds it as written; 1 line matches `emitt`: the related[] call reads them."],
+        "{read:?}"
+    );
+    let named = read
+        .next
+        .as_ref()
+        .and_then(|next| next.read.as_ref())
+        .expect("the name's read");
+    let served = fetch_window(source, &named.query, 50_000);
+    let text = served.content.as_deref().unwrap_or_default();
+    assert!(
+        served.selected_match_count == Some(1)
+            && text.contains("use(emitt);")
+            && !text.contains("EventEmitter"),
+        "{served:?}"
+    );
+    // A name the file holds only inside longer identifiers offers no read of it.
+    let inside = fetch_window(
+        "use(EventEmitter);\n",
+        &query(json!({"matchString": ["function emitt("]})),
+        50_000,
+    );
+    assert!(
+        inside.hints.iter().all(|hint| !hint.contains("`emitt`")),
+        "{inside:?}"
+    );
+}
+
 mod fit;
 mod pages;
 mod scan_memo;

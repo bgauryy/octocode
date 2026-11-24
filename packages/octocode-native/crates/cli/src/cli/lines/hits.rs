@@ -255,10 +255,26 @@ fn owner_label(enclosing: Option<&Value>) -> Option<String> {
     }
 }
 
+/// The declarations a hit declares, as `declares <label>` (labels as
+/// [`owner_label`] writes them, several joined by `, `). `None` for any
+/// shape that is not declarations, which prints as a field.
+fn declares_label(declaration: Option<&Value>) -> Option<String> {
+    let labels = match declaration? {
+        Value::Array(declared) if !declared.is_empty() => declared
+            .iter()
+            .map(|one| owner_label(Some(one)).filter(|_| !one.is_number()))
+            .collect::<Option<Vec<_>>>()?,
+        one @ (Value::Object(_) | Value::String(_)) => vec![owner_label(Some(one))?],
+        _ => return None,
+    };
+    Some(format!("declares {}", labels.join(", ")))
+}
+
 /// `[function build_searcher 992-1016]` when a hit's enclosing declaration
-/// ([`owner_label`]) differs from the previous hit's in this file, then any
-/// other match field as words (`declaration`). A run of hits in one
-/// declaration states it once, on its first hit; a hit outside every
+/// ([`owner_label`]) differs from the previous hit's in this file, then
+/// `declares function run 995-1001` for the declaration the hit declares
+/// ([`declares_label`]), then any other match field as words. A run of hits
+/// in one declaration states it once, on its first hit; a hit outside every
 /// declaration ends the run.
 pub(super) fn match_note(
     extra: &mut Map<String, Value>,
@@ -273,6 +289,10 @@ pub(super) fn match_note(
         extra.shift_remove("enclosing");
     }
     *last_owner = owner;
+    if let Some(declares) = declares_label(extra.get("declaration")) {
+        parts.push(declares);
+        extra.shift_remove("declaration");
+    }
     if !extra.is_empty() {
         parts.push(words(&std::mem::take(extra)));
     }

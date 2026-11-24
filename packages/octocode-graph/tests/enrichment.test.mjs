@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { tempDir } from './test-tmp.mjs';
@@ -75,6 +75,38 @@ test('enrich binds providers to the exact export, preserves revision and rejects
   assert.match(run().stderr, /revision/i);
   assert.equal(readFileSync(out, 'utf8'), saved);
   assert.equal(readFileSync(base, 'utf8'), data);
+});
+
+test('enrich --manifest-from writes the digests the importer checks, paths relative to the manifest', () => {
+  const dir = tempDir('graph-manifest-'),
+    base = join(dir, 'data.json'),
+    manifest = join(dir, 'm', 'manifest.json'),
+    out = join(dir, 'enriched.json');
+  writeFileSync(base, JSON.stringify({ section: '/repo', files: [{ id: 'a.rs' }], symbols: [], imports: [], calls: [] }));
+  mkdirSync(join(dir, 'm'));
+  const source = JSON.stringify({ documents: [{ relativePath: 'a.rs', occurrences: [{ symbol: 'local 0', symbolRoles: 8, range: [4, 0, 3] }] }] });
+  writeFileSync(join(dir, 'scip.json'), source);
+  const bin = new URL('../bin/octocode-graph.mjs', import.meta.url).pathname;
+  const cli = (...args) => spawnSync(process.execPath, [bin, 'enrich', ...args], { encoding: 'utf8', cwd: dir });
+  const written = cli('--manifest-from', 'data.json', 'm/manifest.json', '--revision', 'build-7', '--provider', 'scip-json', 'scip.json', '--source-root', '/repo');
+  assert.equal(written.status, 0, written.stderr);
+  assert.match(written.stdout, /next: .*enrich data\.json m\/manifest\.json <new-data\.json>/);
+  const spec = JSON.parse(readFileSync(manifest, 'utf8'));
+  const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+  assert.deepEqual(spec, {
+    revision: 'build-7',
+    baseSha256: digest(readFileSync(base)),
+    providers: [{ format: 'scip-json', file: '../scip.json', sha256: digest(source), revision: 'build-7', sourceRoot: '/repo' }],
+  });
+  const enriched = cli(base, manifest, out);
+  assert.equal(enriched.status, 0, enriched.stderr);
+  assert.equal(runQuery(JSON.parse(readFileSync(out, 'utf8')), 'trace a.rs READS').revision, 'build-7');
+  // The manifest is never replaced; a provider option needs its --provider; the format must be known.
+  assert.notEqual(cli('--manifest-from', 'data.json', 'm/manifest.json', '--revision', 'r', '--provider', 'scip-json', 'scip.json').status, 0);
+  assert.equal(cli('--manifest-from', 'data.json', 'n.json', '--revision', 'r', '--test-id', 'x', '--provider', 'llvm-cov', 'scip.json').status, 2);
+  assert.equal(cli('--manifest-from', 'data.json', 'n.json', '--provider', 'scip-json', 'scip.json').status, 2);
+  assert.match(cli('--manifest-from', 'data.json', 'n.json', '--revision', 'r', '--provider', 'nope', 'scip.json').stderr, /Unsupported provider nope/);
+  assert.match(cli('--manifest-from', 'enriched.json', 'n.json', '--revision', 'r', '--provider', 'scip-json', 'scip.json').stderr, /original export/);
 });
 
 test('trace preserves observed spans and positive per-test segments, including provenance', async () => {

@@ -14,7 +14,7 @@ Identify the target, revision and executor. Write a plan runnable from the plan 
 3. Rank risks by impact and evidence of likelihood. Explain each `P0` (must pass to ship), distinguish `P1` (should pass) from `P2` (adds confidence), and include severe reachable failures even without a prior incident.
 4. Choose the cheapest test level that observes the risk. Derive expected results from a spec, contract, type or documented error. Disclose when the implementation is the only oracle.
 5. Preserve the reproduction and nearby boundaries for a fix. Include meaningful failure paths, fixtures, cleanup and restoration checks. Reuse existing tests where the risk and oracle match.
-6. Write the executor contract, cases, exclusions and measurable success criteria using [output.md](output.md). Apply its [plan check](output.md#plan-check) without executing the cases.
+6. Write the executor contract, cases, exclusions and measurable success criteria using [output.md](output.md) and save the plan. Run `node <skill-folder>/scripts/plan-check.mjs <plan.md>` and apply the rest of the [plan check](output.md#plan-check) without executing the cases.
 
 ## Conditional detail
 
@@ -22,9 +22,8 @@ Identify the target, revision and executor. Write a plan runnable from the plan 
 |---|---|
 | Pin by input type, discover code/tests, inspect commands or map a diff | [Code-map recipes](references/code-map.md) |
 | Select technique, level, independent oracle or stable fixtures | [Case design](references/case-design.md) |
-| Octocode invocation, paging or recovery | [MCP/CLI usage](references/octocode-usage.md) |
 | Source, semantic or runtime proof limits | [Evidence rules](references/evidence.md) |
 
-Save the plan and return `Ready`, `Draft` or `Blocked`, the main risk, gaps and its link. These statuses describe plan readiness, never passed tests.
+Return `Ready`, `Draft` or `Blocked`, the main risk, gaps and the saved plan's link. These statuses describe plan readiness, never passed tests.
 
 For a failure that needs reproduction before planning, use `octocode-debugging`. Use `octocode-pr-review` for a merge verdict.

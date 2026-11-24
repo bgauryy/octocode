@@ -1,0 +1,103 @@
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { test } from 'node:test';
+
+const script = new URL('../interview-grade.mjs', import.meta.url).pathname;
+const run = (...args) => spawnSync(process.execPath, [script, ...args], { encoding: 'utf8' });
+
+test('grader rejects missing call files and a runner without both placeholders', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'interview-grade-'));
+  try {
+    const command = `${process.execPath} -e 'process.exit(0)' {tool} {input}`;
+    assert.notEqual(run(dir, '--cmd', command).status, 0);
+    writeFileSync(join(dir, 'G1-calls.jsonl'), '{"scenario":"S1","step":1,"tool":"localFetch","input":{"queries":[]}}\n');
+    assert.notEqual(run(dir, '--cmd', `${process.execPath} -e 'process.exit(0)'`).status, 0);
+    assert.notEqual(run(dir, '--cmd', command, '--timeout', '0').status, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('grader reports valid calls and fails malformed or non-gradable input', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'interview-grade-'));
+  try {
+    const file = join(dir, 'G1-calls.jsonl');
+    const command = `${process.execPath} -e 'process.exit(0)' {tool} {input}`;
+    writeFileSync(file, '{"scenario":"S1","step":1,"tool":"localFetch","input":{"path":"a.ts"},"outcome":"badLine"}\n');
+    const valid = run(dir, '--cmd', command, '--json');
+    assert.equal(valid.status, 0);
+    assert.deepEqual(JSON.parse(valid.stdout).total, { gradable: 1, valid: 1, validRate: 1, rejected: 0 });
+    writeFileSync(file, 'not json\n');
+    assert.equal(run(dir, '--cmd', command).status, 2);
+    writeFileSync(file, '{"scenario":"S1","step":1,"tool":"localFetch","input":"not an object"}\n');
+    assert.equal(run(dir, '--cmd', command).status, 2);
+    writeFileSync(file, '{"scenario":"S1","step":1,"tool":"localFetch","input":{"path":"<path>"}}\n');
+    assert.equal(run(dir, '--cmd', command).status, 2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('grader keeps code-like input, hyphenated groups and full failure output', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'interview-grade-'));
+  try {
+    const long = 'x'.repeat(1000);
+    const runner = join(dir, 'runner.mjs');
+    writeFileSync(runner, `const [tool] = process.argv.slice(2); if (tool === 'fail') { console.log(${JSON.stringify(long)}); process.exit(3); }\n`);
+    writeFileSync(join(dir, 'local-text-calls.jsonl'), [
+      { scenario: 'S1', step: 1, tool: 'search', input: { queries: [{ matchString: ['Vec<u8>', '<div>x</div>'] }] } },
+      { scenario: 'S2', step: 1, tool: 'fail', input: { queries: [{ path: 'a.ts' }] } },
+      { scenario: 'S3', step: 2, tool: 'search', input: { cursor: '<cursor from step 1>' } },
+    ].map((row) => JSON.stringify(row)).join('\n'));
+    const result = run(dir, '--cmd', `${process.execPath} ${runner} {tool} {input}`, '--json');
+    assert.equal(result.status, 0);
+    const summary = JSON.parse(result.stdout);
+    assert.deepEqual(summary.groups['local-text'], { calls: 3, ok: 1, error: 1, placeholder: 1, gradable: 2, valid: 1, validRate: 0.5, rejected: 0 });
+    const graded = JSON.parse(readFileSync(join(dir, 'graded.json'), 'utf8'));
+    assert.equal(graded.find((row) => row.scenario === 'S2').detail, long);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runner receives quoted arguments and literal placeholders without shell effects', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'interview-grade-'));
+  try {
+    const received = join(dir, 'received.json');
+    const marker = join(dir, 'unexpected');
+    const runner = join(dir, 'runner.mjs');
+    writeFileSync(runner, `import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(received)}, JSON.stringify(process.argv.slice(2)));\n`);
+    const tool = `local'{input}$(touch ${marker})`;
+    const input = { queries: [{ path: "a'b{tool}.ts" }] };
+    writeFileSync(join(dir, 'G1-calls.jsonl'), `${JSON.stringify({ scenario: 'S1', step: 1, tool, input })}\n`);
+    const result = run(dir, '--cmd', `${process.execPath} ${runner} {tool} {input}`);
+    assert.equal(result.status, 0);
+    assert.deepEqual(JSON.parse(readFileSync(received, 'utf8')), [tool, JSON.stringify(input)]);
+    assert.equal(existsSync(marker), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('grader reports valid-cold rate per group beside the total', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'interview-grade-'));
+  try {
+    const runner = join(dir, 'runner.mjs');
+    writeFileSync(runner, "process.exit(process.argv[2] === 'bad' ? 4 : 0);\n");
+    const line = (scenario, tool) => JSON.stringify({ scenario, step: 1, tool, input: { queries: [{ path: 'a.ts' }] } });
+    writeFileSync(join(dir, 'A-calls.jsonl'), [line('S1', 'good'), line('S2', 'good'), line('S3', 'bad')].join('\n'));
+    writeFileSync(join(dir, 'B-calls.jsonl'), [line('S1', 'bad'), line('S2', 'good')].join('\n'));
+    const result = run(dir, '--cmd', `${process.execPath} ${runner} {tool} {input}`, '--json');
+    assert.equal(result.status, 0);
+    const { total, groups } = JSON.parse(result.stdout);
+    for (const group of Object.values(groups)) assert.equal(group.validRate, +(group.valid / group.gradable).toFixed(3));
+    assert.equal(total.gradable, groups.A.gradable + groups.B.gradable);
+    assert.equal(total.valid, groups.A.valid + groups.B.valid);
+    assert.notEqual(groups.A.validRate, groups.B.validRate);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

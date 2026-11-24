@@ -6,20 +6,21 @@ Load when a scrape fails, blocks, times out, or overflows, or when legality, pri
 - Crawls check robots.txt once per origin: a 4xx permits crawling; a transport error or 5xx stops that origin for the run.
 - A single explicit URL is user-directed; state that robots was not checked.
 - Keep crawl delay on: `--delay-ms <n>`.
-- Redact personal data and secrets in summaries, snippets, and reports.
+- Before sharing a summary, snippet, extract or report, mask credentials with `node <skill-folder>/scripts/redact-secrets.mjs --file <path> [--file <path>]... --in-place` (or `--file <path> --out <copy>`); per file it prints `redactions` and `changed`, never the text. It matches token shapes and credential-named fields only: redact personal data (names, emails, phone numbers) by judgment.
 
 ## Failures
 
 | When | Do |
 |---|---|
 | Hosted key missing | `provider-usage.mjs --check`; keyless route, or ask for authorized `SCRAPING_ANT` setup. |
+| Credit cap stopped the run (`creditCap` with `stopped: true`) | Report `spentThisRun` and `unfetchedUrls`. More spend needs new approval; then rerun with `--session <id> --append`, the same crawl flags and the new `--max-credits`. |
 | Direct `403` or bot block | Browser diagnostic: rendering vs access limit; respect challenges; paid escalation needs approval. |
 | Hosted `403` | Stop hosted calls; check sanitized status, credentials, credits, access policy. |
 | `refusedHost` (exit 2) or `refused <url>` | Drop and report. User-named local server: rerun with `--allow-private-host`. |
 | `sessionExists` (exit 2) | Add `--append`, or omit `--session` for a fresh one. |
 | `sessionIncomplete` (exit 1) | Preserve the session artifacts and start a fresh session; an unfinished page or unreadable checkpoint cannot be resumed safely. Completed checkpoints recover automatically with `--append`. |
 | `404` | Verify the URL; retry only with a reason. |
-| `422` | Print sanitized params; fix or remove the option. |
+| `422` | Read `providerRequest` (endpoint and sent options, without the key or page URLs); fix or remove the option. |
 | `423` anti-bot | Only an authorized route that respects its pacing or access rule. |
 | Thin 200 or JS shell | Follow `next.route` ([browser-scraping](browser-scraping.md)); hosted only by explicit choice. |
 | Robots disallow, or 5xx on robots | Skip and report; never route around robots with Chrome. |

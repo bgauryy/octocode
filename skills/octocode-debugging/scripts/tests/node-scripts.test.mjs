@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -89,4 +89,55 @@ test('node-alloc records allocations the GC already collected, which a live-only
   const bytes = Number(/^\s*(\d+)\s/m.exec(summary.stdout.split('\n').slice(3).join('\n'))?.[1]);
   assert.ok(bytes > 10_000_000, `churn sampled ${bytes} bytes:\n${summary.stdout}`);
   assert.equal(spawnSync(process.execPath, ['--import', nodeAlloc, 'app.mjs'], { cwd: dir, encoding: 'utf8', env: { ...process.env, NODE_ALLOC_DIR: join(dir, 'missing') } }).status, 1);
+});
+
+test('profile-top matches --owner against absolute paths and divides costs by --ops', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'profile-top-test-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const app = new URL(`file://${join(dir, 'src', 'app.mjs')}`).href;
+  const frame = (id, functionName, url, children = []) => ({ id, callFrame: { functionName, url, lineNumber: 0 }, children });
+  const profile = { nodes: [frame(1, '(root)', '', [2]), frame(2, 'app', app, [3]), frame(3, 'scan', 'file:///lib/x.mjs')], samples: [3, 3, 3, 3], timeDeltas: [0, 1000, 1000, 1000], startTime: 0, endTime: 4000 };
+  writeFileSync(join(dir, 'run.cpuprofile'), JSON.stringify(profile));
+  const owned = run([profileTop, 'run.cpuprofile', '--owner', join(dir, 'src'), '--ops', '4', '--top', '1'], dir);
+  assert.equal(owned.status, 0, owned.stderr);
+  assert.match(owned.stdout, /per operation over 4 operations/);
+  const [, cells] = owned.stdout.split('\n').slice(2).map((line) => line.trim().split(/\s+/));
+  assert.equal(cells.at(-2), 'app', `the absolute owner path matches a frame shown relative to cwd:\n${owned.stdout}`);
+  assert.equal(Number(cells[4]), Number(cells[0]) / 4, 'self per op is self divided by --ops');
+  assert.equal(run([profileTop, 'run.cpuprofile', '--ops', '0'], dir).status, 2);
+});
+
+test('profile-top --sync-io groups warnings by phase, runtime API and the first frame of the owner', (t) => {
+  // The real path, so frames under it show relative to the working directory (macOS tmpdir is a symlink).
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'sync-io-test-')));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const app = new URL(`file://${join(dir, 'src', 'app.mjs')}`).href;
+  const warning = (line) => `(node:1) WARNING: Detected use of sync API\n    at openSync (node:fs:697:18)\n    at readFileSync (node:fs:543:35)\n    at load (${app}:${line}:5)\n    at file:///lib/run.mjs:1:1\n`;
+  writeFileSync(join(dir, 'sync.log'), `${warning(2)}\n${warning(2)}\nphase: steady\n${warning(9)}\nunrelated stderr\n`);
+  const out = run([profileTop, 'sync.log', '--sync-io', '--owner', join(dir, 'src')], dir);
+  assert.equal(out.status, 0, out.stderr);
+  assert.match(out.stdout, /3 synchronous operations in 2 phases/);
+  const rows = out.stdout.split('\n').slice(3).filter(Boolean).map((line) => line.trim().split(/\s+/));
+  assert.deepEqual(rows.map((cells) => [cells[0], cells[2], cells[3], cells.at(-1)]), [['2', '(start)', 'readFileSync', 'src/app.mjs:2'], ['1', 'steady', 'readFileSync', 'src/app.mjs:9']]);
+  assert.equal(run([profileTop, 'sync.log', '--sync-io', '--callers', 'x'], dir).status, 2);
+  writeFileSync(join(dir, 'empty.log'), 'nothing here\n');
+  assert.equal(run([profileTop, 'empty.log', '--sync-io'], dir).status, 2);
+});
+
+test('the preloads answer --help when run directly and leave the program\'s own --help alone', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'preload-help-test-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'app.mjs'), "console.log('app', process.argv.slice(2).join(' '));\n");
+  for (const name of ['node-alloc.mjs', 'node-metrics.mjs']) {
+    const preload = fileURLToPath(new URL(`../${name}`, import.meta.url));
+    const help = run([preload, '--help']);
+    assert.equal(help.status, 0, help.stderr);
+    assert.match(help.stdout, /Inputs \(environment\)/);
+    assert.match(help.stdout, /Output:/);
+    assert.equal(run([preload]).status, 2);
+    const env = { ...process.env, NODE_ALLOC_DIR: dir, NODE_METRICS_DIR: dir };
+    const app = spawnSync(process.execPath, ['--import', preload, 'app.mjs', '--help'], { cwd: dir, encoding: 'utf8', env });
+    assert.equal(app.status, 0, app.stderr);
+    assert.equal(app.stdout, 'app --help\n');
+  }
 });

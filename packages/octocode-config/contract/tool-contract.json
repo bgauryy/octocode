@@ -149,10 +149,10 @@
             "additionalProperties": {},
             "properties": {
               "percentage": {
-                "$ref": "#/$defs/_h210"
+                "$ref": "#/$defs/_h211"
               },
               "percentile": {
-                "$ref": "#/$defs/_h210"
+                "$ref": "#/$defs/_h211"
               }
             },
             "required": [
@@ -319,7 +319,7 @@
         "$ref": "#/$defs/astSearchContinueCall"
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h312"
+        "$ref": "#/$defs/_h311"
       },
       "type": "object"
     },
@@ -387,10 +387,10 @@
           "$ref": "#/$defs/GraphPagelimit"
         },
         "list": {
-          "$ref": "#/$defs/_h77"
+          "$ref": "#/$defs/_h76"
         },
         "minScore": {
-          "$ref": "#/$defs/_h210"
+          "$ref": "#/$defs/_h211"
         },
         "minTier": {
           "anyOf": [
@@ -438,7 +438,7 @@
           "$ref": "#/$defs/_h65"
         },
         "headSha": {
-          "$ref": "#/$defs/_h375"
+          "$ref": "#/$defs/_h376"
         },
         "include": {
           "$ref": "#/$defs/_h46"
@@ -459,7 +459,7 @@
           "$ref": "#/$defs/_h6"
         },
         "page": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "pageSize": {
           "$ref": "#/$defs/_h242"
@@ -493,7 +493,7 @@
           "additionalProperties": false,
           "properties": {
             "by": {
-              "$ref": "#/$defs/_h377"
+              "$ref": "#/$defs/_h378"
             },
             "order": {
               "$ref": "#/$defs/SortOrder"
@@ -537,57 +537,36 @@
     "_h109": {
       "additionalProperties": false,
       "properties": {
-        "contextLines": {
-          "$ref": "#/$defs/_h274"
-        },
-        "importerPage": {
-          "$ref": "#/$defs/_h78"
-        },
-        "includeDeclaration": {
-          "default": true,
-          "type": "boolean"
-        },
-        "limit": {
-          "$ref": "#/$defs/_h111"
-        },
-        "line": {
-          "$ref": "#/$defs/_h42"
-        },
-        "occurrence": {
-          "$ref": "#/$defs/_h304"
+        "ecosystem": {
+          "$ref": "#/$defs/_h188"
         },
         "operation": {
-          "const": "references"
+          "const": "package"
         },
-        "page": {
-          "$ref": "#/$defs/_h67"
-        },
-        "path": {
-          "$ref": "#/$defs/_h52"
-        },
-        "snapshot": {
-          "$ref": "#/$defs/_h77"
-        },
-        "symbolName": {
+        "packageName": {
           "$ref": "#/$defs/_h34"
         },
-        "testCode": {
-          "$ref": "#/$defs/TestCode"
+        "preview": {
+          "type": "boolean"
+        },
+        "release": {
+          "$ref": "#/$defs/_h365"
+        },
+        "resume": {
+          "$ref": "#/$defs/_h76"
+        },
+        "version": {
+          "$ref": "#/$defs/_h305"
         },
         "view": {
-          "$ref": "#/$defs/_h298"
-        },
-        "workspaceRoot": {
-          "$ref": "#/$defs/_h62"
+          "$ref": "#/$defs/SecurityCheckView"
         }
       },
       "required": [
-        "path",
-        "symbolName",
-        "line",
-        "operation"
+        "operation",
+        "ecosystem",
+        "packageName"
       ],
-      "title": "anchored:references",
       "type": "object"
     },
     "_h11": {
@@ -644,36 +623,56 @@
     "_h110": {
       "additionalProperties": false,
       "properties": {
-        "ecosystem": {
-          "$ref": "#/$defs/_h188"
+        "contextLines": {
+          "$ref": "#/$defs/_h274"
         },
-        "operation": {
-          "const": "package"
-        },
-        "packageName": {
-          "$ref": "#/$defs/_h34"
-        },
-        "preview": {
-          "type": "boolean"
-        },
-        "release": {
-          "$ref": "#/$defs/_h364"
-        },
-        "resume": {
+        "importerPage": {
           "$ref": "#/$defs/_h77"
         },
-        "version": {
-          "$ref": "#/$defs/_h306"
+        "includeDeclaration": {
+          "default": true,
+          "type": "boolean"
+        },
+        "limit": {
+          "$ref": "#/$defs/_h111"
+        },
+        "line": {
+          "$ref": "#/$defs/_h42"
+        },
+        "occurrence": {
+          "$ref": "#/$defs/_h303"
+        },
+        "operation": {
+          "const": "references"
+        },
+        "page": {
+          "$ref": "#/$defs/_h67"
+        },
+        "path": {
+          "$ref": "#/$defs/_h52"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/_h76"
+        },
+        "symbolName": {
+          "$ref": "#/$defs/_h34"
+        },
+        "testCode": {
+          "$ref": "#/$defs/TestCode"
         },
         "view": {
-          "$ref": "#/$defs/SecurityCheckView"
+          "$ref": "#/$defs/_h297"
+        },
+        "workspaceRoot": {
+          "$ref": "#/$defs/_h62"
         }
       },
       "required": [
-        "operation",
-        "ecosystem",
-        "packageName"
+        "path",
+        "symbolName",
+        "operation"
       ],
+      "title": "anchored:references",
       "type": "object"
     },
     "_h111": {
@@ -834,7 +833,7 @@
           "$ref": "#/$defs/GraphPagelimit"
         },
         "list": {
-          "$ref": "#/$defs/_h77"
+          "$ref": "#/$defs/_h76"
         },
         "offset": {
           "$ref": "#/$defs/GraphPageoffset"
@@ -901,7 +900,7 @@
           "$ref": "#/$defs/_h6"
         },
         "page": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "pageSize": {
           "$ref": "#/$defs/_h242"
@@ -928,51 +927,6 @@
       "type": "object"
     },
     "_h118": {
-      "additionalProperties": false,
-      "properties": {
-        "contextLines": {
-          "$ref": "#/$defs/_h274"
-        },
-        "limit": {
-          "$ref": "#/$defs/_h111"
-        },
-        "line": {
-          "$ref": "#/$defs/_h42"
-        },
-        "occurrence": {
-          "$ref": "#/$defs/_h304"
-        },
-        "operation": {
-          "$ref": "#/$defs/_h351"
-        },
-        "page": {
-          "$ref": "#/$defs/_h67"
-        },
-        "path": {
-          "$ref": "#/$defs/_h52"
-        },
-        "snapshot": {
-          "$ref": "#/$defs/_h77"
-        },
-        "symbolName": {
-          "$ref": "#/$defs/_h34"
-        },
-        "view": {
-          "$ref": "#/$defs/_h298"
-        },
-        "workspaceRoot": {
-          "$ref": "#/$defs/_h62"
-        }
-      },
-      "required": [
-        "path",
-        "symbolName",
-        "line"
-      ],
-      "title": "anchored:locations",
-      "type": "object"
-    },
-    "_h119": {
       "additionalProperties": false,
       "properties": {
         "confidence": {
@@ -1004,7 +958,7 @@
           "$ref": "#/$defs/GraphPagelimit"
         },
         "list": {
-          "$ref": "#/$defs/_h77"
+          "$ref": "#/$defs/_h76"
         },
         "offset": {
           "$ref": "#/$defs/GraphPageoffset"
@@ -1027,6 +981,50 @@
         "target"
       ],
       "title": "GraphQueryTraversal",
+      "type": "object"
+    },
+    "_h119": {
+      "additionalProperties": false,
+      "properties": {
+        "contextLines": {
+          "$ref": "#/$defs/_h274"
+        },
+        "limit": {
+          "$ref": "#/$defs/_h111"
+        },
+        "line": {
+          "$ref": "#/$defs/_h42"
+        },
+        "occurrence": {
+          "$ref": "#/$defs/_h303"
+        },
+        "operation": {
+          "$ref": "#/$defs/_h352"
+        },
+        "page": {
+          "$ref": "#/$defs/_h67"
+        },
+        "path": {
+          "$ref": "#/$defs/_h52"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/_h76"
+        },
+        "symbolName": {
+          "$ref": "#/$defs/_h34"
+        },
+        "view": {
+          "$ref": "#/$defs/_h297"
+        },
+        "workspaceRoot": {
+          "$ref": "#/$defs/_h62"
+        }
+      },
+      "required": [
+        "path",
+        "symbolName"
+      ],
+      "title": "anchored:locations",
       "type": "object"
     },
     "_h12": {
@@ -1066,7 +1064,7 @@
                 "$ref": "#/$defs/_h70"
               },
               "termCounts": {
-                "$ref": "#/$defs/_h218"
+                "$ref": "#/$defs/_h209"
               }
             },
             "title": "SearchFile",
@@ -1118,7 +1116,7 @@
                           "$ref": "#/$defs/_h70"
                         },
                         "termCounts": {
-                          "$ref": "#/$defs/_h218"
+                          "$ref": "#/$defs/_h209"
                         }
                       },
                       "required": [
@@ -1152,7 +1150,7 @@
           "$ref": "#/$defs/_h65"
         },
         "headSha": {
-          "$ref": "#/$defs/_h375"
+          "$ref": "#/$defs/_h376"
         },
         "include": {
           "$ref": "#/$defs/_h46"
@@ -1170,7 +1168,7 @@
           "$ref": "#/$defs/_h6"
         },
         "page": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "pageSize": {
           "$ref": "#/$defs/_h242"
@@ -1250,66 +1248,6 @@
       "type": "object"
     },
     "_h123": {
-      "additionalProperties": false,
-      "properties": {
-        "defaultExcludes": {
-          "$ref": "#/$defs/DefaultExcludes"
-        },
-        "exclude": {
-          "$ref": "#/$defs/_h80"
-        },
-        "include": {
-          "$ref": "#/$defs/_h80"
-        },
-        "includeHidden": {
-          "type": "boolean"
-        },
-        "includeIgnored": {
-          "type": "boolean"
-        },
-        "includeProvenance": {
-          "type": "boolean"
-        },
-        "limit": {
-          "$ref": "#/$defs/_h111"
-        },
-        "operation": {
-          "const": "symbols"
-        },
-        "page": {
-          "$ref": "#/$defs/_h67"
-        },
-        "parser": {
-          "$ref": "#/$defs/AstParser"
-        },
-        "parserGlobs": {
-          "$ref": "#/$defs/AstParserGlobs"
-        },
-        "path": {
-          "$ref": "#/$defs/_h52"
-        },
-        "scanOffset": {
-          "$ref": "#/$defs/_h78"
-        },
-        "snapshot": {
-          "$ref": "#/$defs/_h77"
-        },
-        "symbolFilter": {
-          "$ref": "#/$defs/AstSymbolFilter"
-        },
-        "symbolKinds": {
-          "$ref": "#/$defs/_h53"
-        },
-        "testCode": {
-          "$ref": "#/$defs/TestCode"
-        }
-      },
-      "required": [
-        "operation"
-      ],
-      "type": "object"
-    },
-    "_h124": {
       "items": {
         "additionalProperties": {},
         "properties": {
@@ -1329,7 +1267,7 @@
             ]
           },
           "fork": {
-            "const": true
+            "type": "boolean"
           },
           "forks": {
             "$ref": "#/$defs/_h0"
@@ -1375,6 +1313,7 @@
           },
           "visibility": {
             "enum": [
+              "public",
               "private",
               "internal"
             ]
@@ -1387,6 +1326,66 @@
         "type": "object"
       },
       "type": "array"
+    },
+    "_h124": {
+      "additionalProperties": false,
+      "properties": {
+        "defaultExcludes": {
+          "$ref": "#/$defs/DefaultExcludes"
+        },
+        "exclude": {
+          "$ref": "#/$defs/_h79"
+        },
+        "include": {
+          "$ref": "#/$defs/_h79"
+        },
+        "includeHidden": {
+          "type": "boolean"
+        },
+        "includeIgnored": {
+          "type": "boolean"
+        },
+        "includeProvenance": {
+          "type": "boolean"
+        },
+        "limit": {
+          "$ref": "#/$defs/_h111"
+        },
+        "operation": {
+          "const": "symbols"
+        },
+        "page": {
+          "$ref": "#/$defs/_h67"
+        },
+        "parser": {
+          "$ref": "#/$defs/AstParser"
+        },
+        "parserGlobs": {
+          "$ref": "#/$defs/AstParserGlobs"
+        },
+        "path": {
+          "$ref": "#/$defs/_h52"
+        },
+        "scanOffset": {
+          "$ref": "#/$defs/_h77"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/_h76"
+        },
+        "symbolFilter": {
+          "$ref": "#/$defs/AstSymbolFilter"
+        },
+        "symbolKinds": {
+          "$ref": "#/$defs/_h53"
+        },
+        "testCode": {
+          "$ref": "#/$defs/TestCode"
+        }
+      },
+      "required": [
+        "operation"
+      ],
+      "type": "object"
     },
     "_h125": {
       "additionalProperties": false,
@@ -1413,7 +1412,7 @@
           "$ref": "#/$defs/_h6"
         },
         "page": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "pageSize": {
           "$ref": "#/$defs/_h242"
@@ -1466,7 +1465,7 @@
           "$ref": "#/$defs/_h6"
         },
         "page": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "pageSize": {
           "$ref": "#/$defs/_h242"
@@ -1558,7 +1557,50 @@
       "items": {
         "anyOf": [
           {
-            "$ref": "#/$defs/OutputLspFile"
+            "additionalProperties": {},
+            "properties": {
+              "accessedAt": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "declarations": {
+                "$ref": "#/$defs/_h213"
+              },
+              "maskedSpans": {
+                "$ref": "#/$defs/_h27"
+              },
+              "matchCount": {
+                "$ref": "#/$defs/_h0"
+              },
+              "matchedLineCount": {
+                "$ref": "#/$defs/_h0"
+              },
+              "matches": {
+                "$ref": "#/$defs/_h170"
+              },
+              "matchKeys": {
+                "$ref": "#/$defs/_h163"
+              },
+              "modifiedAt": {
+                "type": "string"
+              },
+              "pagination": {
+                "$ref": "#/$defs/OutputPagination"
+              },
+              "path": {
+                "type": "string"
+              },
+              "termCounts": {
+                "$ref": "#/$defs/_h209"
+              }
+            },
+            "required": [
+              "path"
+            ],
+            "title": "LocalSearchFile",
+            "type": "object"
           },
           {
             "additionalProperties": false,
@@ -1575,23 +1617,44 @@
                     {
                       "additionalProperties": {},
                       "properties": {
+                        "accessedAt": {
+                          "type": "string"
+                        },
+                        "createdAt": {
+                          "type": "string"
+                        },
+                        "declarations": {
+                          "$ref": "#/$defs/_h213"
+                        },
+                        "maskedSpans": {
+                          "$ref": "#/$defs/_h27"
+                        },
                         "matchCount": {
                           "$ref": "#/$defs/_h0"
                         },
-                        "matchedLines": {
-                          "$ref": "#/$defs/_h218"
+                        "matchedLineCount": {
+                          "$ref": "#/$defs/_h0"
                         },
                         "matches": {
-                          "$ref": "#/$defs/_h115"
+                          "$ref": "#/$defs/_h170"
+                        },
+                        "matchKeys": {
+                          "$ref": "#/$defs/_h163"
+                        },
+                        "modifiedAt": {
+                          "type": "string"
                         },
                         "name": {
                           "type": "string"
                         },
+                        "pagination": {
+                          "$ref": "#/$defs/OutputPagination"
+                        },
                         "path": {
                           "not": {}
                         },
-                        "source": {
-                          "type": "string"
+                        "termCounts": {
+                          "$ref": "#/$defs/_h209"
                         }
                       },
                       "required": [
@@ -1608,7 +1671,7 @@
               "dir",
               "files"
             ],
-            "title": "LspFileGroup",
+            "title": "LocalSearchFileGroup",
             "type": "object"
           }
         ]
@@ -1755,7 +1818,7 @@
           "const": "resolve"
         },
         "packageName": {
-          "$ref": "#/$defs/_h217"
+          "$ref": "#/$defs/_h218"
         },
         "preview": {
           "type": "boolean"
@@ -1837,16 +1900,16 @@
       "additionalProperties": false,
       "properties": {
         "bottom": {
-          "$ref": "#/$defs/_h210"
+          "$ref": "#/$defs/_h211"
         },
         "left": {
-          "$ref": "#/$defs/_h210"
+          "$ref": "#/$defs/_h211"
         },
         "right": {
-          "$ref": "#/$defs/_h210"
+          "$ref": "#/$defs/_h211"
         },
         "top": {
-          "$ref": "#/$defs/_h210"
+          "$ref": "#/$defs/_h211"
         }
       },
       "required": [
@@ -1859,60 +1922,6 @@
       "type": "object"
     },
     "_h138": {
-      "additionalProperties": false,
-      "properties": {
-        "importerPage": {
-          "$ref": "#/$defs/_h78"
-        },
-        "includeDeclaration": {
-          "default": true,
-          "type": "boolean"
-        },
-        "limit": {
-          "$ref": "#/$defs/_h111"
-        },
-        "line": {
-          "$ref": "#/$defs/_h42"
-        },
-        "occurrence": {
-          "$ref": "#/$defs/_h304"
-        },
-        "operation": {
-          "const": "references"
-        },
-        "page": {
-          "$ref": "#/$defs/_h67"
-        },
-        "path": {
-          "$ref": "#/$defs/_h52"
-        },
-        "snapshot": {
-          "$ref": "#/$defs/_h77"
-        },
-        "symbolName": {
-          "$ref": "#/$defs/_h34"
-        },
-        "testCode": {
-          "$ref": "#/$defs/TestCode"
-        },
-        "view": {
-          "const": "files"
-        },
-        "workspaceRoot": {
-          "$ref": "#/$defs/_h62"
-        }
-      },
-      "required": [
-        "path",
-        "symbolName",
-        "line",
-        "operation",
-        "view"
-      ],
-      "title": "anchored:references:files",
-      "type": "object"
-    },
-    "_h139": {
       "additionalProperties": false,
       "properties": {
         "createdAt": {
@@ -1936,132 +1945,7 @@
       ],
       "type": "object"
     },
-    "_h14": {
-      "items": {
-        "anyOf": [
-          {
-            "additionalProperties": {},
-            "properties": {
-              "accessedAt": {
-                "type": "string"
-              },
-              "createdAt": {
-                "type": "string"
-              },
-              "declarations": {
-                "$ref": "#/$defs/_h212"
-              },
-              "maskedSpans": {
-                "$ref": "#/$defs/_h27"
-              },
-              "matchCount": {
-                "$ref": "#/$defs/_h0"
-              },
-              "matchedLineCount": {
-                "$ref": "#/$defs/_h0"
-              },
-              "matches": {
-                "$ref": "#/$defs/_h184"
-              },
-              "matchKeys": {
-                "$ref": "#/$defs/_h163"
-              },
-              "modifiedAt": {
-                "type": "string"
-              },
-              "pagination": {
-                "$ref": "#/$defs/OutputPagination"
-              },
-              "path": {
-                "type": "string"
-              },
-              "termCounts": {
-                "$ref": "#/$defs/_h218"
-              }
-            },
-            "required": [
-              "path"
-            ],
-            "title": "LocalSearchFile",
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "dir": {
-                "type": "string"
-              },
-              "files": {
-                "items": {
-                  "anyOf": [
-                    {
-                      "type": "string"
-                    },
-                    {
-                      "additionalProperties": {},
-                      "properties": {
-                        "accessedAt": {
-                          "type": "string"
-                        },
-                        "createdAt": {
-                          "type": "string"
-                        },
-                        "declarations": {
-                          "$ref": "#/$defs/_h212"
-                        },
-                        "maskedSpans": {
-                          "$ref": "#/$defs/_h27"
-                        },
-                        "matchCount": {
-                          "$ref": "#/$defs/_h0"
-                        },
-                        "matchedLineCount": {
-                          "$ref": "#/$defs/_h0"
-                        },
-                        "matches": {
-                          "$ref": "#/$defs/_h184"
-                        },
-                        "matchKeys": {
-                          "$ref": "#/$defs/_h163"
-                        },
-                        "modifiedAt": {
-                          "type": "string"
-                        },
-                        "name": {
-                          "type": "string"
-                        },
-                        "pagination": {
-                          "$ref": "#/$defs/OutputPagination"
-                        },
-                        "path": {
-                          "not": {}
-                        },
-                        "termCounts": {
-                          "$ref": "#/$defs/_h218"
-                        }
-                      },
-                      "required": [
-                        "name"
-                      ],
-                      "type": "object"
-                    }
-                  ]
-                },
-                "type": "array"
-              }
-            },
-            "required": [
-              "dir",
-              "files"
-            ],
-            "title": "LocalSearchFileGroup",
-            "type": "object"
-          }
-        ]
-      },
-      "type": "array"
-    },
-    "_h140": {
+    "_h139": {
       "additionalProperties": false,
       "properties": {
         "fields": {
@@ -2112,6 +1996,120 @@
       ],
       "type": "object"
     },
+    "_h14": {
+      "items": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/OutputLspFile"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "dir": {
+                "type": "string"
+              },
+              "files": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "additionalProperties": {},
+                      "properties": {
+                        "matchCount": {
+                          "$ref": "#/$defs/_h0"
+                        },
+                        "matchedLines": {
+                          "$ref": "#/$defs/_h209"
+                        },
+                        "matches": {
+                          "$ref": "#/$defs/_h115"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "path": {
+                          "not": {}
+                        },
+                        "source": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "dir",
+              "files"
+            ],
+            "title": "LspFileGroup",
+            "type": "object"
+          }
+        ]
+      },
+      "type": "array"
+    },
+    "_h140": {
+      "additionalProperties": false,
+      "properties": {
+        "importerPage": {
+          "$ref": "#/$defs/_h77"
+        },
+        "includeDeclaration": {
+          "default": true,
+          "type": "boolean"
+        },
+        "limit": {
+          "$ref": "#/$defs/_h111"
+        },
+        "line": {
+          "$ref": "#/$defs/_h42"
+        },
+        "occurrence": {
+          "$ref": "#/$defs/_h303"
+        },
+        "operation": {
+          "const": "references"
+        },
+        "page": {
+          "$ref": "#/$defs/_h67"
+        },
+        "path": {
+          "$ref": "#/$defs/_h52"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/_h76"
+        },
+        "symbolName": {
+          "$ref": "#/$defs/_h34"
+        },
+        "testCode": {
+          "$ref": "#/$defs/TestCode"
+        },
+        "view": {
+          "const": "files"
+        },
+        "workspaceRoot": {
+          "$ref": "#/$defs/_h62"
+        }
+      },
+      "required": [
+        "path",
+        "symbolName",
+        "operation",
+        "view"
+      ],
+      "title": "anchored:references:files",
+      "type": "object"
+    },
     "_h141": {
       "items": {
         "anyOf": [
@@ -2156,7 +2154,7 @@
                 "type": "string"
               },
               "sectionPagination": {
-                "$ref": "#/$defs/_h182"
+                "$ref": "#/$defs/_h183"
               }
             },
             "required": [
@@ -2241,7 +2239,7 @@
         "type": "object"
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h167"
+        "$ref": "#/$defs/_h166"
       },
       "type": "object"
     },
@@ -2270,7 +2268,7 @@
           "$ref": "#/$defs/_h6"
         },
         "page": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "pageSize": {
           "$ref": "#/$defs/_h242"
@@ -2317,7 +2315,7 @@
           "$ref": "#/$defs/_h97"
         },
         "readProgress": {
-          "$ref": "#/$defs/_h172"
+          "$ref": "#/$defs/_h173"
         },
         "ref": {
           "$ref": "#/$defs/_h17"
@@ -2330,7 +2328,7 @@
           "$ref": "#/$defs/_h8"
         },
         "view": {
-          "$ref": "#/$defs/_h298"
+          "$ref": "#/$defs/_h297"
         }
       },
       "required": [
@@ -2357,7 +2355,7 @@
           "$ref": "#/$defs/_h30"
         },
         "importRole": {
-          "$ref": "#/$defs/_h341"
+          "$ref": "#/$defs/_h342"
         },
         "kind": {
           "type": "string"
@@ -2375,7 +2373,7 @@
           "$ref": "#/$defs/OutputLspRange"
         },
         "role": {
-          "$ref": "#/$defs/_h295"
+          "$ref": "#/$defs/_h294"
         },
         "source": {
           "$ref": "#/$defs/_h206"
@@ -2415,7 +2413,7 @@
           "$ref": "#/$defs/_h97"
         },
         "readProgress": {
-          "$ref": "#/$defs/_h172"
+          "$ref": "#/$defs/_h173"
         },
         "regexEngine": {
           "$ref": "#/$defs/RegexEngine",
@@ -2425,7 +2423,7 @@
           "$ref": "#/$defs/_h181"
         },
         "view": {
-          "$ref": "#/$defs/_h298"
+          "$ref": "#/$defs/_h297"
         }
       },
       "required": [
@@ -2450,10 +2448,10 @@
       "additionalProperties": false,
       "properties": {
         "depth": {
-          "$ref": "#/$defs/_h378"
+          "$ref": "#/$defs/_h379"
         },
         "importerPage": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "limit": {
           "$ref": "#/$defs/_h111"
@@ -2462,7 +2460,7 @@
           "$ref": "#/$defs/_h42"
         },
         "occurrence": {
-          "$ref": "#/$defs/_h304"
+          "$ref": "#/$defs/_h303"
         },
         "operation": {
           "const": "callers"
@@ -2474,7 +2472,7 @@
           "$ref": "#/$defs/_h52"
         },
         "snapshot": {
-          "$ref": "#/$defs/_h77"
+          "$ref": "#/$defs/_h76"
         },
         "symbolName": {
           "$ref": "#/$defs/_h34"
@@ -2489,7 +2487,6 @@
       "required": [
         "path",
         "symbolName",
-        "line",
         "operation"
       ],
       "title": "anchored:callers",
@@ -2605,7 +2602,7 @@
           "$ref": "#/$defs/GraphEdgeconfidence"
         },
         "cycle": {
-          "$ref": "#/$defs/_h77"
+          "$ref": "#/$defs/_h76"
         },
         "edges": {
           "$ref": "#/$defs/GraphEdgeedges"
@@ -2620,7 +2617,7 @@
           "$ref": "#/$defs/GraphPagelimit"
         },
         "list": {
-          "$ref": "#/$defs/_h77"
+          "$ref": "#/$defs/_h76"
         },
         "offset": {
           "$ref": "#/$defs/GraphPageoffset"
@@ -2695,10 +2692,10 @@
       "additionalProperties": false,
       "properties": {
         "candidatePage": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "depth": {
-          "$ref": "#/$defs/_h378"
+          "$ref": "#/$defs/_h379"
         },
         "limit": {
           "$ref": "#/$defs/_h111"
@@ -2707,7 +2704,7 @@
           "$ref": "#/$defs/_h42"
         },
         "occurrence": {
-          "$ref": "#/$defs/_h304"
+          "$ref": "#/$defs/_h303"
         },
         "operation": {
           "const": "subtypes"
@@ -2719,7 +2716,7 @@
           "$ref": "#/$defs/_h52"
         },
         "snapshot": {
-          "$ref": "#/$defs/_h77"
+          "$ref": "#/$defs/_h76"
         },
         "symbolName": {
           "$ref": "#/$defs/_h34"
@@ -2731,56 +2728,12 @@
       "required": [
         "path",
         "symbolName",
-        "line",
         "operation"
       ],
       "title": "anchored:subtypes",
       "type": "object"
     },
     "_h158": {
-      "additionalProperties": false,
-      "properties": {
-        "limit": {
-          "$ref": "#/$defs/_h111"
-        },
-        "line": {
-          "$ref": "#/$defs/_h42"
-        },
-        "occurrence": {
-          "$ref": "#/$defs/_h304"
-        },
-        "operation": {
-          "$ref": "#/$defs/_h351"
-        },
-        "page": {
-          "$ref": "#/$defs/_h67"
-        },
-        "path": {
-          "$ref": "#/$defs/_h52"
-        },
-        "snapshot": {
-          "$ref": "#/$defs/_h77"
-        },
-        "symbolName": {
-          "$ref": "#/$defs/_h34"
-        },
-        "view": {
-          "const": "files"
-        },
-        "workspaceRoot": {
-          "$ref": "#/$defs/_h62"
-        }
-      },
-      "required": [
-        "path",
-        "symbolName",
-        "line",
-        "view"
-      ],
-      "title": "anchored:locations:files",
-      "type": "object"
-    },
-    "_h159": {
       "additionalProperties": false,
       "properties": {
         "fileStatus": {
@@ -2799,7 +2752,7 @@
           "$ref": "#/$defs/_h6"
         },
         "page": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "pageSize": {
           "$ref": "#/$defs/_h242"
@@ -2820,6 +2773,48 @@
         "operation",
         "ref"
       ],
+      "type": "object"
+    },
+    "_h159": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "$ref": "#/$defs/_h111"
+        },
+        "line": {
+          "$ref": "#/$defs/_h42"
+        },
+        "occurrence": {
+          "$ref": "#/$defs/_h303"
+        },
+        "operation": {
+          "$ref": "#/$defs/_h352"
+        },
+        "page": {
+          "$ref": "#/$defs/_h67"
+        },
+        "path": {
+          "$ref": "#/$defs/_h52"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/_h76"
+        },
+        "symbolName": {
+          "$ref": "#/$defs/_h34"
+        },
+        "view": {
+          "const": "files"
+        },
+        "workspaceRoot": {
+          "$ref": "#/$defs/_h62"
+        }
+      },
+      "required": [
+        "path",
+        "symbolName",
+        "view"
+      ],
+      "title": "anchored:locations:files",
       "type": "object"
     },
     "_h16": {
@@ -2858,7 +2853,7 @@
           "$ref": "#/$defs/_h6"
         },
         "page": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "pageSize": {
           "$ref": "#/$defs/_h242"
@@ -2953,52 +2948,6 @@
     "_h164": {
       "additionalProperties": false,
       "properties": {
-        "depth": {
-          "$ref": "#/$defs/_h378"
-        },
-        "limit": {
-          "$ref": "#/$defs/_h111"
-        },
-        "line": {
-          "$ref": "#/$defs/_h42"
-        },
-        "occurrence": {
-          "$ref": "#/$defs/_h304"
-        },
-        "operation": {
-          "enum": [
-            "callees",
-            "supertypes"
-          ]
-        },
-        "page": {
-          "$ref": "#/$defs/_h67"
-        },
-        "path": {
-          "$ref": "#/$defs/_h52"
-        },
-        "snapshot": {
-          "$ref": "#/$defs/_h77"
-        },
-        "symbolName": {
-          "$ref": "#/$defs/_h34"
-        },
-        "workspaceRoot": {
-          "$ref": "#/$defs/_h62"
-        }
-      },
-      "required": [
-        "path",
-        "symbolName",
-        "line",
-        "operation"
-      ],
-      "title": "anchored:hierarchy",
-      "type": "object"
-    },
-    "_h165": {
-      "additionalProperties": false,
-      "properties": {
         "graph": {
           "$ref": "#/$defs/GraphScopegraph"
         },
@@ -3034,7 +2983,7 @@
       "title": "GraphQueryCandidates",
       "type": "object"
     },
-    "_h166": {
+    "_h165": {
       "additionalProperties": false,
       "properties": {
         "baseline": {
@@ -3050,7 +2999,7 @@
           "$ref": "#/$defs/GraphPagelimit"
         },
         "list": {
-          "$ref": "#/$defs/_h77"
+          "$ref": "#/$defs/_h76"
         },
         "offset": {
           "$ref": "#/$defs/GraphPageoffset"
@@ -3072,17 +3021,17 @@
       "title": "GraphQueryDrift",
       "type": "object"
     },
-    "_h167": {
+    "_h166": {
       "maxLength": 64,
       "minLength": 1,
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
       "type": "string"
     },
-    "_h168": {
+    "_h167": {
       "additionalProperties": false,
       "properties": {
         "ecosystem": {
-          "$ref": "#/$defs/_h373"
+          "$ref": "#/$defs/_h374"
         },
         "keywords": {
           "$ref": "#/$defs/_h68"
@@ -3094,13 +3043,13 @@
           "const": "search"
         },
         "page": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "preview": {
           "type": "boolean"
         },
         "registryCursor": {
-          "$ref": "#/$defs/_h77"
+          "$ref": "#/$defs/_h76"
         },
         "view": {
           "$ref": "#/$defs/ArtifactSearchView"
@@ -3114,7 +3063,7 @@
       "title": "search crates, maven, nuget, go, packagist or rubygems",
       "type": "object"
     },
-    "_h169": {
+    "_h168": {
       "items": {
         "additionalProperties": {},
         "properties": {
@@ -3134,7 +3083,7 @@
             "$ref": "#/$defs/_h0"
           },
           "matchedLines": {
-            "$ref": "#/$defs/_h218"
+            "$ref": "#/$defs/_h209"
           },
           "matches": {
             "items": {
@@ -3162,6 +3111,51 @@
       },
       "type": "array"
     },
+    "_h169": {
+      "additionalProperties": false,
+      "properties": {
+        "depth": {
+          "$ref": "#/$defs/_h379"
+        },
+        "limit": {
+          "$ref": "#/$defs/_h111"
+        },
+        "line": {
+          "$ref": "#/$defs/_h42"
+        },
+        "occurrence": {
+          "$ref": "#/$defs/_h303"
+        },
+        "operation": {
+          "enum": [
+            "callees",
+            "supertypes"
+          ]
+        },
+        "page": {
+          "$ref": "#/$defs/_h67"
+        },
+        "path": {
+          "$ref": "#/$defs/_h52"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/_h76"
+        },
+        "symbolName": {
+          "$ref": "#/$defs/_h34"
+        },
+        "workspaceRoot": {
+          "$ref": "#/$defs/_h62"
+        }
+      },
+      "required": [
+        "path",
+        "symbolName",
+        "operation"
+      ],
+      "title": "anchored:hierarchy",
+      "type": "object"
+    },
     "_h17": {
       "minLength": 1,
       "pattern": "^[^\\s\\x00-\\x1F\\x7F]+$",
@@ -3169,6 +3163,40 @@
       "x-patternMessage": "Set a ref without whitespace or control characters."
     },
     "_h170": {
+      "items": {
+        "additionalProperties": {},
+        "properties": {
+          "column": {
+            "$ref": "#/$defs/_h0"
+          },
+          "count": {
+            "$ref": "#/$defs/_h0"
+          },
+          "declaration": {
+            "$ref": "#/$defs/_h340"
+          },
+          "enclosing": {
+            "$ref": "#/$defs/_h340"
+          },
+          "endLine": {
+            "$ref": "#/$defs/_h0"
+          },
+          "line": {
+            "$ref": "#/$defs/_h0"
+          },
+          "matchedLines": {
+            "$ref": "#/$defs/_h209"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "title": "LocalSearchMatch",
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "_h171": {
       "anyOf": [
         {
           "additionalProperties": false,
@@ -3212,7 +3240,7 @@
       ],
       "title": "HistorySearchSort"
     },
-    "_h171": {
+    "_h172": {
       "additionalProperties": false,
       "properties": {
         "ecosystem": {
@@ -3227,7 +3255,7 @@
           "const": "resolve"
         },
         "packageName": {
-          "$ref": "#/$defs/_h217"
+          "$ref": "#/$defs/_h218"
         },
         "preview": {
           "type": "boolean"
@@ -3247,11 +3275,11 @@
       "title": "resolve nuget, go, packagist or rubygems",
       "type": "object"
     },
-    "_h172": {
+    "_h173": {
       "$ref": "#/$defs/ReadProgress",
       "x-cursor": true
     },
-    "_h173": {
+    "_h174": {
       "additionalProperties": false,
       "properties": {
         "ecosystem": {
@@ -3281,7 +3309,7 @@
       "title": "resolve maven",
       "type": "object"
     },
-    "_h174": {
+    "_h175": {
       "additionalProperties": false,
       "properties": {
         "graph": {
@@ -3318,7 +3346,7 @@
       "title": "GraphQueryFind",
       "type": "object"
     },
-    "_h175": {
+    "_h176": {
       "$ref": "#/$defs/graphBuildNext",
       "additionalProperties": {
         "$ref": "#/$defs/graphBuildContinueCall"
@@ -3328,7 +3356,7 @@
       },
       "type": "object"
     },
-    "_h176": {
+    "_h177": {
       "additionalProperties": false,
       "properties": {
         "ecosystem": {
@@ -3344,13 +3372,13 @@
           "const": "search"
         },
         "page": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "preview": {
           "type": "boolean"
         },
         "registryCursor": {
-          "$ref": "#/$defs/_h77"
+          "$ref": "#/$defs/_h76"
         },
         "registryUrl": {
           "$ref": "#/$defs/_h95"
@@ -3367,7 +3395,7 @@
       "title": "search npm",
       "type": "object"
     },
-    "_h177": {
+    "_h178": {
       "additionalProperties": false,
       "properties": {
         "graph": {
@@ -3402,7 +3430,7 @@
       "title": "GraphQueryCochange",
       "type": "object"
     },
-    "_h178": {
+    "_h179": {
       "additionalProperties": false,
       "properties": {
         "graph": {
@@ -3434,46 +3462,6 @@
         "operation"
       ],
       "title": "GraphQueryDiagnostics",
-      "type": "object"
-    },
-    "_h179": {
-      "additionalProperties": false,
-      "properties": {
-        "limit": {
-          "$ref": "#/$defs/_h111"
-        },
-        "line": {
-          "$ref": "#/$defs/_h42"
-        },
-        "occurrence": {
-          "$ref": "#/$defs/_h304"
-        },
-        "operation": {
-          "const": "hover"
-        },
-        "page": {
-          "$ref": "#/$defs/_h67"
-        },
-        "path": {
-          "$ref": "#/$defs/_h52"
-        },
-        "snapshot": {
-          "$ref": "#/$defs/_h77"
-        },
-        "symbolName": {
-          "$ref": "#/$defs/_h34"
-        },
-        "workspaceRoot": {
-          "$ref": "#/$defs/_h62"
-        }
-      },
-      "required": [
-        "path",
-        "symbolName",
-        "line",
-        "operation"
-      ],
-      "title": "anchored:hover",
       "type": "object"
     },
     "_h18": {
@@ -3564,6 +3552,45 @@
       "x-cursor": true
     },
     "_h182": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "$ref": "#/$defs/_h111"
+        },
+        "line": {
+          "$ref": "#/$defs/_h42"
+        },
+        "occurrence": {
+          "$ref": "#/$defs/_h303"
+        },
+        "operation": {
+          "const": "hover"
+        },
+        "page": {
+          "$ref": "#/$defs/_h67"
+        },
+        "path": {
+          "$ref": "#/$defs/_h52"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/_h76"
+        },
+        "symbolName": {
+          "$ref": "#/$defs/_h34"
+        },
+        "workspaceRoot": {
+          "$ref": "#/$defs/_h62"
+        }
+      },
+      "required": [
+        "path",
+        "symbolName",
+        "operation"
+      ],
+      "title": "anchored:hover",
+      "type": "object"
+    },
+    "_h183": {
       "additionalProperties": {
         "$ref": "#/$defs/OutputPagination"
       },
@@ -3572,7 +3599,7 @@
       },
       "type": "object"
     },
-    "_h183": {
+    "_h184": {
       "items": {
         "enum": [
           "external-package",
@@ -3595,40 +3622,6 @@
       },
       "maxItems": 16,
       "minItems": 1,
-      "type": "array"
-    },
-    "_h184": {
-      "items": {
-        "additionalProperties": {},
-        "properties": {
-          "column": {
-            "$ref": "#/$defs/_h0"
-          },
-          "count": {
-            "$ref": "#/$defs/_h0"
-          },
-          "declaration": {
-            "const": true
-          },
-          "enclosing": {
-            "$ref": "#/$defs/_h381"
-          },
-          "endLine": {
-            "$ref": "#/$defs/_h0"
-          },
-          "line": {
-            "$ref": "#/$defs/_h0"
-          },
-          "matchedLines": {
-            "$ref": "#/$defs/_h218"
-          },
-          "value": {
-            "type": "string"
-          }
-        },
-        "title": "LocalSearchMatch",
-        "type": "object"
-      },
       "type": "array"
     },
     "_h185": {
@@ -3792,7 +3785,7 @@
       "additionalProperties": false,
       "properties": {
         "content": {
-          "$ref": "#/$defs/_h305"
+          "$ref": "#/$defs/_h304"
         },
         "includeProvenance": {
           "type": "boolean"
@@ -3814,7 +3807,7 @@
           "$ref": "#/$defs/AstParser"
         },
         "snapshot": {
-          "$ref": "#/$defs/_h77"
+          "$ref": "#/$defs/_h76"
         }
       },
       "required": [
@@ -3888,13 +3881,13 @@
           "$ref": "#/$defs/_h6"
         },
         "page": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "ref": {
           "$ref": "#/$defs/_h17"
         },
         "refKinds": {
-          "$ref": "#/$defs/_h352"
+          "$ref": "#/$defs/_h353"
         },
         "repo": {
           "$ref": "#/$defs/_h8"
@@ -3909,7 +3902,7 @@
     },
     "_h195": {
       "items": {
-        "$ref": "#/$defs/_h369"
+        "$ref": "#/$defs/_h370"
       },
       "maxItems": 100,
       "minItems": 1,
@@ -4021,7 +4014,7 @@
               "$ref": "#/$defs/ClassificationContext"
             },
             "content": {
-              "$ref": "#/$defs/_h311"
+              "$ref": "#/$defs/_h310"
             },
             "longContext": {
               "type": "boolean"
@@ -4057,7 +4050,7 @@
               "not": {}
             },
             "retryUnits": {
-              "$ref": "#/$defs/_h345"
+              "$ref": "#/$defs/_h346"
             },
             "source": {
               "not": {}
@@ -4124,13 +4117,13 @@
               "not": {}
             },
             "retryUnits": {
-              "$ref": "#/$defs/_h345"
+              "$ref": "#/$defs/_h346"
             },
             "savedPage": {
               "$ref": "#/$defs/_h335"
             },
             "source": {
-              "$ref": "#/$defs/_h85"
+              "$ref": "#/$defs/_h84"
             },
             "sourceProgress": {
               "$ref": "#/$defs/_h335"
@@ -4388,7 +4381,7 @@
           "$ref": "#/$defs/_h52"
         },
         "snapshot": {
-          "$ref": "#/$defs/_h77"
+          "$ref": "#/$defs/_h76"
         },
         "symbolFuzzy": {
           "$ref": "#/$defs/_h34"
@@ -4436,7 +4429,7 @@
           "$ref": "#/$defs/_h52"
         },
         "snapshot": {
-          "$ref": "#/$defs/_h77"
+          "$ref": "#/$defs/_h76"
         }
       },
       "required": [
@@ -4508,7 +4501,7 @@
           "$ref": "#/$defs/_h97"
         },
         "readProgress": {
-          "$ref": "#/$defs/_h172"
+          "$ref": "#/$defs/_h173"
         },
         "ref": {
           "$ref": "#/$defs/_h17"
@@ -4517,7 +4510,7 @@
           "$ref": "#/$defs/_h8"
         },
         "view": {
-          "$ref": "#/$defs/_h298"
+          "$ref": "#/$defs/_h297"
         }
       },
       "required": [
@@ -4546,29 +4539,15 @@
       "type": "object"
     },
     "_h209": {
-      "additionalProperties": false,
-      "properties": {
-        "operation": {
-          "const": "languages"
-        },
-        "owner": {
-          "$ref": "#/$defs/_h6"
-        },
-        "repo": {
-          "$ref": "#/$defs/_h8"
-        }
+      "items": {
+        "$ref": "#/$defs/_h0"
       },
-      "required": [
-        "operation",
-        "owner",
-        "repo"
-      ],
-      "type": "object"
+      "type": "array"
     },
     "_h21": {
       "$ref": "#/$defs/lspSearchNext",
       "additionalProperties": {
-        "$ref": "#/$defs/_h340"
+        "$ref": "#/$defs/_h341"
       },
       "patternProperties": {
         "^(?:continueWalk(?:[2-9]|[1-9][0-9]+)?)$": {
@@ -4602,11 +4581,31 @@
       "type": "object"
     },
     "_h210": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "const": "languages"
+        },
+        "owner": {
+          "$ref": "#/$defs/_h6"
+        },
+        "repo": {
+          "$ref": "#/$defs/_h8"
+        }
+      },
+      "required": [
+        "operation",
+        "owner",
+        "repo"
+      ],
+      "type": "object"
+    },
+    "_h211": {
       "maximum": 1,
       "minimum": 0,
       "type": "number"
     },
-    "_h211": {
+    "_h212": {
       "additionalProperties": false,
       "properties": {
         "operation": {
@@ -4619,13 +4618,13 @@
           "type": "boolean"
         },
         "ref": {
-          "$ref": "#/$defs/_h367"
+          "$ref": "#/$defs/_h368"
         },
         "repo": {
           "$ref": "#/$defs/_h8"
         },
         "resume": {
-          "$ref": "#/$defs/_h77"
+          "$ref": "#/$defs/_h76"
         },
         "view": {
           "$ref": "#/$defs/SecurityCheckView"
@@ -4637,11 +4636,11 @@
       ],
       "type": "object"
     },
-    "_h212": {
+    "_h213": {
       "items": {
         "anyOf": [
           {
-            "$ref": "#/$defs/_h368"
+            "$ref": "#/$defs/_h369"
           },
           {
             "additionalProperties": false,
@@ -4672,7 +4671,7 @@
       },
       "type": "array"
     },
-    "_h213": {
+    "_h214": {
       "additionalProperties": false,
       "properties": {
         "limit": {
@@ -4685,7 +4684,7 @@
           "$ref": "#/$defs/_h67"
         },
         "snapshot": {
-          "$ref": "#/$defs/_h77"
+          "$ref": "#/$defs/_h76"
         },
         "symbolFuzzy": {
           "$ref": "#/$defs/_h34"
@@ -4702,7 +4701,7 @@
       "title": "lsp:workspace:root",
       "type": "object"
     },
-    "_h214": {
+    "_h215": {
       "additionalProperties": false,
       "properties": {
         "block": {
@@ -4718,7 +4717,7 @@
           "$ref": "#/$defs/_h97"
         },
         "readProgress": {
-          "$ref": "#/$defs/_h172"
+          "$ref": "#/$defs/_h173"
         },
         "ref": {
           "$ref": "#/$defs/_h17"
@@ -4739,14 +4738,14 @@
       ],
       "type": "object"
     },
-    "_h215": {
+    "_h216": {
       "additionalProperties": false,
       "properties": {
         "query": {
           "$ref": "#/$defs/_h59"
         },
         "tool": {
-          "$ref": "#/$defs/_h303"
+          "$ref": "#/$defs/_h302"
         }
       },
       "required": [
@@ -4760,7 +4759,7 @@
         "tool": "tool"
       }
     },
-    "_h216": {
+    "_h217": {
       "additionalProperties": false,
       "properties": {
         "committedFiles": {
@@ -4776,17 +4775,11 @@
       ],
       "type": "object"
     },
-    "_h217": {
+    "_h218": {
       "minLength": 1,
       "pattern": "^[^@=:\\s]+$",
       "type": "string",
       "x-patternMessage": "Use a bare packageName and put the version in version."
-    },
-    "_h218": {
-      "items": {
-        "$ref": "#/$defs/_h0"
-      },
-      "type": "array"
     },
     "_h219": {
       "additionalProperties": false,
@@ -4807,7 +4800,7 @@
           "$ref": "#/$defs/_h52"
         },
         "snapshot": {
-          "$ref": "#/$defs/_h77"
+          "$ref": "#/$defs/_h76"
         },
         "workspaceRoot": {
           "$ref": "#/$defs/_h62"
@@ -4889,13 +4882,13 @@
           "$ref": "#/$defs/_h97"
         },
         "readProgress": {
-          "$ref": "#/$defs/_h172"
+          "$ref": "#/$defs/_h173"
         },
         "snapshot": {
           "$ref": "#/$defs/_h181"
         },
         "view": {
-          "$ref": "#/$defs/_h298"
+          "$ref": "#/$defs/_h297"
         }
       },
       "required": [
@@ -4927,7 +4920,7 @@
       },
       "minProperties": 1,
       "propertyNames": {
-        "$ref": "#/$defs/_h167"
+        "$ref": "#/$defs/_h166"
       },
       "type": "object"
     },
@@ -4951,7 +4944,7 @@
           "$ref": "#/$defs/_h97"
         },
         "readProgress": {
-          "$ref": "#/$defs/_h172"
+          "$ref": "#/$defs/_h173"
         },
         "snapshot": {
           "$ref": "#/$defs/_h181"
@@ -4971,7 +4964,7 @@
       "additionalProperties": false,
       "properties": {
         "id": {
-          "$ref": "#/$defs/_h380"
+          "$ref": "#/$defs/_h381"
         },
         "operation": {
           "const": "advisory"
@@ -5135,7 +5128,7 @@
           "$ref": "#/$defs/_h43"
         },
         "readProgress": {
-          "$ref": "#/$defs/_h172"
+          "$ref": "#/$defs/_h173"
         },
         "ref": {
           "$ref": "#/$defs/_h17"
@@ -5144,7 +5137,7 @@
           "$ref": "#/$defs/_h8"
         },
         "view": {
-          "$ref": "#/$defs/_h298"
+          "$ref": "#/$defs/_h297"
         }
       },
       "required": [
@@ -5170,7 +5163,7 @@
           "$ref": "#/$defs/_h8"
         },
         "resume": {
-          "$ref": "#/$defs/_h77"
+          "$ref": "#/$defs/_h76"
         },
         "view": {
           "$ref": "#/$defs/SecurityCheckView"
@@ -5229,7 +5222,7 @@
           "$ref": "#/$defs/_h43"
         },
         "readProgress": {
-          "$ref": "#/$defs/_h172"
+          "$ref": "#/$defs/_h173"
         },
         "ref": {
           "$ref": "#/$defs/_h17"
@@ -5259,7 +5252,7 @@
           "$ref": "#/$defs/_h43"
         },
         "readProgress": {
-          "$ref": "#/$defs/_h172"
+          "$ref": "#/$defs/_h173"
         },
         "ref": {
           "$ref": "#/$defs/_h17"
@@ -5445,13 +5438,13 @@
           "$ref": "#/$defs/_h57"
         },
         "readProgress": {
-          "$ref": "#/$defs/_h172"
+          "$ref": "#/$defs/_h173"
         },
         "snapshot": {
           "$ref": "#/$defs/_h181"
         },
         "view": {
-          "$ref": "#/$defs/_h298"
+          "$ref": "#/$defs/_h297"
         }
       },
       "required": [
@@ -5495,7 +5488,7 @@
           "$ref": "#/$defs/_h57"
         },
         "readProgress": {
-          "$ref": "#/$defs/_h172"
+          "$ref": "#/$defs/_h173"
         },
         "snapshot": {
           "$ref": "#/$defs/_h181"
@@ -5520,7 +5513,7 @@
           "$ref": "#/$defs/_h57"
         },
         "readProgress": {
-          "$ref": "#/$defs/_h172"
+          "$ref": "#/$defs/_h173"
         },
         "snapshot": {
           "$ref": "#/$defs/_h181"
@@ -5544,7 +5537,7 @@
           "$ref": "#/$defs/_h132"
         },
         {
-          "$ref": "#/$defs/_h84"
+          "$ref": "#/$defs/_h83"
         },
         {
           "$ref": "#/$defs/_h142"
@@ -5797,7 +5790,7 @@
     },
     "_h251": {
       "additionalProperties": {
-        "$ref": "#/$defs/_h210"
+        "$ref": "#/$defs/_h211"
       },
       "propertyNames": {
         "type": "string"
@@ -5864,7 +5857,7 @@
         "$ref": "#/$defs/ghCloneRepoContinueCall"
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h343"
+        "$ref": "#/$defs/_h344"
       },
       "type": "object"
     },
@@ -6046,7 +6039,7 @@
           "$ref": "#/$defs/_h8"
         },
         "sort": {
-          "$ref": "#/$defs/_h170"
+          "$ref": "#/$defs/_h171"
         }
       },
       "required": [
@@ -6558,10 +6551,6 @@
       "type": "object"
     },
     "_h291": {
-      "pattern": "^(?:nextPage|readSource(?:[2-9]|[1-9][0-9]+)?|readHits(?:[2-9]|[1-9][0-9]+)?|retry(?:[2-9]|[1-9][0-9]+)?|restart(?:[2-9]|[1-9][0-9]+)?)$",
-      "type": "string"
-    },
-    "_h292": {
       "$ref": "#/$defs/ghGetFileContentNext",
       "additionalProperties": {
         "$ref": "#/$defs/ghGetFileContentContinueCall"
@@ -6571,7 +6560,7 @@
       },
       "type": "object"
     },
-    "_h293": {
+    "_h292": {
       "additionalProperties": false,
       "properties": {
         "analysisCurrent": {
@@ -6587,7 +6576,7 @@
       ],
       "type": "object"
     },
-    "_h294": {
+    "_h293": {
       "$ref": "#/$defs/structureSearchNext",
       "additionalProperties": {
         "$ref": "#/$defs/structureSearchContinueCall"
@@ -6597,7 +6586,7 @@
       },
       "type": "object"
     },
-    "_h295": {
+    "_h294": {
       "enum": [
         "declaration",
         "call",
@@ -6605,7 +6594,7 @@
         "reference"
       ]
     },
-    "_h296": {
+    "_h295": {
       "items": {
         "enum": [
           "path",
@@ -6617,18 +6606,18 @@
       "minItems": 1,
       "type": "array"
     },
-    "_h297": {
+    "_h296": {
       "maxLength": 100,
       "minLength": 1,
       "pattern": "^[^\\s*^~<>=|,[\\]()]+$",
       "type": "string",
       "x-patternMessage": "This ecosystem requires one exact version, not a range."
     },
-    "_h298": {
+    "_h297": {
       "const": "content",
       "default": "content"
     },
-    "_h299": {
+    "_h298": {
       "$ref": "#/$defs/ghSearchRepoNext",
       "additionalProperties": {
         "$ref": "#/$defs/ghSearchRepoContinueCall"
@@ -6636,6 +6625,22 @@
       "propertyNames": {
         "$ref": "#/$defs/_h72"
       },
+      "type": "object"
+    },
+    "_h299": {
+      "additionalProperties": false,
+      "properties": {
+        "column": {
+          "$ref": "#/$defs/_h27"
+        },
+        "line": {
+          "$ref": "#/$defs/_h27"
+        }
+      },
+      "required": [
+        "line",
+        "column"
+      ],
       "type": "object"
     },
     "_h3": {
@@ -6658,22 +6663,6 @@
       "type": "integer"
     },
     "_h300": {
-      "additionalProperties": false,
-      "properties": {
-        "column": {
-          "$ref": "#/$defs/_h27"
-        },
-        "line": {
-          "$ref": "#/$defs/_h27"
-        }
-      },
-      "required": [
-        "line",
-        "column"
-      ],
-      "type": "object"
-    },
-    "_h301": {
       "$ref": "#/$defs/localFetchNext",
       "additionalProperties": {
         "$ref": "#/$defs/localFetchContinueCall"
@@ -6683,7 +6672,7 @@
       },
       "type": "object"
     },
-    "_h302": {
+    "_h301": {
       "additionalProperties": false,
       "properties": {
         "end": {
@@ -6699,7 +6688,7 @@
       ],
       "type": "object"
     },
-    "_h303": {
+    "_h302": {
       "enum": [
         "localSearch",
         "structureSearch",
@@ -6712,23 +6701,23 @@
         "artifactSearch"
       ]
     },
-    "_h304": {
+    "_h303": {
       "default": 0,
       "minimum": 0,
       "type": "integer"
     },
-    "_h305": {
+    "_h304": {
       "maxLength": 20000,
       "minLength": 1,
       "type": "string"
     },
-    "_h306": {
+    "_h305": {
       "maxLength": 100,
       "minLength": 1,
       "pattern": "\\S",
       "type": "string"
     },
-    "_h307": {
+    "_h306": {
       "enum": [
         "eager",
         "deferred",
@@ -6738,7 +6727,7 @@
         "unknown"
       ]
     },
-    "_h308": {
+    "_h307": {
       "additionalProperties": {
         "$ref": "#/$defs/ClasifySectionResource"
       },
@@ -6748,7 +6737,7 @@
       },
       "type": "object"
     },
-    "_h309": {
+    "_h308": {
       "anyOf": [
         {
           "$ref": "#/$defs/clasifyContinueCall"
@@ -6761,13 +6750,22 @@
         }
       ]
     },
+    "_h309": {
+      "items": {
+        "$ref": "#/$defs/_h370"
+      },
+      "maxItems": 100,
+      "minItems": 1,
+      "type": "array",
+      "x-listing": "name"
+    },
     "_h31": {
       "anyOf": [
         {
           "additionalProperties": false,
           "properties": {
             "noul": {
-              "$ref": "#/$defs/_h210"
+              "$ref": "#/$defs/_h211"
             }
           },
           "required": [
@@ -6782,7 +6780,7 @@
               "type": "string"
             },
             "confidence": {
-              "$ref": "#/$defs/_h210"
+              "$ref": "#/$defs/_h211"
             },
             "probabilities": {
               "$ref": "#/$defs/_h251"
@@ -6797,7 +6795,7 @@
           "additionalProperties": false,
           "properties": {
             "confidence": {
-              "$ref": "#/$defs/_h210"
+              "$ref": "#/$defs/_h211"
             },
             "probabilities": {
               "$ref": "#/$defs/_h251"
@@ -6819,7 +6817,7 @@
               "$ref": "#/$defs/_h137"
             },
             "confidence": {
-              "$ref": "#/$defs/_h350"
+              "$ref": "#/$defs/_h351"
             }
           },
           "required": [
@@ -6830,15 +6828,6 @@
       ]
     },
     "_h310": {
-      "items": {
-        "$ref": "#/$defs/_h369"
-      },
-      "maxItems": 100,
-      "minItems": 1,
-      "type": "array",
-      "x-listing": "name"
-    },
-    "_h311": {
       "anyOf": [
         {
           "type": "string"
@@ -6847,15 +6836,15 @@
           "$ref": "#/$defs/_h59"
         },
         {
-          "$ref": "#/$defs/_h349"
+          "$ref": "#/$defs/_h350"
         }
       ]
     },
-    "_h312": {
+    "_h311": {
       "pattern": "^(?:nextPage|expandScan(?:[2-9]|[1-9][0-9]+)?|retry(?:[2-9]|[1-9][0-9]+)?|restart(?:[2-9]|[1-9][0-9]+)?)$",
       "type": "string"
     },
-    "_h313": {
+    "_h312": {
       "enum": [
         "external-package",
         "not-declared-in-repo",
@@ -6864,6 +6853,10 @@
         "ambiguous",
         "other"
       ]
+    },
+    "_h313": {
+      "pattern": "^(?:nextPage|readHits(?:[2-9]|[1-9][0-9]+)?|retry(?:[2-9]|[1-9][0-9]+)?|restart(?:[2-9]|[1-9][0-9]+)?)$",
+      "type": "string"
     },
     "_h314": {
       "additionalProperties": false,
@@ -7269,7 +7262,7 @@
     },
     "_h331": {
       "additionalProperties": {
-        "$ref": "#/$defs/_h349"
+        "$ref": "#/$defs/_h350"
       },
       "propertyNames": {
         "type": "string"
@@ -7347,6 +7340,16 @@
     "_h340": {
       "anyOf": [
         {
+          "$ref": "#/$defs/_h0"
+        },
+        {
+          "$ref": "#/$defs/_h209"
+        }
+      ]
+    },
+    "_h341": {
+      "anyOf": [
+        {
           "$ref": "#/$defs/lspSearchContinueCall"
         },
         {
@@ -7354,13 +7357,13 @@
         }
       ]
     },
-    "_h341": {
+    "_h342": {
       "enum": [
         "importedName",
         "localAlias"
       ]
     },
-    "_h342": {
+    "_h343": {
       "anyOf": [
         {
           "$ref": "#/$defs/ClasifySectionsUsage"
@@ -7370,17 +7373,17 @@
         }
       ]
     },
-    "_h343": {
+    "_h344": {
       "pattern": "^(?:retry(?:[2-9]|[1-9][0-9]+)?|restart(?:[2-9]|[1-9][0-9]+)?)$",
       "type": "string"
     },
-    "_h344": {
+    "_h345": {
       "items": {
         "$ref": "#/$defs/ClasifySection"
       },
       "type": "array"
     },
-    "_h345": {
+    "_h346": {
       "items": {
         "$ref": "#/$defs/_h34"
       },
@@ -7389,7 +7392,7 @@
       "type": "array",
       "x-cursor": true
     },
-    "_h346": {
+    "_h347": {
       "enum": [
         "contains",
         "imports",
@@ -7398,22 +7401,18 @@
         "inherits"
       ]
     },
-    "_h347": {
+    "_h348": {
       "items": {
         "$ref": "#/$defs/OutputLspSite"
       },
       "type": "array"
     },
-    "_h348": {
+    "_h349": {
       "enum": [
         "high",
         "medium",
         "low"
       ]
-    },
-    "_h349": {
-      "items": {},
-      "type": "array"
     },
     "_h35": {
       "anyOf": [
@@ -7442,7 +7441,7 @@
           "additionalProperties": false,
           "properties": {
             "by": {
-              "$ref": "#/$defs/_h377"
+              "$ref": "#/$defs/_h378"
             },
             "order": {
               "$ref": "#/$defs/SortOrder",
@@ -7482,16 +7481,20 @@
       "title": "LocalSearchSort"
     },
     "_h350": {
+      "items": {},
+      "type": "array"
+    },
+    "_h351": {
       "anyOf": [
         {
-          "$ref": "#/$defs/_h210"
+          "$ref": "#/$defs/_h211"
         },
         {
           "type": "null"
         }
       ]
     },
-    "_h351": {
+    "_h352": {
       "default": "definition",
       "enum": [
         "definition",
@@ -7499,7 +7502,7 @@
         "implementation"
       ]
     },
-    "_h352": {
+    "_h353": {
       "items": {
         "enum": [
           "tags",
@@ -7510,11 +7513,11 @@
       "minItems": 1,
       "type": "array"
     },
-    "_h353": {
+    "_h354": {
       "minimum": 0,
       "type": "integer"
     },
-    "_h354": {
+    "_h355": {
       "anyOf": [
         {
           "$ref": "#/$defs/_h27"
@@ -7524,7 +7527,7 @@
         }
       ]
     },
-    "_h355": {
+    "_h356": {
       "items": {
         "type": "string"
       },
@@ -7532,33 +7535,25 @@
       "type": "array",
       "x-listing": "prune"
     },
-    "_h356": {
+    "_h357": {
       "pattern": "^[a-f0-9]{40}(?:[a-f0-9]{24})?$",
       "type": "string",
       "x-cursor": true
     },
-    "_h357": {
+    "_h358": {
       "default": "summary",
       "enum": [
         "summary",
         "details"
       ]
     },
-    "_h358": {
+    "_h359": {
       "items": {
         "$ref": "#/$defs/_h15"
       },
       "maxItems": 100,
       "minItems": 1,
       "type": "array"
-    },
-    "_h359": {
-      "items": {
-        "type": "string"
-      },
-      "maxItems": 100,
-      "type": "array",
-      "x-listing": "name"
     },
     "_h36": {
       "allOf": [
@@ -7637,36 +7632,44 @@
     },
     "_h360": {
       "items": {
-        "$ref": "#/$defs/_h86"
+        "type": "string"
+      },
+      "maxItems": 100,
+      "type": "array",
+      "x-listing": "name"
+    },
+    "_h361": {
+      "items": {
+        "$ref": "#/$defs/_h85"
       },
       "maxItems": 50,
       "minItems": 1,
       "type": "array"
     },
-    "_h361": {
+    "_h362": {
       "default": false,
       "type": "boolean"
     },
-    "_h362": {
+    "_h363": {
       "enum": [
         "branch",
         "tag",
         "commit"
       ]
     },
-    "_h363": {
+    "_h364": {
       "items": {
         "$ref": "#/$defs/ClasifySection"
       },
       "maxItems": 0,
       "type": "array"
     },
-    "_h364": {
+    "_h365": {
       "minLength": 1,
       "pattern": "\\S",
       "type": "string"
     },
-    "_h365": {
+    "_h366": {
       "default": "off",
       "enum": [
         "off",
@@ -7674,7 +7677,7 @@
         "dotall"
       ]
     },
-    "_h366": {
+    "_h367": {
       "enum": [
         "relevance"
       ],
@@ -7682,18 +7685,13 @@
         "bestMatch": "relevance"
       }
     },
-    "_h367": {
+    "_h368": {
       "pattern": "^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$",
       "type": "string"
     },
-    "_h368": {
+    "_h369": {
       "pattern": "^[1-9][0-9]*\\t",
       "title": "OutlineLine",
-      "type": "string"
-    },
-    "_h369": {
-      "minLength": 1,
-      "pattern": "^[^.\\s*?[\\]{}/\\\\]+$",
       "type": "string"
     },
     "_h37": {
@@ -7713,7 +7711,7 @@
             "$ref": "#/$defs/_h30"
           },
           "importRole": {
-            "$ref": "#/$defs/_h341"
+            "$ref": "#/$defs/_h342"
           },
           "kind": {
             "type": "string"
@@ -7734,7 +7732,7 @@
             "$ref": "#/$defs/_h0"
           },
           "role": {
-            "$ref": "#/$defs/_h295"
+            "$ref": "#/$defs/_h294"
           },
           "source": {
             "$ref": "#/$defs/_h206"
@@ -7751,20 +7749,25 @@
       "type": "array"
     },
     "_h370": {
+      "minLength": 1,
+      "pattern": "^[^.\\s*?[\\]{}/\\\\]+$",
+      "type": "string"
+    },
+    "_h371": {
       "default": ".",
       "minLength": 1,
       "type": "string"
     },
-    "_h371": {
+    "_h372": {
       "type": "boolean",
       "x-listing": "scope"
     },
-    "_h372": {
+    "_h373": {
       "pattern": "^(?:[a-f0-9]{16})+$",
       "type": "string",
       "x-cursor": true
     },
-    "_h373": {
+    "_h374": {
       "enum": [
         "crates",
         "maven",
@@ -7774,19 +7777,19 @@
         "rubygems"
       ]
     },
-    "_h374": {
+    "_h375": {
       "items": {
         "$ref": "#/$defs/_h266"
       },
       "minItems": 1,
       "type": "array"
     },
-    "_h375": {
+    "_h376": {
       "pattern": "^[0-9a-f]{7,64}$",
       "type": "string",
       "x-cursor": true
     },
-    "_h376": {
+    "_h377": {
       "enum": [
         "files",
         "filesWithout",
@@ -7794,7 +7797,7 @@
         "countMatches"
       ]
     },
-    "_h377": {
+    "_h378": {
       "enum": [
         "matchCount",
         "modifiedAt",
@@ -7802,18 +7805,10 @@
         "createdAt"
       ]
     },
-    "_h378": {
+    "_h379": {
       "default": 1,
       "minimum": 1,
       "type": "integer"
-    },
-    "_h379": {
-      "enum": [
-        "bytes"
-      ],
-      "x-replacedValues": {
-        "sizeBytes": "bytes"
-      }
     },
     "_h38": {
       "additionalProperties": false,
@@ -7832,18 +7827,16 @@
       "type": "object"
     },
     "_h380": {
-      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
-      "type": "string"
+      "enum": [
+        "bytes"
+      ],
+      "x-replacedValues": {
+        "sizeBytes": "bytes"
+      }
     },
     "_h381": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/_h0"
-        },
-        {
-          "$ref": "#/$defs/_h218"
-        }
-      ]
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+      "type": "string"
     },
     "_h382": {
       "additionalProperties": {},
@@ -8166,7 +8159,7 @@
               "$ref": "#/$defs/NumericRange"
             },
             "topics": {
-              "$ref": "#/$defs/_h358"
+              "$ref": "#/$defs/_h359"
             },
             "visibility": {
               "enum": [
@@ -8205,7 +8198,7 @@
               "additionalProperties": false,
               "properties": {
                 "by": {
-                  "$ref": "#/$defs/_h366"
+                  "$ref": "#/$defs/_h367"
                 },
                 "order": {
                   "default": "desc",
@@ -8392,19 +8385,19 @@
           "x-listing": "metadata"
         },
         "exclude": {
-          "$ref": "#/$defs/_h355"
+          "$ref": "#/$defs/_h356"
         },
         "extensions": {
-          "$ref": "#/$defs/_h310"
+          "$ref": "#/$defs/_h309"
         },
         "include": {
-          "$ref": "#/$defs/_h359"
+          "$ref": "#/$defs/_h360"
         },
         "includeHidden": {
-          "$ref": "#/$defs/_h371"
+          "$ref": "#/$defs/_h372"
         },
         "includeIgnored": {
-          "$ref": "#/$defs/_h371"
+          "$ref": "#/$defs/_h372"
         },
         "limit": {
           "$ref": "#/$defs/_h111"
@@ -8444,7 +8437,7 @@
           "x-patternMessage": "Use an exact octal mode such as \"644\"."
         },
         "scanOffset": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "snapshot": {
           "$ref": "#/$defs/_h181"
@@ -8525,7 +8518,7 @@
           "default": "paths"
         },
         "walkOffset": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         }
       },
       "required": [
@@ -8658,7 +8651,7 @@
     "_h5": {
       "$ref": "#/$defs/clasifyNext",
       "additionalProperties": {
-        "$ref": "#/$defs/_h309"
+        "$ref": "#/$defs/_h308"
       },
       "patternProperties": {
         "^(?:confirm)$": {
@@ -8855,7 +8848,7 @@
                 "$ref": "#/$defs/SourceLineRange"
               },
               "noul": {
-                "$ref": "#/$defs/_h210"
+                "$ref": "#/$defs/_h211"
               }
             },
             "required": [
@@ -8870,7 +8863,7 @@
                 "type": "string"
               },
               "confidence": {
-                "$ref": "#/$defs/_h210"
+                "$ref": "#/$defs/_h211"
               },
               "lines": {
                 "$ref": "#/$defs/SourceLineRange"
@@ -8888,7 +8881,7 @@
             "additionalProperties": false,
             "properties": {
               "confidence": {
-                "$ref": "#/$defs/_h210"
+                "$ref": "#/$defs/_h211"
               },
               "legend": {
                 "$ref": "#/$defs/_h59"
@@ -8916,7 +8909,7 @@
                 "$ref": "#/$defs/_h137"
               },
               "confidence": {
-                "$ref": "#/$defs/_h350"
+                "$ref": "#/$defs/_h351"
               },
               "sourceBox": {
                 "$ref": "#/$defs/_h137"
@@ -8960,7 +8953,7 @@
       },
       "minProperties": 1,
       "propertyNames": {
-        "$ref": "#/$defs/_h167"
+        "$ref": "#/$defs/_h166"
       },
       "type": "object"
     },
@@ -9075,7 +9068,7 @@
               "$ref": "#/$defs/GraphPagelimit"
             },
             "list": {
-              "$ref": "#/$defs/_h77"
+              "$ref": "#/$defs/_h76"
             },
             "offset": {
               "$ref": "#/$defs/GraphPageoffset"
@@ -9125,7 +9118,7 @@
               "$ref": "#/$defs/GraphPagelimit"
             },
             "list": {
-              "$ref": "#/$defs/_h77"
+              "$ref": "#/$defs/_h76"
             },
             "offset": {
               "$ref": "#/$defs/GraphPageoffset"
@@ -9175,7 +9168,7 @@
               "$ref": "#/$defs/GraphPagelimit"
             },
             "list": {
-              "$ref": "#/$defs/_h77"
+              "$ref": "#/$defs/_h76"
             },
             "offset": {
               "$ref": "#/$defs/GraphPageoffset"
@@ -9297,7 +9290,7 @@
           "$ref": "#/$defs/_h8"
         },
         "sort": {
-          "$ref": "#/$defs/_h170"
+          "$ref": "#/$defs/_h171"
         }
       },
       "required": [
@@ -9339,7 +9332,7 @@
           "const": "syntax-call-sites"
         },
         "ratio": {
-          "$ref": "#/$defs/_h350"
+          "$ref": "#/$defs/_h351"
         },
         "sites": {
           "$ref": "#/$defs/_h0"
@@ -9363,7 +9356,7 @@
     },
     "_h68": {
       "items": {
-        "$ref": "#/$defs/_h364"
+        "$ref": "#/$defs/_h365"
       },
       "maxItems": 100,
       "minItems": 1,
@@ -9411,7 +9404,7 @@
       "items": {
         "anyOf": [
           {
-            "$ref": "#/$defs/_h368"
+            "$ref": "#/$defs/_h369"
           },
           {
             "$ref": "#/$defs/OutputDeclaration"
@@ -9458,7 +9451,7 @@
       },
       "minProperties": 1,
       "propertyNames": {
-        "$ref": "#/$defs/_h167"
+        "$ref": "#/$defs/_h166"
       },
       "type": "object"
     },
@@ -9508,37 +9501,10 @@
       "type": "array"
     },
     "_h75": {
-      "$ref": "#/$defs/ghSearchCodeNext",
-      "additionalProperties": {
-        "$ref": "#/$defs/_h329"
-      },
-      "patternProperties": {
-        "^(?:nextPage)$": {
-          "$ref": "#/$defs/ghSearchCodeContinueCall"
-        },
-        "^(?:readHits(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/ghGetFileContentContinueCall"
-        },
-        "^(?:readSource(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/ghGetFileContentContinueCall"
-        },
-        "^(?:restart(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/ghSearchCodeContinueCall"
-        },
-        "^(?:retry(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/ghSearchCodeContinueCall"
-        }
-      },
-      "propertyNames": {
-        "$ref": "#/$defs/_h291"
-      },
-      "type": "object"
-    },
-    "_h76": {
       "additionalProperties": {},
       "properties": {
         "alternatives": {
-          "$ref": "#/$defs/_h349"
+          "$ref": "#/$defs/_h350"
         },
         "foundAtCharacter": {
           "$ref": "#/$defs/_h27"
@@ -9561,17 +9527,17 @@
       },
       "type": "object"
     },
-    "_h77": {
+    "_h76": {
       "minLength": 1,
       "type": "string",
       "x-cursor": true
     },
-    "_h78": {
+    "_h77": {
       "minimum": 1,
       "type": "integer",
       "x-cursor": true
     },
-    "_h79": {
+    "_h78": {
       "$ref": "#/$defs/ghStructureNext",
       "additionalProperties": {
         "$ref": "#/$defs/ghStructureContinueCall"
@@ -9581,19 +9547,19 @@
       },
       "type": "object"
     },
-    "_h8": {
-      "pattern": "^(?:\\w[\\w.-]*|\\.[\\w-][\\w.-]*|\\.\\.[\\w.-]+)$",
-      "type": "string",
-      "x-patternMessage": "Set one GitHub repository name."
-    },
-    "_h80": {
+    "_h79": {
       "items": {
         "type": "string"
       },
       "maxItems": 100,
       "type": "array"
     },
-    "_h81": {
+    "_h8": {
+      "pattern": "^(?:\\w[\\w.-]*|\\.[\\w-][\\w.-]*|\\.\\.[\\w.-]+)$",
+      "type": "string",
+      "x-patternMessage": "Set one GitHub repository name."
+    },
+    "_h80": {
       "additionalProperties": false,
       "properties": {
         "bytes": {
@@ -9613,20 +9579,20 @@
       "title": "TreeSummary",
       "type": "object"
     },
-    "_h82": {
+    "_h81": {
       "additionalProperties": false,
       "properties": {
         "content": {
-          "$ref": "#/$defs/_h305"
+          "$ref": "#/$defs/_h304"
         },
         "defaultExcludes": {
           "$ref": "#/$defs/DefaultExcludes"
         },
         "exclude": {
-          "$ref": "#/$defs/_h80"
+          "$ref": "#/$defs/_h79"
         },
         "include": {
-          "$ref": "#/$defs/_h80"
+          "$ref": "#/$defs/_h79"
         },
         "includeCaptures": {
           "type": "boolean"
@@ -9665,13 +9631,13 @@
           "$ref": "#/$defs/_h36"
         },
         "scanOffset": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "scope": {
           "$ref": "#/$defs/AstMatchScope"
         },
         "snapshot": {
-          "$ref": "#/$defs/_h77"
+          "$ref": "#/$defs/_h76"
         },
         "sort": {
           "$ref": "#/$defs/_h180"
@@ -9680,7 +9646,7 @@
           "$ref": "#/$defs/TestCode"
         },
         "view": {
-          "$ref": "#/$defs/_h298"
+          "$ref": "#/$defs/_h297"
         }
       },
       "required": [
@@ -9689,7 +9655,7 @@
       ],
       "type": "object"
     },
-    "_h83": {
+    "_h82": {
       "additionalProperties": false,
       "properties": {
         "include": {
@@ -9716,7 +9682,7 @@
           "$ref": "#/$defs/_h6"
         },
         "page": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "path": {
           "$ref": "#/$defs/_h322"
@@ -9752,7 +9718,7 @@
               "additionalProperties": false,
               "properties": {
                 "by": {
-                  "$ref": "#/$defs/_h379"
+                  "$ref": "#/$defs/_h380"
                 },
                 "order": {
                   "$ref": "#/$defs/SortOrder",
@@ -9773,7 +9739,7 @@
           "title": "GhStructureTreeSort"
         },
         "walkOffset": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         }
       },
       "required": [
@@ -9783,7 +9749,7 @@
       ],
       "type": "object"
     },
-    "_h84": {
+    "_h83": {
       "additionalProperties": false,
       "properties": {
         "background": {
@@ -9827,7 +9793,7 @@
       ],
       "type": "object"
     },
-    "_h85": {
+    "_h84": {
       "anyOf": [
         {
           "$ref": "#/$defs/_h244"
@@ -9839,11 +9805,11 @@
           "$ref": "#/$defs/_h162"
         },
         {
-          "$ref": "#/$defs/_h215"
+          "$ref": "#/$defs/_h216"
         }
       ]
     },
-    "_h86": {
+    "_h85": {
       "$ref": "#/$defs/AstSearchRule",
       "x-checks": [
         {
@@ -9865,7 +9831,7 @@
         }
       ]
     },
-    "_h87": {
+    "_h86": {
       "additionalProperties": false,
       "properties": {
         "after": {
@@ -9881,20 +9847,20 @@
       },
       "type": "object"
     },
-    "_h88": {
+    "_h87": {
       "additionalProperties": false,
       "properties": {
         "content": {
-          "$ref": "#/$defs/_h305"
+          "$ref": "#/$defs/_h304"
         },
         "defaultExcludes": {
           "$ref": "#/$defs/DefaultExcludes"
         },
         "exclude": {
-          "$ref": "#/$defs/_h80"
+          "$ref": "#/$defs/_h79"
         },
         "include": {
-          "$ref": "#/$defs/_h80"
+          "$ref": "#/$defs/_h79"
         },
         "includeHidden": {
           "type": "boolean"
@@ -9927,13 +9893,13 @@
           "$ref": "#/$defs/_h36"
         },
         "scanOffset": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "scope": {
           "$ref": "#/$defs/AstMatchScope"
         },
         "snapshot": {
-          "$ref": "#/$defs/_h77"
+          "$ref": "#/$defs/_h76"
         },
         "sort": {
           "$ref": "#/$defs/_h180"
@@ -9955,6 +9921,30 @@
       ],
       "type": "object"
     },
+    "_h88": {
+      "$ref": "#/$defs/ghSearchCodeNext",
+      "additionalProperties": {
+        "$ref": "#/$defs/_h329"
+      },
+      "patternProperties": {
+        "^(?:nextPage)$": {
+          "$ref": "#/$defs/ghSearchCodeContinueCall"
+        },
+        "^(?:readHits(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/ghGetFileContentContinueCall"
+        },
+        "^(?:restart(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/ghSearchCodeContinueCall"
+        },
+        "^(?:retry(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/ghSearchCodeContinueCall"
+        }
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/_h313"
+      },
+      "type": "object"
+    },
     "_h89": {
       "additionalProperties": false,
       "properties": {
@@ -9966,7 +9956,7 @@
           "$ref": "#/$defs/DefaultExcludes"
         },
         "exclude": {
-          "$ref": "#/$defs/_h80"
+          "$ref": "#/$defs/_h79"
         },
         "fileHas": {
           "$ref": "#/$defs/_h53"
@@ -9978,7 +9968,7 @@
           "$ref": "#/$defs/_h34"
         },
         "include": {
-          "$ref": "#/$defs/_h80"
+          "$ref": "#/$defs/_h79"
         },
         "includeHidden": {
           "type": "boolean"
@@ -10002,7 +9992,7 @@
           "$ref": "#/$defs/_h111"
         },
         "multiline": {
-          "$ref": "#/$defs/_h365"
+          "$ref": "#/$defs/_h366"
         },
         "page": {
           "$ref": "#/$defs/_h67"
@@ -10015,13 +10005,13 @@
           "default": "literal"
         },
         "rowOffset": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "scanOffset": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "snapshot": {
-          "$ref": "#/$defs/_h77"
+          "$ref": "#/$defs/_h76"
         },
         "sort": {
           "$ref": "#/$defs/_h35"
@@ -10041,10 +10031,10 @@
           "const": "matchOnly"
         },
         "walkOffset": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "wholeWord": {
-          "$ref": "#/$defs/_h361"
+          "$ref": "#/$defs/_h362"
         }
       },
       "required": [
@@ -10110,7 +10100,7 @@
           "$ref": "#/$defs/DefaultExcludes"
         },
         "exclude": {
-          "$ref": "#/$defs/_h80"
+          "$ref": "#/$defs/_h79"
         },
         "fileHas": {
           "$ref": "#/$defs/_h53"
@@ -10122,7 +10112,7 @@
           "$ref": "#/$defs/_h34"
         },
         "include": {
-          "$ref": "#/$defs/_h80"
+          "$ref": "#/$defs/_h79"
         },
         "includeHidden": {
           "type": "boolean"
@@ -10146,7 +10136,7 @@
           "$ref": "#/$defs/_h111"
         },
         "multiline": {
-          "$ref": "#/$defs/_h365"
+          "$ref": "#/$defs/_h366"
         },
         "page": {
           "$ref": "#/$defs/_h67"
@@ -10159,13 +10149,13 @@
           "default": "literal"
         },
         "rowOffset": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "scanOffset": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "snapshot": {
-          "$ref": "#/$defs/_h77"
+          "$ref": "#/$defs/_h76"
         },
         "sort": {
           "$ref": "#/$defs/_h35"
@@ -10174,13 +10164,13 @@
           "$ref": "#/$defs/TestCode"
         },
         "view": {
-          "$ref": "#/$defs/_h298"
+          "$ref": "#/$defs/_h297"
         },
         "walkOffset": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "wholeWord": {
-          "$ref": "#/$defs/_h361"
+          "$ref": "#/$defs/_h362"
         }
       },
       "required": [
@@ -10200,7 +10190,7 @@
           "$ref": "#/$defs/DefaultExcludes"
         },
         "exclude": {
-          "$ref": "#/$defs/_h80"
+          "$ref": "#/$defs/_h79"
         },
         "fileHas": {
           "$ref": "#/$defs/_h53"
@@ -10212,7 +10202,7 @@
           "$ref": "#/$defs/_h34"
         },
         "include": {
-          "$ref": "#/$defs/_h80"
+          "$ref": "#/$defs/_h79"
         },
         "includeHidden": {
           "type": "boolean"
@@ -10236,7 +10226,7 @@
           "$ref": "#/$defs/_h111"
         },
         "multiline": {
-          "$ref": "#/$defs/_h365"
+          "$ref": "#/$defs/_h366"
         },
         "page": {
           "$ref": "#/$defs/_h67"
@@ -10249,13 +10239,13 @@
           "default": "literal"
         },
         "rowOffset": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "scanOffset": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "snapshot": {
-          "$ref": "#/$defs/_h77"
+          "$ref": "#/$defs/_h76"
         },
         "sort": {
           "$ref": "#/$defs/_h35"
@@ -10264,13 +10254,13 @@
           "$ref": "#/$defs/TestCode"
         },
         "view": {
-          "$ref": "#/$defs/_h376"
+          "$ref": "#/$defs/_h377"
         },
         "walkOffset": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "wholeWord": {
-          "$ref": "#/$defs/_h361"
+          "$ref": "#/$defs/_h362"
         }
       },
       "required": [
@@ -10305,19 +10295,19 @@
           "x-listing": "metadata"
         },
         "exclude": {
-          "$ref": "#/$defs/_h355"
+          "$ref": "#/$defs/_h356"
         },
         "extensions": {
-          "$ref": "#/$defs/_h310"
+          "$ref": "#/$defs/_h309"
         },
         "include": {
-          "$ref": "#/$defs/_h359"
+          "$ref": "#/$defs/_h360"
         },
         "includeHidden": {
-          "$ref": "#/$defs/_h371"
+          "$ref": "#/$defs/_h372"
         },
         "includeIgnored": {
-          "$ref": "#/$defs/_h371"
+          "$ref": "#/$defs/_h372"
         },
         "limit": {
           "$ref": "#/$defs/_h111"
@@ -10338,7 +10328,7 @@
           "$ref": "#/$defs/_h240"
         },
         "scanOffset": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         },
         "snapshot": {
           "$ref": "#/$defs/_h181"
@@ -10348,7 +10338,7 @@
           "default": "paths"
         },
         "walkOffset": {
-          "$ref": "#/$defs/_h78"
+          "$ref": "#/$defs/_h77"
         }
       },
       "required": [
@@ -10447,7 +10437,7 @@
           "$ref": "#/$defs/GraphScopepath"
         },
         "reasons": {
-          "$ref": "#/$defs/_h183"
+          "$ref": "#/$defs/_h184"
         },
         "symbolName": {
           "$ref": "#/$defs/_h34"
@@ -10848,7 +10838,7 @@
                             "$ref": "#/$defs/_h95"
                           },
                           "version": {
-                            "$ref": "#/$defs/_h306"
+                            "$ref": "#/$defs/_h305"
                           },
                           "view": {
                             "$ref": "#/$defs/ArtifactSearchViewContinuationInput"
@@ -10906,13 +10896,13 @@
                             "const": "resolve"
                           },
                           "packageName": {
-                            "$ref": "#/$defs/_h217"
+                            "$ref": "#/$defs/_h218"
                           },
                           "preview": {
                             "type": "boolean"
                           },
                           "version": {
-                            "$ref": "#/$defs/_h306"
+                            "$ref": "#/$defs/_h305"
                           },
                           "view": {
                             "$ref": "#/$defs/ArtifactSearchViewContinuationInput"
@@ -10941,7 +10931,7 @@
                             "type": "boolean"
                           },
                           "version": {
-                            "$ref": "#/$defs/_h297"
+                            "$ref": "#/$defs/_h296"
                           },
                           "view": {
                             "$ref": "#/$defs/ArtifactSearchViewContinuationInput"
@@ -10969,13 +10959,13 @@
                             "const": "resolve"
                           },
                           "packageName": {
-                            "$ref": "#/$defs/_h217"
+                            "$ref": "#/$defs/_h218"
                           },
                           "preview": {
                             "type": "boolean"
                           },
                           "version": {
-                            "$ref": "#/$defs/_h297"
+                            "$ref": "#/$defs/_h296"
                           },
                           "view": {
                             "$ref": "#/$defs/ArtifactSearchViewContinuationInput"
@@ -10992,7 +10982,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "ecosystem": {
-                            "$ref": "#/$defs/_h373"
+                            "$ref": "#/$defs/_h374"
                           },
                           "keywords": {
                             "$ref": "#/$defs/_h68"
@@ -11048,7 +11038,7 @@
       "type": "object"
     },
     "ArtifactSearchView": {
-      "$ref": "#/$defs/_h357"
+      "$ref": "#/$defs/_h358"
     },
     "ArtifactSearchViewContinuationInput": {
       "enum": [
@@ -11139,10 +11129,10 @@
       "$ref": "#/$defs/_h324"
     },
     "AstScopePoint": {
-      "$ref": "#/$defs/_h300"
+      "$ref": "#/$defs/_h299"
     },
     "AstScopePointContinuationInput": {
-      "$ref": "#/$defs/_h300"
+      "$ref": "#/$defs/_h299"
     },
     "astSearchContinueCall": {
       "additionalProperties": false,
@@ -11827,7 +11817,7 @@
         "$ref": "#/$defs/astSearchContinueCall"
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h312"
+        "$ref": "#/$defs/_h311"
       },
       "type": "object"
     },
@@ -11846,16 +11836,16 @@
                         "additionalProperties": false,
                         "properties": {
                           "content": {
-                            "$ref": "#/$defs/_h305"
+                            "$ref": "#/$defs/_h304"
                           },
                           "defaultExcludes": {
                             "$ref": "#/$defs/DefaultExcludesContinuationInput"
                           },
                           "exclude": {
-                            "$ref": "#/$defs/_h80"
+                            "$ref": "#/$defs/_h79"
                           },
                           "include": {
-                            "$ref": "#/$defs/_h80"
+                            "$ref": "#/$defs/_h79"
                           },
                           "includeCaptures": {
                             "type": "boolean"
@@ -11913,16 +11903,16 @@
                         "additionalProperties": false,
                         "properties": {
                           "content": {
-                            "$ref": "#/$defs/_h305"
+                            "$ref": "#/$defs/_h304"
                           },
                           "defaultExcludes": {
                             "$ref": "#/$defs/DefaultExcludesContinuationInput"
                           },
                           "exclude": {
-                            "$ref": "#/$defs/_h80"
+                            "$ref": "#/$defs/_h79"
                           },
                           "include": {
-                            "$ref": "#/$defs/_h80"
+                            "$ref": "#/$defs/_h79"
                           },
                           "includeHidden": {
                             "type": "boolean"
@@ -12006,7 +11996,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "content": {
-                            "$ref": "#/$defs/_h305"
+                            "$ref": "#/$defs/_h304"
                           },
                           "includeProvenance": {
                             "type": "boolean"
@@ -12038,10 +12028,10 @@
                             "$ref": "#/$defs/DefaultExcludesContinuationInput"
                           },
                           "exclude": {
-                            "$ref": "#/$defs/_h80"
+                            "$ref": "#/$defs/_h79"
                           },
                           "include": {
-                            "$ref": "#/$defs/_h80"
+                            "$ref": "#/$defs/_h79"
                           },
                           "includeHidden": {
                             "type": "boolean"
@@ -12116,10 +12106,10 @@
       "additionalProperties": false,
       "properties": {
         "all": {
-          "$ref": "#/$defs/_h360"
+          "$ref": "#/$defs/_h361"
         },
         "any": {
-          "$ref": "#/$defs/_h360"
+          "$ref": "#/$defs/_h361"
         },
         "field": {
           "$ref": "#/$defs/AR_syntax"
@@ -12137,12 +12127,12 @@
           "$ref": "#/$defs/AR_syntax"
         },
         "not": {
-          "$ref": "#/$defs/_h86"
+          "$ref": "#/$defs/_h85"
         },
         "nthChild": {
           "anyOf": [
             {
-              "$ref": "#/$defs/_h353"
+              "$ref": "#/$defs/_h354"
             },
             {
               "$ref": "#/$defs/_h148"
@@ -12193,7 +12183,7 @@
               ]
             },
             {
-              "$ref": "#/$defs/_h86"
+              "$ref": "#/$defs/_h85"
             }
           ]
         }
@@ -12443,10 +12433,10 @@
               "const": true
             },
             "resources": {
-              "$ref": "#/$defs/_h308"
+              "$ref": "#/$defs/_h307"
             },
             "usage": {
-              "$ref": "#/$defs/_h342"
+              "$ref": "#/$defs/_h343"
             },
             "warnings": {
               "$ref": "#/$defs/_h32"
@@ -12491,13 +12481,13 @@
               "const": true
             },
             "resources": {
-              "$ref": "#/$defs/_h308"
+              "$ref": "#/$defs/_h307"
             },
             "retryable": {
               "type": "boolean"
             },
             "usage": {
-              "$ref": "#/$defs/_h342"
+              "$ref": "#/$defs/_h343"
             },
             "warnings": {
               "$ref": "#/$defs/_h32"
@@ -12538,7 +12528,7 @@
               "$ref": "#/$defs/_h47"
             },
             "sections": {
-              "$ref": "#/$defs/_h344"
+              "$ref": "#/$defs/_h345"
             },
             "source": {
               "$ref": "#/$defs/_h250"
@@ -12692,7 +12682,7 @@
                         "$ref": "#/$defs/_h0"
                       },
                       "sections": {
-                        "$ref": "#/$defs/_h344"
+                        "$ref": "#/$defs/_h345"
                       },
                       "source": {
                         "$ref": "#/$defs/_h250"
@@ -12797,7 +12787,7 @@
     },
     "clasifyNext": {
       "additionalProperties": {
-        "$ref": "#/$defs/_h309"
+        "$ref": "#/$defs/_h308"
       },
       "patternProperties": {
         "^(?:confirm)$": {
@@ -12833,7 +12823,7 @@
       },
       "minProperties": 1,
       "propertyNames": {
-        "$ref": "#/$defs/_h167"
+        "$ref": "#/$defs/_h166"
       },
       "type": "object"
     },
@@ -12860,7 +12850,7 @@
                                 "$ref": "#/$defs/ClassificationContext"
                               },
                               "content": {
-                                "$ref": "#/$defs/_h311"
+                                "$ref": "#/$defs/_h310"
                               },
                               "longContext": {
                                 "type": "boolean"
@@ -13023,7 +13013,7 @@
                                         "$ref": "#/$defs/_h59"
                                       },
                                       "tool": {
-                                        "$ref": "#/$defs/_h303"
+                                        "$ref": "#/$defs/_h302"
                                       }
                                     },
                                     "required": [
@@ -13185,7 +13175,7 @@
           "type": "array"
         },
         "id": {
-          "$ref": "#/$defs/_h167"
+          "$ref": "#/$defs/_h166"
         },
         "kind": {
           "$ref": "#/$defs/_h34"
@@ -13347,7 +13337,7 @@
               "$ref": "#/$defs/_h222"
             },
             "sections": {
-              "$ref": "#/$defs/_h344"
+              "$ref": "#/$defs/_h345"
             },
             "source": {
               "$ref": "#/$defs/_h3"
@@ -13384,7 +13374,7 @@
               "$ref": "#/$defs/_h316"
             },
             "sections": {
-              "$ref": "#/$defs/_h363"
+              "$ref": "#/$defs/_h364"
             },
             "source": {
               "$ref": "#/$defs/_h3"
@@ -13419,7 +13409,7 @@
               "$ref": "#/$defs/_h316"
             },
             "sections": {
-              "$ref": "#/$defs/_h363"
+              "$ref": "#/$defs/_h364"
             },
             "source": {
               "$ref": "#/$defs/_h3"
@@ -13978,7 +13968,7 @@
         "$ref": "#/$defs/ghCloneRepoContinueCall"
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h343"
+        "$ref": "#/$defs/_h344"
       },
       "type": "object"
     },
@@ -14074,7 +14064,7 @@
               "$ref": "#/$defs/_h27"
             },
             "matchedLines": {
-              "$ref": "#/$defs/_h218"
+              "$ref": "#/$defs/_h209"
             },
             "matchKeys": {
               "$ref": "#/$defs/_h254"
@@ -14086,7 +14076,7 @@
               "$ref": "#/$defs/_h229"
             },
             "next": {
-              "$ref": "#/$defs/_h292"
+              "$ref": "#/$defs/_h291"
             },
             "observedAt": {
               "type": "string"
@@ -14205,7 +14195,7 @@
               "$ref": "#/$defs/_h27"
             },
             "matchedLines": {
-              "$ref": "#/$defs/_h218"
+              "$ref": "#/$defs/_h209"
             },
             "matchKeys": {
               "$ref": "#/$defs/_h254"
@@ -14217,7 +14207,7 @@
               "$ref": "#/$defs/_h229"
             },
             "next": {
-              "$ref": "#/$defs/_h292"
+              "$ref": "#/$defs/_h291"
             },
             "observedAt": {
               "type": "string"
@@ -14379,7 +14369,7 @@
                             "$ref": "#/$defs/CaseMode"
                           },
                           "contextLines": {
-                            "$ref": "#/$defs/_h87"
+                            "$ref": "#/$defs/_h86"
                           },
                           "matchString": {
                             "$ref": "#/$defs/TextMatchTerms"
@@ -14722,7 +14712,7 @@
                         "$ref": "#/$defs/_h0"
                       },
                       "sectionPagination": {
-                        "$ref": "#/$defs/_h182"
+                        "$ref": "#/$defs/_h183"
                       },
                       "state": {
                         "enum": [
@@ -14808,7 +14798,7 @@
                         "$ref": "#/$defs/_h241"
                       },
                       "sectionPagination": {
-                        "$ref": "#/$defs/_h182"
+                        "$ref": "#/$defs/_h183"
                       },
                       "state": {
                         "enum": [
@@ -14983,7 +14973,7 @@
                     "type": "string"
                   },
                   "sectionPagination": {
-                    "$ref": "#/$defs/_h182"
+                    "$ref": "#/$defs/_h183"
                   },
                   "state": {
                     "type": "string"
@@ -15201,7 +15191,7 @@
               "type": "boolean"
             },
             "sectionPagination": {
-              "$ref": "#/$defs/_h182"
+              "$ref": "#/$defs/_h183"
             },
             "ssoUrl": {
               "type": "string"
@@ -15357,7 +15347,7 @@
               "type": "boolean"
             },
             "sectionPagination": {
-              "$ref": "#/$defs/_h182"
+              "$ref": "#/$defs/_h183"
             },
             "ssoUrl": {
               "type": "string"
@@ -15576,7 +15566,7 @@
                             "type": "boolean"
                           },
                           "contextLines": {
-                            "$ref": "#/$defs/_h87"
+                            "$ref": "#/$defs/_h86"
                           },
                           "fileStatus": {
                             "$ref": "#/$defs/_h65"
@@ -15652,7 +15642,7 @@
                             "type": "boolean"
                           },
                           "contextLines": {
-                            "$ref": "#/$defs/_h87"
+                            "$ref": "#/$defs/_h86"
                           },
                           "matchString": {
                             "$ref": "#/$defs/TextMatchTerms"
@@ -15722,7 +15712,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "contextLines": {
-                            "$ref": "#/$defs/_h87"
+                            "$ref": "#/$defs/_h86"
                           },
                           "fileStatus": {
                             "$ref": "#/$defs/_h65"
@@ -15805,7 +15795,7 @@
                             "$ref": "#/$defs/_h17"
                           },
                           "contextLines": {
-                            "$ref": "#/$defs/_h87"
+                            "$ref": "#/$defs/_h86"
                           },
                           "fileStatus": {
                             "$ref": "#/$defs/_h65"
@@ -15917,7 +15907,7 @@
               "$ref": "#/$defs/ErrorCode"
             },
             "files": {
-              "$ref": "#/$defs/_h169"
+              "$ref": "#/$defs/_h168"
             },
             "hints": {
               "$ref": "#/$defs/RowHints"
@@ -15929,7 +15919,7 @@
               "type": "boolean"
             },
             "next": {
-              "$ref": "#/$defs/_h75"
+              "$ref": "#/$defs/_h88"
             },
             "observedAt": {
               "type": "string"
@@ -16000,7 +15990,7 @@
               "$ref": "#/$defs/ErrorCode"
             },
             "files": {
-              "$ref": "#/$defs/_h169"
+              "$ref": "#/$defs/_h168"
             },
             "hints": {
               "$ref": "#/$defs/RowHints"
@@ -16012,7 +16002,7 @@
               "type": "boolean"
             },
             "next": {
-              "$ref": "#/$defs/_h75"
+              "$ref": "#/$defs/_h88"
             },
             "observedAt": {
               "type": "string"
@@ -16075,9 +16065,6 @@
         "^(?:readHits(?:[2-9]|[1-9][0-9]+)?)$": {
           "$ref": "#/$defs/ghGetFileContentContinueCall"
         },
-        "^(?:readSource(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/ghGetFileContentContinueCall"
-        },
         "^(?:restart(?:[2-9]|[1-9][0-9]+)?)$": {
           "$ref": "#/$defs/ghSearchCodeContinueCall"
         },
@@ -16086,7 +16073,7 @@
         }
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h291"
+        "$ref": "#/$defs/_h313"
       },
       "type": "object"
     },
@@ -16103,13 +16090,13 @@
                     "additionalProperties": false,
                     "properties": {
                       "contextLines": {
-                        "$ref": "#/$defs/_h87"
+                        "$ref": "#/$defs/_h86"
                       },
                       "extensions": {
                         "$ref": "#/$defs/_h195"
                       },
                       "fields": {
-                        "$ref": "#/$defs/_h296"
+                        "$ref": "#/$defs/_h295"
                       },
                       "keywords": {
                         "$ref": "#/$defs/_h68"
@@ -16997,7 +16984,7 @@
               "type": "boolean"
             },
             "next": {
-              "$ref": "#/$defs/_h299"
+              "$ref": "#/$defs/_h298"
             },
             "observedAt": {
               "type": "string"
@@ -17021,7 +17008,7 @@
               "$ref": "#/$defs/_h47"
             },
             "repositories": {
-              "$ref": "#/$defs/_h124"
+              "$ref": "#/$defs/_h123"
             },
             "retryable": {
               "type": "boolean"
@@ -17071,7 +17058,7 @@
               "type": "boolean"
             },
             "next": {
-              "$ref": "#/$defs/_h299"
+              "$ref": "#/$defs/_h298"
             },
             "observedAt": {
               "type": "string"
@@ -17095,7 +17082,7 @@
               "$ref": "#/$defs/_h47"
             },
             "repositories": {
-              "$ref": "#/$defs/_h124"
+              "$ref": "#/$defs/_h123"
             },
             "retryable": {
               "type": "boolean"
@@ -17180,7 +17167,7 @@
                                 "$ref": "#/$defs/NumericRangeContinuationInput"
                               },
                               "topics": {
-                                "$ref": "#/$defs/_h358"
+                                "$ref": "#/$defs/_h359"
                               },
                               "visibility": {
                                 "enum": [
@@ -17216,7 +17203,7 @@
                                 "additionalProperties": false,
                                 "properties": {
                                   "by": {
-                                    "$ref": "#/$defs/_h366"
+                                    "$ref": "#/$defs/_h367"
                                   },
                                   "order": {
                                     "enum": [
@@ -17396,7 +17383,7 @@
               "$ref": "#/$defs/_h114"
             },
             "next": {
-              "$ref": "#/$defs/_h79"
+              "$ref": "#/$defs/_h78"
             },
             "observedAt": {
               "type": "string"
@@ -17426,7 +17413,7 @@
               "type": "string"
             },
             "refKind": {
-              "$ref": "#/$defs/_h362"
+              "$ref": "#/$defs/_h363"
             },
             "related": {
               "$ref": "#/$defs/_h47"
@@ -17441,7 +17428,7 @@
               "type": "string"
             },
             "summary": {
-              "$ref": "#/$defs/_h81"
+              "$ref": "#/$defs/_h80"
             },
             "tags": {
               "$ref": "#/$defs/_h107"
@@ -17506,7 +17493,7 @@
               "$ref": "#/$defs/_h114"
             },
             "next": {
-              "$ref": "#/$defs/_h79"
+              "$ref": "#/$defs/_h78"
             },
             "observedAt": {
               "type": "string"
@@ -17536,7 +17523,7 @@
               "type": "string"
             },
             "refKind": {
-              "$ref": "#/$defs/_h362"
+              "$ref": "#/$defs/_h363"
             },
             "related": {
               "$ref": "#/$defs/_h47"
@@ -17551,7 +17538,7 @@
               "type": "string"
             },
             "summary": {
-              "$ref": "#/$defs/_h81"
+              "$ref": "#/$defs/_h80"
             },
             "tags": {
               "$ref": "#/$defs/_h107"
@@ -17616,7 +17603,7 @@
               "$ref": "#/$defs/_h114"
             },
             "next": {
-              "$ref": "#/$defs/_h79"
+              "$ref": "#/$defs/_h78"
             },
             "observedAt": {
               "type": "string"
@@ -17646,7 +17633,7 @@
               "type": "string"
             },
             "refKind": {
-              "$ref": "#/$defs/_h362"
+              "$ref": "#/$defs/_h363"
             },
             "related": {
               "$ref": "#/$defs/_h47"
@@ -17661,7 +17648,7 @@
               "type": "string"
             },
             "summary": {
-              "$ref": "#/$defs/_h81"
+              "$ref": "#/$defs/_h80"
             },
             "tags": {
               "$ref": "#/$defs/_h107"
@@ -17726,7 +17713,7 @@
               "$ref": "#/$defs/_h114"
             },
             "next": {
-              "$ref": "#/$defs/_h79"
+              "$ref": "#/$defs/_h78"
             },
             "observedAt": {
               "type": "string"
@@ -17756,7 +17743,7 @@
               "type": "string"
             },
             "refKind": {
-              "$ref": "#/$defs/_h362"
+              "$ref": "#/$defs/_h363"
             },
             "related": {
               "$ref": "#/$defs/_h47"
@@ -17771,7 +17758,7 @@
               "type": "string"
             },
             "summary": {
-              "$ref": "#/$defs/_h81"
+              "$ref": "#/$defs/_h80"
             },
             "tags": {
               "$ref": "#/$defs/_h107"
@@ -17836,7 +17823,7 @@
               "$ref": "#/$defs/_h114"
             },
             "next": {
-              "$ref": "#/$defs/_h79"
+              "$ref": "#/$defs/_h78"
             },
             "observedAt": {
               "type": "string"
@@ -17866,7 +17853,7 @@
               "type": "string"
             },
             "refKind": {
-              "$ref": "#/$defs/_h362"
+              "$ref": "#/$defs/_h363"
             },
             "related": {
               "$ref": "#/$defs/_h47"
@@ -17881,7 +17868,7 @@
               "type": "string"
             },
             "summary": {
-              "$ref": "#/$defs/_h81"
+              "$ref": "#/$defs/_h80"
             },
             "tags": {
               "$ref": "#/$defs/_h107"
@@ -17946,7 +17933,7 @@
               "$ref": "#/$defs/_h114"
             },
             "next": {
-              "$ref": "#/$defs/_h79"
+              "$ref": "#/$defs/_h78"
             },
             "observedAt": {
               "type": "string"
@@ -17976,7 +17963,7 @@
               "type": "string"
             },
             "refKind": {
-              "$ref": "#/$defs/_h362"
+              "$ref": "#/$defs/_h363"
             },
             "related": {
               "$ref": "#/$defs/_h47"
@@ -17991,7 +17978,7 @@
               "type": "string"
             },
             "summary": {
-              "$ref": "#/$defs/_h81"
+              "$ref": "#/$defs/_h80"
             },
             "tags": {
               "$ref": "#/$defs/_h107"
@@ -18069,7 +18056,7 @@
                                 "additionalProperties": false,
                                 "properties": {
                                   "by": {
-                                    "$ref": "#/$defs/_h379"
+                                    "$ref": "#/$defs/_h380"
                                   },
                                   "order": {
                                     "$ref": "#/$defs/SortOrder"
@@ -18106,7 +18093,7 @@
                             "$ref": "#/$defs/_h17"
                           },
                           "refKinds": {
-                            "$ref": "#/$defs/_h352"
+                            "$ref": "#/$defs/_h353"
                           },
                           "repo": {
                             "$ref": "#/$defs/_h8"
@@ -18120,7 +18107,7 @@
                         "type": "object"
                       },
                       {
-                        "$ref": "#/$defs/_h209"
+                        "$ref": "#/$defs/_h210"
                       }
                     ]
                   },
@@ -18168,7 +18155,7 @@
               "additionalProperties": false,
               "properties": {
                 "forms": {
-                  "$ref": "#/$defs/_h374"
+                  "$ref": "#/$defs/_h375"
                 },
                 "supported": {
                   "const": true
@@ -18392,7 +18379,7 @@
               "$ref": "#/$defs/_h66"
             },
             "next": {
-              "$ref": "#/$defs/_h175"
+              "$ref": "#/$defs/_h176"
             },
             "observedAt": {
               "type": "string"
@@ -18404,7 +18391,7 @@
               "$ref": "#/$defs/_h60"
             },
             "progress": {
-              "$ref": "#/$defs/_h216"
+              "$ref": "#/$defs/_h217"
             },
             "pruned": {
               "$ref": "#/$defs/_h32"
@@ -18502,7 +18489,7 @@
               "$ref": "#/$defs/_h66"
             },
             "next": {
-              "$ref": "#/$defs/_h175"
+              "$ref": "#/$defs/_h176"
             },
             "observedAt": {
               "type": "string"
@@ -18514,7 +18501,7 @@
               "$ref": "#/$defs/_h60"
             },
             "progress": {
-              "$ref": "#/$defs/_h216"
+              "$ref": "#/$defs/_h217"
             },
             "pruned": {
               "$ref": "#/$defs/_h32"
@@ -18612,7 +18599,7 @@
               "$ref": "#/$defs/_h66"
             },
             "next": {
-              "$ref": "#/$defs/_h175"
+              "$ref": "#/$defs/_h176"
             },
             "observedAt": {
               "type": "string"
@@ -18624,7 +18611,7 @@
               "$ref": "#/$defs/_h60"
             },
             "progress": {
-              "$ref": "#/$defs/_h216"
+              "$ref": "#/$defs/_h217"
             },
             "pruned": {
               "$ref": "#/$defs/_h32"
@@ -18704,7 +18691,7 @@
                         "$ref": "#/$defs/DefaultExcludesContinuationInput"
                       },
                       "exclude": {
-                        "$ref": "#/$defs/_h80"
+                        "$ref": "#/$defs/_h79"
                       },
                       "includeHidden": {
                         "type": "boolean"
@@ -18764,7 +18751,7 @@
       ]
     },
     "GraphEdgeconfidenceContinuationInput": {
-      "$ref": "#/$defs/_h348"
+      "$ref": "#/$defs/_h349"
     },
     "GraphEdgeedges": {
       "$ref": "#/$defs/_h320"
@@ -18784,7 +18771,7 @@
       "$ref": "#/$defs/_h238"
     },
     "GraphPagepage": {
-      "$ref": "#/$defs/_h78"
+      "$ref": "#/$defs/_h77"
     },
     "graphQueryContinueCall": {
       "additionalProperties": false,
@@ -18862,7 +18849,7 @@
                             "const": "supported"
                           },
                           "referenceForms": {
-                            "$ref": "#/$defs/_h374"
+                            "$ref": "#/$defs/_h375"
                           }
                         },
                         "required": [
@@ -18910,7 +18897,7 @@
             "baseline": {
               "anyOf": [
                 {
-                  "$ref": "#/$defs/_h139"
+                  "$ref": "#/$defs/_h138"
                 },
                 {
                   "additionalProperties": false,
@@ -18928,7 +18915,7 @@
                       "$ref": "#/$defs/_h0"
                     },
                     "resolvedFindings": {
-                      "$ref": "#/$defs/_h349"
+                      "$ref": "#/$defs/_h350"
                     }
                   },
                   "type": "object"
@@ -18936,7 +18923,7 @@
               ]
             },
             "callConfidence": {
-              "$ref": "#/$defs/_h348"
+              "$ref": "#/$defs/_h349"
             },
             "calls": {
               "$ref": "#/$defs/_h59"
@@ -18964,7 +18951,7 @@
               "type": "string"
             },
             "confidence": {
-              "$ref": "#/$defs/_h348"
+              "$ref": "#/$defs/_h349"
             },
             "counts": {
               "$ref": "#/$defs/_h59"
@@ -19075,13 +19062,13 @@
               "type": "boolean"
             },
             "freshness": {
-              "$ref": "#/$defs/_h293"
+              "$ref": "#/$defs/_h292"
             },
             "from": {
               "type": "string"
             },
             "graph": {
-              "$ref": "#/$defs/_h139"
+              "$ref": "#/$defs/_h138"
             },
             "hints": {
               "$ref": "#/$defs/RowHints"
@@ -19116,7 +19103,7 @@
               "type": "boolean"
             },
             "languages": {
-              "$ref": "#/$defs/_h349"
+              "$ref": "#/$defs/_h350"
             },
             "length": {
               "$ref": "#/$defs/_h0"
@@ -19229,13 +19216,13 @@
                   "$ref": "#/$defs/_h112"
                 },
                 "changed": {
-                  "$ref": "#/$defs/_h349"
+                  "$ref": "#/$defs/_h350"
                 },
                 "components": {
-                  "$ref": "#/$defs/_h349"
+                  "$ref": "#/$defs/_h350"
                 },
                 "configChanges": {
-                  "$ref": "#/$defs/_h349"
+                  "$ref": "#/$defs/_h350"
                 },
                 "cyclesAdded": {
                   "$ref": "#/$defs/_h0"
@@ -19286,7 +19273,7 @@
                   "$ref": "#/$defs/_h28"
                 },
                 "notes": {
-                  "$ref": "#/$defs/_h349"
+                  "$ref": "#/$defs/_h350"
                 },
                 "precision": {
                   "enum": [
@@ -19319,7 +19306,7 @@
                   "$ref": "#/$defs/_h0"
                 },
                 "unlinkedPathImports": {
-                  "$ref": "#/$defs/_h349"
+                  "$ref": "#/$defs/_h350"
                 },
                 "unmapped": {
                   "$ref": "#/$defs/_h0"
@@ -19351,7 +19338,7 @@
               "additionalProperties": {},
               "properties": {
                 "graph": {
-                  "$ref": "#/$defs/_h139"
+                  "$ref": "#/$defs/_h138"
                 }
               },
               "required": [
@@ -19422,7 +19409,7 @@
                             "additionalProperties": false,
                             "properties": {
                               "confidence": {
-                                "$ref": "#/$defs/_h348"
+                                "$ref": "#/$defs/_h349"
                               },
                               "derivation": {
                                 "$ref": "#/$defs/_h38"
@@ -19431,7 +19418,7 @@
                                 "type": "string"
                               },
                               "edge": {
-                                "$ref": "#/$defs/_h346"
+                                "$ref": "#/$defs/_h347"
                               },
                               "evidence": {
                                 "const": "syntax"
@@ -19446,10 +19433,10 @@
                                 "type": "string"
                               },
                               "line": {
-                                "$ref": "#/$defs/_h354"
+                                "$ref": "#/$defs/_h355"
                               },
                               "load": {
-                                "$ref": "#/$defs/_h307"
+                                "$ref": "#/$defs/_h306"
                               },
                               "path": {
                                 "$ref": "#/$defs/_h34"
@@ -19486,7 +19473,7 @@
                             "additionalProperties": false,
                             "properties": {
                               "confidence": {
-                                "$ref": "#/$defs/_h348"
+                                "$ref": "#/$defs/_h349"
                               },
                               "derivation": {
                                 "$ref": "#/$defs/_h38"
@@ -19495,7 +19482,7 @@
                                 "type": "string"
                               },
                               "edge": {
-                                "$ref": "#/$defs/_h346"
+                                "$ref": "#/$defs/_h347"
                               },
                               "evidence": {
                                 "const": "syntax"
@@ -19510,10 +19497,10 @@
                                 "type": "string"
                               },
                               "line": {
-                                "$ref": "#/$defs/_h354"
+                                "$ref": "#/$defs/_h355"
                               },
                               "load": {
-                                "$ref": "#/$defs/_h307"
+                                "$ref": "#/$defs/_h306"
                               },
                               "path": {
                                 "$ref": "#/$defs/_h34"
@@ -19550,7 +19537,7 @@
                             "additionalProperties": false,
                             "properties": {
                               "confidence": {
-                                "$ref": "#/$defs/_h348"
+                                "$ref": "#/$defs/_h349"
                               },
                               "derivation": {
                                 "$ref": "#/$defs/_h38"
@@ -19559,7 +19546,7 @@
                                 "type": "string"
                               },
                               "edge": {
-                                "$ref": "#/$defs/_h346"
+                                "$ref": "#/$defs/_h347"
                               },
                               "evidence": {
                                 "const": "syntax"
@@ -19574,10 +19561,10 @@
                                 "type": "string"
                               },
                               "line": {
-                                "$ref": "#/$defs/_h354"
+                                "$ref": "#/$defs/_h355"
                               },
                               "load": {
-                                "$ref": "#/$defs/_h307"
+                                "$ref": "#/$defs/_h306"
                               },
                               "parseAssessment": {
                                 "$ref": "#/$defs/OutputParseAssessment"
@@ -19613,7 +19600,7 @@
                             "$ref": "#/$defs/_h45"
                           },
                           "confidence": {
-                            "$ref": "#/$defs/_h348"
+                            "$ref": "#/$defs/_h349"
                           },
                           "derivation": {
                             "$ref": "#/$defs/_h38"
@@ -19695,7 +19682,7 @@
                             "$ref": "#/$defs/_h45"
                           },
                           "confidence": {
-                            "$ref": "#/$defs/_h348"
+                            "$ref": "#/$defs/_h349"
                           },
                           "derivation": {
                             "$ref": "#/$defs/_h38"
@@ -20121,7 +20108,7 @@
                             "$ref": "#/$defs/_h34"
                           },
                           "reason": {
-                            "$ref": "#/$defs/_h313"
+                            "$ref": "#/$defs/_h312"
                           },
                           "recipient": {
                             "$ref": "#/$defs/_h69"
@@ -20195,7 +20182,7 @@
                             "$ref": "#/$defs/_h34"
                           },
                           "reason": {
-                            "$ref": "#/$defs/_h313"
+                            "$ref": "#/$defs/_h312"
                           },
                           "sourceRange": {
                             "$ref": "#/$defs/OutputSourceByteRange"
@@ -21402,7 +21389,7 @@
                             "$ref": "#/$defs/GraphScopepathContinuationInput"
                           },
                           "reasons": {
-                            "$ref": "#/$defs/_h183"
+                            "$ref": "#/$defs/_h184"
                           },
                           "symbolName": {
                             "$ref": "#/$defs/_h34"
@@ -21462,7 +21449,7 @@
                             "$ref": "#/$defs/GraphPagelimitContinuationInput"
                           },
                           "minScore": {
-                            "$ref": "#/$defs/_h210"
+                            "$ref": "#/$defs/_h211"
                           },
                           "minTier": {
                             "anyOf": [
@@ -21663,7 +21650,7 @@
       "type": "object"
     },
     "GraphQueryStatsView": {
-      "$ref": "#/$defs/_h357"
+      "$ref": "#/$defs/_h358"
     },
     "GraphQueryStatsViewContinuationInput": {
       "enum": [
@@ -21687,13 +21674,13 @@
       "$ref": "#/$defs/_h271"
     },
     "GraphScopeincludeProvenance": {
-      "$ref": "#/$defs/_h361"
+      "$ref": "#/$defs/_h362"
     },
     "GraphScopeincludeProvenanceContinuationInput": {
       "type": "boolean"
     },
     "GraphScopepath": {
-      "$ref": "#/$defs/_h370"
+      "$ref": "#/$defs/_h371"
     },
     "GraphScopepathContinuationInput": {
       "$ref": "#/$defs/_h34"
@@ -21764,7 +21751,7 @@
               "$ref": "#/$defs/_h27"
             },
             "matchedLines": {
-              "$ref": "#/$defs/_h218"
+              "$ref": "#/$defs/_h209"
             },
             "matchKeys": {
               "$ref": "#/$defs/_h254"
@@ -21773,7 +21760,7 @@
               "$ref": "#/$defs/_h229"
             },
             "next": {
-              "$ref": "#/$defs/_h301"
+              "$ref": "#/$defs/_h300"
             },
             "observedAt": {
               "type": "string"
@@ -21886,7 +21873,7 @@
               "$ref": "#/$defs/_h27"
             },
             "matchedLines": {
-              "$ref": "#/$defs/_h218"
+              "$ref": "#/$defs/_h209"
             },
             "matchKeys": {
               "$ref": "#/$defs/_h254"
@@ -21895,7 +21882,7 @@
               "$ref": "#/$defs/_h229"
             },
             "next": {
-              "$ref": "#/$defs/_h301"
+              "$ref": "#/$defs/_h300"
             },
             "observedAt": {
               "type": "string"
@@ -22038,7 +22025,7 @@
                             "$ref": "#/$defs/CaseMode"
                           },
                           "contextLines": {
-                            "$ref": "#/$defs/_h87"
+                            "$ref": "#/$defs/_h86"
                           },
                           "limit": {
                             "$ref": "#/$defs/_h111"
@@ -22207,7 +22194,7 @@
               "$ref": "#/$defs/_h102"
             },
             "files": {
-              "$ref": "#/$defs/_h14"
+              "$ref": "#/$defs/_h13"
             },
             "filesScanned": {
               "$ref": "#/$defs/_h0"
@@ -22305,7 +22292,7 @@
               "$ref": "#/$defs/_h102"
             },
             "files": {
-              "$ref": "#/$defs/_h14"
+              "$ref": "#/$defs/_h13"
             },
             "filesScanned": {
               "$ref": "#/$defs/_h0"
@@ -22403,7 +22390,7 @@
               "$ref": "#/$defs/_h102"
             },
             "files": {
-              "$ref": "#/$defs/_h14"
+              "$ref": "#/$defs/_h13"
             },
             "filesScanned": {
               "$ref": "#/$defs/_h0"
@@ -22503,13 +22490,13 @@
                             "$ref": "#/$defs/CaseMode"
                           },
                           "contextLines": {
-                            "$ref": "#/$defs/_h87"
+                            "$ref": "#/$defs/_h86"
                           },
                           "defaultExcludes": {
                             "$ref": "#/$defs/DefaultExcludesContinuationInput"
                           },
                           "exclude": {
-                            "$ref": "#/$defs/_h80"
+                            "$ref": "#/$defs/_h79"
                           },
                           "fileHas": {
                             "$ref": "#/$defs/_h53"
@@ -22521,7 +22508,7 @@
                             "$ref": "#/$defs/_h34"
                           },
                           "include": {
-                            "$ref": "#/$defs/_h80"
+                            "$ref": "#/$defs/_h79"
                           },
                           "includeHidden": {
                             "type": "boolean"
@@ -22585,7 +22572,7 @@
                             "$ref": "#/$defs/DefaultExcludesContinuationInput"
                           },
                           "exclude": {
-                            "$ref": "#/$defs/_h80"
+                            "$ref": "#/$defs/_h79"
                           },
                           "fileHas": {
                             "$ref": "#/$defs/_h53"
@@ -22597,7 +22584,7 @@
                             "$ref": "#/$defs/_h34"
                           },
                           "include": {
-                            "$ref": "#/$defs/_h80"
+                            "$ref": "#/$defs/_h79"
                           },
                           "includeHidden": {
                             "type": "boolean"
@@ -22640,7 +22627,7 @@
                             "$ref": "#/$defs/TestCodeContinuationInput"
                           },
                           "view": {
-                            "$ref": "#/$defs/_h376"
+                            "$ref": "#/$defs/_h377"
                           },
                           "wholeWord": {
                             "type": "boolean"
@@ -22662,7 +22649,7 @@
                             "$ref": "#/$defs/DefaultExcludesContinuationInput"
                           },
                           "exclude": {
-                            "$ref": "#/$defs/_h80"
+                            "$ref": "#/$defs/_h79"
                           },
                           "fileHas": {
                             "$ref": "#/$defs/_h53"
@@ -22674,7 +22661,7 @@
                             "$ref": "#/$defs/_h34"
                           },
                           "include": {
-                            "$ref": "#/$defs/_h80"
+                            "$ref": "#/$defs/_h79"
                           },
                           "includeHidden": {
                             "type": "boolean"
@@ -22845,7 +22832,7 @@
               "$ref": "#/$defs/_h32"
             },
             "files": {
-              "$ref": "#/$defs/_h13"
+              "$ref": "#/$defs/_h14"
             },
             "hints": {
               "$ref": "#/$defs/RowHints"
@@ -22905,7 +22892,7 @@
               "$ref": "#/$defs/_h47"
             },
             "resolvedSymbol": {
-              "$ref": "#/$defs/_h76"
+              "$ref": "#/$defs/_h75"
             },
             "retryable": {
               "type": "boolean"
@@ -22976,7 +22963,7 @@
               "$ref": "#/$defs/_h32"
             },
             "files": {
-              "$ref": "#/$defs/_h13"
+              "$ref": "#/$defs/_h14"
             },
             "hints": {
               "$ref": "#/$defs/RowHints"
@@ -23036,7 +23023,7 @@
               "$ref": "#/$defs/_h47"
             },
             "resolvedSymbol": {
-              "$ref": "#/$defs/_h76"
+              "$ref": "#/$defs/_h75"
             },
             "retryable": {
               "type": "boolean"
@@ -23107,7 +23094,7 @@
               "$ref": "#/$defs/_h32"
             },
             "files": {
-              "$ref": "#/$defs/_h13"
+              "$ref": "#/$defs/_h14"
             },
             "hints": {
               "$ref": "#/$defs/RowHints"
@@ -23167,7 +23154,7 @@
               "$ref": "#/$defs/_h47"
             },
             "resolvedSymbol": {
-              "$ref": "#/$defs/_h76"
+              "$ref": "#/$defs/_h75"
             },
             "retryable": {
               "type": "boolean"
@@ -23238,7 +23225,7 @@
               "$ref": "#/$defs/_h32"
             },
             "files": {
-              "$ref": "#/$defs/_h13"
+              "$ref": "#/$defs/_h14"
             },
             "hints": {
               "$ref": "#/$defs/RowHints"
@@ -23298,7 +23285,7 @@
               "$ref": "#/$defs/_h47"
             },
             "resolvedSymbol": {
-              "$ref": "#/$defs/_h76"
+              "$ref": "#/$defs/_h75"
             },
             "retryable": {
               "type": "boolean"
@@ -23369,7 +23356,7 @@
               "$ref": "#/$defs/_h32"
             },
             "files": {
-              "$ref": "#/$defs/_h13"
+              "$ref": "#/$defs/_h14"
             },
             "hints": {
               "$ref": "#/$defs/RowHints"
@@ -23429,7 +23416,7 @@
               "$ref": "#/$defs/_h47"
             },
             "resolvedSymbol": {
-              "$ref": "#/$defs/_h76"
+              "$ref": "#/$defs/_h75"
             },
             "retryable": {
               "type": "boolean"
@@ -23500,7 +23487,7 @@
               "$ref": "#/$defs/_h32"
             },
             "files": {
-              "$ref": "#/$defs/_h13"
+              "$ref": "#/$defs/_h14"
             },
             "hints": {
               "$ref": "#/$defs/RowHints"
@@ -23560,7 +23547,7 @@
               "$ref": "#/$defs/_h47"
             },
             "resolvedSymbol": {
-              "$ref": "#/$defs/_h76"
+              "$ref": "#/$defs/_h75"
             },
             "retryable": {
               "type": "boolean"
@@ -23602,7 +23589,7 @@
     },
     "lspSearchNext": {
       "additionalProperties": {
-        "$ref": "#/$defs/_h340"
+        "$ref": "#/$defs/_h341"
       },
       "patternProperties": {
         "^(?:continueWalk(?:[2-9]|[1-9][0-9]+)?)$": {
@@ -23650,7 +23637,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "contextLines": {
-                            "$ref": "#/$defs/_h87"
+                            "$ref": "#/$defs/_h86"
                           },
                           "limit": {
                             "$ref": "#/$defs/_h111"
@@ -23659,7 +23646,7 @@
                             "$ref": "#/$defs/_h42"
                           },
                           "occurrence": {
-                            "$ref": "#/$defs/_h353"
+                            "$ref": "#/$defs/_h354"
                           },
                           "operation": {
                             "$ref": "#/$defs/_h386"
@@ -23679,8 +23666,7 @@
                         },
                         "required": [
                           "path",
-                          "symbolName",
-                          "line"
+                          "symbolName"
                         ],
                         "type": "object"
                       },
@@ -23694,7 +23680,7 @@
                             "$ref": "#/$defs/_h42"
                           },
                           "occurrence": {
-                            "$ref": "#/$defs/_h353"
+                            "$ref": "#/$defs/_h354"
                           },
                           "operation": {
                             "$ref": "#/$defs/_h386"
@@ -23715,7 +23701,6 @@
                         "required": [
                           "path",
                           "symbolName",
-                          "line",
                           "view"
                         ],
                         "type": "object"
@@ -23724,7 +23709,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "contextLines": {
-                            "$ref": "#/$defs/_h87"
+                            "$ref": "#/$defs/_h86"
                           },
                           "includeDeclaration": {
                             "type": "boolean"
@@ -23736,7 +23721,7 @@
                             "$ref": "#/$defs/_h42"
                           },
                           "occurrence": {
-                            "$ref": "#/$defs/_h353"
+                            "$ref": "#/$defs/_h354"
                           },
                           "operation": {
                             "const": "references"
@@ -23760,7 +23745,6 @@
                         "required": [
                           "path",
                           "symbolName",
-                          "line",
                           "operation"
                         ],
                         "type": "object"
@@ -23778,7 +23762,7 @@
                             "$ref": "#/$defs/_h42"
                           },
                           "occurrence": {
-                            "$ref": "#/$defs/_h353"
+                            "$ref": "#/$defs/_h354"
                           },
                           "operation": {
                             "const": "references"
@@ -23802,7 +23786,6 @@
                         "required": [
                           "path",
                           "symbolName",
-                          "line",
                           "operation",
                           "view"
                         ],
@@ -23821,7 +23804,7 @@
                             "$ref": "#/$defs/_h42"
                           },
                           "occurrence": {
-                            "$ref": "#/$defs/_h353"
+                            "$ref": "#/$defs/_h354"
                           },
                           "operation": {
                             "const": "callers"
@@ -23842,7 +23825,6 @@
                         "required": [
                           "path",
                           "symbolName",
-                          "line",
                           "operation"
                         ],
                         "type": "object"
@@ -23860,7 +23842,7 @@
                             "$ref": "#/$defs/_h42"
                           },
                           "occurrence": {
-                            "$ref": "#/$defs/_h353"
+                            "$ref": "#/$defs/_h354"
                           },
                           "operation": {
                             "enum": [
@@ -23881,7 +23863,6 @@
                         "required": [
                           "path",
                           "symbolName",
-                          "line",
                           "operation"
                         ],
                         "type": "object"
@@ -23899,7 +23880,7 @@
                             "$ref": "#/$defs/_h42"
                           },
                           "occurrence": {
-                            "$ref": "#/$defs/_h353"
+                            "$ref": "#/$defs/_h354"
                           },
                           "operation": {
                             "const": "subtypes"
@@ -23917,7 +23898,6 @@
                         "required": [
                           "path",
                           "symbolName",
-                          "line",
                           "operation"
                         ],
                         "type": "object"
@@ -23932,7 +23912,7 @@
                             "$ref": "#/$defs/_h42"
                           },
                           "occurrence": {
-                            "$ref": "#/$defs/_h353"
+                            "$ref": "#/$defs/_h354"
                           },
                           "operation": {
                             "const": "hover"
@@ -23950,7 +23930,6 @@
                         "required": [
                           "path",
                           "symbolName",
-                          "line",
                           "operation"
                         ],
                         "type": "object"
@@ -24245,7 +24224,7 @@
       "additionalProperties": false,
       "properties": {
         "confidence": {
-          "$ref": "#/$defs/_h348"
+          "$ref": "#/$defs/_h349"
         },
         "config": {
           "type": "string"
@@ -24383,7 +24362,7 @@
       "additionalProperties": {},
       "properties": {
         "candidates": {
-          "$ref": "#/$defs/_h349"
+          "$ref": "#/$defs/_h350"
         },
         "category": {
           "enum": [
@@ -24424,18 +24403,18 @@
               "additionalProperties": {},
               "properties": {
                 "dirs": {
-                  "$ref": "#/$defs/_h349"
+                  "$ref": "#/$defs/_h350"
                 },
                 "exports": {
-                  "$ref": "#/$defs/_h349"
+                  "$ref": "#/$defs/_h350"
                 },
                 "members": {
-                  "$ref": "#/$defs/_h349"
+                  "$ref": "#/$defs/_h350"
                 },
                 "mentionedIn": {
                   "anyOf": [
                     {
-                      "$ref": "#/$defs/_h349"
+                      "$ref": "#/$defs/_h350"
                     },
                     {
                       "$ref": "#/$defs/_h331"
@@ -24443,16 +24422,16 @@
                   ]
                 },
                 "sites": {
-                  "$ref": "#/$defs/_h349"
+                  "$ref": "#/$defs/_h350"
                 },
                 "suggestedCuts": {
-                  "$ref": "#/$defs/_h349"
+                  "$ref": "#/$defs/_h350"
                 },
                 "textMentions": {
                   "$ref": "#/$defs/_h331"
                 },
                 "witness": {
-                  "$ref": "#/$defs/_h349"
+                  "$ref": "#/$defs/_h350"
                 }
               },
               "type": "object"
@@ -24460,7 +24439,7 @@
           ]
         },
         "files": {
-          "$ref": "#/$defs/_h349"
+          "$ref": "#/$defs/_h350"
         },
         "from": {
           "type": "string"
@@ -24472,10 +24451,10 @@
           "type": "boolean"
         },
         "load": {
-          "$ref": "#/$defs/_h307"
+          "$ref": "#/$defs/_h306"
         },
         "nodes": {
-          "$ref": "#/$defs/_h349"
+          "$ref": "#/$defs/_h350"
         },
         "occurrenceId": {
           "$ref": "#/$defs/_h34"
@@ -24613,7 +24592,7 @@
           "type": "string"
         },
         "relatedInformation": {
-          "$ref": "#/$defs/_h349"
+          "$ref": "#/$defs/_h350"
         },
         "severity": {
           "anyOf": [
@@ -24631,7 +24610,7 @@
           ]
         },
         "sites": {
-          "$ref": "#/$defs/_h347"
+          "$ref": "#/$defs/_h348"
         },
         "source": {
           "type": "string"
@@ -24650,7 +24629,7 @@
           "$ref": "#/$defs/_h0"
         },
         "matchedLines": {
-          "$ref": "#/$defs/_h218"
+          "$ref": "#/$defs/_h209"
         },
         "matches": {
           "$ref": "#/$defs/_h115"
@@ -24715,7 +24694,7 @@
               "$ref": "#/$defs/OutputLspLocation"
             },
             "fromRanges": {
-              "$ref": "#/$defs/_h347"
+              "$ref": "#/$defs/_h348"
             },
             "level": {
               "$ref": "#/$defs/_h27"
@@ -24733,7 +24712,7 @@
           "additionalProperties": {},
           "properties": {
             "fromRanges": {
-              "$ref": "#/$defs/_h347"
+              "$ref": "#/$defs/_h348"
             },
             "level": {
               "$ref": "#/$defs/_h27"
@@ -24771,7 +24750,7 @@
               "$ref": "#/$defs/_h30"
             },
             "importRole": {
-              "$ref": "#/$defs/_h341"
+              "$ref": "#/$defs/_h342"
             },
             "kind": {
               "type": "string"
@@ -24789,7 +24768,7 @@
               "$ref": "#/$defs/OutputLspRange"
             },
             "role": {
-              "$ref": "#/$defs/_h295"
+              "$ref": "#/$defs/_h294"
             },
             "source": {
               "$ref": "#/$defs/_h206"
@@ -24822,7 +24801,7 @@
               "$ref": "#/$defs/_h30"
             },
             "importRole": {
-              "$ref": "#/$defs/_h341"
+              "$ref": "#/$defs/_h342"
             },
             "kind": {
               "type": "string"
@@ -24840,7 +24819,7 @@
               "$ref": "#/$defs/OutputLspRange"
             },
             "role": {
-              "$ref": "#/$defs/_h295"
+              "$ref": "#/$defs/_h294"
             },
             "source": {
               "$ref": "#/$defs/_h206"
@@ -24873,7 +24852,7 @@
               "$ref": "#/$defs/_h30"
             },
             "importRole": {
-              "$ref": "#/$defs/_h341"
+              "$ref": "#/$defs/_h342"
             },
             "kind": {
               "type": "string"
@@ -24891,7 +24870,7 @@
               "$ref": "#/$defs/OutputLspRange"
             },
             "role": {
-              "$ref": "#/$defs/_h295"
+              "$ref": "#/$defs/_h294"
             },
             "source": {
               "$ref": "#/$defs/_h206"
@@ -24924,7 +24903,7 @@
               "$ref": "#/$defs/_h30"
             },
             "importRole": {
-              "$ref": "#/$defs/_h341"
+              "$ref": "#/$defs/_h342"
             },
             "kind": {
               "type": "string"
@@ -24942,7 +24921,7 @@
               "$ref": "#/$defs/OutputLspRange"
             },
             "role": {
-              "$ref": "#/$defs/_h295"
+              "$ref": "#/$defs/_h294"
             },
             "source": {
               "$ref": "#/$defs/_h206"
@@ -25141,7 +25120,7 @@
           "additionalProperties": false,
           "properties": {
             "range": {
-              "$ref": "#/$defs/_h302"
+              "$ref": "#/$defs/_h301"
             },
             "scope": {
               "$ref": "#/$defs/_h319"
@@ -25160,7 +25139,7 @@
           "additionalProperties": false,
           "properties": {
             "range": {
-              "$ref": "#/$defs/_h302"
+              "$ref": "#/$defs/_h301"
             },
             "reason": {
               "const": "syntaxRecovery"
@@ -25673,11 +25652,8 @@
             "count": {
               "$ref": "#/$defs/_h0"
             },
-            "declaration": {
-              "const": true
-            },
             "enclosing": {
-              "$ref": "#/$defs/_h381"
+              "$ref": "#/$defs/_h340"
             },
             "endColumn": {
               "$ref": "#/$defs/_h0"
@@ -25695,10 +25671,10 @@
               "$ref": "#/$defs/_h0"
             },
             "matchedLines": {
-              "$ref": "#/$defs/_h218"
+              "$ref": "#/$defs/_h209"
             },
             "matchIndices": {
-              "$ref": "#/$defs/_h349"
+              "$ref": "#/$defs/_h350"
             },
             "metavarRanges": {
               "additionalProperties": {
@@ -25852,13 +25828,13 @@
       "$ref": "#/$defs/_h25"
     },
     "QueryClasifyContent": {
-      "$ref": "#/$defs/_h311"
+      "$ref": "#/$defs/_h310"
     },
     "QueryClasifyEntry": {
       "$ref": "#/$defs/_h288"
     },
     "QueryClasifyKey": {
-      "$ref": "#/$defs/_h167"
+      "$ref": "#/$defs/_h166"
     },
     "QueryClasifyNullableEntry": {
       "$ref": "#/$defs/_h113"
@@ -25870,7 +25846,7 @@
       "$ref": "#/$defs/_h3"
     },
     "QueryEvaluateSource": {
-      "$ref": "#/$defs/_h85"
+      "$ref": "#/$defs/_h84"
     },
     "QueryInstr": {
       "$ref": "#/$defs/_h113"
@@ -25882,13 +25858,13 @@
       "$ref": "#/$defs/_h132"
     },
     "QuerySections": {
-      "$ref": "#/$defs/_h84"
+      "$ref": "#/$defs/_h83"
     },
     "QuerySectionsResume": {
       "$ref": "#/$defs/_h142"
     },
     "QueryToolRowsSource": {
-      "$ref": "#/$defs/_h215"
+      "$ref": "#/$defs/_h216"
     },
     "QueryUrlSource": {
       "$ref": "#/$defs/_h162"
@@ -26908,10 +26884,10 @@
                             "type": "boolean"
                           },
                           "release": {
-                            "$ref": "#/$defs/_h364"
+                            "$ref": "#/$defs/_h365"
                           },
                           "version": {
-                            "$ref": "#/$defs/_h306"
+                            "$ref": "#/$defs/_h305"
                           },
                           "view": {
                             "$ref": "#/$defs/SecurityCheckViewContinuationInput"
@@ -26950,7 +26926,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "id": {
-                            "$ref": "#/$defs/_h380"
+                            "$ref": "#/$defs/_h381"
                           },
                           "operation": {
                             "const": "advisory"
@@ -26987,7 +26963,7 @@
                             "type": "boolean"
                           },
                           "ref": {
-                            "$ref": "#/$defs/_h367"
+                            "$ref": "#/$defs/_h368"
                           },
                           "repo": {
                             "$ref": "#/$defs/_h8"
@@ -27059,7 +27035,7 @@
       "type": "object"
     },
     "SecurityCheckView": {
-      "$ref": "#/$defs/_h357"
+      "$ref": "#/$defs/_h358"
     },
     "SecurityCheckViewContinuationInput": {
       "enum": [
@@ -27116,12 +27092,12 @@
       "additionalProperties": false,
       "properties": {
         "ofRule": {
-          "$ref": "#/$defs/_h86"
+          "$ref": "#/$defs/_h85"
         },
         "position": {
           "anyOf": [
             {
-              "$ref": "#/$defs/_h353"
+              "$ref": "#/$defs/_h354"
             },
             {
               "$ref": "#/$defs/_h148"
@@ -27243,7 +27219,7 @@
               "type": "boolean"
             },
             "next": {
-              "$ref": "#/$defs/_h294"
+              "$ref": "#/$defs/_h293"
             },
             "observedAt": {
               "type": "string"
@@ -27279,7 +27255,7 @@
               "type": "string"
             },
             "summary": {
-              "$ref": "#/$defs/_h81"
+              "$ref": "#/$defs/_h80"
             },
             "terminalLimit": {
               "type": "boolean"
@@ -27344,7 +27320,7 @@
               "type": "boolean"
             },
             "next": {
-              "$ref": "#/$defs/_h294"
+              "$ref": "#/$defs/_h293"
             },
             "observedAt": {
               "type": "string"
@@ -27380,7 +27356,7 @@
               "type": "string"
             },
             "summary": {
-              "$ref": "#/$defs/_h81"
+              "$ref": "#/$defs/_h80"
             },
             "terminalLimit": {
               "type": "boolean"
@@ -27438,13 +27414,13 @@
                             ]
                           },
                           "exclude": {
-                            "$ref": "#/$defs/_h80"
+                            "$ref": "#/$defs/_h79"
                           },
                           "extensions": {
                             "$ref": "#/$defs/_h195"
                           },
                           "include": {
-                            "$ref": "#/$defs/_h80"
+                            "$ref": "#/$defs/_h79"
                           },
                           "includeHidden": {
                             "type": "boolean"
@@ -27502,13 +27478,13 @@
                             ]
                           },
                           "exclude": {
-                            "$ref": "#/$defs/_h80"
+                            "$ref": "#/$defs/_h79"
                           },
                           "extensions": {
                             "$ref": "#/$defs/_h195"
                           },
                           "include": {
-                            "$ref": "#/$defs/_h80"
+                            "$ref": "#/$defs/_h79"
                           },
                           "includeHidden": {
                             "type": "boolean"
@@ -27774,12 +27750,6 @@
           "owner": [
             "ghGetFileContent"
           ]
-        },
-        "readSource": {
-          "kind": "branch",
-          "owner": [
-            "ghGetFileContent"
-          ]
         }
       }
     },
@@ -27964,7 +27934,7 @@
     "restart": "branch",
     "retry": "branch"
   },
-  "fingerprint": "1306cd556930226aae64a5d8d537c0e86811c172816387baa712749b4b3ed4cf",
+  "fingerprint": "54a1f44b5b469224d7f177a5520725f586983488038f4aa459d03399c3526a39",
   "limits": {
     "defaultReadContextLines": 0,
     "defaultResponseChars": 20000,
@@ -28259,7 +28229,7 @@
                       "$ref": "#/$defs/DefaultExcludes"
                     },
                     "exclude": {
-                      "$ref": "#/$defs/_h80"
+                      "$ref": "#/$defs/_h79"
                     },
                     "includeHidden": {
                       "type": "boolean"
@@ -28274,10 +28244,10 @@
                       "$ref": "#/$defs/AstParserGlobs"
                     },
                     "path": {
-                      "$ref": "#/$defs/_h370"
+                      "$ref": "#/$defs/_h371"
                     },
                     "refresh": {
-                      "$ref": "#/$defs/_h361"
+                      "$ref": "#/$defs/_h362"
                     }
                   },
                   "type": "object"
@@ -28445,7 +28415,7 @@
             "$ref": "#/$defs/DefaultExcludes"
           },
           "exclude": {
-            "$ref": "#/$defs/_h80"
+            "$ref": "#/$defs/_h79"
           },
           "includeHidden": {
             "type": "boolean"
@@ -28460,10 +28430,10 @@
             "$ref": "#/$defs/AstParserGlobs"
           },
           "path": {
-            "$ref": "#/$defs/_h370"
+            "$ref": "#/$defs/_h371"
           },
           "refresh": {
-            "$ref": "#/$defs/_h361"
+            "$ref": "#/$defs/_h362"
           }
         },
         "type": "object"
@@ -28549,10 +28519,10 @@
                       "$ref": "#/$defs/_h220"
                     },
                     {
-                      "$ref": "#/$defs/_h174"
+                      "$ref": "#/$defs/_h175"
                     },
                     {
-                      "$ref": "#/$defs/_h165"
+                      "$ref": "#/$defs/_h164"
                     },
                     {
                       "$ref": "#/$defs/_h198"
@@ -28561,7 +28531,7 @@
                       "$ref": "#/$defs/_h161"
                     },
                     {
-                      "$ref": "#/$defs/_h119"
+                      "$ref": "#/$defs/_h118"
                     },
                     {
                       "$ref": "#/$defs/_h116"
@@ -28576,10 +28546,10 @@
                       "$ref": "#/$defs/_h133"
                     },
                     {
-                      "$ref": "#/$defs/_h177"
+                      "$ref": "#/$defs/_h178"
                     },
                     {
-                      "$ref": "#/$defs/_h178"
+                      "$ref": "#/$defs/_h179"
                     },
                     {
                       "$ref": "#/$defs/_h135"
@@ -28597,7 +28567,7 @@
                       "$ref": "#/$defs/_h61"
                     },
                     {
-                      "$ref": "#/$defs/_h166"
+                      "$ref": "#/$defs/_h165"
                     }
                   ]
                 },
@@ -28656,10 +28626,10 @@
                 "type": "string"
               },
               "freshness": {
-                "$ref": "#/$defs/_h293"
+                "$ref": "#/$defs/_h292"
               },
               "graph": {
-                "$ref": "#/$defs/_h139"
+                "$ref": "#/$defs/_h138"
               },
               "hints": {
                 "$ref": "#/$defs/RowHints"
@@ -29246,10 +29216,10 @@
             "$ref": "#/$defs/_h220"
           },
           {
-            "$ref": "#/$defs/_h174"
+            "$ref": "#/$defs/_h175"
           },
           {
-            "$ref": "#/$defs/_h165"
+            "$ref": "#/$defs/_h164"
           },
           {
             "$ref": "#/$defs/_h198"
@@ -29258,7 +29228,7 @@
             "$ref": "#/$defs/_h161"
           },
           {
-            "$ref": "#/$defs/_h119"
+            "$ref": "#/$defs/_h118"
           },
           {
             "$ref": "#/$defs/_h116"
@@ -29273,10 +29243,10 @@
             "$ref": "#/$defs/_h133"
           },
           {
-            "$ref": "#/$defs/_h177"
+            "$ref": "#/$defs/_h178"
           },
           {
-            "$ref": "#/$defs/_h178"
+            "$ref": "#/$defs/_h179"
           },
           {
             "$ref": "#/$defs/_h135"
@@ -29294,7 +29264,7 @@
             "$ref": "#/$defs/_h61"
           },
           {
-            "$ref": "#/$defs/_h166"
+            "$ref": "#/$defs/_h165"
           }
         ]
       },
@@ -30188,7 +30158,7 @@
             "$ref": "#/$defs/_h132"
           },
           {
-            "$ref": "#/$defs/_h84"
+            "$ref": "#/$defs/_h83"
           },
           {
             "$ref": "#/$defs/_h142"
@@ -30657,7 +30627,7 @@
                       "$ref": "#/$defs/_h40"
                     },
                     {
-                      "$ref": "#/$defs/_h140"
+                      "$ref": "#/$defs/_h139"
                     },
                     {
                       "$ref": "#/$defs/_h190"
@@ -30809,7 +30779,7 @@
             "$ref": "#/$defs/_h40"
           },
           {
-            "$ref": "#/$defs/_h140"
+            "$ref": "#/$defs/_h139"
           },
           {
             "$ref": "#/$defs/_h190"
@@ -30959,10 +30929,10 @@
                       "$ref": "#/$defs/_h195"
                     },
                     "fields": {
-                      "$ref": "#/$defs/_h296"
+                      "$ref": "#/$defs/_h295"
                     },
                     "indexHead": {
-                      "$ref": "#/$defs/_h356"
+                      "$ref": "#/$defs/_h357"
                     },
                     "keywords": {
                       "$ref": "#/$defs/_h68"
@@ -30971,7 +30941,7 @@
                       "$ref": "#/$defs/_h247"
                     },
                     "listed": {
-                      "$ref": "#/$defs/_h372"
+                      "$ref": "#/$defs/_h373"
                     },
                     "matched": {
                       "$ref": "#/$defs/_h238"
@@ -31207,7 +31177,7 @@
                               "type": "boolean"
                             },
                             "next": {
-                              "$ref": "#/$defs/_h75"
+                              "$ref": "#/$defs/_h88"
                             },
                             "observedAt": {
                               "type": "string"
@@ -31368,10 +31338,10 @@
             "$ref": "#/$defs/_h195"
           },
           "fields": {
-            "$ref": "#/$defs/_h296"
+            "$ref": "#/$defs/_h295"
           },
           "indexHead": {
-            "$ref": "#/$defs/_h356"
+            "$ref": "#/$defs/_h357"
           },
           "keywords": {
             "$ref": "#/$defs/_h68"
@@ -31380,7 +31350,7 @@
             "$ref": "#/$defs/_h247"
           },
           "listed": {
-            "$ref": "#/$defs/_h372"
+            "$ref": "#/$defs/_h373"
           },
           "matched": {
             "$ref": "#/$defs/_h238"
@@ -31566,13 +31536,13 @@
                 "items": {
                   "oneOf": [
                     {
-                      "$ref": "#/$defs/_h83"
+                      "$ref": "#/$defs/_h82"
                     },
                     {
                       "$ref": "#/$defs/_h194"
                     },
                     {
-                      "$ref": "#/$defs/_h209"
+                      "$ref": "#/$defs/_h210"
                     }
                   ]
                 },
@@ -31738,13 +31708,13 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "oneOf": [
           {
-            "$ref": "#/$defs/_h83"
+            "$ref": "#/$defs/_h82"
           },
           {
             "$ref": "#/$defs/_h194"
           },
           {
-            "$ref": "#/$defs/_h209"
+            "$ref": "#/$defs/_h210"
           }
         ]
       },
@@ -31871,7 +31841,7 @@
                       "$ref": "#/$defs/_h236"
                     },
                     {
-                      "$ref": "#/$defs/_h214"
+                      "$ref": "#/$defs/_h215"
                     },
                     {
                       "$ref": "#/$defs/_h237"
@@ -32043,7 +32013,7 @@
             "$ref": "#/$defs/_h236"
           },
           {
-            "$ref": "#/$defs/_h214"
+            "$ref": "#/$defs/_h215"
           },
           {
             "$ref": "#/$defs/_h237"
@@ -32717,7 +32687,7 @@
                       "$ref": "#/$defs/_h126"
                     },
                     {
-                      "$ref": "#/$defs/_h159"
+                      "$ref": "#/$defs/_h158"
                     },
                     {
                       "$ref": "#/$defs/_h125"
@@ -33014,7 +32984,7 @@
             "$ref": "#/$defs/_h126"
           },
           {
-            "$ref": "#/$defs/_h159"
+            "$ref": "#/$defs/_h158"
           },
           {
             "$ref": "#/$defs/_h125"
@@ -33376,19 +33346,19 @@
                       "$ref": "#/$defs/_h122"
                     },
                     {
-                      "$ref": "#/$defs/_h176"
+                      "$ref": "#/$defs/_h177"
                     },
                     {
                       "$ref": "#/$defs/_h134"
                     },
                     {
-                      "$ref": "#/$defs/_h173"
+                      "$ref": "#/$defs/_h174"
                     },
                     {
-                      "$ref": "#/$defs/_h171"
+                      "$ref": "#/$defs/_h172"
                     },
                     {
-                      "$ref": "#/$defs/_h168"
+                      "$ref": "#/$defs/_h167"
                     }
                   ]
                 },
@@ -33552,19 +33522,19 @@
             "$ref": "#/$defs/_h122"
           },
           {
-            "$ref": "#/$defs/_h176"
+            "$ref": "#/$defs/_h177"
           },
           {
             "$ref": "#/$defs/_h134"
           },
           {
-            "$ref": "#/$defs/_h173"
+            "$ref": "#/$defs/_h174"
           },
           {
-            "$ref": "#/$defs/_h171"
+            "$ref": "#/$defs/_h172"
           },
           {
-            "$ref": "#/$defs/_h168"
+            "$ref": "#/$defs/_h167"
           }
         ]
       },
@@ -34701,10 +34671,10 @@
                 "items": {
                   "anyOf": [
                     {
-                      "$ref": "#/$defs/_h82"
+                      "$ref": "#/$defs/_h81"
                     },
                     {
-                      "$ref": "#/$defs/_h88"
+                      "$ref": "#/$defs/_h87"
                     },
                     {
                       "$ref": "#/$defs/_h204"
@@ -34713,7 +34683,7 @@
                       "$ref": "#/$defs/_h191"
                     },
                     {
-                      "$ref": "#/$defs/_h123"
+                      "$ref": "#/$defs/_h124"
                     }
                   ],
                   "x-checks": [
@@ -35583,10 +35553,10 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "anyOf": [
           {
-            "$ref": "#/$defs/_h82"
+            "$ref": "#/$defs/_h81"
           },
           {
-            "$ref": "#/$defs/_h88"
+            "$ref": "#/$defs/_h87"
           },
           {
             "$ref": "#/$defs/_h204"
@@ -35595,7 +35565,7 @@
             "$ref": "#/$defs/_h191"
           },
           {
-            "$ref": "#/$defs/_h123"
+            "$ref": "#/$defs/_h124"
           }
         ],
         "x-checks": [
@@ -36412,28 +36382,28 @@
                 "items": {
                   "anyOf": [
                     {
-                      "$ref": "#/$defs/_h118"
+                      "$ref": "#/$defs/_h119"
                     },
                     {
-                      "$ref": "#/$defs/_h158"
+                      "$ref": "#/$defs/_h159"
                     },
                     {
-                      "$ref": "#/$defs/_h109"
+                      "$ref": "#/$defs/_h110"
                     },
                     {
-                      "$ref": "#/$defs/_h138"
+                      "$ref": "#/$defs/_h140"
                     },
                     {
                       "$ref": "#/$defs/_h149"
                     },
                     {
-                      "$ref": "#/$defs/_h164"
+                      "$ref": "#/$defs/_h169"
                     },
                     {
                       "$ref": "#/$defs/_h157"
                     },
                     {
-                      "$ref": "#/$defs/_h179"
+                      "$ref": "#/$defs/_h182"
                     },
                     {
                       "$ref": "#/$defs/_h219"
@@ -36442,7 +36412,41 @@
                       "$ref": "#/$defs/_h202"
                     },
                     {
-                      "$ref": "#/$defs/_h213"
+                      "$ref": "#/$defs/_h214"
+                    }
+                  ],
+                  "x-checks": [
+                    {
+                      "assert": {
+                        "$schema": "https://json-schema.org/draft/2020-12/schema",
+                        "additionalProperties": {},
+                        "properties": {
+                          "line": {}
+                        },
+                        "required": [
+                          "line"
+                        ],
+                        "type": "object"
+                      },
+                      "id": "lsp-search.occurrence-line",
+                      "message": "occurrence counts identifiers on line: set line, or drop occurrence to anchor at the one declaration of symbolName in path.",
+                      "path": [
+                        "line"
+                      ],
+                      "when": {
+                        "$schema": "https://json-schema.org/draft/2020-12/schema",
+                        "additionalProperties": {},
+                        "properties": {
+                          "occurrence": {
+                            "minimum": 1,
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "occurrence"
+                        ],
+                        "type": "object"
+                      }
                     }
                   ]
                 },
@@ -37039,28 +37043,28 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "anyOf": [
           {
-            "$ref": "#/$defs/_h118"
+            "$ref": "#/$defs/_h119"
           },
           {
-            "$ref": "#/$defs/_h158"
+            "$ref": "#/$defs/_h159"
           },
           {
-            "$ref": "#/$defs/_h109"
+            "$ref": "#/$defs/_h110"
           },
           {
-            "$ref": "#/$defs/_h138"
+            "$ref": "#/$defs/_h140"
           },
           {
             "$ref": "#/$defs/_h149"
           },
           {
-            "$ref": "#/$defs/_h164"
+            "$ref": "#/$defs/_h169"
           },
           {
             "$ref": "#/$defs/_h157"
           },
           {
-            "$ref": "#/$defs/_h179"
+            "$ref": "#/$defs/_h182"
           },
           {
             "$ref": "#/$defs/_h219"
@@ -37069,7 +37073,41 @@
             "$ref": "#/$defs/_h202"
           },
           {
-            "$ref": "#/$defs/_h213"
+            "$ref": "#/$defs/_h214"
+          }
+        ],
+        "x-checks": [
+          {
+            "assert": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": {},
+              "properties": {
+                "line": {}
+              },
+              "required": [
+                "line"
+              ],
+              "type": "object"
+            },
+            "id": "lsp-search.occurrence-line",
+            "message": "occurrence counts identifiers on line: set line, or drop occurrence to anchor at the one declaration of symbolName in path.",
+            "path": [
+              "line"
+            ],
+            "when": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": {},
+              "properties": {
+                "occurrence": {
+                  "minimum": 1,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "occurrence"
+              ],
+              "type": "object"
+            }
           }
         ]
       },
@@ -37100,8 +37138,7 @@
           ],
           "requires": [
             "path",
-            "symbolName",
-            "line"
+            "symbolName"
           ]
         },
         {
@@ -37130,7 +37167,6 @@
           "requires": [
             "path",
             "symbolName",
-            "line",
             "view"
           ]
         },
@@ -37161,7 +37197,6 @@
           "requires": [
             "path",
             "symbolName",
-            "line",
             "operation"
           ]
         },
@@ -37193,7 +37228,6 @@
           "requires": [
             "path",
             "symbolName",
-            "line",
             "operation",
             "view"
           ]
@@ -37223,7 +37257,6 @@
           "requires": [
             "path",
             "symbolName",
-            "line",
             "operation"
           ]
         },
@@ -37252,7 +37285,6 @@
           "requires": [
             "path",
             "symbolName",
-            "line",
             "operation"
           ]
         },
@@ -37280,7 +37312,6 @@
           "requires": [
             "path",
             "symbolName",
-            "line",
             "operation"
           ]
         },
@@ -37307,7 +37338,6 @@
           "requires": [
             "path",
             "symbolName",
-            "line",
             "operation"
           ]
         },
@@ -37429,7 +37459,7 @@
                 "items": {
                   "anyOf": [
                     {
-                      "$ref": "#/$defs/_h110"
+                      "$ref": "#/$defs/_h109"
                     },
                     {
                       "$ref": "#/$defs/_h258"
@@ -37438,7 +37468,7 @@
                       "$ref": "#/$defs/_h226"
                     },
                     {
-                      "$ref": "#/$defs/_h211"
+                      "$ref": "#/$defs/_h212"
                     },
                     {
                       "$ref": "#/$defs/_h232"
@@ -37688,7 +37718,7 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "anyOf": [
           {
-            "$ref": "#/$defs/_h110"
+            "$ref": "#/$defs/_h109"
           },
           {
             "$ref": "#/$defs/_h258"
@@ -37697,7 +37727,7 @@
             "$ref": "#/$defs/_h226"
           },
           {
-            "$ref": "#/$defs/_h211"
+            "$ref": "#/$defs/_h212"
           },
           {
             "$ref": "#/$defs/_h232"

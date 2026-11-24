@@ -1,4 +1,5 @@
 //! Empty-search diagnosis and executable recovery routes.
+use super::search_page::FileRead;
 use super::{code_output, leads};
 use octocode_contract_types::GhSearchCodeQuery;
 use octocode_github::{GitHubProvider, ProviderError, RepositoryMetadata, RequestContext};
@@ -61,6 +62,52 @@ pub(super) async fn page(
             broader,
         );
     }
+    or_repair(query, value);
+    Ok(())
+}
+
+/// The empty page of a row answered from the file its `path` names: the
+/// file was read whole at its commit, so the answer is complete over it, not
+/// over an index; keywords spelled as OR keep their repair. A path the
+/// default branch's head does not hold in any case of its name is complete
+/// over that commit too: its folder's listing is the one route on, and no
+/// lead reads or searches the missing path again.
+pub(super) fn read_file(query: &GhSearchCodeQuery, read: &FileRead, output: &mut ToolData) {
+    let (path, commit) = (read.path.as_str(), read.commit.as_str());
+    if !read.found {
+        output.data["coverage"] = json!({
+            "state": "complete",
+            "reason": format!("{path} is not at {commit}"),
+        });
+        let parent = path.rsplit_once('/').map_or("", |(parent, _)| parent);
+        let tree = json!({
+            "operation": "tree",
+            "owner": query.owner,
+            "repo": query.repo,
+            "path": parent,
+        });
+        output.data["calls"]["viewTree"] = Continuation::related(ToolId::GhStructure, tree).build();
+        return;
+    }
+    output.data["coverage"] = json!({
+        "state": "complete",
+        "reason": format!("{path} was read whole at {commit}: it does not hold every keyword"),
+    });
+    let keywords: Vec<&str> = query
+        .keywords
+        .iter()
+        .map(|keyword| keyword.as_str())
+        .collect();
+    octocode_runtime_base::response::result::add_hints(
+        &mut output.data,
+        code_output::qualifier_keyword_hints(&keywords),
+    );
+    or_repair(query, &mut output.data);
+}
+
+/// Keywords spelled as OR, which code search does not support: the split
+/// into one row per alternative.
+fn or_repair(query: &GhSearchCodeQuery, value: &mut serde_json::Value) {
     if let Some(split) = leads::or_split(query) {
         octocode_runtime_base::response::result::add_hints(
             value,
@@ -70,5 +117,4 @@ pub(super) async fn page(
         );
         value["calls"]["repair"] = split;
     }
-    Ok(())
 }

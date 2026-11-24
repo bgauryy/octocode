@@ -36,7 +36,7 @@ pub(super) fn detail_unless_sorted(
     detail: &'static [&'static str],
 ) -> Vec<&'static str> {
     let mut sorted = Vec::new();
-    if super::super::comment_counts::by_comments(query) {
+    if super::super::pull_facts::by_comments(query) {
         sorted.extend(["commentsCount", "totalCommentsCount"]);
     }
     match gh_search_history_query::sort(query).as_deref() {

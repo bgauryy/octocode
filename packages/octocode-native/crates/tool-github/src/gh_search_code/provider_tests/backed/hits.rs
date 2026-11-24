@@ -113,7 +113,8 @@ async fn complete_long_and_many_hits_need_no_recovery_read() {
     );
 }
 
-/// Each fully shown hit opens its source block at its verified commit.
+/// A fully shown hit file offers no read: its row holds every hit line at
+/// its verified commit, which is what a read of it would pin.
 #[tokio::test]
 async fn fully_shown_hit_files_get_no_hit_read() {
     let server = MockServer::builder().start().await;
@@ -127,19 +128,18 @@ async fn fully_shown_hit_files_get_no_hit_read() {
     )
     .await
     .expect("search");
-    assert!(out.data["next"].get("readHits").is_none(), "{}", out.data);
-    for (index, (file, line)) in [("src/handler.py", 2), ("src/routing.py", 1)]
-        .into_iter()
-        .enumerate()
-    {
-        let read = &out.data["next"]["readSource"];
-        assert_eq!(read["tool"], "ghGetFileContent", "{read}");
-        let query = &read["input"]["queries"][index];
-        assert_eq!(query["ref"], TREE_SHA);
-        assert_eq!(query["path"], file);
-        assert_eq!(query["block"], true);
-        assert_eq!(query["ranges"], json!([{"startLine":line,"endLine":line}]));
+    assert!(out.data.get("next").is_none(), "{}", out.data);
+    for (file, line) in [
+        ("src/handler.py", "2\tdef wrap_app(app):"),
+        ("src/routing.py", "1\twrap_app()"),
+    ] {
+        let row = out.data["files"]
+            .as_array()
+            .and_then(|rows| rows.iter().find(|row| row["path"] == file))
+            .unwrap_or_else(|| panic!("{file}: {}", out.data));
+        assert_eq!(listing(row), json!([line]), "{}", out.data);
     }
+    assert!(out.data.to_string().contains(TREE_SHA), "{}", out.data);
 }
 
 /// Unresolved owner-wide hits retain repository identity and fragment offsets.

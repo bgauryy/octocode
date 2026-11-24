@@ -13,7 +13,14 @@ Connect the current host to agents sharing one local SQLite database. Agents own
 
 ## Configure host hooks and MCP
 
-Generate `host-config --json --vendor HOST --workspace ABSOLUTE_WORKSPACE [--database ABSOLUTE_DB]` through `/cli`. Inspect and merge its event arrays into the existing file, preserving unrelated settings and handlers. Make reinstallation idempotent. Replace only this installation's obsolete communication handlers, including old `completion-check` gates. Keep previews outside discovered hook directories.
+Generate the hooks through `/cli` and merge them into the host's project hook file (table below) with [hook-merge.mjs](../scripts/hook-merge.mjs), previewing first:
+
+```bash
+octocode-agents-communication /cli host-config --json --vendor HOST --workspace ABSOLUTE_WORKSPACE [--database ABSOLUTE_DB] \
+  | node <skill-folder>/scripts/hook-merge.mjs --file HOOK_FILE --add - --replace 'octocode-agents-communication|communication\.js host-hook|completion-check' --dry-run
+```
+
+Read the preview's `settings` and `removed`: `--replace` must match only this installation's communication handlers, including old `completion-check` gates; narrow the regex when it removes anything else. Rerun without `--dry-run` to write. It keeps unrelated settings and handlers, skips identical entries (`skipped`), so reinstalling is idempotent, and never writes a preview file into a hook directory. Exit 1 `versionConflict` or 2 invalid JSON leaves the file unchanged.
 
 | Host | Project hook file | Verify loading |
 |---|---|---|

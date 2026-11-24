@@ -54,10 +54,21 @@ pub struct SearchMatch {
     /// The declaration around this hit in the file's `declarations`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enclosing: Option<Owners>,
-    /// `true` on a row whose hit line declares a name (the lspSearch
-    /// anchor among same-name hits); absent on every other row.
+    /// The declaration this row's hit declares, in the file's
+    /// `declarations`: its `line`–`endLine` is the range that reads it.
+    /// Absent on every other row, and where the file has no outline.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub declaration: Option<bool>,
+    pub declaration: Option<Declared>,
+}
+
+/// The declarations a hit row declares among its file's `declarations`: one
+/// index, or, for a merged window with several declaring hits, one index
+/// per declaring hit, in order (each declaration's `line` is its hit line).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum Declared {
+    One(u32),
+    Each(Vec<u32>),
 }
 
 /// Where a hit row sits among its file's `declarations`: one index, or, for
@@ -120,7 +131,7 @@ impl Serialize for Paging {
     }
 }
 
-/// A declaration enclosing a hit, named like the inputs that take it
+/// A declaration enclosing a hit, or one a hit declares, named like the inputs that take it
 /// (`symbolName` + `line` = `line`, `ranges` = `line-endLine`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -147,8 +158,9 @@ pub struct SearchFile {
         serialize_with = "octocode_tools_shared::match_keys::serialize_rows"
     )]
     pub match_keys: Vec<(usize, String)>,
-    /// The declarations around the shown hits, each once; a hit names its own
-    /// by index, so hits in one function do not each repeat it.
+    /// The declarations around the shown hits and the ones they declare,
+    /// each once; a hit names them by index, so hits in one function do not
+    /// each repeat it.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub declarations: Vec<Enclosing>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -91,7 +91,7 @@ pub(crate) fn symbol_fuzzy(q: &Q) -> Option<&str> {
         symbol_fuzzy => Some(symbol_fuzzy.as_str()), else => None)
 }
 pub(crate) fn anchor_line(q: &Q) -> Option<u32> {
-    anchored_shape!(q, line => Some(saturating_u32(line.get())), else => None)
+    anchored_shape!(q, line => line.map(|line| saturating_u32(line.get())), else => None)
 }
 pub(crate) fn occurrence(q: &Q) -> Option<u32> {
     anchored_shape!(q, occurrence => (*occurrence != 0).then(|| saturating_u32(*occurrence)),

@@ -1,6 +1,7 @@
 use super::legacy::{LegacyUse, read_legacy_env};
 use super::types::{
-    ENV_TOKEN_VARS, EnvApplyReport, HOME_TRUSTED_ENV_KEYS, PROTECTED_KEYS, WORKSPACE_NARROW_ONLY,
+    ENV_TOKEN_VARS, EnvApplyReport, HOME_TRUSTED_ENV_KEYS, KNOWN_ENV, PROTECTED_KEYS,
+    WORKSPACE_NARROW_ONLY,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -18,6 +19,15 @@ pub(super) fn workspace_may_narrow(key: &str, value: &str) -> bool {
     WORKSPACE_NARROW_ONLY
         .iter()
         .any(|(name, safe)| *name == key && value.trim().eq_ignore_ascii_case(safe))
+}
+
+/// An API key (a contract entry of type `key`): process > home `.env` >
+/// workspace `.env`, so a repository only fills a key the user has not set.
+/// `@octocodeai/config` `getKey` reads every key in this same order.
+pub(super) fn is_api_key(key: &str) -> bool {
+    KNOWN_ENV
+        .iter()
+        .any(|known| known.kind == "key" && known.name == key)
 }
 
 pub fn parse_env(text: Option<&str>) -> BTreeMap<String, String> {
@@ -54,7 +64,8 @@ pub fn parse_env(text: Option<&str>) -> BTreeMap<String, String> {
     out
 }
 
-/// The home and workspace `.env` files merged: the workspace wins per key.
+/// The home and workspace `.env` files merged: the workspace wins per key,
+/// except an API key the home file sets.
 pub(crate) struct MergedEnv {
     pub map: BTreeMap<String, String>,
     /// Which file each key in `map` came from: `global` or `project`.
@@ -85,20 +96,22 @@ pub(crate) fn apply_env(
     };
     // Capture source decisions before mutating target: the GitHub token
     // variables keep their declared priority within a source, and a lower
-    // source's token cannot mask a higher source's.
+    // source's token cannot mask a higher source's. Tokens are API keys, so
+    // the home file outranks the workspace one.
     let from_project = |key: &str| report.sources.get(key).map(String::as_str) == Some("project");
+    let from_home = |key: &str| report.sources.get(key).map(String::as_str) == Some("global");
     let process_selected = ENV_TOKEN_VARS.iter().any(|key| {
         target
             .get(*key)
             .is_some_and(|value| !value.trim().is_empty())
     });
-    let workspace_selected = ENV_TOKEN_VARS.iter().any(|key| {
-        from_project(key) && map.get(*key).is_some_and(|value| !value.trim().is_empty())
-    });
+    let home_selected = ENV_TOKEN_VARS
+        .iter()
+        .any(|key| from_home(key) && map.get(*key).is_some_and(|value| !value.trim().is_empty()));
     let shadowed: BTreeSet<&str> = ENV_TOKEN_VARS
         .iter()
         .copied()
-        .filter(|key| process_selected || (workspace_selected && !from_project(key)))
+        .filter(|key| process_selected || (home_selected && from_project(key)))
         .collect();
     for (key, value) in &map {
         let workspace = report.sources.get(key).map(String::as_str) == Some("project");
@@ -168,6 +181,10 @@ pub(crate) fn merged_env(global: Option<&str>, project: Option<&str>) -> MergedE
         // home value for that key; it is dropped and reported.
         if merged.map.contains_key(&k) && !dotenv_may_set(&k, &v, true) {
             merged.workspace_protected.push(k);
+            continue;
+        }
+        // An API key the home file sets stays the home one.
+        if merged.map.contains_key(&k) && is_api_key(&k) {
             continue;
         }
         merged.sources.insert(k.clone(), "project".into());

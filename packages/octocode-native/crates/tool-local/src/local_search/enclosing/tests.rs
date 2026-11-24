@@ -38,6 +38,35 @@ fn hits_name_their_innermost_declaration_and_definitions_the_one_around() {
     assert!(!outline.declares("try_read_output", 10));
 }
 
+/// A hit declares the declaration whose name it starts on; a hit before
+/// the name declares it only as a declaration search of that name. A local
+/// binding, a use and a line outside every name declare nothing.
+#[test]
+fn a_hit_on_a_name_declares_it() {
+    let outline = Outline::of(SOURCE, "enclosing-test/a.rs").expect("rust outline");
+    let byte = |line: u32, needle: &str| {
+        let text = SOURCE.lines().nth(line as usize - 1).expect("line");
+        u32::try_from(text.find(needle).expect("needle")).expect("u32")
+    };
+    let declared = |line, needle, symbol| {
+        outline
+            .declared(line, byte(line, needle), symbol)
+            .and_then(|index| outline.label(index))
+            .map(|d| (d.symbol_name, d.line, d.end_line))
+    };
+    let method = Some(("try_read_output".to_owned(), 3, 6));
+    assert_eq!(declared(3, "try_read_output", None), method);
+    assert_eq!(declared(3, "fn", None), None);
+    assert_eq!(declared(3, "fn", Some("try_read_output")), method);
+    assert_eq!(declared(3, "self", None), None);
+    assert_eq!(declared(4, "x", None), None);
+    assert_eq!(declared(10, "try_read_output", None), None);
+    assert_eq!(
+        declared(10, "try_read_output", Some("try_read_output")),
+        None
+    );
+}
+
 #[test]
 fn rust_macro_arm_hits_belong_to_the_named_macro() {
     for attribute in ["macro_export", "allow(dead_code)"] {
@@ -90,8 +119,11 @@ fn consecutive_c_macros_end_on_their_own_line() {
     assert_eq!(outline.enclosing(2, 0), None);
     assert!(outline.declares("OBJ_ENCODING_LISTPACK", 2));
     assert_eq!(
-        outline.declaration("OBJ_ENCODING_STREAM", 1),
-        Some(("macro", 1, 1))
+        outline
+            .named("OBJ_ENCODING_STREAM", 1)
+            .and_then(|index| outline.label(index))
+            .map(|d| (d.kind, d.line, d.end_line)),
+        Some(("macro".into(), 1, 1))
     );
     assert_eq!(
         outline
@@ -109,7 +141,7 @@ fn rows(outline: &Outline) -> Vec<Row> {
     outline
         .declarations
         .iter()
-        .map(|d| (d.kind.clone(), d.name.clone(), d.line, d.start, d.end))
+        .map(|d| (d.kind.clone(), d.name.clone(), d.line, d.from.0, d.end))
         .collect()
 }
 

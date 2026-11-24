@@ -709,6 +709,8 @@ pub(super) fn explain_empty(
             out,
             [octocode_runtime_base::policy::include::glob_miss_hint(
                 facts.withheld,
+                &q.include().unwrap_or_default(),
+                &q.exclude().unwrap_or_default(),
             )],
         );
         if let Some(listing) = q.path().and_then(|path| {

@@ -26,8 +26,8 @@ In commands, `skill` is this skill's absolute folder, `out` an existing capture 
 | Browser frames or GPU stalls | [Browser and GPU timelines](references/gpu.md) |
 | Native, Rust or Go target | [Native debugger](references/native.md), [Rust profiler](references/rust-profiling.md) or [Go tools](references/go.md) |
 | Node or Python target | Node [debugger](references/node.md) or [profiler](references/node-profiling.md). Python [debugger](references/python.md) or [profiler](references/python-profiling.md). |
-| A long log, test run or CI output | Save it under the workspace. Search known markers with `localSearch`; use `clasify` for a typed question when exact search cannot narrow the unread evidence. [Tool usage](references/octocode-usage.md) |
-| The code behind a frame, log line or symbol | Octocode local tools: `localSearch` for the text, `localFetch` at the line, `lspSearch` callers or references for who reaches it. [Tool usage](references/octocode-usage.md) |
+| A long log, test run or CI output | Save it under the workspace. Search known markers with `localSearch`; use `clasify` for a typed question when exact search cannot narrow the unread evidence. |
+| The code behind a frame, log line or symbol | Octocode local tools: `localSearch` for the text, `localFetch` at the line, `lspSearch` callers or references for who reaches it. |
 | Sharing a finding | [Output options](output.md) · [Optional HTML renderer](scripts/render-report.mjs) |
 
 Done when the evidence answers the question or identifies a concrete blocker; a requested fix also needs a replay check. Tie the diagnosis to observed state or cost, report uncertainty and unrun checks, and use the form the user needs.

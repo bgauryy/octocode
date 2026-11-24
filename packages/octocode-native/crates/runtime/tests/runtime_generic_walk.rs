@@ -76,7 +76,7 @@ async fn local_page_channels_walk_exactly_once() {
             "localSearch",
             json_fixture(
                 r#"{
-                    "queries": [{"path": "src", "matchString": ["helper"]}],
+                    "queries": [{"path": "src", "matchString": ["caller"]}],
                     "responseChars": 1000
                 }"#,
             ),
@@ -100,6 +100,12 @@ async fn local_page_channels_walk_exactly_once() {
             .expect("seed")
             .remove("responseChars");
         let whole = support::run(&runtime, tool, unpaged).await;
+        // The comparison needs the whole answer: one page, with no next.
+        assert!(
+            whole.structured_content.get("next").is_none(),
+            "{tool}: {}",
+            whole.structured_content
+        );
         let mut expected = rows(&whole.structured_content);
         expected.sort();
         assert!(expected.len() >= 60, "{tool}: {}", whole.structured_content);

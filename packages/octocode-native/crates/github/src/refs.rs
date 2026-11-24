@@ -107,9 +107,10 @@ fn graphql_tag_target(object: &str, answer: &serde_json::Value) -> Option<TagTar
     )
 }
 
-/// `refs/tags/{prefix}` as route segments under `matching-refs/tags`: none
-/// for no prefix, or for one GitHub's route cannot carry (a `.`, `..` or
-/// empty segment before the last), which then lists every tag.
+/// `refs/<namespace>/{prefix}` as route segments under
+/// `matching-refs/<namespace>`: none for no prefix, or for one GitHub's route
+/// cannot carry (a `.`, `..` or empty segment before the last), which then
+/// lists every ref of the namespace.
 fn prefix_segments(prefix: &str) -> Vec<&str> {
     let segments = prefix.split('/').collect::<Vec<_>>();
     let routable = segments.iter().enumerate().all(|(at, segment)| {
@@ -252,6 +253,49 @@ impl GitHubTransport {
                 Some(TagRef { name, object })
             })
             .filter(|tag| tag.name.starts_with(prefix))
+            .collect())
+    }
+
+    /// Every branch whose name starts with `prefix` (every branch for
+    /// `""`), with the commit it names, from its git refs: GitHub answers
+    /// the prefix itself (`matching-refs/heads`), so a glob's literal start
+    /// reads only the branches that can match instead of every branch page.
+    /// Refs come in name order, as the branch list's own pages do. A
+    /// repository with no commits has none.
+    pub async fn branch_refs(
+        &self,
+        owner: &str,
+        repo: &str,
+        prefix: &str,
+        context: &RequestContext,
+    ) -> Result<Vec<NamedRef>, ProviderError> {
+        #[derive(Deserialize)]
+        struct Row {
+            #[serde(rename = "ref")]
+            name: String,
+            object: RowObject,
+        }
+        #[derive(Deserialize)]
+        struct RowObject {
+            sha: String,
+        }
+        let mut segments = vec!["repos", owner, repo, "git", "matching-refs", "heads"];
+        segments.extend(prefix_segments(prefix));
+        let rows: Vec<Row> = match self.list_all(&segments, "branch refs", context).await {
+            Ok(rows) => rows,
+            // GitHub answers an empty repository's refs with 409.
+            Err(error) if error.status == Some(409) => return Ok(Vec::new()),
+            Err(error) => return Err(error),
+        };
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| {
+                Some(NamedRef {
+                    name: row.name.strip_prefix("refs/heads/")?.to_owned(),
+                    sha: row.object.sha,
+                })
+            })
+            .filter(|named| named.name.starts_with(prefix))
             .collect())
     }
 

@@ -46,7 +46,7 @@ Launchers, plugins and the VS Code extension are thin adapters with no tool logi
 | `packages/octocode-mcp-cli` | `octocode-mcp-cli` (private) | Library mapping MCP tools and instructions to a Zod CLI and back |
 | `packages/octocode-benchmark` | none (docs) | Checks and benchmarks as behavioral docs: tool, security and skill checks, comparisons, scorecards |
 
-Other folders: `skills/` public Agent Skills; `skills-dev/` skills for this repo (`.agents/skills/` symlinks to
+Other folders: `skills/` public Agent Skills (a skill that reads API keys is a private workspace whose built `scripts/keys.mjs` carries `getKey` from `@octocodeai/config`: process → home `.env` → workspace `.env`); `skills-dev/` skills for this repo (`.agents/skills/` symlinks to
 both: edit the canonical folder); `.claude-plugin/`, `.agents/plugins/` marketplace entries; `releases/` packed
 plugins; `test-utils/` shared fixtures and recorded provider answers; `assets/` images; `MANIFEST.md` the vision.
 Package versions are independent.

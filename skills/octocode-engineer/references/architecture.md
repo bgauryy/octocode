@@ -10,7 +10,7 @@ Load when an architecture is being chosen, reviewed or kept healthy over time: q
 | Requirements are vague ("fast", "scalable") | [Quality attribute scenarios](#quality-attributes) with a response measure | An attribute without a number cannot decide between options |
 | Several tenants share a system | [Tenancy model](#multi-tenant-architecture): pool, bridge or silo | Physical separation does not replace per-request authorization |
 | Boundaries erode between reviews | [Fitness functions](#governance-and-evolution) in the build | A rule that is not executed is a wish |
-| Where to refactor first | [Hotspots](#architecture-metrics): churn × complexity, change coupling | Define each metric's formula before setting a threshold |
+| Where to refactor first | [Hotspots](#architecture-metrics): commits × complexity from `hotspots.mjs`, change coupling | Compare scores only between runs with the same formula, window and paths |
 | Reviewing an unfamiliar system or a major refactor | The [review checklist](#review-checklist) | Record what each item proved, not only that it was looked at |
 
 ## Quality attributes
@@ -97,7 +97,7 @@ Structural metrics (fan-in, fan-out, instability, abstractness) are in [dependen
 | Error-budget consumption | Reliability risk ([burn rate](systems-and-delivery.md#observability-and-sre)) |
 | Architectural rule violations | Boundary compliance over time |
 
-Hotspot score and propagation cost have several formulations: write down the exact calculation and its inputs before comparing values or setting thresholds.
+Rank hotspots with `node <skill-folder>/scripts/hotspots.mjs --since <YYYY-MM-DD> [pathspec ...]` ([hotspots.mjs](../scripts/hotspots.mjs); read-only git, run inside the repository). `files` are sorted by `score = commits × complexity`, where complexity is indentation depth summed over non-blank lines (`--complexity lines` counts non-blank lines instead). Each row keeps its inputs and `formula` records the calculation. Compare scores or set a threshold only between runs with the same `formula`, `--since` date and `paths`. Leave generated or vendored code out with a pathspec such as `':(exclude)dist'`. Propagation cost has several formulations: write down the exact calculation and its inputs before comparing values.
 
 ## Review checklist
 

@@ -517,21 +517,23 @@ fn a_continuing_file_reports_its_total_without_a_line_preview() {
 }
 
 /// A searched file's `declarations` arrive before the hits naming them on
-/// every response page cut, at any `responseChars`: a hit's `enclosing`
-/// indexes a declaration delivered on its part or an earlier one, and every
-/// declaration and hit arrives once. Splitting the declarations once sent
-/// every hit first and the declarations after them.
+/// every response page cut, at any `responseChars`: a hit's `enclosing`,
+/// or the `declaration` of a hit that declares one, indexes a declaration
+/// delivered on its part or an earlier one, and every declaration and hit
+/// arrives once. Splitting the declarations once sent every hit first and
+/// the declarations after them.
 #[test]
 fn response_pages_deliver_a_files_declarations_before_its_hits() {
     let source = (0..9)
         .map(|n| format!("fn a_test_whose_name_says_what_it_checks_{n}() {{\n    needle();\n}}\n"))
-        .collect::<String>();
+        .collect::<String>()
+        + "fn needle() {}\n";
     // Files come in walk order: the file with the declarations first, then
     // the one that names none of its own: it lists no `declarations` key.
     let body = search_fixture(
         &[
             ("src/checks.rs", source.as_str()),
-            ("src/needle.rs", "pub fn needle() {}\n"),
+            ("src/needle.txt", "needle\n"),
         ],
         ls_query(
             json_fixture(r#"{"matchString": ["needle"], "wholeWord": true}"#),
@@ -543,9 +545,16 @@ fn response_pages_deliver_a_files_declarations_before_its_hits() {
     let file = &body["files"][0];
     assert_eq!(
         file["declarations"].as_array().map(Vec::len),
-        Some(9),
+        Some(10),
         "{body}"
     );
+    let declaring = file["matches"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|hit| hit.get("declaration").is_some())
+        .count();
+    assert_eq!(declaring, 1, "{body}");
     // The response stage states every file's keys in one list order first.
     let mut structured = serde_json::json!({"results":[{"index":0,"data":body}]});
     octocode_runtime_base::response::key_order::order_rows(
@@ -581,7 +590,11 @@ fn response_pages_deliver_a_files_declarations_before_its_hits() {
                 declarations += file["declarations"].as_array().map_or(0, Vec::len);
                 for hit in file["matches"].as_array().into_iter().flatten() {
                     hits += 1;
-                    let owner = hit["enclosing"].as_u64().expect("enclosing");
+                    let owner = hit
+                        .get("enclosing")
+                        .or_else(|| hit.get("declaration"))
+                        .and_then(serde_json::Value::as_u64)
+                        .expect("enclosing or declaration");
                     assert!(
                         owner < declarations as u64,
                         "budget {budget}: hit names declaration {owner} before it arrives: {part}"
@@ -593,7 +606,7 @@ fn response_pages_deliver_a_files_declarations_before_its_hits() {
                 None => break,
             }
         }
-        assert_eq!((declarations, hits), (9, 9), "budget {budget}");
+        assert_eq!((declarations, hits), (10, 10), "budget {budget}");
     }
 }
 
@@ -735,6 +748,41 @@ fn every_page_keeps_enclosing_declaration_coordinates() {
             }
         }
     }
+}
+
+/// Declaring hits walked over several pages: every hit arrives once, and
+/// each names, on its own page, the declaration it declares with its end.
+#[test]
+fn every_page_names_the_declaration_each_declaring_hit_declares() {
+    const FUNCTIONS: usize = 60;
+    let root = tempfile::tempdir().expect("fixture");
+    fs::write(
+        root.path().join("a.rs"),
+        let_heavy_rust("handler", FUNCTIONS),
+    )
+    .expect("source");
+    let (walk, pages) = walk_search(
+        root.path(),
+        serde_json::json!({"path":root.path(),"matchString":["handler_"]}),
+        Some(3000),
+    );
+    assert_eq!(walk.rows.len(), FUNCTIONS);
+    assert!(pages.len() > 1, "the walk pages");
+    let mut seen = std::collections::BTreeSet::new();
+    for page in &pages {
+        for file in page["files"].as_array().expect("files") {
+            for row in file["matches"].as_array().expect("matches") {
+                let line = row["line"].as_u64().expect("hit line");
+                let index = row["declaration"].as_u64().expect("a declaration index");
+                let declared = &file["declarations"][usize::try_from(index).expect("index")];
+                assert_eq!(declared["line"], line, "{page}");
+                assert!(declared["endLine"].as_u64().expect("end") > line, "{page}");
+                assert!(row.get("enclosing").is_none(), "{page}");
+                assert!(seen.insert(line), "line {line} arrives once");
+            }
+        }
+    }
+    assert_eq!(seen.len(), FUNCTIONS);
 }
 
 /// Hits in one declaration share its entry, and the entry states it whole.

@@ -456,11 +456,16 @@ fn a_glob_that_matched_only_a_withheld_file_is_not_called_a_miss() {
         body["hints"].to_string()
     };
     let miss = octocode_runtime_base::policy::include::GLOB_MISS_HINT;
-    let withheld = octocode_runtime_base::policy::include::glob_miss_hint(1);
+    let withheld = octocode_runtime_base::policy::include::glob_miss_hint(1, &[], &[]);
     assert_ne!(withheld, miss);
     assert!(hints("*.pem").contains(&*withheld), "{}", hints("*.pem"));
     assert!(hints(".env").contains(&*withheld), "{}", hints(".env"));
     assert!(hints("*.absent").contains(miss), "{}", hints("*.absent"));
+    assert!(
+        hints("*.absent").contains("Globs as read: 1 include (`*.absent`)."),
+        "{}",
+        hints("*.absent")
+    );
 }
 
 /// Every call a row offers: its continuations and its related leads.

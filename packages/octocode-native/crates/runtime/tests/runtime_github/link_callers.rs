@@ -22,9 +22,8 @@ async fn mount(server: &MockServer, route: &str, status: u16, body: Value) {
 /// A code-search line read follows a link to its target, against links
 /// answered as GitHub answers them (a contents read of a link to a file is
 /// the target's bytes under the link's name): an ordinary target's lines are
-/// listed and every read of it (a lead, or a read of the link) serves them;
-/// a credential-named target is never asked for, its row lists the path only
-/// and leads to no read.
+/// listed whole, so no read of them is offered; a credential-named target is
+/// never asked for, and its row lists the path only.
 #[tokio::test]
 async fn code_search_lines_follow_a_link_and_judge_its_target() {
     let server = MockServer::builder().start().await;
@@ -75,31 +74,9 @@ async fn code_search_lines_follow_a_link_and_judge_its_target() {
     ] {
         assert_eq!(requests_to(&server, never).await, 0, "{never}");
     }
-    let reads = output
-        .pointer("/results/0/data/next")
-        .and_then(Value::as_object)
-        .into_iter()
-        .flatten()
-        .filter(|(name, _)| name.starts_with("read"))
-        .map(|(_, lead)| lead["input"].clone())
-        .collect::<Vec<_>>();
-    // Only the ordinary link offers a source read. Replaying that lead
-    // serves the target's text and leaves the withheld target unread.
-    assert_eq!(reads.len(), 1, "{output}");
-    for input in reads {
-        let read = runtime
-            .run("lead".into(), "ghGetFileContent".into(), input)
-            .await
-            .expect("read lead")
-            .structured_content
-            .into_value();
-        assert_ne!(
-            read.pointer("/results/0/status").and_then(Value::as_str),
-            Some("error"),
-            "{read}"
-        );
-        assert!(read.to_string().contains("a needle in notes"), "{read}");
-    }
+    // The ordinary link's row lists its target's lines, so no read of it
+    // is offered; the withheld target is listed by path only and offers none.
+    assert!(output.pointer("/results/0/data/next").is_none(), "{output}");
 }
 
 async fn requests_to(server: &MockServer, route: &str) -> usize {

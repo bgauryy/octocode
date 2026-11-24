@@ -1,0 +1,8 @@
+{
+  "available": ["contract"],
+  "tasks": [
+    { "id": "api", "owner": "worker-a", "inputs": ["contract"], "output": "api-impl", "scope": ["packages/schema/src"] },
+    { "id": "client", "owner": "worker-b", "inputs": ["contract"], "output": "client-impl", "scope": ["packages/schema/**/*.ts", "packages/client"] },
+    { "id": "follow-up", "owner": "worker-c", "inputs": ["api-impl"], "scope": ["packages/schema"] }
+  ]
+}

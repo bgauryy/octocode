@@ -18,6 +18,8 @@ or ask only for the blocking information. Relevant scope or permission boundary.
 1. <Task-specific action and its deciding condition.>
 2. <Next action or branch; read its named reference only when needed.>
 3. <Verify the result; on failure, recover within scope or report the blocker.>
+   <An exact operation is a script call: `node <skill-folder>/scripts/<verb-noun>.mjs <args>`,
+   with what its output means; never the algorithm in prose.>
 
 Return <usable result or artifact, deciding evidence and unchecked scope>.
 Done when <observable acceptance condition>.

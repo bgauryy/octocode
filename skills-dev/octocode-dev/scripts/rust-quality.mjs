@@ -6,6 +6,10 @@
 //   fuzz [--smoke] [--seconds N] [--target-dir D] [target...]   libFuzzer on the pinned nightly, time-bounded
 //   miri [--target-dir D]                            the selected tests under Miri, with a deadline
 //   llvm-lines [package] [--timings] [--target-dir D] [-- extra]   LLVM IR lines per generic instantiation
+//   units [--file <cargo.jsonl>] [-- <cargo build args>]   units cargo rebuilt (fresh:false) vs reused, as JSON;
+//                                                    without --file it runs cargo build through the build-slot wrapper
+//   unit-diff <a.json> <b.json>                      unit keys only in A, only in B and shared, from two
+//                                                    `cargo build --unit-graph -Z unstable-options` files
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -89,6 +93,48 @@ export function crateDirs() {
   }));
 }
 
+/** Compiled units in cargo `--message-format json` lines: how many cargo rebuilt (`fresh: false`) and which. */
+export function countUnits(text) {
+  const artifacts = String(text).split('\n').flatMap(line => {
+    try { const message = JSON.parse(line); return message.reason === 'compiler-artifact' ? [message] : []; } catch { return []; }
+  });
+  const rebuilt = artifacts.filter(artifact => artifact.fresh === false);
+  const label = artifact => `${artifact.package_id.split(/[#@ ]/).filter(Boolean).at(-2) ?? artifact.package_id} ${artifact.target.kind.join(',')} ${artifact.target.name}${artifact.profile?.test ? ' (test)' : ''}`;
+  return { units: artifacts.length, fresh: artifacts.length - rebuilt.length, rebuilt: rebuilt.length, rebuiltUnits: rebuilt.map(label).toSorted() };
+}
+
+/** One identity per unit of a `--unit-graph` file: package, target, mode, profile and features. */
+const unitKey = unit => [unit.pkg_id, unit.target?.name, (unit.target?.kind ?? []).join(','), unit.mode, unit.profile?.name, (unit.features ?? []).toSorted().join(',')].join(' | ');
+
+/** Unit keys only in graph A, only in B, and how many both share (build vs test sharing proof). */
+export function diffUnitGraphs(a, b) {
+  const left = new Set((a.units ?? []).map(unitKey));
+  const right = new Set((b.units ?? []).map(unitKey));
+  return { onlyA: [...left].filter(key => !right.has(key)).toSorted(), onlyB: [...right].filter(key => !left.has(key)).toSorted(), shared: [...left].filter(key => right.has(key)).length };
+}
+
+function units(_manifest, options) {
+  let text;
+  if (options.file) {
+    text = readFileSync(path.resolve(options.file), 'utf8');
+  } else {
+    const run = spawnSync(process.execPath, [path.join(NATIVE, 'scripts', 'build-slot.cjs'), '--', 'cargo', 'build', '--message-format=json', ...options.extra], { cwd: NATIVE, encoding: 'utf8', maxBuffer: 512 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] });
+    if (run.status !== 0) { console.error(`rust-quality: cargo build exited ${run.status}`); return run.status ?? 1; }
+    text = run.stdout;
+  }
+  console.log(JSON.stringify(countUnits(text), null, 2));
+  return 0;
+}
+
+function unitDiff(_manifest, options) {
+  const [a, b] = options.positional;
+  if (!a || !b) { console.error('Usage: rust-quality.mjs unit-diff <a.json> <b.json>'); return 2; }
+  const read = file => JSON.parse(readFileSync(path.resolve(file), 'utf8'));
+  const diff = diffUnitGraphs(read(a), read(b));
+  console.log(JSON.stringify(diff, null, 2));
+  return diff.onlyA.length || diff.onlyB.length ? 1 : 0;
+}
+
 function parseOptions(argv) {
   const options = { positional: [], extra: [] };
   for (let index = 0; index < argv.length; index += 1) {
@@ -97,7 +143,7 @@ function parseOptions(argv) {
       options.extra = argv.slice(index + 1);
       break;
     }
-    if (arg === '--seconds' || arg === '--target-dir') options[arg.slice(2)] = argv[++index];
+    if (arg === '--seconds' || arg === '--target-dir' || arg === '--file') options[arg.slice(2)] = argv[++index];
     else if (arg.startsWith('--')) options[arg.slice(2)] = true;
     else options.positional.push(arg);
   }
@@ -203,7 +249,7 @@ function llvmLines(manifest, options) {
   return 0;
 }
 
-const COMMANDS = { tools, pins, fuzz, miri, 'llvm-lines': llvmLines };
+const COMMANDS = { tools, pins, fuzz, miri, 'llvm-lines': llvmLines, units, 'unit-diff': unitDiff };
 
 function main() {
   const [name, ...rest] = process.argv.slice(2);

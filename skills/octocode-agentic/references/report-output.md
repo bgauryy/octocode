@@ -44,6 +44,16 @@ Author Markdown; the template supplies presentation. Apply the [format and conte
 - The template owns fonts, layout, themes, search, zoom, export and fallbacks. Do not generate CSS, JavaScript, SVG, Mermaid initialization directives or a custom viewer. For an interactive graph of files, functions, layers and flows, use `octocode-graph` when installed.
 - Keep Markdown as editable source and HTML as the viewing artifact; provide JSON/CSV separately when machine reuse matters. Apply [evidence rules](evidence.md) and [communication protocols](protocol-catalog.md#catalog).
 
+## Check each save
+
+After every save of a report, before delivering it, run `node <skill-folder>/scripts/render-report.mjs <file.md> --check` (`--json`: one JSON line). It writes no HTML. It checks the file against its owner's `report-contract`: the skill whose `.octocode/<skill>/` folder holds it, else the skill whose script runs. `--help` lists the rules, the same ones `--strict` applies.
+
+| Exit | Output | Do |
+|---|---|---|
+| 0 | `passed: N reports checked against <skill>` (`"validation":"passed"`) | Deliver |
+| 2 | One `violation: <file>: <problem>` line each (`warnings[]`) | Fix each, save, rerun until exit 0 |
+| 1 | stderr names a missing file, a bad option or a malformed contract | Fix the command; never call the report checked |
+
 ## Render and retrieve
 
 Apply [HTML delivery](presentation.md#html-delivery) after completing the task. Saving Markdown does not request HTML. The commands below apply when HTML was requested or the user accepted the offer.

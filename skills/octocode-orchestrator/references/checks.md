@@ -20,7 +20,7 @@ For missing acceptance or authority, distinguish a retrievable fact from a user 
 
 ## Graph and loop checks
 
-Use the [execution and dependency graphs](loops.md#execution-graph). Walk these cases with named artifacts and observed states; a diagram rendering alone does not validate control flow.
+Use the [execution and dependency graphs](loops.md#execution-graph). Walk these cases with named artifacts and observed states; for the dependency cases, write the plan and run [dep-graph](../scripts/dep-graph.mjs) on it. A diagram rendering alone does not validate control flow.
 
 | Given | Check |
 |---|---|

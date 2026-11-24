@@ -53,7 +53,7 @@ Build a snapshot of a directory, then query the same path for importers, cycles,
 
 ### `lspSearch`
 
-Find a symbol's definition, references or callers. Start with its file, name and line from a source read. `octocode lsp-server status <file>` shows which language server handles the file.
+Find a symbol's definition, references or callers. Start with its file and name. Without a `line` the name anchors at its one declaration in that file; add the line from a source read to anchor a use, or when the file declares the name more than once (the refusal lists each line). `octocode lsp-server status <file>` shows which language server handles the file.
 
 <a id="subtypes-and-implementations-without-an-answer-in-time"></a>
 <a id="typescript-backends"></a>

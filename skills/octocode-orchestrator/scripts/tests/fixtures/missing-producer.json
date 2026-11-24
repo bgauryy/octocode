@@ -1,0 +1,7 @@
+{
+  "tasks": [
+    { "id": "client", "owner": "worker-a", "inputs": ["openapi-spec"], "output": "client-impl" },
+    { "id": "verify", "owner": "worker-b", "inputs": ["client-impl"], "acceptance": "integration suite passes" },
+    { "id": "research", "owner": "worker-c", "output": "notes" }
+  ]
+}

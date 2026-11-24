@@ -11,7 +11,7 @@ Identify the requested skill, target host and result. For discovery, start with 
 
 1. Record real requests the skill should handle, a nearby request another skill owns, and a request needing no skill. For a collection, inventory each entry and its authored resources.
 2. Walk a common request and a conditional one from description → first action → reference → result. Fix misleading triggers, ambiguous choices and paths that fail when installed alone. Keep safeguards and completion inline.
-3. Run the [checker](scripts/skill-review.mjs) with Node: `node <this-skill>/scripts/skill-review.mjs <target> --json`, or `--collections <root> --json` for a collection. Resolve findings, exercise changed commands and recheck standalone routes. Use host trials for activation claims.
+3. Run the [checker](scripts/skill-review.mjs) with Node: `node <this-skill>/scripts/skill-review.mjs <target> --json`, or `--collections <root> --json` for a collection; add `--commands` to check documented flags against each script's `--help`, and `--tells` to list MUST/NEVER per file and sentences repeated across files. Resolve findings (`link-escapes-skill` is a link a standalone install loses), exercise changed commands and recheck standalone routes. Use host trials for activation claims.
 
 ## Decide placement
 
@@ -19,12 +19,12 @@ Identify the requested skill, target host and result. For discovery, start with 
 |---|---|
 | `SKILL.md` | Required: trigger, normal workflow, safeguards and result. |
 | `references/<task>.md` | A branch needs a recipe or protocol; link its load condition directly from the entry. |
-| `scripts/` | A repeated exact operation benefits from executable code. Document inputs, dependencies, effects and failure checks. |
+| `scripts/` | Any step that is an exact operation: parse, count, compute, validate, transform, diff, hash, page through results or call an API. Code does it; the text says when to run it and how to read the result. [Prefer code over prose](references/write-skills.md#prefer-code-over-prose). |
 | `assets/` | A step consumes a template or static input. |
 | `output.md` | A complex reusable result contract warrants a separate read; otherwise keep it inline. |
 | Host-specific files | The actual host consumes them; follow its schema and add only needed fields. |
 
-Create only needed files and folders. Keep an instruction only when it helps choose, execute or verify an action. Preserve safeguards, recovery and evidence when shortening; add no arbitrary quotas, probes or metadata.
+Create only needed files and folders. Skill text never replaces code: an exact operation described in prose becomes a script, and the step names its command. Keep an instruction only when it helps choose, execute or verify an action. Preserve safeguards, recovery and evidence when shortening; add no arbitrary quotas, probes or metadata.
 
 ## Resources
 

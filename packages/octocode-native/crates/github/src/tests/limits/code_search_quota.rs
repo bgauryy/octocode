@@ -141,36 +141,56 @@ async fn a_batch_the_reported_quota_cannot_cover_in_time_is_refused() {
     assert_eq!(refusal.kind, ProviderErrorKind::RateLimited);
 }
 
-/// A request with a wait bound sooner than its deadline is refused the quota
-/// wait its deadline alone would sleep out: at once, unsent, with the wait as
-/// `retryAfter`. The same wait under the deadline alone is slept
-/// ([`a_spent_quota_waits_for_the_reset_and_a_covered_one_does_not`]).
+/// A request with a wait bound sooner than its deadline sleeps a quota wait
+/// that outlasts the bound only up to the bound, then is refused unsent with
+/// the rest as `retryAfter`; its retry, under a bound the rest fits, waits
+/// the rest out and is sent. The same wait under the deadline alone is slept
+/// whole ([`a_spent_quota_waits_for_the_reset_and_a_covered_one_does_not`]).
 #[tokio::test]
-async fn a_quota_wait_past_the_wait_bound_is_refused_not_slept() {
+async fn a_quota_wait_past_the_wait_bound_is_slept_to_the_bound_and_its_retry_sent() {
     let server = MockServer::builder().start().await;
-    let reset_in = Duration::from_secs(40);
+    let reset_in = Duration::from_secs(2);
     let reset = epoch_secs() + reset_in.as_secs();
     Mock::given(method("GET"))
         .and(path("/api/v3/search/code"))
         .respond_with(answer(0, reset))
-        .expect(1)
+        .expect(2)
         .mount(&server)
         .await;
-    let budget = Arc::new(GitHubBudget::with_config(ExecutorConfig::octokit()));
+    let config = ExecutorConfig::octokit();
+    let budget = Arc::new(GitHubBudget::with_config(config.clone()));
     let (transport, _) = executor_transport(&server, budget, short_retry());
     let deadline = reset_in * 10;
-    let bound = reset_in / 4;
+    let bound = Duration::from_millis(500);
     let context =
         with_token("t", deadline, 1 << 20).with_wait_bound(std::time::Instant::now() + bound);
     search(&transport, &context).await.expect("first");
+    let full = config.reset_wait(reset);
     let error = search(&transport, &context).await.expect_err("spent quota");
     assert_eq!(error.kind, ProviderErrorKind::RateLimited);
     let rate = error.rate_limit.expect("metadata");
-    // The wait named is one the deadline alone would have slept out.
-    let named = Duration::from_secs(rate.retry_after_seconds.expect("the wait"));
-    assert!(named >= bound && named < deadline, "{named:?}");
     assert_eq!(rate.resource.as_deref(), Some("code_search"));
-    assert!(context.client_waits().is_empty(), "nothing was slept");
+    let slept: i64 = context.client_waits().iter().map(|wait| wait.ms).sum();
+    assert!(
+        u128::from(slept.unsigned_abs()) >= bound.as_millis() * 8 / 10,
+        "slept {slept} ms"
+    );
+    let rest = rate.retry_after_seconds.expect("the rest of the wait");
+    let unslept = full.saturating_sub(Duration::from_millis(slept.unsigned_abs()));
+    assert!(
+        rest <= crate::budget::ceil_secs(unslept),
+        "{rest}s of {full:?}"
+    );
+
+    let retry = with_token("t", deadline, 1 << 20)
+        .with_wait_bound(std::time::Instant::now() + full + Duration::from_secs(1));
+    search(&transport, &retry)
+        .await
+        .expect("the rest fits the retry's bound");
+    assert!(
+        !retry.client_waits().is_empty(),
+        "the retry waited the rest"
+    );
 }
 
 /// A row of searches whose last start falls past the wait bound is refused

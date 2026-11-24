@@ -192,11 +192,9 @@ incremental = false
 [profile.dev.package."*"]
 debug = false
 
-# The runtime is the largest unit, and its lib-test is the whole critical path of
-# the test build. No line tables: dev lib -24% CPU, lib-test -16% (A/B, 2026-11-17).
-# Panic messages keep file:line; backtrace frames in this crate lose it. 256 codegen
-# units (16 is the non-incremental default) cut its codegen wall time ~18% at equal
-# CPU; the engine measured worse with 256 and keeps the default.
+# The runtime and the tool crates split out of it build without line tables:
+# dev lib -24% CPU, lib-test -16% (A/B on the runtime before the split, 2026-11-17).
+# Panic messages keep file:line; backtrace frames in these crates lose it.
 [profile.dev.package.octocode-native]
 debug = false
 [profile.dev.package.octocode-tools-shared]

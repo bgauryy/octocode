@@ -4,13 +4,11 @@ import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseConfig } from './lib/args.mjs';
 import { errorMessage, fail } from './lib/fail.mjs';
-import { discoverSitemap, fetchRobotsPolicy, sleep } from './lib/client.mjs';
+import { discoverSitemap, fetchRobotsPolicy, scrapingAntRequest, sleep } from './lib/client.mjs';
 import { initCorpus, writePage, writeSession } from './lib/corpus.mjs';
 import { resolvedUrlProblem } from './lib/net-guard.mjs';
 import { autoSelectProvider, resolveProvider } from './lib/providers.mjs';
-import { loadOctocodeEnv } from './lib/config-env.mjs';
-
-loadOctocodeEnv();
+import { getKey } from './keys.mjs';
 
 let config;
 try {
@@ -58,7 +56,7 @@ if (existsSync(priorSourcesPath) || recovered.length) {
 // after the direct result shows that static HTTP evidence is insufficient.
 if (config.provider === 'auto') {
   try {
-    config.provider = autoSelectProvider(config.mode, process.env);
+    config.provider = autoSelectProvider(config.mode, { SCRAPING_ANT: getKey('SCRAPING_ANT').value });
   } catch (error) {
     fail('invalidArguments', errorMessage(error), 2);
   }
@@ -71,9 +69,9 @@ config.requiresApiKey = provider.requiresApiKey;
 if (!provider.supportsModes.includes(config.mode)) {
   fail('invalidArguments', `--provider ${config.provider} does not support --mode ${config.mode} (supports: ${provider.supportsModes.join(', ')})`, 2, { provider: config.provider });
 }
-const apiKey = provider.requiresApiKey ? process.env[provider.apiKeyEnv]?.trim() : null;
+const apiKey = provider.requiresApiKey ? getKey(provider.apiKeyEnv).value : null;
 if (provider.requiresApiKey && !apiKey && !config.mockStatus) {
-  fail('missingKey', `${provider.apiKeyEnv} missing`, 1, { provider: config.provider });
+  fail('missingKey', `${provider.apiKeyEnv} missing from the process environment, the home .env and the workspace .octocode/.env; save it with: node scripts/keys.mjs set ${provider.apiKeyEnv} --stdin`, 1, { provider: config.provider });
 }
 
 // A page, sitemap, or saved frontier can point anywhere; only public hosts and the --url origin the user
@@ -107,6 +105,28 @@ function enqueue(href) {
     if (config.spanHosts || next.hostname === new URL(config.targetUrl).hostname) { queued.add(key); queue.push(next.href); }
   } catch { /* not a URL: nothing to queue */ }
   return true;
+}
+// --follow pagination: only links the extractor marked rel=next/prev or pagination-class are crawl edges.
+const followed = (link) => Boolean(link?.href) && (config.follow !== 'pagination' || link.workflowHint === 'pagination');
+
+// --max-credits: a request's cost is known only after it returns, so the next page is fetched only while
+// the spent credits plus the largest cost seen so far stay within the cap. A hosted reply without a cost
+// header leaves the spend unknown, so the cap stops the run there.
+/** @type {{ maxCredits: number | null, spent: number, largestRequest: number, costUnknownAt: string | null, stopped: boolean, reason: string | null }} */
+const credits = { maxCredits: config.maxCredits, spent: 0, largestRequest: 0, costUnknownAt: null, stopped: false, reason: null };
+function creditCapStops() {
+  if (credits.maxCredits === null || credits.stopped) return credits.stopped;
+  if (credits.costUnknownAt) credits.reason = `${credits.costUnknownAt} returned no credit cost, so the spend is unknown`;
+  else if (credits.spent + credits.largestRequest > credits.maxCredits) credits.reason = `the next request could pass --max-credits ${credits.maxCredits} (spent ${credits.spent}, largest request ${credits.largestRequest})`;
+  credits.stopped = Boolean(credits.reason);
+  return credits.stopped;
+}
+function countCredits(written) {
+  if (credits.maxCredits === null || !provider.requiresApiKey) return;
+  const cost = written.cost?.antCreditsCost;
+  if (!Number.isFinite(cost)) { credits.costUnknownAt ??= written.sourceRow.pageId; return; }
+  credits.spent += cost;
+  credits.largestRequest = Math.max(credits.largestRequest, cost);
 }
 
 async function robotsAllows(url) {
@@ -147,7 +167,7 @@ if (priorSources.length) {
     }
   }
   // Resume a crawl from the links prior pages found but the session never fetched.
-  if (config.crawl) for (const link of linksAll) if (link?.href && !enqueue(link.href)) break;
+  if (config.crawl) for (const link of linksAll) if (followed(link) && !enqueue(link.href)) break;
 }
 
 if (config.crawl && config.sitemap) {
@@ -160,6 +180,7 @@ if (config.crawl && config.sitemap) {
 }
 
 while (queue.length && pageIndex < config.maxPages) {
+  if (creditCapStops()) break;
   const url = queue.shift();
   if (seen.has(crawlKey(url))) continue;
   seen.add(crawlKey(url));
@@ -187,9 +208,10 @@ while (queue.length && pageIndex < config.maxPages) {
   elementsAll.push(...written.elements);
   resourcesAll.push(...written.resources);
   if (written.cost) costs.push(written.cost);
+  countCredits(written);
 
   if (config.crawl && written.sourceRow.ok) {
-    for (const link of written.links) if (!enqueue(link.href)) break;
+    for (const link of written.links) if (followed(link) && !enqueue(link.href)) break;
   }
   if (config.crawl && pageIndex < config.maxPages) await sleep(config.delayMs);
 }
@@ -207,6 +229,18 @@ const outputWarnings = sources.flatMap((source) => [
   source.networkTruncated ? { pageId: source.pageId, warning: 'response body reached the network byte cap; evidence is partial' } : null,
 ].filter(Boolean));
 for (const row of refused) outputWarnings.push({ pageId: null, warning: `refused ${row.url}: ${row.reason}` });
+// URLs still queued when the cap stopped the run; an --append rerun rebuilds this frontier from saved links.
+const unfetchedUrls = credits.stopped ? queue.filter((url) => !seen.has(crawlKey(url))) : [];
+if (credits.stopped) outputWarnings.push({ pageId: null, warning: `credit cap stopped the run: ${credits.reason}; ${unfetchedUrls.length} queued URL(s) not fetched` });
+if (config.follow === 'pagination' && !linksAll.some((link) => link.workflowHint === 'pagination')) outputWarnings.push({ pageId: null, warning: 'no pagination link (rel=next/prev or a pagination class) on any fetched page' });
+// The hosted options this run sent, so a 4xx can be traced to an option; the key and page URLs are left out.
+function hostedRequest() {
+  if (config.provider !== 'scrapingant') return null;
+  const { endpoint, params } = scrapingAntRequest(config);
+  const sent = {};
+  for (const [key, value] of params) sent[key] = key in sent ? [sent[key], value].flat() : value;
+  return { endpoint, params: sent };
+}
 const appendedNothing = config.append && pageIndex === 0;
 if (appendedNothing) outputWarnings.push({ pageId: null, warning: 'no new pages fetched; every queued URL is already in the session' });
 
@@ -220,7 +254,9 @@ console.log(JSON.stringify({
   pages: sources.length,
   newPages: pageIndex,
   antCreditsKnownTotal: knownTotal,
+  creditCap: config.maxCredits === null ? null : { maxCredits: credits.maxCredits, spentThisRun: credits.spent, largestRequest: credits.largestRequest, costUnknownAt: credits.costUnknownAt, stopped: credits.stopped, reason: credits.reason, unfetched: unfetchedUrls.length, unfetchedUrls },
   providerDetail: sources.find((s) => s.providerDetail)?.providerDetail || null,
+  providerRequest: hostedRequest(),
   warnings: outputWarnings,
   next: browserCandidate ? {
     route: 'octocode-chrome-devtools',

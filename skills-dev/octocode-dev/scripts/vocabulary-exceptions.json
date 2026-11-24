@@ -9,7 +9,6 @@
     { "file": "packages/octocode-native/docs/ADDING_CLASIFY_VENDOR.md", "token": "classification.vendor", "reason": "Hypothetical key a new vendor would declare." },
     { "file": "packages/octocode-native/docs/engine/CODE_GRAPH.md", "token": "graph.scan.panicked", "reason": "Skip-reason value (engine fact_scan/evaluate/outcome.rs PANICKED), not a field path." },
     { "file": "skills/octocode-agentic/references/acp.md", "token": "data.command", "reason": "Field of the ACP JSON-RPC error's data, not an Octocode field." },
-    { "file": "skills/octocode-clean-agentic-code/references/tests.md", "token": "not.toBeNull", "reason": "Jest/Vitest matcher, not a tool field." },
     { "file": "skills/octocode-agentic/references/skill-activation.md", "token": "input.skill", "reason": "Input of the host's Skill tool call, not an Octocode field." },
     { "file": "packages/octocode-graph/skills/octocode-graph/references/commands.md", "token": "files[].metrics", "reason": "Field of the graph-view data.json model." },
     { "file": "packages/octocode-graph/skills/octocode-graph/references/modeling.md", "token": "meta.summary", "reason": "Field of the graph-view data.json model." },

@@ -7,7 +7,7 @@ Load when creating or refreshing a snapshot, or before interpreting rows, weight
 Ask for the relationship on the exact scope, for example:
 
 ```bash
-octocode-graph graphQuery '{"queries":[{"path":"packages/api","operation":"deps","target":"src/index.ts"}]}'
+octocode-graph graphQuery '{"queries":[{"path":"packages/api","operation":"deps","target":"src/index.ts"}]}' --all-pages
 ```
 
 The first page checks freshness. A current snapshot omits the freshness warning. A missing snapshot (`notFound` with a build suggestion) or `freshness.fresh: false` carries a related build. Use its scope and options, follow build continuations, then repeat the original query pinned to the new ID. For an ambiguous call target, check the binding with `lspSearch` or read the deciding source span.
@@ -27,7 +27,7 @@ octocode-graph graphBuild '{"queries":[{"path":"."}]}'
 
 ## Read the rows
 
-- **Page first.** A reply with a top-level `next` is unfinished: run it until none is left, then the evidence branches under a row's `next.*`, copying each call unchanged. Join `rowPart` fragments for the same result in order: append new list elements, merge the array element named by `continues`, and append text at the JSON pointer in `text`. Keep repeated identities once. A stated `pagination.total` is exact; check `isPartial`, `partialReasons` and skipped scope before treating an answer as complete.
+- **Read every page with `--all-pages`.** `octocode-graph graphQuery '<json>' --all-pages` follows the reply's `next` and every evidence branch under a row's `next.*` (cycle members, `testsToRun`, `affectedEntrypoints`, summary and baseline lists), joins `rowPart` fragments, checks each list against its stated count and prints one JSON reply with no `next`: each row once, with every page's warnings. A joined evidence list takes the place of its count (`summary.testsToRun` becomes the list). It starts from the `{"queries":[…]}` call, not a cursor, and exits as the tool does (an error row stays in the reply). A stated `pagination.total` is exact; check `isPartial`, `partialReasons` and skipped scope before treating an answer as complete.
 - **Confidence is categorical binding evidence.** `high` (default) is a strong syntax binding; `medium` adds scoped or ambiguous candidates; `low` adds a bare call's only declaration of its name; member calls on unknown receivers stay in `unresolved`. Ask again at `medium` before reading an empty answer as absence.
 - **Weights mean different things; never mix them.** `sites` counts distinct source occurrences behind an edge (connection strength). `pageRank` is structural importance. `commits`/`share` in `cochange` is change coupling from Git history. None is a probability or a runtime frequency.
 - **`impact` lists dependents, not breakage.** `direct` means "depends on it directly: inspect first". Only tests or execution prove a break; the summary counts `testsToRun` and `affectedEntrypoints`, and `next.testsToRun` and `next.affectedEntrypoints` list where to look.

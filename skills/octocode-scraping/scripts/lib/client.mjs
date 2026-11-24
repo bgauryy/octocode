@@ -8,17 +8,29 @@ import { createRequire } from 'node:module';
 import { errorMessage } from './fail.mjs';
 import { guardedFetch } from './net-guard.mjs';
 
+/** The ScrapingAnt endpoint and the options every page request sends, without the page URL or the key. */
+export function scrapingAntRequest(config) {
+  const params = new URLSearchParams();
+  if (config.mode === 'extract') params.set('extract_properties', config.extractProperties);
+  if (config.browser) params.set('browser', 'true');
+  if (config.waitFor) params.set('wait_for_selector', config.waitFor);
+  if (config.proxyType) params.set('proxy_type', config.proxyType);
+  if (config.proxyCountry) params.set('proxy_country', config.proxyCountry);
+  for (const value of config.blockResources) params.append('block_resource', value);
+  for (const [key, value] of config.passParams) params.set(key, value);
+  return { endpoint: `https://api.scrapingant.com/v2/${config.endpoint}`, params };
+}
+
 export async function fetchScrapingAnt({ url, pageId, config, apiKey }) {
-  const apiUrl = new URL(`https://api.scrapingant.com/v2/${config.endpoint}`);
+  const request = scrapingAntRequest(config);
+  const apiUrl = new URL(request.endpoint);
   apiUrl.searchParams.set('url', url);
   if (apiKey) apiUrl.searchParams.set('x-api-key', apiKey);
-  if (config.mode === 'extract') apiUrl.searchParams.set('extract_properties', config.extractProperties);
-  if (config.browser) apiUrl.searchParams.set('browser', 'true');
-  if (config.waitFor) apiUrl.searchParams.set('wait_for_selector', config.waitFor);
-  if (config.proxyType) apiUrl.searchParams.set('proxy_type', config.proxyType);
-  if (config.proxyCountry) apiUrl.searchParams.set('proxy_country', config.proxyCountry);
-  for (const value of config.blockResources) apiUrl.searchParams.append('block_resource', value);
-  for (const [key, value] of config.passParams) apiUrl.searchParams.set(key, value);
+  // Each option replaces any value of the same name set above, so a --param can override the page url.
+  for (const key of new Set(request.params.keys())) {
+    apiUrl.searchParams.delete(key);
+    for (const value of request.params.getAll(key)) apiUrl.searchParams.append(key, value);
+  }
 
   let status = 0, contentType = '', body = '', fetchError = null, creditCost = null, bodyTruncated = false;
   try {

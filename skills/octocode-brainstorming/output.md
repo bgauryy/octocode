@@ -4,16 +4,17 @@
 
 ## Response
 
-Lead with the recommendation and confidence, then the deciding evidence, strongest objection and useful next check. A short answer needs no table, ledger or effort announcement.
+Lead with the recommendation and confidence, then the deciding claims, strongest objection and useful next check. No effort announcement.
 
-- Cite deciding claims at the supporting sentence with exact verified URLs. Label inference, secondary evidence and unchecked scope.
+- Cite deciding claims at the supporting sentence with exact URLs of [validated sources](references/verification.md#validated-sources) only. An unvalidated lead appears only as a named gap. Label inference, secondary evidence and unchecked scope.
+- Give each deciding claim its [status](references/critical-thinking.md#contradict-and-prove) (`proven`, `contradicted`, `unresolved`) and say which disconfirming searches it survived. Several claims or options sharing criteria read best as a table: option or claim, status, verified source.
 - Include dates, source context and applicability limits when they affect the conclusion. Check numbers, dates and claimed benefits against the evidence.
 - Explain [confidence](references/critical-thinking.md#calibrated-confidence); never invent probabilities. Report changed or unresolved hypotheses when consequential.
 - State the recommendation as plain claims, checked against [writing tells](references/writing-tells.md).
 - For a costly or irreversible choice, end with the decision the user must make and the deciding source to check themselves.
 - Include verification counts only when they explain a material evidence gap. No routine roster, state dump or repeated source metadata.
 
-A `Sources` list can collect references when useful; adjacent citations suffice for a short answer. With no verified evidence, say so.
+A `Sources` list can collect validated references when useful; adjacent citations suffice for a short answer. With no validated evidence, say so and give the gaps instead of a recommendation that looks supported.
 
 ## Checkpoints
 
@@ -23,7 +24,7 @@ Continue authorized work; pause dependent work only for a missing decision or ex
 
 ## Think together
 
-Show the user's view, options labeled by origin, and the question most likely to change the choice. Separate known facts, assumptions and researched evidence.
+Show the user's view, options labeled by origin (user, yours, found), and the question most likely to change the choice. Separate known facts, assumptions and researched evidence.
 
 ## Presentation choices
 
@@ -31,9 +32,9 @@ Use a comparison table for alternatives sharing criteria, a diagram for useful s
 
 ## Saved report
 
-Save when requested, required by the project, or useful for a durable decision or handoff. A short comparison can stay in chat. Use the user-named path; otherwise `<workspace>/.octocode/octocode-brainstorming/<YYYY-MM-DD>-<slug>.md`, with `<workspace>` the repository root or current directory, never an existing `.octocode/` folder. Scratch is not the final destination.
+Save when requested, required by the project, or useful for a durable decision or handoff. A short comparison can stay in chat. Use the user-named path; otherwise `<workspace>/.octocode/octocode-brainstorming/<YYYY-MM-DD>-<slug>.md`, with `<workspace>` the repository root or current directory; create `.octocode/octocode-brainstorming/` there if needed, and never treat a `.octocode/` folder itself as the workspace. Scratch is not the final destination.
 
 Write a title, recommendation and supporting evidence; add alternatives, dissent, limits and next action where they carry information. Link ledgers only when they exist. No fixed section order or empty required sections.
 
-For catalog discovery or HTML rendering, use the [shared header](references/report-output.md#report-header) with `status` and `question`; these fields serve the catalog, not ordinary replies. Accepted `status` values: `Recommended`, `Open`, `Rejected`.
+A saved report starts with the [shared header](references/report-output.md#report-header) (`status`, `question`): the contract check run after each save requires it, and the catalog and HTML use it. Ordinary replies need no header. Accepted `status` values: `Recommended`, `Open`, `Rejected`.
 Use [report commands](references/report-output.md#render-and-retrieve) for accepted rendering or `--manifest` discovery. Follow the [HTML delivery guidance](references/presentation.md#html-delivery) when that view is useful.

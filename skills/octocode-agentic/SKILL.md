@@ -36,6 +36,6 @@ For consequential decisions, test the assumption or downstream failure that woul
 | Wrong skill loads, or none | [Skill activation](references/skill-activation.md) |
 | Design inter-agent messages or connect a client | [A2A contracts](references/agent-communication.md) or [ACP](references/acp.md) |
 | Set up host bindings or use the shared store | [Host setup](references/coordination-setup.md) or [mail and leases](references/coordination.md) |
-| Make an Octocode call or deliver a detailed result | [MCP/CLI guide](references/octocode-usage.md) or [output](output.md). Run the [renderer](scripts/render-report.mjs) for requested HTML. |
+| Deliver a detailed result | [Output](output.md). Run the [renderer](scripts/render-report.mjs) for requested HTML. |
 
 Done when the requested change or review has matching evidence, checks run, remaining risks and unchecked scope. Use `octocode-engineer` for code trade-offs and `octocode-research` for repository evidence.

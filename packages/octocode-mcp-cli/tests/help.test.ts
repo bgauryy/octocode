@@ -190,3 +190,16 @@ it('strips ANSI from rendered help and keeps it in the JSON description', () => 
   expect(commandHelp(coloredSpec, colored)).not.toContain('\u001b');
   expect(commandHelpJson(coloredSpec, colored).description).toBe('\u001b[31mPaint\u001b[0m');
 });
+
+it('documents a Zod field JSON Schema cannot express as the partial JSON flag it reads', () => {
+  const when = defineCommand({
+    name: 'when',
+    description: 'Schedule at a time.',
+    schema: z.object({ at: z.date().describe('Start time'), label: z.string() }),
+    run: input => input,
+  });
+  const dated = defineCli({ name: 'cal', instructions, commands: [when] });
+  const help = stripAnsi(commandHelp(dated, when));
+  for (const flag of when.flags) expect(help).toContain(`--${flag.name}`);
+  expect(commandHelpJson(dated, when).flags.map(flag => flag.name)).toEqual(when.flags.map(flag => flag.name));
+});

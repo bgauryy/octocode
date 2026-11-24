@@ -65,7 +65,8 @@ through the host's real mechanism and nothing else.
 1. **Pin one binary.** Record `octocode --version`, the native binary's SHA-256, the commit and whether the tree is
    dirty. A rebuild during a round invalidates it. Use the host target of `build:dev` for capability checks; time
    **release** builds only.
-2. **Call that binary directly.** `OCTOCODE_NATIVE_BIN=<abs path> node packages/octocode/out/octocode.js <tool> …`.
+2. **Call that binary directly.** `NODE_ENV=development OCTOCODE_NATIVE_BIN=<abs path> node packages/octocode/out/octocode.js <tool> …`.
+   Without `NODE_ENV=development` the launchers ignore the override and run the installed binary (stderr says so).
    An MCP server already running in your own session serves the build it started with; start a new one from the
    pinned binary for the run (`octocode mcp`) and restart it after every rebuild.
 3. **Preflight every arm.** `--version` of each tool, `gh auth status`, and one real call per arm that returns an

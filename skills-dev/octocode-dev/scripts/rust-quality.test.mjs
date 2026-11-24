@@ -5,7 +5,9 @@ import { test } from 'node:test';
 import { ROOT } from './lib/workspaces.mjs';
 import {
   NATIVE,
+  countUnits,
   crateDirs,
+  diffUnitGraphs,
   fuzzInvocation,
   installCommand,
   inventory,
@@ -132,3 +134,22 @@ function sources(dir) {
     return entry.name.endsWith('.rs') ? [readFileSync(full, 'utf8')] : [];
   });
 }
+
+test('units counts what cargo rebuilt from its JSON messages, ignoring other lines', () => {
+  const lines = [
+    JSON.stringify({ reason: 'compiler-artifact', package_id: 'path+file:///w/crates/cli#octocode-cli@20.2.0', target: { kind: ['bin'], name: 'octocode' }, profile: { test: false }, fresh: false }),
+    JSON.stringify({ reason: 'compiler-artifact', package_id: 'registry+https://github.com/rust-lang/crates.io-index#serde@1.0.0', target: { kind: ['lib'], name: 'serde' }, profile: { test: false }, fresh: true }),
+    JSON.stringify({ reason: 'build-finished', success: true }),
+    'not json',
+  ].join('\n');
+  assert.deepEqual(countUnits(lines), { units: 2, fresh: 1, rebuilt: 1, rebuiltUnits: ['octocode-cli bin octocode'] });
+});
+
+test('unit-diff names the units one graph has and the other lacks', () => {
+  const unit = (name, features = []) => ({ pkg_id: `p ${name}`, target: { name, kind: ['lib'] }, mode: 'build', profile: { name: 'dev' }, features });
+  const diff = diffUnitGraphs({ units: [unit('a'), unit('b', ['x'])] }, { units: [unit('a'), unit('b', ['y'])] });
+  assert.equal(diff.shared, 1);
+  assert.equal(diff.onlyA.length, 1);
+  assert.match(diff.onlyA[0], /\| x$/);
+  assert.match(diff.onlyB[0], /\| y$/);
+});

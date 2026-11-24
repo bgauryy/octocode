@@ -217,10 +217,10 @@ pub(super) fn masked_coverage(masked: Option<usize>) -> Option<String> {
 }
 
 /// A selection with no hit in the file is an empty read that says why: the
-/// shared read's facts (redaction, a literal `|`, the lines a
-/// case-insensitive read or a read without `ranges` would select) and the
-/// file's size, with the contract's empty `content` (as in localFetch) and
-/// no zero counters.
+/// shared read's facts (redaction, the lines a case-insensitive read, a read
+/// without `ranges` or a read of a misremembered head's name would select)
+/// and the file's size, with the contract's empty `content` (as in
+/// localFetch) and no zero counters.
 fn no_match(
     content: &mut octocode_tools_shared::source_view::LocalFetchResult,
     query: &GhGetFileContentQuery,

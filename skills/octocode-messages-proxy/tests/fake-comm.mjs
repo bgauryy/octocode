@@ -5,11 +5,13 @@ import path from 'node:path';
  * Installs a stateful fake octocode-agents-communication CLI in dir. `run` prints a ready event and stays alive as
  * the proxy; `send_message` queues the proxy's answer "PONG: <inner text>" in the operator inbox. Modes:
  * schema 'body' (an old package), proxy 'error' (a vendor error before ready) or 'silent' (never ready), reply 'none' (the worker never answers).
- * Returns a reader for the recorded state: calls, joins, leaves, sent messages, completions and the proxy pid.
+ * inbox: items already pending for the operator; later: items that arrive during the first inbox-wait.
+ * Returns a reader for the recorded state: calls ([command, session, payload]), joins, leaves, sent messages,
+ * completions and the proxy pid.
  */
-export function fakeComm(dir, { peers = [], schema = 'parts', proxy = 'ready', reply = 'answer' } = {}) {
+export function fakeComm(dir, { peers = [], schema = 'parts', proxy = 'ready', reply = 'answer', inbox = [], later = [] } = {}) {
   const state = path.join(dir, 'comm-state.json');
-  writeFileSync(state, JSON.stringify({ calls: [], sent: [], completed: [], left: [], inbox: [] }));
+  writeFileSync(state, JSON.stringify({ calls: [], sent: [], completed: [], left: [], inbox, later }));
   const options = JSON.stringify({ peers, schema, proxy, reply, state });
   writeFileSync(path.join(dir, 'octocode-agents-communication'), `#!/usr/bin/env python3
 import json, os, sys, time
@@ -20,7 +22,7 @@ payload = json.loads(sys.stdin.read() or 'null') if '-' in argv else None
 session = argv[argv.index('--session') + 1] if '--session' in argv else None
 with open(options['state']) as f:
     state = json.load(f)
-state['calls'].append([command, session])
+state['calls'].append([command, session, payload])
 def save():
     with open(options['state'], 'w') as f:
         json.dump(state, f)
@@ -57,6 +59,9 @@ elif command == 'send_message':
                                'parts': [{'text': 'PONG: ' + inner['parts'][0]['text']}]})
     out({'id': 1})
 elif command in ('inbox', 'inbox-wait'):
+    if command == 'inbox-wait':
+        state['inbox'] += state['later']
+        state['later'] = []
     out({'items': [item for item in state['inbox'] if item['id'] not in state['completed']]})
 elif command == 'complete':
     state['completed'].append(payload['message'])

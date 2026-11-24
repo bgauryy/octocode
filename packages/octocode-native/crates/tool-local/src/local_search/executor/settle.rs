@@ -155,7 +155,7 @@ pub(super) fn settle_row(
     // hold.
     if empty
         && !disclosed.skipped_match
-        && let Some(hint) = coverage.scope_hint(in_sparse_checkout)
+        && let Some(hint) = coverage.scope_hint(in_sparse_checkout, query)
     {
         // The globs matched no file: the listing shows what names exist.
         let listing = coverage

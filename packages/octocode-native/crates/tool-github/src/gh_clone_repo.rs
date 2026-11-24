@@ -77,8 +77,9 @@ pub struct CloneLocation {
     /// The branch or tag resolved to `commitSha`, else that commit.
     #[serde(rename = "ref")]
     pub ref_: String,
-    /// The sparse scope the checkout holds: the requested paths that exist
-    /// at the commit, in request order; absent on a full checkout.
+    /// The sparse scope the checkout holds: the requested paths on disk, in
+    /// request order (a withheld credential file is in `skipped` alone);
+    /// absent on a full checkout.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub paths: Option<Vec<String>>,
     /// Repository symlinks in the checkout, each a plain file holding its

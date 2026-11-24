@@ -1,56 +1,35 @@
 # Engine map
 
-Load when locating the file a graph change belongs to, its tests, or the version it must bump.
-
-Paths are under `packages/octocode-native/crates/`; `ast_graph/` is `tool-graph/src/ast_graph/`, and bare `graph/`, `store/`, `link_tests/` and file paths in this table are under it. Each module opens with a `//!` line naming its job: read it before editing.
-
-```mermaid
-flowchart LR
-  X["Extraction<br/>engine signatures/graph_facts"] --> S["Scan + file linking<br/>ast_graph/graph"]
-  S --> R["Call resolution<br/>store/tables/resolve"]
-  R --> P["Projection<br/>store/tables"]
-  P --> E["Encoding<br/>store/format"]
-  E --> Q["Queries, detectors, impact, drift<br/>store/query, detect, impact"]
-  Q --> O["CLI cli/src/cli/graph.rs<br/>MCP store/tools.rs"]
-```
-
-## Layers
+Paths are under `packages/octocode-native/crates/`. `ast_graph/` is `tool-graph/src/ast_graph/`, and every other path that does not start with a crate name is under `ast_graph/`. Rows follow the pipeline: extraction, scan and file linking, call resolution, projection, encoding, queries, CLI and MCP. Each module opens with a `//!` line naming its job.
 
 | Change | Owner | Tests |
 |---|---|---|
-| What a file yields: declarations, imports, calls, receivers, arguments, macro bodies, test flags | `engine/src/signatures/graph_facts/` (per language: `c_family.rs`, `go.rs`, `python.rs`, `rust.rs`, `scala.rs`, `receiver/`); scan and reuse in `engine/src/fact_scan/` | `graph_facts/tests/`, `engine/src/fact_scan/tests/` |
+| What a file yields: declarations, imports, calls, receivers, arguments, macro bodies, test flags | `engine/src/signatures/graph_facts/` (a file per language, `receiver/`); scan and reuse in `engine/src/fact_scan/` | `engine/src/signatures/graph_facts/tests/`, `engine/src/fact_scan/tests/` |
 | Which files are scanned, roles (test, generated, bundled), scope refusals and hints | `graph/scan.rs`, `classify.rs`, `graph/scope.rs` | `graph/tests/prune.rs`, `store/tests/limits.rs` |
-| Import specifiers to files: tsconfig paths, workspaces, Cargo, go.mod, Python roots, packages | `graph/resolve.rs`, `cargo.rs`, `packages.rs`, `linking.rs`; the shared `import_resolution/` (`crates/tools-shared`) (`aliases.rs`, `js_paths.rs`, `paths.rs`, `linker.rs`: one record per grammar), which lspSearch also places importer candidates by | `graph/tests/resolution.rs`, `link_tests/imports.rs` |
-| Per-file linking: exports, re-exports, CommonJS, paths | `graph/link.rs`, `graph/imports.rs`, `graph/exports.rs` | `link_tests/commonjs.rs`, `store/tests/reexports.rs` |
-| One call site to its targets, by the language's binding rules | `store/tables/resolve/`: `linker.rs` (entry), `lexical.rs` (bare names), `choice.rs` (candidates), `classes.rs` (Java, C#), `go.rs`, `rust.rs`, `scala.rs`, `c_family.rs`, `es_members.rs`, `constructors.rs`, `inherited.rs`, `exports.rs` | `link_tests/<language>.rs`, `store/tests/call_recall.rs`, `resolution_round2.rs` |
-| Tables, edges, witnesses, unresolved reasons, stats | `store/tables/` (`projector.rs`, `assemble.rs`, `edges.rs`, `stats.rs`, `c_definitions.rs`) | `store/tables/tests.rs`, `store/tests/evidence*.rs` |
-| `graph.bin` sections and decode bounds | `store/format/`, `store/format.rs` | `store/tests/snapshots.rs`, `source_correspondence.rs` |
-| Walk flags (`defaultExcludes`, `includeIgnored`, `includeHidden`) and every lead that rebuilds a scope: `stale`'s `reingest`, the exclude retry, the `scopeTooBroad` narrower-scope hints | `ast_graph/walk_scope.rs` (`WalkScope`: build a lead's walk with `of_manifest(..).write_row`, never by hand) | `store/tests/stale.rs`, `graph/tests.rs`, `graph/tests/prune.rs` (credential stores stay withheld under a lifted walk) |
-| Build and snapshot bounds (`scopeTooBroad`) | `ast_graph/limits.rs` (the only owner) | `store/tests/limits.rs` |
-| Ingest, reuse, checkpoints, staleness | `store/ingest.rs`, `graph/checkpoint/`, `store/staleness.rs`, `freshness.rs` | `store/tests/ingest.rs`, `incremental.rs`, `stale.rs`, `graph/checkpoint/tests.rs` |
-| Query ops, ranking, paging | `store/query/` (`find.rs`, `traverse.rs`, `evidence.rs`, `paging.rs`) | `store/tests/queries.rs`, `pagination.rs`, `find_ranking.rs` |
-| `issues` detectors, cycles, dead code | `store/detect/`, `algorithms.rs` (the one cycle engine) | `store/tests/detectors.rs`, `store/tests/detectors/`, `link_tests/dead_code.rs` |
-| `impact`, `drift` | `store/impact/`, `store/impact.rs`, `store/drift.rs` | `store/tests/impact.rs`, `impact_since.rs` |
-| CLI text, flags, exit codes | the generic tool command `cli/src/cli/tool_call.rs`, text in `cli/src/cli/lines.rs`, graph help in `cli/src/cli.rs` and `cli/src/cli/schema.rs` | `cli/tests/cli_output/terminal.rs`; the graph calls of [tool checks](../../../packages/octocode-benchmark/CHECKS.md#graphbuild-and-graphquery) |
-| MCP tool pages and snapshot selection | `store/tools.rs`; schemas and descriptions in core | `cli/tests/mcp_server/graph_parity.rs`; the graph calls of [tool checks](../../../packages/octocode-benchmark/CHECKS.md#graphbuild-and-graphquery) |
+| Import specifier to file: tsconfig paths, workspaces, Cargo, go.mod, Python roots, packages | `graph/resolve.rs`, `cargo.rs`, `packages.rs`, `linking.rs`; `tools-shared/src/import_resolution/` (one linking record per grammar; lspSearch places importers with it too) | `graph/tests/resolution.rs`, `link_tests/imports.rs` |
+| Per-file linking: exports, re-exports, CommonJS | `graph/link.rs`, `graph/imports.rs`, `graph/exports.rs` | `link_tests/commonjs.rs`, `store/tests/reexports.rs` |
+| One call site to its targets, by the language's binding rules | `store/tables/resolve/`: `linker.rs` (entry), `lexical.rs` (bare names), `choice.rs` (candidates), language rules (`classes.rs` for Java and C#, `go.rs`, `rust*.rs`, `scala.rs`, `c_family.rs`, `es_*.rs`) | `link_tests/<language>.rs`, `store/tests/call_recall.rs`, `store/tests/resolution_round2.rs` |
+| Tables, edges, witnesses, unresolved reasons, stats | `store/tables/` | `store/tables/tests.rs`, `store/tests/evidence*.rs` |
+| `graph.bin` sections and decode bounds | `store/format/`, `store/format.rs` | `store/tests/snapshots.rs`, `store/tests/source_correspondence.rs` |
+| Walk flags (`defaultExcludes`, `includeIgnored`, `includeHidden`) and every lead that rebuilds a scope (`stale` reingest, the exclude retry, `scopeTooBroad` hints) | `walk_scope.rs`: build a lead's walk with `WalkScope::of_manifest(..).write_row`, never by hand | `store/tests/stale.rs`, `graph/tests.rs`, `graph/tests/prune.rs` |
+| Build and snapshot bounds (`scopeTooBroad`) | `limits.rs`, the only owner | `store/tests/limits.rs` |
+| Ingest, reuse, checkpoints, staleness | `store/ingest.rs`, `graph/checkpoint/`, `store/staleness.rs`, `freshness.rs` | `store/tests/{ingest,incremental,stale}.rs`, `graph/checkpoint/tests.rs` |
+| Query ops, ranking, paging | `store/query/` | `store/tests/{queries,pagination,find_ranking}.rs` |
+| `issues` detectors, cycles, dead code | `store/detect/`; `algorithms.rs` (the one cycle engine) | `store/tests/detectors.rs`, `store/tests/detectors/`, `link_tests/dead_code.rs` |
+| `impact`, `drift` | `store/impact/`, `store/impact.rs`, `store/drift.rs` | `store/tests/impact.rs`, `store/tests/impact_since.rs` |
+| CLI: the `__graph` selector, flags, text, help | `cli/src/cli/parse.rs`, `cli/src/cli/tool_call.rs`, `cli/src/cli/lines.rs`, `cli/src/cli.rs`, `cli/src/cli/schema.rs` | `cli/tests/cli_output/terminal.rs` |
+| MCP pages and snapshot selection | `store/tools.rs` | `cli/tests/mcp_server/graph_parity.rs` |
 
-## Versions
+## Cache versions
 
-Bump the one whose cached data the change makes wrong; a bump forces a rebuild, so do not bump for a pure query change.
+Bump the constant whose cached data the change makes wrong and add a line to its version comment. A bump forces every rebuild, so a pure query change bumps none. Tests read the constants, so a bump needs no test edits.
 
-| Constant | Where | Bump when |
+| Constant | File | Bump when |
 |---|---|---|
-| `GRAPH_FACTS_SCHEMA_VERSION` | `engine/src/signatures.rs` | Extracted facts change for the same source; extend its version comment |
+| `GRAPH_FACTS_SCHEMA_VERSION` | `engine/src/signatures.rs` | Extracted facts change for the same source |
 | `ANALYSIS_VERSION` | `tool-graph/src/ast_graph.rs` | Persisted linking semantics change without a format change |
-| `FORMAT_VERSION` | `ast_graph/store/format.rs` | The `graph.bin` encoding changes; extend its version comment |
+| `FORMAT_VERSION` | `ast_graph/store/format.rs` | The `graph.bin` encoding changes |
 
-## Generated data
+## Python standard-library list
 
-`import_resolution/aliases/python_stdlib.txt` is committed and generated by `scripts/gen-python-stdlib.mjs`; the engine build reads it and never fetches. The generator pins its two sources, and the file header states both:
-
-- the interpreter's `sys.stdlib_module_names`: the script refuses a `python3` off the `PINNED_PYTHON` line (`--python PATH` picks another interpreter);
-- typeshed `stdlib/VERSIONS` at the commit `TYPESHED_REF`, never `main`.
-
-To move a pin, change the constant, run the script, and include the regenerated file in the reviewable change. `node --test scripts/gen-python-stdlib.test.mjs` covers the header and the refusal.
-
-Tests compare against these constants, never a copied number, so a bump needs no test edits; a test that pins a literal version is a defect.
+`tools-shared/src/import_resolution/aliases/python_stdlib.txt` is committed and generated by [gen-python-stdlib.mjs](../scripts/gen-python-stdlib.mjs); the engine build reads it and never fetches. The script records the interpreter's `sys.stdlib_module_names` (it refuses a `python3` off its `PINNED_PYTHON` line; `--python PATH` picks another) and typeshed `stdlib/VERSIONS` at `TYPESHED_REF`, never `main`. To move a pin, change the constant, run the script and include the regenerated file in the change. [Its tests](../scripts/gen-python-stdlib.test.mjs) cover the header and the refusal: `node --test skills-dev/octocode-graph-dev/scripts/gen-python-stdlib.test.mjs`.

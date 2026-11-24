@@ -16,7 +16,7 @@ Order findings by severity; a table helps compare several:
 |---|---|---|---|---|---|---|
 | `SEC-1` | `src/auth.ts:42` | `issue (blocking):` the mechanism, with its exact source anchor | Who or what breaks, and when | `High` | `high` | The smallest repair; when a lint rule, type or test can catch the defect class, name it too |
 
-- **Finding:** state the defect and whether it blocks. Use Conventional Comments labels when the review destination expects them.
+- **Finding:** state the defect and whether it blocks; mark a blocker `(blocking)`, as in `issue (blocking):`. Use full Conventional Comments labels when the review destination expects them.
 - **Severity** measures impact: `Critical`, `High`, `Medium`, `Low`.
 - **Confidence** measures proof: `high` confirmed, `medium` likely, `low` uncertain.
 - **No findings:** say so under `## Findings` and name the scope that makes that claim hold.
@@ -38,8 +38,10 @@ Include, in this order:
 - `## Findings`: the table above.
 - `## Evidence`: anchors behind the findings, and checked non-findings with what cleared them.
 - `## Gaps`: unread files, unproven claims and any assumption marked as one.
-- `## Checks`: each check run or skipped, with its result.
+- `## Checks`: a `| Check | Result | Evidence |` table with one row per check run or skipped; Result is `passed`, `failed`, `skipped` or `unavailable` (map CI rows with the [remote PR recipe](references/remote-pr.md)).
 - `## Next`: only when something is pending.
+
+Before delivering or rendering a saved report, check its verdict against its own rows: `node <skill-folder>/scripts/check-verdict.mjs <report.md>` ([check-verdict.mjs](scripts/check-verdict.mjs); reads only). Exit 1 lists `conflicts`, an `APPROVE` beside a `(blocking)` finding or a `failed` check: change the verdict or the finding, then rerun. Exit 2 names a missing `status`, section, Result column or Result word: fix the format.
 
 Use a [`flowchart` or `sequenceDiagram`](references/report-output.md#choose-the-format) when a verified path explains a finding, with source anchors nearby.
 

@@ -1,4 +1,4 @@
-Load for tool selection, scouting or cross-source research. Live schemas own fields; [usage](octocode-usage.md) owns invocation and recovery; [evidence](evidence.md) owns proof.
+Load for tool selection, scouting or cross-source research. Live schemas own fields; [evidence](evidence.md) owns proof.
 
 ## Route: where the evidence is
 
@@ -6,22 +6,22 @@ The routes the server instructions serve, generated from core (`node skills/comm
 
 | Route (server instructions §1) | Served when listed |
 |---|---|
-| layout, files by name, size, date → structureSearch; text, spelling, counts → localSearch; then localFetch | `structureSearch`, `localSearch`, `localFetch` |
+| layout, names, sizes → structureSearch; text, spellings, counts → localSearch; then localFetch | `structureSearch`, `localSearch`, `localFetch` |
 | code shape: declarations, calls, nesting → astSearch → localFetch ranges | `astSearch`, `localFetch` |
-| definition, identity, every caller or use → lspSearch at a search hit's line | `lspSearch` |
+| definition, every caller or use → lspSearch at a search hit's line | `lspSearch` |
 | known file → localFetch | `localFetch` |
+| repo or library not in this checkout: owner/repo unknown → ghSearchRepo; known → ghStructure (tree, refs) or ghSearchCode → ghGetFileContent | `ghSearchRepo`, `ghStructure`, `ghSearchCode`, `ghGetFileContent` |
+| why, when, who → ghSearchHistory → ghGetHistoryItem | `ghSearchHistory`, `ghGetHistoryItem` |
+| first release with a change → commit or PR, ghStructure refs, ghGetHistoryItem compare | `ghSearchHistory`, `ghStructure`, `ghGetHistoryItem` |
+| GitHub package version → artifactSearch → ghStructure → ghGetFileContent at its release ref; other hosts: use the source URL and ref | `artifactSearch`, `ghStructure`, `ghGetFileContent` |
+| vulnerabilities or package trust → securityCheck | `securityCheck` |
+| importers, cycles, impact, dead code → graphBuild → graphQuery | `graphBuild`, `graphQuery` |
+| many searches over a few paths of another repo → ghStructure tree materialize:true → local tools | `ghStructure`, `localSearch` |
+| a whole repo, or paths you cannot name → ghCloneRepo → local tools | `ghCloneRepo` |
 | keep only hits meaning X (cause, kind, intent) → clasify source:{tool, query} predicates | `clasify` |
 | offload reading: too many hits, unread files, threads, logs or PNG/JPEG images → clasify → next.read | `clasify` |
 | web page or URL → clasify source.url → next.read | `clasify` |
 | a known spelling, line range or count, commands, git state → shell (rg, sed -n, wc, git); a write or one small GitHub item → gh | always |
-| repo or library not in this checkout → ghSearchRepo → ghStructure (tree, refs) or ghSearchCode → ghGetFileContent | `ghSearchRepo`, `ghStructure`, `ghSearchCode`, `ghGetFileContent` |
-| why, when, who → ghSearchHistory → ghGetHistoryItem | `ghSearchHistory`, `ghGetHistoryItem` |
-| first release with a change → commit or PR, ghStructure refs, ghGetHistoryItem compare | `ghSearchHistory`, `ghStructure`, `ghGetHistoryItem` |
-| GitHub package version → artifactSearch → ghStructure → ghGetFileContent at its release ref; other hosts: use the source URL and ref | `artifactSearch`, `ghStructure`, `ghGetFileContent` |
-| known vulnerabilities or a package trust check → securityCheck | `securityCheck` |
-| importers, cycles, impact, dead code → graphBuild → graphQuery | `graphBuild`, `graphQuery` |
-| many searches over a few paths of another repo → ghStructure tree materialize:true → local tools | `ghStructure`, `localSearch` |
-| a whole repo, or paths you cannot name → ghCloneRepo → local tools | `ghCloneRepo` |
 
 Prefer the local checkout for code and GitHub for discussion. Trace `entry → transformations → state → output → consumers`; change tools when the next claim needs different evidence. Batch independent queries, wait for dependent results, and reuse observed paths, lines and refs.
 
@@ -43,10 +43,9 @@ Prefer the local checkout for code and GitHub for discussion. Trace `entry → t
 
 Views select evidence: files have no bodies, symbols no implementations, compact no exact quotes. Widen only when the claim needs more; smaller pages never replace completing the selected evidence.
 
-- `block:true` expands declarations, not Markdown sections. Verify the declaration closes; follow its continuation or use the AST's `line`/`endLine`, never a guessed end.
-- Markdown sections end before the next heading of equal or higher level. Outlines recognize `#` headings; read underline-style headings as content.
+- `block:true` returns the whole enclosing declaration or Markdown section, and `blocks[]` states its `line`/`endLine`. One Markdown section with its subsections: `localFetch` `{"path":"<file>.md","matchString":["^## <Heading>$"],"regexEngine":"rust","block":true}` (escape regex characters in the heading); a literal `"## <Heading>"` also matches longer headings that contain it. Underline-style headings are content of the enclosing `#` section. For code, verify the declaration closes; follow its continuation or use the AST's `line`/`endLine`, never a guessed end.
 - On parser limits inspect `viewFallback` or `fileTooLarge`; use exact search rather than treating a missing outline as absence.
-- `localSearch` owners use `enclosing` indexes into `declarations`; LSP locations group under `files[].path`. Read the returned span before citing it.
+- `localSearch` owners use `enclosing` indexes into `declarations`; a hit that declares a name points at its own row by `declaration`: read that row's line to end line instead of a guessed range. LSP locations group under `files[].path`. Read the returned span before citing it.
 - `workspaceSymbol` takes `symbolFuzzy`, not `symbolName`; confirm fuzzy candidates at a source anchor.
 
 ## Scout: judge what you have not read
@@ -96,7 +95,7 @@ Use exact tools for literal facts, counts, identity and absence. Narrow by path,
 - **AST and graph edges are candidates.** Check grammar capabilities, parse assessment and scan coverage, then confirm with LSP. Empty LSP while `analysisContext` reports errors is not absence.
 - **Graph needs the workspace.** When listed, `graphBuild` rejects a materialized or cloned path outside it; use AST and text there.
 - **Materialize until `location.coverage.state` is `complete`.** A large selection returns `partial`; follow `next.continueMaterialize`.
-- **Fetched code has no LSP by default.** Text and AST work on materialized and cloned trees. `lspSearch` refuses them (`errorCode:"policy"`), and any root holding them, because a server can run repository code; only the user's `lsp.trustFetchedCode` opts in. With it on, LSP reports `inferredProject` without a tsconfig and `documentAnalysisErrors` when imported files were left out, so include project config and the source tree, then read `coverage`. A whole-repo claim needs `ghCloneRepo` (CLI, or MCP with `OCTOCODE_ENABLE_CLONE`); sparse paths and shallow history limit what it proves.
+- **Fetched code has no LSP by default.** Text and AST work on materialized and cloned trees. `lspSearch` refuses them (`errorCode:"policy"`), and any root holding them, because a server can run repository code; only the user's `lsp.trustFetchedCode` opts in. With it on, LSP reports `inferredProject` without a tsconfig and `documentAnalysisErrors` when imported files were left out, so include project config and the source tree, then read `coverage`. A whole-repo claim needs `ghCloneRepo` (CLI, or MCP with `OCTOCODE_ENABLE_CLONE`); sparse paths limit what it proves.
 - **Discussion lives only on GitHub.** Prefer a local checkout for code; use `ghGetHistoryItem` for PR intent.
 
 ## Analysis evidence
@@ -135,5 +134,5 @@ Read every row's `errorCode`, message, `hints` and recovery calls, even in a suc
 | Missing path, identifier or revision | Verify the observed identity and access; use an emitted discovery call; never substitute another revision for a claim about it |
 | Timeout or transient provider failure | Retry as `errorClass` and `retryable` direct (server instructions §3) when another attempt can add evidence; follow reported backoff. Stop unchanged failures and state the remaining scope |
 | Authentication, permission or rate limit | Correct access or wait for the reported reset; repeats do not restore it |
-| Stale or expired continuation | Restart as [usage](octocode-usage.md#read-results-and-recover) states. `responseSnapshotExpired` covers unknown or expired saved work; a malformed cursor, or one sent to another tool, is `invalidInput`; the message names the cause |
+| Stale or expired continuation | Drop the pages read and send the reply's `next.restart` call. `responseSnapshotExpired` covers unknown or expired saved work; a malformed cursor, or one sent to another tool, is `invalidInput`; the message names the cause |
 | Tool or contract failure | Keep the failing call and error code, use applicable recovery, report the gap |

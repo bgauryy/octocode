@@ -73,6 +73,13 @@ async function main(argv) {
   let out = DEFAULT_OUT;
   let python = 'python3';
   for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--help' || argv[i] === '-h') {
+      console.log(`Usage: node gen-python-stdlib.mjs [--versions <list>] [--out <file>] [--python <python3>]
+Regenerates the Python standard-library module table the graph engine uses to tell stdlib imports from packages.
+--versions: comma-separated Python versions (default ${DEFAULT_VERSIONS}); --out: output file (default ${DEFAULT_OUT});
+--python: interpreter used for the local probe. Writes --out. Exit 0 on success, 1 on a failed probe or download.`);
+      return;
+    }
     if (argv[i] === '--versions') versions = argv[++i];
     else if (argv[i] === '--out') out = argv[++i];
     else if (argv[i] === '--python') python = argv[++i];

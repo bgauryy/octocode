@@ -29,9 +29,9 @@
     "**/*.d.ts",
     "**/*.d.mts",
     "**/*.generated.*",
-    // Minified esbuild output of skills/common/build.mjs, copied into each skill and staged plugin;
-    // its source, skills/common/scripts/config-env.entry.mjs, is linted.
-    "**/scripts/lib/config-env.mjs",
+    // esbuild output of skills/common/bundle-skill.mjs: a skill's src/keys.mjs with @octocodeai/config
+    // bundled in; both sources are linted.
+    "skills/*/scripts/keys.mjs",
     "**/fixtures/**",
     "**/examples/**",
     "packages/octocode-benchmark/local/repos/**",
@@ -125,7 +125,7 @@
     },
     {
       // Command-line entry points, build and maintenance scripts write to the console by design.
-      "files": ["**/bin/**", "**/scripts/**", "**/tools/**", "**/build.mjs", "**/build.ts", "**/*.config.*"],
+      "files": ["**/bin/**", "**/scripts/**", "**/tools/**", "**/build.mjs", "**/build.ts", "**/*.config.*", "skills/*/src/**", "skills/common/bundle-skill.mjs"],
       "rules": { "no-console": "off" }
     },
     {

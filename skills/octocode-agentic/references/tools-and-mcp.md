@@ -195,9 +195,16 @@ Optimize successful work per loaded context, not tool count or character count a
 
 ### Measure the served surface
 
-- Capture actual server instructions and every `tools/list` page; inspect the host's projected tool definitions too. Freeze the build for each comparison. Include descriptions, schemas and repeated metadata, not just tool names or source-file size.
-- Compare the same profiles, authorization and lifecycle states. Keep raw captures; separate variable identity/path metadata from static guidance so it cannot distort savings.
-- Report UTF-8 bytes as bytes. Token claims need the production tokenizer or provider count; cost claims need usage and retry costs ([context metrics](context-and-memory.md#context-budget)). A smaller definition is not evidence of better task success.
+Run [mcp-surface.mjs](../scripts/mcp-surface.mjs) from the directory the server expects; `--help` lists options, outputs and exit codes.
+
+```bash
+node <skill-folder>/scripts/mcp-surface.mjs capture --cmd '<server command>' --out <round>/before.json
+node <skill-folder>/scripts/mcp-surface.mjs size <round>/before.json
+```
+
+- `capture` writes the served initialize result and every `tools/list` page to a new file and stops the server; exit 1 means no capture: the printed error code (`serverExited`, `rpcError`, `protocolError`, `timeout`) and the server's `stderr` say why. Freeze the build for each comparison and keep the raw captures. Inspect the host's projected tool definitions separately: they can differ from the served list.
+- `size` reports UTF-8 bytes per tool and `totals` (`toolBytes`, `instructionsBytes`, `surfaceBytes`, `schemaProseBytes`). Compare the same profiles, authorization and lifecycle states; separate variable identity/path metadata from static guidance so it cannot distort savings.
+- Report bytes as bytes. Token claims need the production tokenizer or provider count; cost claims need usage and retry costs ([context metrics](context-and-memory.md#context-budget)). A smaller definition is not evidence of better task success.
 
 ### Remove duplication, retain decisions
 
@@ -214,7 +221,7 @@ Optimize successful work per loaded context, not tool count or character count a
 
 ### Verify retained behavior
 
-- For wording-only edits, compare non-prose schema structure before/after: names, requiredness, defaults, bounds, enums, composition and annotations must remain unchanged. Check affected CLI help and host projections as well as MCP calls.
+- For wording-only edits, capture after the edit and run `node <skill-folder>/scripts/mcp-surface.mjs diff <round>/before.json <round>/after.json`. Exit 0 means names, requiredness, defaults, bounds, enums, types, composition and annotations are unchanged; exit 1 lists each `changes[]` row (`tool`, `path`, `kind`) to revert or justify; `prose.tools` names the tools whose wording changed. Check affected CLI help and host projections as well as MCP calls.
 - For changed tool surfaces or substantial rewrites, use [cold interviews and live replay](interview.md): selection, request/result handling, invalid combinations, hidden capabilities, retries, empty pages, continuations and untrusted content. Execute proposed calls; valid syntax or self-reported confidence is not enough.
 - Keep reductions that preserve required decisions and recovery. Report measured size and observed outcomes separately; use held-out evaluation for comparative reliability or cost-per-success claims. Do not turn a few successful checks into a general model-performance claim.
 
@@ -229,7 +236,7 @@ Optimize successful work per loaded context, not tool count or character count a
 
 ## Set audit
 
-1. Inventory from the published view the client receives (`tools/list`, initialize instructions), not an author, enforcement or catalog view that also holds private fields. Record each tool's name, one-line job and the layer that states it. A job stated nowhere is unroutable.
+1. Inventory from the published view the client receives: a `mcp-surface.mjs capture` file ([measure](#measure-the-served-surface)), not an author, enforcement or catalog view that also holds private fields. Record each tool's name, one-line job and the layer that states it. A job stated nowhere is unroutable.
 2. Per close pair, write the deciding sentence; if you cannot, merge, rename or add the condition to both descriptions.
 3. Compare shared fields (name, type, unit, default, requiredness, scope); generate equivalents from one definition; document real differences.
 4. Check each pair for drift; a `Next` prerequisite must match the target's required fields. Class (symptom) → repair:

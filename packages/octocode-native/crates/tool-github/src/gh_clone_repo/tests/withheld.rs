@@ -40,9 +40,30 @@ fn clone_with(fixture: &Fixture, query: GhCloneRepoQuery) -> CloneResult {
     let again = clone_pinned(fixture, &query, &context).expect("reused clone");
     assert!(again.location.reused, "{again:?}");
     assert_eq!(again.location.skipped, first.location.skipped);
+    for result in [&first, &again] {
+        assert_scope_on_disk(result);
+    }
+    assert_eq!(again.location.paths, first.location.paths);
     // Keep the temp root alive until here, then hand back the first result.
     drop(root);
     first
+}
+
+/// `location.paths` names only paths on disk: a withheld credential file
+/// is listed in `skipped`, never also as checked out.
+fn assert_scope_on_disk(result: &CloneResult) {
+    let local = Path::new(&result.location.path);
+    let skipped = skipped(result);
+    for path in result.location.paths.iter().flatten() {
+        assert!(
+            super::super::checkout::checked_out(local, path),
+            "{path} is in location.paths but not on disk: {result:?}"
+        );
+        assert!(
+            !skipped.contains(&path.as_str()),
+            "{path} is both checked out and skipped: {result:?}"
+        );
+    }
 }
 
 fn skipped(result: &CloneResult) -> Vec<&str> {
@@ -121,6 +142,11 @@ fn an_explicitly_requested_credential_file_is_skipped_not_missing() {
         },
     );
     assert_eq!(skipped(&result), [".env"]);
+    // The sparse scope still names the requested file the checkout holds.
+    assert_eq!(
+        result.location.paths.as_deref(),
+        Some(&["README.md".to_owned()][..])
+    );
 }
 
 /// Every object the checkout's repository holds, as text.

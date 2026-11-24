@@ -5,7 +5,7 @@ Load when evidence spans files, writing an ADR or agent instruction file, or che
 ## Gather evidence
 
 - Inventory the root and `<workspace>/docs/`: README, CONTRIBUTING, `AGENTS.md`, ADRs, SECURITY, CI, manifests.
-- Find entrypoints, config keys, and contracts by path search; read focused slices.
+- Find entrypoints, configuration keys, and contracts by path search; read focused slices.
 - Durable docs use the repository's supported task entrypoint; verify it against the manifest or task runner before giving a command.
 - Spot-check symbols by lexical or structural search; LSP use: `octocode-research`.
 - For a complex review, track disputed claims beside their source and verification status; simple edits need no separate claim table. Only verified claims become firm.
@@ -23,7 +23,7 @@ Load when evidence spans files, writing an ADR or agent instruction file, or che
 
 - One idea per bullet; tables for command and path maps; short pages linking deeper ones; no intros, slogans, or restated README.
 - Link the parent index, siblings, and ADRs; never "see docs".
-- A command or signature only when the reader must copy it; else link the source. No code dumps (full config, long JSON or YAML).
+- A command or signature only when the reader must copy it; else link the source. No code dumps (full configuration, long JSON or YAML).
 - Links and bullets answer "where do I look?" and "what must I not break?".
 
 | Information | Prefer | Why |
@@ -52,9 +52,9 @@ Load when evidence spans files, writing an ADR or agent instruction file, or che
 When `octocode-agentic` is available, it owns behavioral wording; this section covers index structure and link checks.
 
 - Check how the target host loads `AGENTS.md` or `CLAUDE.md`; preserve its scope and precedence. Keep nested instructions focused on local differences.
-- Draft as an index; verify every linked path and command.
+- Draft as an index. Run `node <skill-folder>/scripts/doc-check.mjs <file> --checks links,anchors,commands`: it reports links and anchors that do not resolve and commands whose script or package script is missing. Run or inspect each command it cannot resolve, such as a tool on `PATH`.
 - Sections only for non-obvious value: package manager (one line); Commands table (task, command, file-scoped test or lint); External references table (need, path); Key conventions that prevent likely mistakes.
-- Symlink between hosts only when both read the same rules and the repo supports it.
+- Symlink between hosts only when both read the same rules and the repository supports it.
 - Omit welcome text, skill lists, and linter-config restatements.
 
 ## Verify

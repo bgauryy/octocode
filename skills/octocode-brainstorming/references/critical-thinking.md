@@ -1,4 +1,4 @@
-Load when thinking a question through with the user, framing hypotheses, choosing directions, judging verified claims, or briefing critics or debaters.
+Load when thinking a question through with the user, generating or framing options, contradicting claims, judging verified evidence, or briefing critics or debaters.
 
 # Critical thinking
 
@@ -8,18 +8,18 @@ For [thinking together](../output.md#think-together):
 
 - The user's view first, including what they already ruled out.
 - Refine each user idea before adding yours: its strongest form, riskiest assumption, cheapest test.
-- Generate your own options per lens before reading search-result lists; label them as yours.
+- Generate your own options per lens before reading search results, so the results do not anchor you; label them as yours.
 - Diverge, then converge: options without judging, then merge, cut, and rank against the user's criteria.
 - Say what is still unknown.
 
 ## Decompose, then recompose
 
 - Split into sub-questions that together decide it, each answerable alone and naming its settling evidence; mark each known, assumed, or to research.
-- Right sub-answers can compose wrongly: [recompose](phases.md#4-decide).
+- Right sub-answers can compose wrongly: in step 8, check that each part's conditions (scale, version, workload) hold together before recommending the whole.
 
-## Hypotheses before search
+## Hypotheses before targeted search
 
-Before searching, record the leading answer, strongest rival, and “no difference” or a named condition where plausible. For each: claim, refuting check and result (survived, refuted with evidence, or untested). Add hypotheses only when they change what evidence to seek.
+After diverging and before targeted search, record for each option the claim, its strongest rival, and "no difference" or a named condition where plausible. For each: refuting check and result (survived, refuted with evidence, or untested). Add hypotheses only when they change what evidence to seek.
 
 - A hypothesis nothing could refute is a framing: sharpen or drop it.
 - Seek evidence likely under one hypothesis and unlikely under the others; evidence fitting all is context. Try to refute the leading one first.
@@ -27,7 +27,7 @@ Before searching, record the leading answer, strongest rival, and “no differen
 
 ## Thinking lenses
 
-Pick lenses that can change the decision; each becomes a direction or a question inside one.
+Pick lenses that can change the decision; each becomes an option, a direction or a question inside one.
 
 | Lens | Question | Typical evidence |
 |---|---|---|
@@ -36,15 +36,25 @@ Pick lenses that can change the decision; each becomes a direction or a question
 | Mechanism | Why would it work; what must be true? | Specs, primary studies, source code |
 | Failure cases | Where did it fail, under which conditions? | Incident reports, critiques, negative results |
 | Adjacent fields | Who solved the same structure elsewhere? | Other-domain work, labeled analogy |
+| Inversion | What would guarantee failure, and does any option do it? | Postmortems, migration-away stories |
 
-## Search like a fact-checker
+## Contradict and prove
 
-- Check on other pages who is behind a source: owner, funding, whether it sells what it praises.
-- Quote the original study, spec, or release; if unreachable, note `secondary` and lower confidence.
-- Corroborate with an independent source, not the same story syndicated.
-- Conflicts: report them; resolve by source quality, never by count.
-- Citations in AI search answers are leads only.
-- Stop a line when varied searches add no deciding evidence; “no evidence found” is valid. Name unresolved gaps instead of padding the source list.
+Try to break every deciding claim before relying on it, the leading option's first.
+
+1. Search against it: failures, limits, critiques, replications and the rival's best case ([query wording](research.md#write-queries)).
+2. Validate counterevidence by the same [source rules](verification.md#validated-sources) as support.
+3. Mark the claim:
+
+| Status | Bar |
+|---|---|
+| `proven` | A validated quote from a primary or independent source states it in matching conditions, and the disconfirming search found nothing of equal or better quality against it. A vendor, method author or advocate needs independent agreement for claims in its favor; its own account of how its product works, or an admission against its interest (a limit, a failure mode), counts as primary for that fact. |
+| `contradicted` | Validated counterevidence of equal or better quality cuts against it in matching conditions. |
+| `unresolved` | Thin, conflicting, inapplicable or unvalidated evidence, or no disconfirming search yet. |
+
+- Resolve conflicts by source quality and applicability, never by count or eloquence; report the conflict.
+- Report `unresolved` claims as gaps; never round one up. A recommendation resting on one gets `low` confidence or the test that settles it.
+- A claim that survived a real attempt to refute it is stronger than one that was only supported; say which attempts were made.
 
 ## Independence and incentives
 
@@ -65,30 +75,27 @@ Pick lenses that can change the decision; each becomes a direction or a question
 
 | Confidence | Evidence required |
 |---|---|
-| `high` | Direct authoritative evidence settles the claim in matching conditions; material counterevidence is resolved. Empirical generalizations need independent support. |
-| `medium` | Relevant primary support with a material applicability, independence or counterevidence gap. |
-| `low` | Indirect, promotional or thin evidence; unresolved alternatives; or an untested prescription inferred from other findings. |
+| `high` | Every deciding claim is `proven` in matching conditions; material counterevidence is resolved. Empirical generalizations need independent support. |
+| `medium` | Deciding claims have relevant primary support with a material applicability, independence or counterevidence gap. |
+| `low` | A deciding claim is `unresolved`: indirect, promotional or thin evidence; unresolved alternatives; or an untested prescription inferred from other findings. |
 
-State confidence with its because (the claim ids behind the level) and the check that would move it.
+A recommendation you composed from proven parts is still an untested prescription, so it is `low` until the next test runs: report each part's status beside it, and name the test that would raise it. State confidence with its reason (the claims behind the level) and the check that would move it. Never invent probabilities.
 
 ## Checks for critics and the judge
+
+Source-level checks (opened, quote, date, owner, primary, independence) are the [validated-source checks](verification.md#validated-sources). Claim-level checks:
 
 | Check | Ask |
 |---|---|
 | Quote, not paraphrase | Does the quote say what the claim says, with nothing added? |
-| Exact source | Is the cited URL the verified page (abstract ≠ full text)? |
-| Original source | Original study or release, not a page citing it? |
 | Comparator | Better than what? A weak baseline is not your alternative. |
-| Conditions | Which task, judge, information? Results can flip. |
+| Conditions | Which task, scale, version, information? Results can flip. |
 | Population | Human study used for models, or the reverse? Neither transfers. |
-| Independence | Shared paper, authors, or mirror? Count one study once. |
 | Base rate | Success rate across reference classes, not a few successes? |
 | Effect size | How large? Significant can be small. |
 | Design | Does the study design support a causal claim, or only an association? |
-| Status and date | Peer-reviewed, preprint, or summary? Dated? |
 | Diagnosticity | Likelier under one hypothesis? If not, it decides nothing. |
-| Incentive | Does the source gain? Then it needs independent support. |
-| Counterevidence | What cuts against it, and which is stronger? Resolve by quality, never votes or eloquence. |
+| Counterevidence | What cuts against it, and which is stronger? |
 
 For costly or irreversible choices, ask what would make the proposal fail, what happens afterward, and what contains the harm. A reversible experiment preserves options; a premortem alone proves nothing.
 

@@ -2,7 +2,8 @@
 use crate::local_search::local_search_query;
 
 use super::super::enclosing::{
-    ENCLOSING_FIELD_CHARS, ENCLOSING_RESERVE_CHARS, Outline, outlined_language,
+    DECLARATION_FIELD_CHARS, ENCLOSING_FIELD_CHARS, ENCLOSING_RESERVE_CHARS, Outline, listed_chars,
+    outlined_language,
 };
 use super::super::local_search_query::shows_span_columns;
 use super::entries::{FILE_ENTRY_CHARS, row_chars};
@@ -38,8 +39,9 @@ pub(super) struct PageCosts {
 /// them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum FilePrice {
-    /// The owner of each hit line inside a declaration, by line (a line
-    /// outside every declaration has none, as has every line of a file
+    /// The owner of each hit line inside a declaration, with the
+    /// declaration the hit declares, by line (a line outside every
+    /// declaration that declares none has none, as has every line of a file
     /// without an outline).
     Owners(Arc<HashMap<(u32, u32), Owner>>),
     /// The file could not be read for its outline: its rows reserve
@@ -57,6 +59,7 @@ impl FilePrice {
     pub(crate) fn of(
         file: &octocode_engine::types::TextSearchFile,
         outline: Option<&Outline>,
+        declaring: Option<&str>,
     ) -> Self {
         Self::Owners(Arc::new(
             outline
@@ -65,19 +68,20 @@ impl FilePrice {
                         .iter()
                         .filter_map(|matched| {
                             let at = (matched.line, matched.byte_offset);
-                            // The owner and the declarations holding it,
-                            // each listed with its comma.
-                            let chain = outline.chain(outline.owner(at.0, at.1)?);
-                            let full = ENCLOSING_FIELD_CHARS
-                                + chain
-                                    .iter()
-                                    .map(|declaration| {
-                                        octocode_engine::json_size::utf16_units(declaration)
-                                            .unwrap_or(0)
-                                            + 1
-                                    })
-                                    .sum::<usize>();
-                            Some((at, Owner { full }))
+                            // The owner and the declarations holding it.
+                            let enclosing = outline.owner(at.0, at.1).map_or(0, |owner| {
+                                ENCLOSING_FIELD_CHARS
+                                    + outline.chain(owner).iter().map(listed_chars).sum::<usize>()
+                            });
+                            // The declaration the hit declares.
+                            let declared = outline
+                                .declared(at.0, at.1, declaring)
+                                .and_then(|index| outline.label(index))
+                                .map_or(0, |declaration| {
+                                    DECLARATION_FIELD_CHARS + listed_chars(&declaration)
+                                });
+                            let full = enclosing + declared;
+                            (full > 0).then_some((at, Owner { full }))
                         })
                         .collect()
                 })
@@ -147,10 +151,11 @@ impl<'p> NamePricing<'p> {
     }
 }
 
-/// A hit row's enclosing declaration as the page cut prices it.
+/// A hit row's enclosing declaration, and the one it declares, as the page
+/// cut prices them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Owner {
-    /// Serialized complete declaration, carried by every matching row.
+    /// Serialized complete declarations, carried by every matching row.
     pub(super) full: usize,
 }
 
@@ -170,7 +175,7 @@ impl RowName {
     pub(super) fn chars(self) -> usize {
         match self {
             Self::None => 0,
-            Self::Reserved => ENCLOSING_RESERVE_CHARS,
+            Self::Reserved => *ENCLOSING_RESERVE_CHARS,
             Self::Owned(owner) => owner.full,
         }
     }

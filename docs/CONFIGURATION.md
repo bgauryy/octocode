@@ -12,6 +12,8 @@ Run `octocode config list` from the directory where your agent starts Octocode. 
 
 **Settings precedence, highest first.** Process environment (including MCP’s `env`) → project `.env` → user `.env` → project `.octocoderc` → user `.octocoderc` → default. Each setting defines what a project may change. For example, a project can disable cloning. Enabling it requires user or process configuration. [Permissions by setting](#all-settings-and-defaults)
 
+**API keys, highest first.** Process environment → user `.env` → project `.env`. A key in the user `.env` (GitHub tokens, Tavily, Exa, Serper, DeepSeek, ScrapingAnt) beats the same key in a project `.env`, so a repository only fills a key you have not set and cannot swap in its own; the classification key is user-only. The CLI, the MCP server and skill scripts (`scripts/keys.mjs list` in a skill that calls a provider) read keys in this order.
+
 **Legacy names.** A renamed setting still reads its old spelling, shown as `(legacy: …)` in the [settings table](#all-settings-and-defaults), from the same places under the same rules. Where one place sets both, the current name wins. `octocode config` names each legacy spelling it finds.
 
 Run `octocode config home` to locate your user settings. The Windows default is `%USERPROFILE%\.octocode`. Set `OCTOCODE_HOME` to use another directory directly. When the project and user settings are the same files, Octocode reads them once as user settings. [Storage and cleanup](STORAGE_AND_LIMITS.md)
@@ -106,9 +108,11 @@ Set proxy and TLS variables in the shell, CI or MCP process environment. `SSL_CE
 | — | `TAVILY_API_KEY` | key | `unset`; [get a key](https://app.tavily.com/) | yes | yes | Tavily search API credential used by the octocode-brainstorming skill. |
 | — | `EXA_API_KEY` | key | `unset`; [get a key](https://dashboard.exa.ai/) | yes | yes | Exa search API credential used by the octocode-brainstorming skill. |
 | — | `SERPER_API_KEY` | key | `unset`; [get a key](https://serper.dev/) | yes | yes | Serper search API credential used by the octocode-brainstorming skill. |
+| — | `DEEPSEEK_API_KEY` | key | `unset`; [get a key](https://platform.deepseek.com/api_keys) | yes | yes | DeepSeek search API credential used by the octocode-brainstorming skill. |
 | — | `TAVILY_BASE_URL` | url | `https://api.tavily.com` | no | no | Tavily API root; receives TAVILY_API_KEY. Home-only, so a repository cannot redirect your key. |
 | — | `EXA_BASE_URL` | url | `https://api.exa.ai` | no | no | Exa API root; receives EXA_API_KEY. Home-only, so a repository cannot redirect your key. |
 | — | `SERPER_BASE_URL` | url | `https://google.serper.dev` | no | no | Serper API root; receives SERPER_API_KEY. Home-only, so a repository cannot redirect your key. |
+| — | `DEEPSEEK_BASE_URL` | url | `https://api.deepseek.com` | no | no | DeepSeek API root; receives DEEPSEEK_API_KEY. Home-only, so a repository cannot redirect your key. |
 | — | `GH_TOKEN` (legacy: `OCTOCODE_TOKEN`) | key | `unset (octocode auth login also works)` | yes | yes | GitHub CLI token |
 | — | `GITHUB_TOKEN` (legacy: `GITHUB_PERSONAL_ACCESS_TOKEN`) | key | `unset (octocode auth login also works)` | yes | yes | GitHub Actions token |
 | — | `SCRAPING_ANT` | key | `unset`; [get a key](https://app.scrapingant.com/) | yes | yes | ScrapingAnt API credential used by the octocode-scraping skill. |

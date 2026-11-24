@@ -14,10 +14,9 @@ Save when requested or when extracted records and coverage need a reusable repor
 
 Use the [shared header](references/report-output.md#report-header). Accepted `status` values: `Complete`, `Partial`, `Blocked`.
 
-Then the `#` title and a BLUF lead paragraph (answer first). Add `session: <workspace-relative session folder>` to the header. Always include `## Answer`, `## Pages covered`, `## Blocked or unread`, and `## Session` (the folder and its `AGENT_INDEX.json`):
+Then the `#` title and a BLUF lead paragraph (answer first). Add `session: <workspace-relative session folder>` to the header. Always include `## Answer`, `## Pages covered`, `## Blocked or unread`, and `## Session` (the folder and its `AGENT_INDEX.json`).
 
-| URL | Status | Session file | Notes |
-|---|---|---|---|
+Fill `## Pages covered` with the output of `node <skill-folder>/scripts/corpus-inspect.mjs --session-dir <d> --format coverage-md`: a count line and a `| URL | Status | Session file | Notes |` table with one row per `sources.jsonl` row plus each URL the latest fetch refused or skipped for robots, URLs and notes redacted. Paste it unchanged; rows whose Status ends in `failed`, or is `refused` or `robots skipped`, also go under `## Blocked or unread`. Exit 1 means the session has no source rows.
 
 `## Blocked or unread` is the stop report: a `Partial` result hands over unfinished work as a Handoff packet; a `Blocked` one asks for someone else's action as an SBAR ([recovery](references/recovery.md#on-a-stop)). The header `next` is that report's next action.
 

@@ -17,8 +17,9 @@
 //!   the cursor alone.
 //!
 //! A call says, in one warning, each reading that changed what a value means
-//! (a regex bracket read as text, a page size not applied); the other
-//! readings change no value or meaning and are made silently. A row that
+//! (a regex bracket read as text, a page size not applied) and bare fields
+//! read as one row (the next call can batch); the other readings change no
+//! value or meaning and are made silently. A row that
 //! still fails is refused as read, for what is still wrong with it. None is applied to a call that bills. No field is
 //! read under another name, moved into another object or inferred: an
 //! undeclared field is refused, and the refusal names the declared one.
@@ -39,8 +40,8 @@ type Note = (Option<usize>, String);
 
 /// `input` as the contract takes it, with one warning naming the readings
 /// that changed what a value means (a regex bracket read as text, a page size
-/// not applied); a reading that changes no value or meaning (the envelope, JSON
-/// text, a one-item list, an integral float, a letter case, a default, an
+/// not applied) and bare fields read as one row; a reading that changes no
+/// value or meaning (a bare list or a `queries` object or text, JSON text, a one-item list, an integral float, a letter case, a default, an
 /// ordered pair, a cursor in its row) is made silently. Otherwise unchanged,
 /// so validation names what is wrong with what was sent.
 pub fn normalized_input(tool_name: &str, input: Value) -> (Value, Vec<String>) {
@@ -76,7 +77,7 @@ fn normalize(tool_name: &str, input: Value) -> (Value, Vec<Note>, Vec<Note>) {
     if id != ToolId::Clasify {
         drop_brief(&mut input, &mut said);
     }
-    let request = shaped(id, input.clone(), &mut quiet);
+    let request = shaped(id, input.clone(), &mut said, &mut quiet);
     // Nothing turns an invalid request into a billed one: a request that
     // bills in the shape it means runs only as sent.
     if bills(id) {
@@ -108,7 +109,7 @@ fn drop_brief(request: &mut Value, said: &mut Vec<Note>) {
         if !gone.is_empty() {
             said.push((
                 at,
-                format!("{} dropped: only clasify takes it", gone.join(", ")),
+                format!("{} dropped: only clasify takes them", gone.join(", ")),
             ));
         }
     };
@@ -180,7 +181,7 @@ fn bills(id: ToolId) -> bool {
 /// row or a text holding the rows for `queries` read as the list. Anything
 /// else leaves the shape to validation: a row field beside `queries` is
 /// refused, and the refusal says it goes in the rows.
-fn shaped(id: ToolId, input: Value, notes: &mut Vec<Note>) -> Value {
+fn shaped(id: ToolId, input: Value, said: &mut Vec<Note>, notes: &mut Vec<Note>) -> Value {
     let mut request = match input {
         Value::Array(rows) if !rows.is_empty() && rows.iter().all(Value::is_object) => {
             let mut request = Map::new();
@@ -191,6 +192,19 @@ fn shaped(id: ToolId, input: Value, notes: &mut Vec<Note>) -> Value {
         Value::Object(request) => request,
         other => return other,
     };
+    // An empty `queries` beside row fields holds no row: the bare fields are
+    // its one reading (2026-11-24: workflow W3's first call, 3 of 3 runs).
+    if request
+        .get("queries")
+        .and_then(Value::as_array)
+        .is_some_and(Vec::is_empty)
+        && request
+            .keys()
+            .any(|field| field != "queries" && super::query_declares(id, field))
+    {
+        request.remove("queries");
+    }
+    drop_repeated_row_fields(id, &mut request);
     if let Some(queries) = request.get_mut("queries") {
         let rows = match queries {
             Value::Object(_) => Some(Value::Array(vec![queries.take()])),
@@ -209,23 +223,60 @@ fn shaped(id: ToolId, input: Value, notes: &mut Vec<Note>) -> Value {
         // the cursor's saved query ([`read_beside_cursor`]).
         return Value::Object(request);
     } else {
-        let (row, envelope): (Map<_, _>, Map<_, _>) = request
-            .into_iter()
-            .partition(|(field, _)| super::query_declares(id, field));
+        // A field neither the rows nor the envelope declare travels with the
+        // row, so its refusal names it in queries[0] beside that row's own
+        // repair; an object with no row field stays as sent.
         let declared_envelope = envelope_fields(id);
-        let unknown = envelope
-            .keys()
-            .any(|field| !declared_envelope.iter().any(|known| known == field));
-        if row.is_empty() || unknown {
+        let (envelope, row): (Map<_, _>, Map<_, _>) =
+            request.into_iter().partition(|(field, _)| {
+                !super::query_declares(id, field)
+                    && declared_envelope.iter().any(|known| known == field)
+            });
+        if !row.keys().any(|field| super::query_declares(id, field)) {
             let mut unchanged = row;
             unchanged.extend(envelope);
             return Value::Object(unchanged);
         }
         request = envelope;
         request.insert("queries".to_owned(), Value::Array(vec![Value::Object(row)]));
-        notes.push((None, "bare fields as {\"queries\":[{…}]}".to_owned()));
+        // Said, unlike the other envelope readings: bare fields hold one row,
+        // so a caller that keeps sending them never batches (2026-11-24: 81%
+        // of ghSearchCode calls were bare once this went silent, 31% before).
+        said.push((
+            None,
+            "bare fields as {\"queries\":[{…}]}, one row: queries batches several".to_owned(),
+        ));
     }
     Value::Object(request)
+}
+
+/// Drop a row field sent beside `queries` that every row already holds with
+/// the same value: the copy says nothing the rows do not. Any other row field
+/// beside `queries` stays for validation to refuse.
+fn drop_repeated_row_fields(id: ToolId, request: &mut Map<String, Value>) {
+    let Some(rows) = request.get("queries").and_then(Value::as_array) else {
+        return;
+    };
+    if rows.is_empty() {
+        return;
+    }
+    let envelope = envelope_fields(id);
+    let repeated: Vec<String> = request
+        .iter()
+        .filter(|(field, _)| {
+            *field != "queries"
+                && super::query_declares(id, field)
+                && !envelope.iter().any(|known| known == *field)
+        })
+        .filter(|(field, value)| {
+            rows.iter()
+                .all(|row| row.get(field.as_str()) == Some(value))
+        })
+        .map(|(field, _)| field.clone())
+        .collect();
+    for field in repeated {
+        request.remove(&field);
+    }
 }
 
 /// The request's own fields, `queries` aside.

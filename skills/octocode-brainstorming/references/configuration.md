@@ -1,4 +1,5 @@
-Load when a skill needs an Octocode setting or provider credential. Source: `skills/common`; installed copies are generated.
+Load when a skill needs an Octocode setting or provider credential.
+<!-- Source: skills/common; installed copies are generated. -->
 
 ## Inspect without exposing secrets
 
@@ -15,18 +16,18 @@ node packages/octocode/out/octocode.js config list          # every setting: val
 
 ## Where a value can live
 
-For each key separately, the first valid value wins:
+For each key separately, the first valid value in its column's order wins:
 
-| Order | Place | Path |
-|---|---|---|
-| 1 | Process environment, or an MCP client `env` block | none |
-| 2 | Workspace `.env` | `<workspace>/.octocode/.env` |
-| 3 | Home `.env` | `<home>/.env` |
-| 4 | Workspace `.octocoderc` | `<workspace>/.octocode/.octocoderc` |
-| 5 | Home `.octocoderc` | `<home>/.octocoderc` |
-| 6 | The setting's default | [settings and defaults](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#all-settings-reference) |
+| Place | Path | Setting order | API key order |
+|---|---|---|---|
+| Process environment, or an MCP client `env` block | none | 1 | 1 |
+| Workspace `.env` | `<workspace>/.octocode/.env`; the workspace is the current directory | 2 | 3 |
+| Home `.env` (global) | `<home>/.env`; `<home>` is `OCTOCODE_HOME`, default `~/.octocode` | 3 | 2 |
+| Workspace `.octocoderc` | `<workspace>/.octocode/.octocoderc` | 4 | none |
+| Home `.octocoderc` | `<home>/.octocoderc` | 5 | none |
+| The setting's default | [settings and defaults](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#all-settings-reference) | 6 | none |
 
-A workspace file cannot set a home-only value, such as `classification.apiHost` or `github.apiUrl`. Provider keys for skills live in the `.env` files, not `.octocoderc`.
+API keys are the credentials skill scripts and the CLI read (GitHub tokens, Tavily, Exa, Serper, DeepSeek, ScrapingAnt, classification). A workspace file cannot set a home-only value, such as `classification.apiHost` or `github.apiUrl`. Provider keys live in the `.env` files, not `.octocoderc`.
 
 ## Change a value
 
@@ -40,8 +41,10 @@ node packages/octocode/out/octocode.js config unset KEY           # back to the 
 
 `set` and `unset` write the home `.env`. Keep values out of tool output, reports and logs. For one command, set the documented environment variable on that command instead.
 
-## Provider scripts
+## API keys in skill scripts
 
-Scripts that use Octocode credentials call the bundled [shared config loader](../scripts/lib/config-env.mjs) before reading `process.env`. It applies the home and trusted workspace `.env` files using `@octocodeai/config`, and process environment values keep precedence. The installed skill carries the loader, so it needs no `node_modules` or repository checkout at runtime. Scripts receive environment values and add no other dotenv or home resolver.
+A skill whose scripts call a provider ships a `keys.mjs` script beside them: the `getKey` lookup from `@octocodeai/config`, built into the skill so it runs with no packages. Its scripts read keys only through `getKey`, in the API key order of the [table above](#where-a-value-can-live), and its provider instructions give the `keys.mjs` commands (`list`, `get`, `set --stdin`).
+
+A workspace file only fills a key you have not set globally, and never sets a home-only key or an endpoint, so a repository cannot swap in its own key or redirect yours. Run the skill's scripts from the workspace root; from a subfolder, that subfolder is the workspace. `keys.mjs` never prints a value, and `set` reads it from stdin. `octocode config get KEY` reports the same source for an API key as `keys.mjs`.
 
 List the needed key and its consumer in the skill's provider instructions. Keep provider-specific setup, pricing, consent and failure behavior there.

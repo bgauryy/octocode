@@ -1,4 +1,5 @@
 import { posix, relative, resolve, sep } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { isInteger, isRecord, octocode } from './lib.ts';
 import { readResponse } from './tools.ts';
 import type {
@@ -253,6 +254,33 @@ export interface ReadGraphOptions {
   workspaceRoot?: string;
   collectionPaths?: string[];
   collectionRefs?: CollectionSchema['collectionRefs'];
+  /** The page size of the fresh call (default RESPONSE_CHARS); its continuations keep it. */
+  responseChars?: number;
+  /**
+   * Each answer as the tool states it (`graphQuery --all-pages`): paths stay as served, an error row or an answer
+   * without a rows list (stats, node) comes back whole, and the arrays a later page of the row states beside its
+   * rows (warnings, partialReasons, hints) join the first page's without repeats.
+   */
+  verbatim?: boolean;
+}
+
+// A failed row: its error fields, which the contract states instead of rows.
+const failed = (data: Pick<GraphPage, 'error' | 'errorCode'> | undefined) =>
+  Boolean(data?.errorCode || data?.error);
+
+// The arrays a later page of a row states beside its rows, added to the first page's without repeats.
+function joinContext(first: GraphPage, later: GraphPage) {
+  for (const [key, value] of Object.entries(later)) {
+    if (key === 'rows' || !Array.isArray(value)) continue;
+    const kept = first[key];
+    if (!Array.isArray(kept)) {
+      first[key] ??= value;
+      continue;
+    }
+    for (const item of value)
+      if (!kept.some(seen => isDeepStrictEqual(seen, item))) kept.push(item);
+  }
+  if (later.isPartial) first.isPartial = true;
 }
 
 // Every row of one graphQuery row, read to its end: the reply's `next` pages (one read follows them all, each
@@ -281,17 +309,21 @@ export async function readGraphs(
     workspaceRoot,
     collectionPaths,
     collectionRefs,
+    responseChars = RESPONSE_CHARS,
+    verbatim = false,
   }: ReadGraphOptions = {}
 ) {
   const seen = new Set<string>();
   const snapshots = new Map<number, string>();
   const scoped = (data: GraphPage, index: number) =>
-    scopePaths(
-      data,
-      (Array.isArray(snapshotRoot) ? snapshotRoot[index] : snapshotRoot) ??
-        queries[index].path,
-      workspaceRoot
-    );
+    verbatim
+      ? data
+      : scopePaths(
+          data,
+          (Array.isArray(snapshotRoot) ? snapshotRoot[index] : snapshotRoot) ??
+            queries[index].path,
+          workspaceRoot
+        );
   async function read(input: unknown, branch?: number) {
     const key = JSON.stringify(input);
     if (seen.has(key))
@@ -322,6 +354,8 @@ export async function readGraphs(
         }),
       onResult: result => {
         const index = indexOf(result);
+        // A verbatim walk keeps a failed row as its answer (collect returns it whole).
+        if (verbatim && failed(result.data)) return;
         // The assembled row is private to this walk. Stream it only after its final fragment.
         const data = scoped(
           dataOf('graphQuery', { results: [result] }) as GraphPage,
@@ -366,6 +400,14 @@ export async function readGraphs(
       const list = listOf(name, first, rows, pageStart);
       const pages = await read(call.input, index);
       const tail = await collect(pages.get(index), index, list.length);
+      // A failed evidence list leaves its answer incomplete, verbatim or not.
+      if (failed(tail))
+        throw Object.assign(
+          new Error(
+            `graphQuery ${tail.errorCode ?? 'error'}: ${tail.error ?? 'evidence list failed'} (${name})`
+          ),
+          { errorClass: tail.errorClass }
+        );
       for (const row of tail.rows) list.push(row);
       if (Number.isInteger(count) && list.length !== count)
         throw new Error(`Incomplete graph evidence list: ${name}`);
@@ -380,6 +422,9 @@ export async function readGraphs(
     if (!slices?.length)
       throw new Error(`Missing graph query result at index ${index}`);
     const first = slices[0];
+    if (verbatim && failed(first)) return first as GraphAnswer;
+    // A verbatim answer without a rows list on any page (stats, node) is its first page, its evidence lists joined.
+    const listed = !verbatim || slices.some(data => Array.isArray(data.rows));
     const totals = new Set(
       slices.map(data => data.pagination?.total).filter(isInteger)
     );
@@ -389,12 +434,13 @@ export async function readGraphs(
     const rows: unknown[] = [];
     // A page without `rows` is a contract change, not an empty answer: fail rather than build an empty graph.
     for (const data of slices) {
-      if (!Array.isArray(data.rows))
+      if (listed && !Array.isArray(data.rows))
         throw new Error(
           `graphQuery page has no rows array: ${Object.keys(data).join(',')}`
         );
+      if (verbatim && data !== first) joinContext(first, data);
       const pageStart = rows.length;
-      for (const row of data.rows) rows.push(row);
+      for (const row of data.rows ?? []) rows.push(row);
       if (Number.isInteger(total) && shown + rows.length > total)
         throw new Error(
           'Graph pages repeat rows: more rows than pagination.total'
@@ -403,12 +449,12 @@ export async function readGraphs(
     }
     if (Number.isInteger(total) && shown + rows.length !== total)
       throw new Error('Graph evidence ends without a required continuation');
-    const answer = Object.assign(first, { rows });
+    const answer = listed ? Object.assign(first, { rows }) : first;
     delete answer.next;
     delete answer.pagination;
-    return answer;
+    return answer as GraphAnswer;
   }
-  const pages = await read({ queries, responseChars: RESPONSE_CHARS });
+  const pages = await read({ queries, responseChars });
   return Promise.all(
     queries.map((_, index) => collect(pages.get(index), index))
   );

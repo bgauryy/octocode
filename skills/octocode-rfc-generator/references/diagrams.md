@@ -21,8 +21,8 @@ Draw when the reader's question below is real for this RFC; skip it when a table
 | Proposed design | Dense layered dependencies? | `flowchart` split by layer; a `graph` widget when readers search or follow nodes; `octocode-graph` for a repository map |
 | Decisions and reasoning | Which option wins on which criterion? | A table; `quadrantChart` when two criteria decide; a `flowchart` decision tree when a condition picks the option |
 | Risks and mitigations | What does a failure reach? | `flowchart` from the failure to each affected consumer, containment marked |
-| Tasks and rollout | In what order, what runs in parallel? | `flowchart` of `T` IDs, `Depends on` as edges, critical path labelled; a numbered list when nothing branches |
-| Tasks and rollout | What is done and what is blocked? (revision) | The same task graph, nodes labelled `done:`, `doing:`, `blocked:` |
+| Tasks and rollout | In what order, what runs in parallel? | The task graph printed by `node <skill-folder>/scripts/rfc-trace.mjs <RFC.md> --mermaid`: `T` IDs, `Depends on` edges, critical path edges labelled `critical`. When the trace JSON has `taskGraphBranches: false`, a numbered list in `criticalPath` order instead |
+| Tasks and rollout | What is done and what is blocked? (revision) | The same command after adding a State column to the Tasks table: nodes get `done:`, `doing:`, `blocked:` and the blocking `Q` |
 | Tasks and rollout | How does the rollout move? | `stateDiagram-v2` of stages, each edge its signal |
 | Tasks and rollout | When? | `gantt` only with committed dates or durations; `timeline` for undated phases |
 | Validation and success | Did it meet the target? | `chart` bar of baseline, target and measured; `xychart-beta` for a trend |
@@ -49,10 +49,16 @@ flowchart LR
   req[lspSearch call] --> root[workspace_root_for_file] --> m[MARKERS list] --> rm["new: rootMarkers from lsp-servers.json"] --> srv[server root]
 ```
 
-A task graph in a revision:
+A task graph in a revision, as [rfc-trace.mjs](../scripts/rfc-trace.mjs) prints it from a Tasks table with a State column. Paste the block unchanged; to change it, change the table and rerun:
 
 ```mermaid
 flowchart LR
-  T1["done: T1 read rootMarkers"] --> T2["doing: T2 root lookup uses markers"] --> T4["T4 live Swift check"]
-  T1 --> T3["blocked: T3 docs, Q1"] --> T4
+  T1["done: T1 read rootMarkers"]
+  T2["doing: T2 root lookup uses markers"]
+  T3["blocked: T3 docs, Q1"]
+  T4["T4 live Swift check"]
+  T1 ==>|critical| T2
+  T1 --> T3
+  T2 ==>|critical| T4
+  T3 --> T4
 ```

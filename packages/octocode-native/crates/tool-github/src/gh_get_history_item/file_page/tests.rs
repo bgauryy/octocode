@@ -189,3 +189,56 @@ fn a_file_page_restates_no_patch_total_scope() {
     .expect("query");
     assert!(notices(&later, 0, 270).is_empty(), "later window");
 }
+
+/// An include that misses only the repository's leading directories
+/// (`click/core.py` for `src/click/core.py`) ranks the changed directory
+/// holding its segments first, ahead of unrelated directories GitHub lists
+/// earlier; a directory sharing the include's leading segments still ranks
+/// ahead of one that only contains them deeper.
+#[test]
+fn an_include_missing_leading_directories_names_the_directory_holding_it_first() {
+    let files = [
+        ".devcontainer/devcontainer.json",
+        "CHANGES.rst",
+        ".github/workflows/tests.yaml",
+        "docs/api.rst",
+        "tests/test_basic.py",
+        "examples/repo/repo.py",
+        "src/click/core.py",
+        "src/click/types.py",
+    ]
+    .into_iter()
+    .map(|name| json!({"filename": name, "status": "modified", "additions": 1, "deletions": 1}))
+    .collect::<Vec<_>>();
+    let warning = |include: &str| {
+        let query = HistoryItemRequest::from_row(json_fixture(&format!(
+            r#"{{"operation": "compare", "owner": "o", "repo": "r", "baseRef": "a",
+                "headRef": "b", "sections": ["files"], "include": ["{include}"]}}"#
+        )))
+        .expect("query");
+        let scope = FileScope::from_query(&query)
+            .expect("scope")
+            .expect("include");
+        empty_scope_warning(&files, Some(&scope), &query, true).expect("warning")
+    };
+    let first_dir = |warning: &str| {
+        warning
+            .split_once("changed directories: ")
+            .and_then(|(_, dirs)| dirs.split(", ").next())
+            .map(|dir| dir.trim_end_matches('.').to_owned())
+            .expect("a directory")
+    };
+    for include in ["click/core.py", "click/*.py", "click/**"] {
+        let warning = warning(include);
+        assert_eq!(first_dir(&warning), "src/click/", "{include}: {warning}");
+        assert!(
+            warning.starts_with(&format!(
+                "include matched 0 of {} changed files",
+                files.len()
+            )),
+            "{warning}"
+        );
+    }
+    // Leading segments shared outrank the same segments deeper down.
+    assert_eq!(first_dir(&warning("tests/click/*.py")), "tests/");
+}

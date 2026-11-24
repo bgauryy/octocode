@@ -24,28 +24,38 @@ pub(super) async fn run_tool(tool: commands::ToolCommand, mode: OutputMode) -> u
                 .print(mode);
         }
     };
+    if tool.args.all_pages {
+        return super::all_pages::run(tool.name, input, mode).await;
+    }
     let mut loaded = None;
     if ToolId::from_name(tool.name).is_some_and(serve::runs_on_server)
         && let Some(code) = serve::call(tool.name, &input, mode, &mut loaded).await
     {
         return code;
     }
-    // Progress (a build's stages, a rate-limit wait) goes to a terminal's
-    // stderr as notes; stdout keeps only the result.
-    if let Some(print) = progress_printer(stderr_is_terminal()) {
-        octocode_io::notice::report_progress_to(print);
-    }
-    let host = HostOptions {
-        loaded,
-        ..cli_host()
-    };
-    let runtime = match ToolRuntime::from_host(host) {
+    let runtime = match in_process_runtime(loaded) {
         Ok(runtime) => runtime,
         Err(error) => return start_failed(&error, mode),
     };
     let code = execute(&runtime, tool.name, input, mode).await;
     runtime.close().await;
     code
+}
+
+/// The runtime a call runs on in this process, with `loaded` when the
+/// config files were read already. Progress (a build's stages, a
+/// rate-limit wait) goes to a terminal's stderr as notes; stdout keeps only
+/// the result.
+pub(super) fn in_process_runtime(
+    loaded: Option<octocode_runtime_base::config::ConfigInput>,
+) -> Result<ToolRuntime, RuntimeError> {
+    if let Some(print) = progress_printer(stderr_is_terminal()) {
+        octocode_io::notice::report_progress_to(print);
+    }
+    ToolRuntime::from_host(HostOptions {
+        loaded,
+        ..cli_host()
+    })
 }
 
 /// Where a CLI call's progress lines (a build's stages, a rate-limit wait, a
@@ -172,14 +182,35 @@ pub(in crate::cli) async fn drain_after_interrupt<T>(
     }
 }
 
+/// A tool call that ended: as printed, or with an exit code and nothing to
+/// print (an interrupt).
+pub(in crate::cli) enum Answered {
+    Printed(Printed),
+    Exit(u8),
+}
+
 /// Execute one tool call and print its result. Exits with the code of the
 /// runtime's [`ExitClass`](octocode_runtime_base::response::exit::ExitClass).
 async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, mode: OutputMode) -> u8 {
+    match answer(runtime, tool, input, mode.json).await {
+        Answered::Printed(printed) => printed.print(mode),
+        Answered::Exit(code) => code,
+    }
+}
+
+/// Execute one tool call in this process: the call as printed in JSON or
+/// text (`json_out`), or 130 when an interrupt cancelled it.
+pub(super) async fn answer(
+    runtime: &ToolRuntime,
+    tool: &str,
+    input: Value,
+    json_out: bool,
+) -> Answered {
     const REQUEST: &str = "cli-1";
     let admission = match runtime.admit(REQUEST.into()) {
         Ok(admission) => admission.requiring_persistent_continuations(),
         Err(error) => {
-            return Printed::finish(tool, Err(error), mode.json, &input, None).print(mode);
+            return Answered::Printed(Printed::finish(tool, Err(error), json_out, &input, None));
         }
     };
     let query = input.clone();
@@ -202,10 +233,16 @@ async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, mode: OutputMo
                     // threads, so the process exits here instead.
                     std::process::exit(130);
                 }
-                return 130;
+                return Answered::Exit(130);
             }
         }
     };
     let cwd = std::env::current_dir().ok();
-    Printed::finish(tool, result, mode.json, &query, cwd.as_deref()).print(mode)
+    Answered::Printed(Printed::finish(
+        tool,
+        result,
+        json_out,
+        &query,
+        cwd.as_deref(),
+    ))
 }

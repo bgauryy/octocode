@@ -344,35 +344,78 @@ fn a_default_row_leaves_secondary_facts_to_a_fields_pick() {
     }
 }
 
+/// Every `fields` value the repository states is kept when picked, on a
+/// listed row and on `get`'s row alike: a mark at its default (`archived`
+/// and `fork` false, `visibility` public) and an empty topic list are facts,
+/// so none is dropped, none is reported as a field no row has, and each
+/// is a value the published row schema admits.
 #[test]
-fn an_explicit_archive_pick_keeps_false_without_a_missing_field_warning() {
-    let item = || {
+fn every_picked_field_github_states_is_on_the_row() {
+    let pickable = octocode_runtime_base::contracts::query_schema_value(
+        ToolId::GhSearchRepo,
+        Some("get"),
+        "fields",
+        "items",
+    )
+    .and_then(|items| items["enum"].as_array())
+    .expect("fields enum")
+    .iter()
+    .map(|field| field.as_str().expect("field name").to_owned())
+    .collect::<Vec<_>>();
+    // A public, non-archived, non-fork repository without topics: GitHub
+    // states every value, none of them set.
+    let item = || -> octocode_github::RepositorySearchItem {
         serde_json::from_value(json!({
-            "full_name": "o/active",
-            "name": "active",
-            "html_url": "https://github.com/o/active",
+            "full_name": "o/plain",
+            "name": "plain",
+            "html_url": "https://github.com/o/plain",
             "default_branch": "main",
+            "description": "d",
+            "stargazers_count": 0,
+            "forks_count": 0,
+            "open_issues_count": 0,
+            "size": 0,
+            "visibility": "public",
+            "private": false,
+            "topics": [],
+            "created_at": "2020-01-01T00:00:00Z",
+            "updated_at": "2020-01-01T00:00:00Z",
+            "pushed_at": "2020-01-01T00:00:00Z",
+            "language": "Rust",
+            "homepage": "https://example.com",
+            "license": {"spdx_id": "MIT"},
             "archived": false,
+            "fork": false
         }))
         .expect("repository")
     };
-    assert!(
-        repository_row(item(), &[], &[])
-            .expect("repository")
-            .get("archived")
-            .is_none()
-    );
-
-    let fields = ["archived".to_owned()];
     for detail in [LISTED_DETAIL, EXACT_DETAIL] {
-        let mut response =
-            json!({ "repositories": [repository_row(item(), &[], &fields).expect("repository")] });
-        lean_rows(&mut response, "repositories", detail, &fields);
-        pick_rows(&mut response, "repositories", REPO_ID, &fields);
-
-        assert_eq!(response["repositories"][0]["archived"], false, "{response}");
-        assert!(response.get("warnings").is_none(), "{response}");
+        for field in &pickable {
+            let fields = std::slice::from_ref(field);
+            let mut response = json!({
+                "repositories": [repository_row(item(), &[], fields).expect("repository")]
+            });
+            lean_rows(&mut response, "repositories", detail, fields);
+            pick_rows(&mut response, "repositories", REPO_ID, fields);
+            assert!(
+                response["repositories"][0].get(field.as_str()).is_some(),
+                "{field} picked but not stated: {response}"
+            );
+            assert!(response.get("warnings").is_none(), "{field}: {response}");
+            // The stated value is one the published row schema admits.
+            octocode_runtime_base::test_support::assert_part_contract(
+                ToolId::GhSearchRepo,
+                &json!({ "data": response }),
+            );
+        }
     }
+    // A server that sends neither `visibility` nor `private` states no
+    // visibility: a pick leaves it absent rather than guessing public.
+    let mut unknown = item();
+    unknown.visibility = String::new();
+    unknown.private = None;
+    let row = repository_row(unknown, &[], &["visibility".to_owned()]).expect("repository");
+    assert!(row.get("visibility").is_none(), "{row}");
 }
 
 /// An owner listing excludes archived repositories unless its filters ask

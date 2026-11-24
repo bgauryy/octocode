@@ -1,4 +1,5 @@
-Load only when a task, finding, handoff or decision needs a shared message format. Source: `skills/common`; installed copies are generated.
+Load only when a task, finding, handoff or decision needs a shared message format.
+<!-- Source: skills/common; installed copies are generated. -->
 
 ## Catalog
 

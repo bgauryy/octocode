@@ -45,6 +45,18 @@ fn not_public(visibility: &str, private: bool) -> Option<&str> {
     }
 }
 
+/// The visibility GitHub states: its `visibility`, else its `private`
+/// flag; `None` when the server sent neither (some GitHub Enterprise
+/// servers), which is not the same as public.
+fn stated_visibility(visibility: &str, private: Option<bool>) -> Option<&str> {
+    match (visibility, private) {
+        ("", None) => None,
+        ("", Some(true)) => Some("private"),
+        ("", Some(false)) => Some("public"),
+        (stated, _) => Some(stated),
+    }
+}
+
 /// One repository row, whole: `owner` and `repo`, `defaultBranch`, stars,
 /// language, license, dates, the description, forks, `visibility` when not
 /// public, its topics (query matches first), its homepage, open issue count
@@ -85,17 +97,26 @@ pub(super) fn repository_row(
         "createdAt": date(item.created_at),
         "description": item.description,
     });
-    if item.archived || fields.iter().any(|field| field == "archived") {
+    // A mark rides a row only when set (and a visibility only when not
+    // public), unless `fields` picks it: false, public and no topics are
+    // facts too, so a pick states them.
+    let picked = |name: &str| fields.iter().any(|field| field == name);
+    if item.archived || picked("archived") {
         row["archived"] = json!(item.archived);
     }
     // A fork in an owner listing is not the owner's own source.
-    if item.fork {
-        row["fork"] = json!(true);
+    if item.fork || picked("fork") {
+        row["fork"] = json!(item.fork);
     }
-    if let Some(visibility) = not_public(&item.visibility, item.private.unwrap_or(false)) {
+    let visibility = if picked("visibility") {
+        stated_visibility(&item.visibility, item.private)
+    } else {
+        not_public(&item.visibility, item.private.unwrap_or(false))
+    };
+    if let Some(visibility) = visibility {
         row["visibility"] = json!(visibility);
     }
-    if !topics.is_empty() {
+    if !topics.is_empty() || picked("topics") {
         row["topics"] = json!(topics);
     }
     row["forks"] = json!(item.forks_count);

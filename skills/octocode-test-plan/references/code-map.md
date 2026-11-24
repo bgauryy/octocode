@@ -1,4 +1,4 @@
-Load to pin an unfamiliar input or map code and tests before designing cases. The CLI prints text by default; add `--json` to read the fields named here. Each query also takes `mainGoal` (the plan's target) and `reasoning` (why this call). Live schemas own exact fields: `octocode schema <tool> --view variants`. [Usage](octocode-usage.md) owns invocation, paging and recovery.
+Load to pin an unfamiliar input or map code and tests before designing cases. The CLI prints text by default; add `--json` to read the fields named here. Live schemas own exact fields: `octocode schema <tool> --view variants`.
 
 # Map the code for a test plan
 
@@ -32,7 +32,7 @@ Test commands come from the manifest scripts, task runner or CI workflow (`.gith
 | Need | Call |
 |---|---|
 | One function's body | `localFetch` `matchString:["fn name"]`, `block:true` |
-| Who calls a symbol | `lspSearch` `operation:"callers"` at `path`, `symbolName`, `line` from a search hit |
+| Who calls a symbol | `lspSearch` `operation:"callers"` at `path`, `symbolName`; add `line` from a search hit when the file is not the one declaring it once |
 | Every use, including types and re-exports | `lspSearch` `operation:"references"`, `view:"files"` first |
 | What it calls | `lspSearch` `operation:"callees"` |
 | Inferred type or signature | `lspSearch` `operation:"hover"` |
@@ -59,7 +59,7 @@ When the graph tools are not listed, use `lspSearch references` per changed expo
 | Need | Call |
 |---|---|
 | Docs that mention the feature | `localSearch` the feature's public name over `docs`, `README*`, `*.md`, `view:"files"` |
-| One section | `localFetch` `matchString:["## Heading"]`, then a `ranges` read to the next heading |
+| One section | `localFetch` `matchString:["## Heading"]`, `block:true`: the whole section, subsections included |
 | Help text, schema descriptions, error messages | `localSearch` for the user-facing string; these are contracts too |
 
 Record each claim with its source line. A claim the code contradicts goes under the plan's Findings, with both anchors.

@@ -63,9 +63,10 @@ impl RequestContext {
     /// a rate-limit reset or cooldown, a `retry-after`) at `bound` when that
     /// is sooner than the budget's deadline. The budget's deadline ends the
     /// request; this bound ends only the decision to sleep: a wait that would
-    /// pass it is not slept, and the request is refused unsent with the
-    /// rate-limit error that names the wait (`retryAfter`), as a wait past
-    /// the deadline is. A request already sent and its response are never
+    /// pass it is slept up to the bound, and the request is refused unsent
+    /// with the rate-limit error that names the rest (`retryAfter`), so the
+    /// retry it hands back fits its own bound. A wait past the deadline is
+    /// refused at once. A request already sent and its response are never
     /// cut by it. For a caller whose own host stops listening before the
     /// request's deadline: the refusal reaches it, the slept-out answer
     /// would not.

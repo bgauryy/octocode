@@ -15,4 +15,4 @@ Redact secrets. Recommend rotation for a real credential and claim exposure only
 
 Save when requested or the roast outgrows chat. Use `<workspace>/.octocode/octocode-roast/<YYYY-MM-DD>-<slug>.md` and its `tmp/` for scratch. Front matter takes `status` (verdict), `question`, optional `confidence` and `next` for pending work. Use `## Findings` and `## Fix order`. Accepted `status` values: `Blocking`, `Needs work`, `Acceptable`.
 
-Render HTML when requested and a report renderer is available (another installed skill may ship one). Keep Markdown, distinguish generation from browser inspection and disclose unverified rendering.
+After each save, run `node <skill-folder>/scripts/render-report.mjs <file.md> --check` ([renderer](scripts/render-report.mjs)): exit 0 means the status and the `Findings`, `Fix order` sections match this contract; exit 2 lists each violation to fix before delivering. Render HTML only when requested, per the [shared report guidance](references/report-output.md). Keep Markdown, distinguish generation from browser inspection and disclose unverified rendering.

@@ -36,7 +36,7 @@ pub(super) fn project_shape(
         match_bytes: Vec::new(),
         count: matched.count,
         enclosing: None,
-        declaration: matched.is_declaration().then_some(true),
+        declaration: None,
     };
     let row = SearchMatch {
         column: row
@@ -270,7 +270,6 @@ pub(super) fn merge_context_windows(
                     .extend(lines.iter().skip(fresh).map(|l| (*l).to_owned()));
                 block.match_lines.push(row.line);
                 block.match_bytes.push(row.byte_offset);
-                block.head.declaration = block.head.declaration.or(row.declaration);
                 continue;
             }
         }

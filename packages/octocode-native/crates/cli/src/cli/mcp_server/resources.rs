@@ -39,18 +39,12 @@ pub(in crate::cli) const TOOL_FLOW_URI: &str = "octocode://research/tool-flow";
 /// The tool-flow guide, from its one skill source file.
 pub(in crate::cli) const TOOL_FLOW: &str = reference_file!("tool-flow.md");
 
-const REFERENCES: [Reference; 5] = [
+const REFERENCES: [Reference; 4] = [
     Reference {
         uri: TOOL_FLOW_URI,
         name: "tool-flow",
         title: "Octocode research tool flow",
         text: TOOL_FLOW,
-    },
-    Reference {
-        uri: "octocode://research/octocode-usage.md",
-        name: "octocode-usage",
-        title: "Octocode shared usage",
-        text: reference_file!("octocode-usage.md"),
     },
     Reference {
         uri: "octocode://research/evidence.md",

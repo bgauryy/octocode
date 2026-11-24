@@ -1,18 +1,36 @@
-Load when a ledger row is not verified, a gatherer or the parent runs the verifier, or a deciding source is a PDF, document, data file, or image.
+Load when deciding whether a source may be cited, a ledger row is not verified, a gatherer or the parent runs the verifier, or a deciding source is a PDF, document, data file, or image.
 
 # Verification and assets
 
+## Validated sources
+
+Cite only a validated source. A source is validated for a claim when every check passes; one that fails stays a lead, and a claim that depends on it is a named gap.
+
+| Check | Passes when |
+|---|---|
+| Opened | You or a worker read the page or file itself. A search snippet, an AI search answer or its citation list is a lead only. |
+| Quote verified | Its ledger row is `verified`, or `verified-manual` after a read the script could not do. A row with `via` was read from an Exa or Tavily copy of the same URL, often cached: check its date like any other. |
+| Quote supports the claim | The quote says what the claim says, with nothing added. The verifier checks that the quote is on the page, not what it means. |
+| Exact page | The cited URL is the page read: abstract and full text, or two versions of a page, are separate sources. For versioned docs, cite the version the user runs (`/docs/16/`, not `/docs/current/`, which moves). |
+| Date | Inside the question's window, read from the page, not from the search row: run the verifier with `--since`/`--until` and read each claim's `dateInWindow` (`yes`, `no`, `unknown`) beside its `published` and `modified`. `unknown` means no usable date: check it by hand or label the date unverified. The verifier ignores the server's Last-Modified header (a deploy time) and falls back to a dated sentence in the text (`textDate`, such as "Last tested on …"); a timestamp that two or more pages of one site share in the run is marked `publishedFrom: "site-build"` and ignored. One page cited alone cannot show that its meta date is a build stamp, so read the date printed on the page before relying on it. `dateWindow` totals `yes`, `no` and `unknown`. |
+| Who is behind it | Owner, funding, and whether it sells what it praises, checked on other pages. A stake needs independent support. |
+| Primary | The original study, spec, release, dataset or incident report. Otherwise label it `secondary` and lower confidence. |
+| Independent | Not a syndicated copy, mirror or rewrite of a source already counted. The verifier marks rows citing one page under different URLs with `sameSourceAs` and gives each claim `distinctSources`; a rewrite on another site stays your judgment. |
+
 ## Run the verifier
 
-Use the script when automated quote checking is useful; ordinary sourced answers need no ledger. `scripts/verify-claims.mjs --ledger <file> --out <file>.verified.jsonl` fetches cited pages and exits 0 only when every row is `verified` or `verified-manual`. Inspect failed rows; the success ratio is not an evidence-quality score.
+`scripts/verify-claims.mjs --ledger <file> --out <file>.verified.jsonl` fetches cited pages and exits 0 only when every row is `verified` or `verified-manual`. Inspect failed rows; the success ratio is not an evidence-quality score.
+
+When the direct read is `blocked`, `fetch-failed` or `unsupported-content`, the verifier reads one provider copy of the same URL: Exa `/contents` (about $0.001 a page), then Tavily `/extract` (1 credit per 5 pages), whichever has a key. `--via exa|tavily` picks one; `--via none` turns it off. A found quote reports `verified` with `via` (provider, `cached` or `crawled`, cost), and `providerCopies` totals the spend per provider (`reusedPages` counts rows that still rest on an earlier copy). `read-page.mjs` and the verifier each pay for their own copy of a walled page. A quote missing from the copy keeps the original status: the page itself was not read, so it is unread, not refuted. The copy is on by default because a source the script cannot read otherwise stays unvalidated; `--via none` turns it off when spend is not authorized.
+
+Several ledgers (one per worker) verify in one run with repeated `--ledger`: the summary counts each and the total.
 
 | Status | Action |
 |---|---|
-| `verified`, `verified-manual` | Evidence; cite the exact verified URL; check its date against the window. |
+| `verified`, `verified-manual` | Evidence once the other [validated-source checks](#validated-sources) pass; cite the exact verified URL. |
 | `quote-not-found`, `quote-too-short`, `missing-field` | Correct the quote or missing field from the source; if unsupported, exclude the claim and report the gap. A manual mark never overrides these. |
-| `blocked`, `unsupported-content`, `fetch-failed` | Not shown wrong. Change access method: serial fetch (`--concurrency 1`), host fetch, file reader or `octocode-scraping`. If read and matched, add `"verifiedBy":"manual"` and `"method"`, then rerun → `verified-manual`. Do not repeat an unchanged failing request. |
+| `blocked`, `unsupported-content`, `fetch-failed` | Not shown wrong, and the provider copy did not settle it (or no key). Change access method: serial fetch (`--concurrency 1`), host fetch, file reader or `octocode-scraping`. If read and matched, add `"verifiedBy":"manual"` and `"method"`, then rerun → `verified-manual`. Do not repeat an unchanged failing request. |
 | `refused` | Private, local, or non-http host, or an asset whose path, URL, or hash does not match its manifest; never evidence. Drop and report. |
-| Another page version (abstract vs full text) | Verify separately. |
 
 ## When a deciding source is a file
 

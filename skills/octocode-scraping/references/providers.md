@@ -20,17 +20,17 @@ Load when the route or `--provider` is unclear, or before a broad crawl or hoste
 
 ## ScrapingAnt
 
-- No `scrapingant` call until the user approves hosted spend.
+- No `scrapingant` call until the user approves hosted spend; pass that budget as `--max-credits <n>` on every hosted run. A request's cost is known only after it returns, so the run fetches the next page only while spent credits plus the largest request so far stay within `<n>`, and a reply without a cost header stops it. `creditCap` reports the spend and every unfetched URL.
 - `provider-usage.mjs --check` reports only `"key":"set"` (exit 1 `missingKey` when unset), offline; without `--check` it reads `/v2/usage` (sanitized plan and credits). Modes map to `/v2/general` (html), `/v2/markdown`, `/v2/extended`, `/v2/extract`.
 
 ```bash
 node <skill-folder>/scripts/provider-usage.mjs --check
-node <skill-folder>/scripts/fetch.mjs --url https://example.com --provider scrapingant --mode html
-node <skill-folder>/scripts/fetch.mjs --url https://example.com --provider scrapingant --mode extract --extract-properties "title, content"
+node <skill-folder>/scripts/fetch.mjs --url https://example.com --provider scrapingant --mode html --max-credits 10
+node <skill-folder>/scripts/fetch.mjs --url https://example.com --provider scrapingant --mode extract --extract-properties "title, content" --max-credits 50
 node <skill-folder>/scripts/provider-usage.mjs
 ```
 
-- These scripts load Octocode home and trusted workspace `.env` values through the bundled shared config loader; process environment values take precedence. To save the key, use `npx -y octocode config set SCRAPING_ANT --stdin`.
+- These scripts read `SCRAPING_ANT` with `getKey` from the bundled [keys.mjs](../scripts/keys.mjs): the process environment, then the home `.env`, then the workspace `.octocode/.env`. Check it with `node <skill-folder>/scripts/keys.mjs get SCRAPING_ANT`; save it with `node <skill-folder>/scripts/keys.mjs set SCRAPING_ANT --stdin`.
 - Options: `fetch.mjs --help`; hosted: `--browser --wait-for`, `--proxy-type`, `--proxy-country`, `--block-resource`.
 - Hosted `403`/`423`: stop ([recovery](recovery.md)).
 

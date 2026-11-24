@@ -120,9 +120,12 @@ fn cli_tool_triggers(presentation: &Value) -> Result<String, Box<dyn Error>> {
             .strip_prefix("<when>")
             .and_then(|rest| rest.split("</when>").next())
             .unwrap_or(description);
+        // A sentence ends at ". " before a word that starts a sentence, so an
+        // abbreviation such as "e.g. a body" stays inside it.
         let sentence = when
-            .split_once(". ")
-            .map_or_else(|| when.trim_end_matches('.'), |(sentence, _)| sentence);
+            .match_indices(". ")
+            .find(|(at, _)| !when[at + 2..].trim_start().starts_with(char::is_lowercase))
+            .map_or_else(|| when.trim_end_matches('.'), |(at, _)| &when[..at]);
         triggers.push(format!("({name:?}, {sentence:?})"));
     }
     Ok(triggers.join(", "))

@@ -51,6 +51,25 @@ class Comm:
             page_input = page["next"]["input"]
 
 
+def await_reply(comm, session, message_id, deadline, between=lambda: None):
+    """The final answer (an inbox item whose replyTo is message_id and that has an outcome), or None at deadline.
+
+    deadline is a time.monotonic() value; between runs once per pass before waiting, to renew presence or fail fast.
+    Each wait asks only for deliveries newer than those already read, so other pending mail does not spin the loop.
+    """
+    seen = message_id
+    while True:
+        for item in comm.items("inbox", session):
+            if item.get("replyTo") == message_id and "outcome" in item:
+                return item
+            seen = max(seen, item.get("id", 0))
+        between()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        comm.call(["inbox-wait"], {"timeoutMs": int(min(remaining * 1000, WAIT_SLICE_MS)), "after": seen}, session)
+
+
 def preflight(comm):
     """Refuse an installed package whose messages predate the parts schema this skill sends."""
     schema = comm.call(["schema", "send_message"]).get("inputSchema", {})
@@ -168,18 +187,14 @@ def ask(args, comm, operator, plan_proxy, proxy_command):
             "to": proxy_id, "parts": [{"data": {"to": worker["id"], "parts": [{"text": args.text}]}}],
             "reasoning": "Relay one message and return the worker's reply", "replyRequired": True,
             "key": args.key or f"ask-{suffix}", "contextId": context}, operator_id)
-        while True:
-            answer = next((item for item in comm.items("inbox", operator_id)
-                           if item.get("replyTo") == receipt["id"] and "outcome" in item), None)
-            if answer:
-                break
+        def between():
             if failure := proxy_failure(events, log.name):
                 fail(f"{failure}. Message {receipt['id']} stays pending.")
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                fail(f"No reply within {args.timeout}s to message {receipt['id']}; log: {log.name}")
             keep_present()
-            comm.call(["inbox-wait"], {"timeoutMs": int(min(remaining * 1000, WAIT_SLICE_MS))}, operator_id)
+
+        answer = await_reply(comm, operator_id, receipt["id"], deadline, between)
+        if answer is None:
+            fail(f"No reply within {args.timeout}s to message {receipt['id']}; log: {log.name}")
         comm.call(["complete"], {"message": answer["id"]}, operator_id)
         print(json.dumps({**plan, "reply": answer.get("parts", []), "outcome": answer["outcome"],
                           "sent": receipt["id"], "answer": answer["id"], "contextId": context}, ensure_ascii=False))

@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fail, errorMessage } from './lib/fail.mjs';
 
 const HELP = `Replay interview cold calls (<dir>/<GROUP>-calls.jsonl) and grade each outcome.
 
@@ -23,10 +24,12 @@ Options:
 
 Outcomes: ok, empty, rejected, error, crash, placeholder, excluded, badLine.
 placeholder: a string value in input is wholly "<...>" (e.g. "<path>"); such steps are skipped.
-Valid cold rate = (ok + empty) / (all - placeholder - excluded - badLine).
+Valid cold rate = (ok + empty) / (all - placeholder - excluded - badLine), in total and per group
+(groups.<GROUP>.gradable, valid, validRate, rejected).
 GROUP is the file name before "-calls.jsonl". Writes <round-dir>/graded.json with the full
 runner output of every rejected, error or crash row. Requires at least one gradable call; exits 2
-when none remain or a line is malformed. The runner template must contain {tool} and {input}.`;
+when none remain or a line is malformed. The runner template must contain {tool} and {input}.
+Invalid arguments or a round directory without call files print {ok:false,error:{code,message}} and exit 2.`;
 
 function parseArgs(argv) {
   const args = { _: [] };
@@ -122,6 +125,16 @@ function gradeFiles(dir, settings) {
   return rows;
 }
 
+const SKIPPED = ['placeholder', 'excluded', 'badLine'];
+
+// Gradable, valid and valid-cold rate over one set of rows.
+function rates(rows) {
+  const count = (o) => rows.filter((r) => r.outcome === o).length;
+  const gradable = rows.length - SKIPPED.reduce((n, o) => n + count(o), 0);
+  const valid = count('ok') + count('empty');
+  return { gradable, valid, validRate: gradable ? +(valid / gradable).toFixed(3) : null, rejected: count('rejected') };
+}
+
 function reportRows(rows, args) {
   const summary = {};
   for (const row of rows) {
@@ -129,11 +142,10 @@ function reportRows(rows, args) {
     g.calls++;
     g[row.outcome] = (g[row.outcome] ?? 0) + 1;
   }
-  const count = (o) => rows.filter((r) => r.outcome === o).length;
-  const gradable = rows.length - count('placeholder') - count('excluded') - count('badLine');
-  if (!gradable || count('badLine')) process.exitCode = 2;
-  const valid = count('ok') + count('empty');
-  const total = { gradable, valid, validRate: gradable ? +(valid / gradable).toFixed(3) : null, rejected: count('rejected') };
+  for (const [group, g] of Object.entries(summary)) Object.assign(g, rates(rows.filter((r) => r.group === group)));
+  const total = rates(rows);
+  const { gradable, valid } = total;
+  if (!gradable || rows.some((r) => r.outcome === 'badLine')) process.exitCode = 2;
   const failures = rows.filter((r) => ['rejected', 'error', 'crash'].includes(r.outcome));
   if (args.json) {
     console.log(JSON.stringify({ total, groups: summary, failures }, null, 1));
@@ -151,7 +163,7 @@ function main() {
   const dir = args._[0];
   if (args.help || !dir || !args.cmd) {
     console.log(HELP);
-    process.exitCode = args.help ? 0 : 1;
+    process.exitCode = args.help ? 0 : 2;
     return;
   }
   const badTimeout = args.timeout !== undefined && (!Number.isSafeInteger(args.timeout) || args.timeout < 1);
@@ -165,4 +177,5 @@ function main() {
   reportRows(rows, args);
 }
 
-main();
+try { main(); }
+catch (error) { fail('invalidInput', errorMessage(error), 2); }

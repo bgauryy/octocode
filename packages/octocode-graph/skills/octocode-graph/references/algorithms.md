@@ -41,7 +41,7 @@ Batch the first queries of a check in one load (`--stdin`), then read only the c
 
 | Check | Ask | Signal | Next step |
 |---|---|---|---|
-| Critical functions to test first | `critical functions 30` | High PageRank or many transitive callers | `callers <fn> --tests` against `callers <fn>`: equal counts mean no test calls it directly |
+| Critical functions to test first | `critical functions 30` | High PageRank or many transitive callers | `callers <fn> --tests`: `stats.testCalls` counts its callers in test files; 0 means no test calls it directly |
 | Choke points | `top betweenness 10`, `critical points` | One file carries many routes or holds a part together | `about <file>`; give it an owner and tests, or split the interface it exposes |
 | God files | `top inweight 20`, `about <file>` | Heavy use plus many declarations whose callers sit in different communities | Split along the communities its callers come from |
 | Cycles | `cycle <file>`, `order <file> --imports` | A set that must move together; ring rows carry each hop's weight | Cut the lightest crossing edge; confirm at its cited line |

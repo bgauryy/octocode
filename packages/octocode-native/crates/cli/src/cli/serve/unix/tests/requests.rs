@@ -98,6 +98,7 @@ async fn client_reads_one_reply_line_and_treats_a_silent_close_as_no_reply() {
             json: true,
             error_text: None,
             notes: None,
+            continued: None,
         })
     );
     let sent: Value = serde_json::from_str(&peer.await.expect("peer")).expect("json");

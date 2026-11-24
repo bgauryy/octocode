@@ -116,11 +116,12 @@ async fn a_credential_worded_branch_keeps_its_commit_sha_in_its_name_sha_row() {
         .respond_with(ResponseTemplate::new(200).set_body_string(SHA))
         .mount(&server)
         .await;
+    // A glob reads its branches as git refs under its literal start.
     Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b/branches"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(json!([{"name":name,"commit":{"sha":head}}])),
-        )
+        .and(path("/api/v3/repos/a/b/git/matching-refs/heads"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"ref": format!("refs/heads/{name}"), "object": {"sha": head, "type": "commit"}}
+        ])))
         .mount(&server)
         .await;
     Mock::given(method("GET"))

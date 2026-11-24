@@ -330,33 +330,11 @@ async fn a_page_that_fits_the_window_is_shown_whole() {
             .is_none(),
         "{fitted}"
     );
-    let branches = fitted["results"][0]["data"]["next"]
-        .as_object()
-        .expect("source reads");
-    let max_rows = octocode_runtime_base::response::result::rows_per_call(
-        octocode_runtime_base::id::ToolId::GhGetFileContent,
+    // Every row lists all its hit lines, so the page offers no read of them.
+    assert!(
+        fitted["results"][0]["data"].get("next").is_none(),
+        "{fitted}"
     );
-    assert_eq!(branches.len(), names.len().div_ceil(max_rows));
-    let mut opened = Vec::new();
-    for index in 0..branches.len() {
-        let lead = &branches[&octocode_runtime_base::id::numbered("readSource", index)];
-        let reads = support::walk(
-            &runtime,
-            "ghGetFileContent",
-            lead["input"].clone(),
-            |page| {
-                page["results"]
-                    .as_array()
-                    .expect("reads")
-                    .iter()
-                    .filter_map(|row| row["data"]["path"].as_str().map(str::to_owned))
-                    .collect()
-            },
-        )
-        .await;
-        opened.extend(reads.rows);
-    }
-    assert_eq!(opened, names);
     let short = walk(&server, &runtime, start(None, chars - 50)).await;
     assert!(short.len() > 1, "a window short of the page continues");
     assert_eq!(shown(&short), names.iter().cloned().collect());

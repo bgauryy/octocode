@@ -171,6 +171,16 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = ${JSON.stringify(metada
 export const RUNTIME_SURFACES = ${JSON.stringify(contract.config.runtimeSurfaces)} as const;
 export type RuntimeSurface = (typeof RUNTIME_SURFACES)[number];
 export const ENV_TOKEN_VARS = ${JSON.stringify(environment.tokenNames)} as const;
+export interface ApiKeySpec {
+  name: string;
+  /** Where a file may set it: every \`.env\`, or only the home one. */
+  dotenv: 'all' | 'home';
+  group?: string;
+  description: string;
+  docsUrl?: string;
+}
+/** Every API key a person sets, in declaration order: credentials of type key, then credential settings. */
+export const API_KEYS: readonly ApiKeySpec[] = ${JSON.stringify(environment.apiKeys, null, 2)};
 export const ENV_CREDENTIAL_VARS = ${JSON.stringify(environment.credentialNames)} as const;
 export const PROTECTED_KEY_NAMES = ${JSON.stringify(environment.protectedNames)} as const;
 export const HOME_TRUSTED_ENV_KEYS = ${JSON.stringify(environment.homeTrusted)} as const;

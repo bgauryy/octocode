@@ -12,6 +12,33 @@ fn cli_help_is_the_embedded_core_presentation() {
     }
 }
 
+/// Each tool's CLI trigger is a whole first sentence of its `<when>` text: it
+/// ends where the text ends or where the next sentence starts, never inside an
+/// abbreviation such as "e.g." that a lowercase word follows.
+#[test]
+fn cli_tool_trigger_is_a_whole_sentence() {
+    let presentation = super::super::cli_presentation().expect("presentation");
+    for tool in presentation["tools"].as_array().expect("tools") {
+        let name = tool["name"].as_str().expect("tool name");
+        let description = tool["mcp"]["description"].as_str().expect("description");
+        let when = description
+            .strip_prefix("<when>")
+            .and_then(|rest| rest.split("</when>").next())
+            .unwrap_or(description);
+        let trigger = super::super::cli_tool_trigger(name).expect("tool trigger");
+        let rest = when
+            .strip_prefix(trigger)
+            .unwrap_or_else(|| panic!("{name}: {trigger:?} does not start {when:?}"));
+        let next = rest.strip_prefix(". ").map(str::trim_start);
+        assert!(
+            rest.is_empty()
+                || rest == "."
+                || next.is_some_and(|next| !next.starts_with(char::is_lowercase)),
+            "{name}: trigger {trigger:?} stops mid-sentence before {rest:?}"
+        );
+    }
+}
+
 /// Every classification notice native renders is authored in the
 /// embedded contract.
 #[test]

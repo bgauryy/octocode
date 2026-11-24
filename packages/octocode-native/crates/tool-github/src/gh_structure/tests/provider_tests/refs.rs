@@ -473,13 +473,16 @@ async fn a_glob_ref_lists_only_the_matching_tags_and_branches() {
         "v5.0.0",
         "v40.0.0",
     ];
-    mount_matching_refs(&server, &tags).await;
+    mount_matching_refs(&server, "tags", &tags).await;
+    let branch_names = ["main", "release/4.x", "release/5.x"];
+    mount_matching_refs(&server, "heads", &branch_names).await;
+    // The paged branch list stays mounted: a glob must never walk it.
     mount_json(
         &server,
         "/api/v3/repos/a/b/branches",
         200,
         json!(
-            ["main", "release/4.x", "release/5.x"]
+            branch_names
                 .iter()
                 .map(|name| json!({"name": name, "commit": {"sha": SHA}}))
                 .collect::<Vec<_>>()
@@ -508,18 +511,25 @@ async fn a_glob_ref_lists_only_the_matching_tags_and_branches() {
     assert_eq!(line.data["branches"], json!([]), "{}", line.data);
     assert!(line.data.get("commitSha").is_none(), "{}", line.data);
     assert!(line.data.get("defaultBranchSha").is_none(), "{}", line.data);
-    // The glob's literal start is GitHub's to match: only refs under it are read.
+    // The glob's literal start is GitHub's to match: only refs under it are
+    // read, tags and branches alike, one request each and no branch page.
     let asked = server.received_requests().await.expect("requests");
-    let tag_reads = asked
+    let ref_reads = asked
         .iter()
-        .filter(|request| request.url.path().contains("/matching-refs/tags"))
         .map(|request| request.url.path().to_owned())
+        .filter(|path| path.contains("/matching-refs/") || path.ends_with("/branches"))
         .collect::<Vec<_>>();
     assert_eq!(
-        tag_reads,
-        ["/api/v3/repos/a/b/git/matching-refs/tags/v4."],
-        "{asked:?}"
+        ref_reads.len(),
+        2,
+        "one prefix read per ref kind: {ref_reads:?}"
     );
+    for read in [
+        "/api/v3/repos/a/b/git/matching-refs/tags/v4.",
+        "/api/v3/repos/a/b/git/matching-refs/heads/v4.",
+    ] {
+        assert!(ref_reads.iter().any(|path| path == read), "{ref_reads:?}");
+    }
     let branches = list(
         &server,
         json_fixture(
@@ -598,7 +608,7 @@ async fn an_unfiltered_listing_names_the_default_branch_commit_when_it_resolves(
             json_fixture(r#"{"default_branch": "main", "full_name": "a/b"}"#),
         )
         .await;
-        mount_matching_refs(&server, &["v1.0.0"]).await;
+        mount_matching_refs(&server, "tags", &["v1.0.0"]).await;
         mount_json(&server, "/api/v3/repos/a/b/branches", 200, json!([])).await;
         let listing = list(
             &server,
@@ -640,23 +650,23 @@ async fn an_unfiltered_listing_names_the_default_branch_commit_when_it_resolves(
     }
 }
 
-/// Mount `names` as repository `a/b`'s lightweight tags, answered as GitHub
-/// answers `matching-refs/tags/<prefix>`: the refs whose name starts with
-/// the route's prefix.
-async fn mount_matching_refs(server: &MockServer, names: &[&str]) {
+/// Mount `names` as repository `a/b`'s refs under `namespace` (`tags`:
+/// lightweight tags, `heads`: branches), answered as GitHub answers
+/// `matching-refs/<namespace>/<prefix>`: the refs whose name starts with the
+/// route's prefix.
+async fn mount_matching_refs(server: &MockServer, namespace: &'static str, names: &[&str]) {
     let names = names
         .iter()
         .map(|name| (*name).to_owned())
         .collect::<Vec<_>>();
+    let route = format!("/api/v3/repos/a/b/git/matching-refs/{namespace}");
     Mock::given(method("GET"))
-        .and(wiremock::matchers::path_regex(
-            "^/api/v3/repos/a/b/git/matching-refs/tags(/.*)?$",
-        ))
+        .and(wiremock::matchers::path_regex(format!("^{route}(/.*)?$")))
         .respond_with(move |request: &wiremock::Request| {
             let prefix = request
                 .url
                 .path()
-                .strip_prefix("/api/v3/repos/a/b/git/matching-refs/tags")
+                .strip_prefix(route.as_str())
                 .map(|rest| rest.trim_start_matches('/'))
                 .unwrap_or_default();
             ResponseTemplate::new(200).set_body_json(
@@ -664,7 +674,7 @@ async fn mount_matching_refs(server: &MockServer, names: &[&str]) {
                     .iter()
                     .filter(|name| name.starts_with(prefix))
                     .map(|name| {
-                        json!({"ref": format!("refs/tags/{name}"),
+                        json!({"ref": format!("refs/{namespace}/{name}"),
                             "object": {"sha": SHA, "type": "commit"}})
                     })
                     .collect::<Vec<_>>(),

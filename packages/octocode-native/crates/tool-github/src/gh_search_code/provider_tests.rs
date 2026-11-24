@@ -109,12 +109,18 @@ fn a_quota_refused_search_of_a_file_leads_to_reading_it() {
         )
         .expect("query")
     };
-    let failure = super::with_file_read(refused(), &query("docs/Lifecycle.md"));
+    let readable = |_: &str| false;
+    let failure = super::with_file_read(refused(), &query("docs/Lifecycle.md"), &readable);
     let calls = failure.calls.expect("a lead");
     assert_eq!(calls["readFile"]["tool"], "ghGetFileContent", "{calls}");
     let row = &calls["readFile"]["input"]["queries"][0];
     assert_eq!(row["path"], "docs/Lifecycle.md", "{calls}");
     assert_eq!(row["matchString"], json!(["onRequest"]), "{calls}");
-    let folder = super::with_file_read(refused(), &query("docs"));
+    let folder = super::with_file_read(refused(), &query("docs"), &readable);
     assert!(folder.calls.is_none(), "{:?}", folder.calls);
+    // A path the policy withholds is never offered as a read: its read is
+    // refused, so the lead cannot help.
+    let withheld = |_: &str| true;
+    let refused_read = super::with_file_read(refused(), &query("docs/Lifecycle.md"), &withheld);
+    assert!(refused_read.calls.is_none(), "{:?}", refused_read.calls);
 }

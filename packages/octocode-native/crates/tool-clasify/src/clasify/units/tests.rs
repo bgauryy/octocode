@@ -165,6 +165,50 @@ fn a_hit_unit_marks_its_line_and_carries_its_enclosing_declaration() {
     );
 }
 
+/// A hit that declares a name points at its own declaration, which the row
+/// lists for it: the unit's enclosing declaration is still the one around
+/// the hit, or none, never the one it declares. A merged window's hits each
+/// leave out only their own.
+#[test]
+fn a_declaring_hit_is_not_enclosed_by_the_declaration_it_declares() {
+    let data = json!({"files":[{"path":"src/walk.rs",
+        "declarations":[
+            {"symbolName":"Walker","kind":"impl","line":1,"endLine":20},
+            "3\tmethod walk (end 12)",
+            {"symbolName":"free","kind":"function","line":22,"endLine":30},
+            {"symbolName":"next","kind":"function","line":24,"endLine":26}],
+        "matches":[
+            {"line":3,"value":"    fn walk(&self) {","enclosing":0,"declaration":1},
+            {"line":5,"value":"        walk(next)","enclosing":1},
+            {"line":22,"value":"22\tfn free() {\n23\t\n24\tfn next() {}",
+             "matchedLines":[22,24],"declaration":[2,3]}]}]});
+    let units = units_of(
+        &data,
+        &json_fixture(r#"{"path": "src", "matchString": ["walk", "free", "next"]}"#),
+    );
+    let enclosing = units
+        .iter()
+        .map(|unit| {
+            let state = unit.state.as_ref().expect("judged");
+            (
+                state["target"]["line"].as_u64().expect("line"),
+                state["target"]["enclosing"]["symbolName"]
+                    .as_str()
+                    .map(str::to_owned),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        enclosing,
+        [
+            (3, Some("Walker".to_owned())),
+            (5, Some("walk".to_owned())),
+            (22, None),
+            (24, Some("free".to_owned())),
+        ]
+    );
+}
+
 /// A GitHub code row lists one entry per line and its hits in the row's
 /// `matchedLines`: the other entries are the hits' context, not units.
 #[test]

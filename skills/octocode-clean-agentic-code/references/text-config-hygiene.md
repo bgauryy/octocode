@@ -12,7 +12,7 @@ Load when comments, docs, agent instructions, or configuration hold stale or dup
 |---|---|
 | Research trails, probe output, reviewer notes | keep evidence, citations, operational records with a consumer; drop execution logs, process metadata from user-facing docs. |
 | Dates, versions, counts, confidence scores | keep measured snapshots, owner-maintained limits; drop decorative counts, stale claims. |
-| TODOs, deprecated paths | remove once an issue, migration, or caller update superseded them, never by age alone. |
+| TODOs (`todo-marker` rows), deprecated paths | remove once an issue, migration, or caller update superseded them, never by age alone. |
 - One purpose per doc (README: start; architecture: boundaries; API docs: contract); split only for reader need. Duplicates: one reachable owner serving every reader.
 
 ## Agent instructions

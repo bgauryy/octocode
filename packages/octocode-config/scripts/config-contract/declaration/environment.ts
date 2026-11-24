@@ -40,6 +40,15 @@ export const environment: ContractInput['environment'] = {
     docsUrl: 'https://serper.dev/',
     description: 'Serper search API credential used by the octocode-brainstorming skill.',
   },
+  DEEPSEEK_API_KEY: {
+    dotenv: 'all',
+    credential: true,
+    type: 'key',
+    displayDefault: 'unset',
+    group: 'Web search',
+    docsUrl: 'https://platform.deepseek.com/api_keys',
+    description: 'DeepSeek search API credential used by the octocode-brainstorming skill.',
+  },
   // An endpoint receives its key, so a workspace may never choose one.
   TAVILY_BASE_URL: {
     dotenv: 'home',
@@ -61,6 +70,13 @@ export const environment: ContractInput['environment'] = {
     displayDefault: 'https://google.serper.dev',
     group: 'Web search',
     description: 'Serper API root; receives SERPER_API_KEY. Home-only, so a repository cannot redirect your key.',
+  },
+  DEEPSEEK_BASE_URL: {
+    dotenv: 'home',
+    type: 'url',
+    displayDefault: 'https://api.deepseek.com',
+    group: 'Web search',
+    description: 'DeepSeek API root; receives DEEPSEEK_API_KEY. Home-only, so a repository cannot redirect your key.',
   },
   GH_TOKEN: {
     dotenv: 'all',

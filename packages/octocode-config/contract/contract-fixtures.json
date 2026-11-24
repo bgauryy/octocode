@@ -5350,6 +5350,47 @@
     }
   },
   {
+    "id": "lsp.anchor-by-name",
+    "tool": "lspSearch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "symbolName": "expire",
+          "operation": "callers"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "page": 1,
+          "path": "src/cache.ts",
+          "symbolName": "expire",
+          "occurrence": 0,
+          "operation": "callers",
+          "depth": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "lsp.occurrence-without-line",
+    "tool": "lspSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "symbolName": "expire",
+          "operation": "callers",
+          "occurrence": 1
+        }
+      ]
+    }
+  },
+  {
     "id": "lsp.group-context",
     "tool": "lspSearch",
     "accepted": false,
