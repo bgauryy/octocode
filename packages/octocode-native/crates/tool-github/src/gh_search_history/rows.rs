@@ -95,6 +95,26 @@ pub(super) fn drop_implied(
     }
 }
 
+/// Drop a listed pull request's `baseRef` when it is the repository's
+/// default branch, which GitHub's REST item names beside it
+/// (`base.repo.default_branch`): a backport's branch stays. A `fields` pick
+/// that names `baseRef` keeps it on every row. A `baseRef` filter runs the
+/// search, whose items carry no branch ([`super::pull_facts`]).
+pub(super) fn drop_default_base(row: &mut Value, item: &Value, picked: &[String]) {
+    if picked.iter().any(|field| field == "baseRef") {
+        return;
+    }
+    let Some(fields) = row.as_object_mut() else {
+        return;
+    };
+    let default = item
+        .pointer("/base/repo/default_branch")
+        .and_then(Value::as_str);
+    if default.is_some() && fields.get("baseRef").and_then(Value::as_str) == default {
+        fields.shift_remove("baseRef");
+    }
+}
+
 /// Leaves out of each row's `labels` the ones the `labels` filter requires:
 /// every row carries them, and the request already states them. A row with
 /// no other label states none. Run after the `fields` pick, which judges

@@ -7,18 +7,21 @@
 Lead with the recommendation and confidence, then the deciding claims, strongest objection and useful next check. No effort announcement.
 
 - Cite deciding claims at the supporting sentence with exact URLs of [validated sources](references/verification.md#validated-sources) only. An unvalidated lead appears only as a named gap. Label inference, secondary evidence and unchecked scope.
-- Give each deciding claim its [status](references/critical-thinking.md#contradict-and-prove) (`proven`, `contradicted`, `unresolved`) and say which disconfirming searches it survived. Several claims or options sharing criteria read best as a table: option or claim, status, verified source.
+- Give each deciding claim its [status](references/critical-thinking.md#contradict-and-prove) (`proven`, `contradicted`, `unresolved`) and say which disconfirming searches it survived. Several claims or options sharing criteria read best as a table: option or claim, origin, status, supporting sources and, in the same row, the sources against it or its limits.
 - Include dates, source context and applicability limits when they affect the conclusion. Check numbers, dates and claimed benefits against the evidence.
 - Explain [confidence](references/critical-thinking.md#calibrated-confidence); never invent probabilities. Report changed or unresolved hypotheses when consequential.
 - State the recommendation as plain claims, checked against [writing tells](references/writing-tells.md).
 - For a costly or irreversible choice, end with the decision the user must make and the deciding source to check themselves.
+- When judging an existing plan or artifact, separate what the evidence says to keep, change and drop.
+- When a search vendor failed in a way the user can fix (`keyRejected`, `quotaExceeded`), say so in one line with the `fix` that `search.mjs` printed; omit vendors that worked.
 - Include verification counts only when they explain a material evidence gap. No routine roster, state dump or repeated source metadata.
+- End with named gaps: claims, methods or sources not researched or not read, so missing evidence is not mistaken for evidence of absence.
 
 A `Sources` list can collect validated references when useful; adjacent citations suffice for a short answer. With no validated evidence, say so and give the gaps instead of a recommendation that looks supported.
 
 ## Checkpoints
 
-Keep a recovery note only when interruption or handoff is likely: current question, supported interim answer, deciding evidence paths, unresolved choice and next action. Add hypotheses or ledger paths only when used. Use the run's existing notes rather than creating a second state record; without one, use `<workspace>/.octocode/octocode-brainstorming/tmp/<run>/state.md`.
+Keep a recovery note only when interruption or handoff is likely: current question, supported interim answer, deciding evidence paths, unresolved choice and next action. Add hypotheses or ledger paths only when used. Use the run's existing notes rather than creating a second state record; without one, use `<run>/state.md`.
 
 Continue authorized work; pause dependent work only for a missing decision or explicit user stop.
 

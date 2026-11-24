@@ -12,8 +12,9 @@
  *   names the local executables it runs (e.g. the packaged native binary).
  *
  * Tests that need any of these must inject their own fake. The guard fails
- * loudly so the need is never silently skipped. The temp home lives under the
- * OS temp directory and is removed after each test file.
+ * loudly so the need is never silently skipped. The temp home lives under
+ * tmpdir() (the run's root from scripts/test-tmp.mjs) and is removed after each
+ * test file.
  *
  * Contracts verified by packages/octocode-config/tests/external-effects-guard.test.ts.
  */

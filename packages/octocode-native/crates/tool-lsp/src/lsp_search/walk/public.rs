@@ -3,7 +3,7 @@
 use super::compact::CALLER_PATH;
 use super::nodes::anchor_range;
 use super::{Expansion, HierarchyEdge};
-use crate::lsp_search::locations::{insert_place, place_end, public_range};
+use crate::lsp_search::locations::{insert_place, last_line, place_end, public_range};
 use crate::lsp_search::render::{label_name, symbol_kind_name, uri_to_path};
 use serde_json::{Value, json};
 
@@ -54,8 +54,8 @@ fn public_hierarchy_node(node: &Value) -> Value {
     }
     let anchor = anchor_range(node);
     if let Some(mut place) = anchor.and_then(public_range) {
-        if let Some(end) = node.pointer("/range/end/line").and_then(Value::as_u64) {
-            place_end(&mut place, end + 1);
+        if let Some(end) = node.get("range").and_then(last_line) {
+            place_end(&mut place, end);
         }
         insert_place(&mut public, place);
     }

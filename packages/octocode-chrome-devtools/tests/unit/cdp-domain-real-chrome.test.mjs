@@ -1,6 +1,7 @@
 // cdp-domain on a real isolated headless Chrome: dumps (small results together, large ones in their
 // own file), events, hazards never sent, the policy skip, the unknown-domain refusal, and the env keys
 // through the MCP `check` sandbox. The fixture site is a loopback child process. Skipped without Chrome.
+import { DIE_WITH_PARENT } from '../fixtures/die-with-parent.mjs';
 import test, { after, before, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
@@ -48,8 +49,8 @@ describe('cdp-domain recipe', { skip, timeout: 240000 }, () => {
   let chrome, web, base, work;
   before(async () => {
     chrome = await startThrowawayChrome();
-    web = spawn(process.execPath, ['-e', serverSource], {
-      stdio: ['ignore', 'pipe', 'inherit'],
+    web = spawn(process.execPath, [...DIE_WITH_PARENT, '-e', serverSource], {
+      stdio: ['pipe', 'pipe', 'inherit'],
     });
     base = `http://127.0.0.1:${await new Promise(resolve =>
       web.stdout.once('data', chunk => resolve(String(chunk).trim()))

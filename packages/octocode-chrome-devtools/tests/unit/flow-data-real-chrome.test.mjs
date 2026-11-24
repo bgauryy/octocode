@@ -1,6 +1,7 @@
 // The data flows (dom-snapshot, system-info, storage-quota, indexeddb-dump, cache-storage-dump,
 // service-worker-state, network-mock, block-urls, acknowledged timezone) run through `flow run` on a
 // real isolated headless Chrome against a loopback child-process site. Skipped without Chrome.
+import { DIE_WITH_PARENT } from '../fixtures/die-with-parent.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -46,9 +47,13 @@ test(
   { skip, timeout: 280000 },
   async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'octo-flow-data-'));
-    const web = spawn(process.execPath, ['-e', serverSource], {
-      stdio: ['ignore', 'pipe', 'inherit'],
-    });
+    const web = spawn(
+      process.execPath,
+      [...DIE_WITH_PARENT, '-e', serverSource],
+      {
+        stdio: ['pipe', 'pipe', 'inherit'],
+      }
+    );
     const origin = `http://127.0.0.1:${await new Promise(resolve =>
       web.stdout.once('data', chunk => resolve(String(chunk).trim()))
     )}`;

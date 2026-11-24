@@ -72,7 +72,8 @@ async fn a_materialize_whose_reads_all_failed_is_partial_with_a_retry() {
         .await
         .expect("materialize")
         .data;
-    assert_eq!(data["location"]["coverage"]["state"], "partial", "{data}");
+    // `partialReasons` states the partial checkout once.
+    assert!(data["location"].get("coverage").is_none(), "{data}");
     assert_eq!(data["isPartial"], true, "{data}");
     assert!(
         data["partialReasons"]

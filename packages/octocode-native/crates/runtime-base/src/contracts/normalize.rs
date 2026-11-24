@@ -10,7 +10,6 @@
 //! - an integral float (`3.0`) where only an integer is declared: the integer;
 //! - a `[lower, upper]` pair where an object of two ordered fields is
 //!   declared (`x-order`): that object;
-//! - a member an object lacks, from the default its schema states;
 //! - a `matchString` item of a regex row that parses only with its unpaired
 //!   brackets read as text (`def route(`): those brackets escaped;
 //! - a page size beside a cursor, or a cursor as the one row of `queries`:
@@ -32,7 +31,7 @@ use crate::id::ToolId;
 mod beside_cursor;
 mod integers;
 mod notes;
-pub use beside_cursor::{BesideCursor, read_beside_cursor};
+pub use beside_cursor::{BesideCursor, drop_unopened_page_size, read_beside_cursor};
 
 /// One lenient reading, said of the row it was made on (`None`: the
 /// request): the field and how it was read ([`notes::per_call`] joins them).
@@ -41,7 +40,7 @@ type Note = (Option<usize>, String);
 /// `input` as the contract takes it, with one warning naming the readings
 /// that changed what a value means (a regex bracket read as text, a page size
 /// not applied) and bare fields read as one row; a reading that changes no
-/// value or meaning (a bare list or a `queries` object or text, JSON text, a one-item list, an integral float, a letter case, a default, an
+/// value or meaning (a bare list or a `queries` object or text, JSON text, a one-item list, an integral float, a letter case, an
 /// ordered pair, a cursor in its row) is made silently. Otherwise unchanged,
 /// so validation names what is wrong with what was sent.
 pub fn normalized_input(tool_name: &str, input: Value) -> (Value, Vec<String>) {
@@ -218,8 +217,8 @@ fn shaped(id: ToolId, input: Value, said: &mut Vec<Note>, notes: &mut Vec<Note>)
             notes.push((None, "queries as an array of rows".to_owned()));
         }
     } else if request.contains_key("cursor") {
-        // A cursor call is the cursor alone ([`cursor_alone`] has dropped a
-        // page size sent beside it); a query field beside it is read against
+        // A cursor call is the cursor alone (a page size sent beside it is
+        // dropped once the cursor opens); a query field beside it is read against
         // the cursor's saved query ([`read_beside_cursor`]).
         return Value::Object(request);
     } else {
@@ -366,12 +365,11 @@ fn below_row(path: &[String]) -> &[String] {
 /// The one reading the schema gives the value `issue` refuses, applied to
 /// `input`, and its warning: a value for a list of them or a text holding
 /// the declared JSON ([`lenient_value`](super::validate::lenient_value)),
-/// an enum literal in another case or separator style, a missing member
-/// with a declared default ([`fill_default`]).
+/// or an enum literal in another case or separator style. A member an
+/// object requires is never filled from the object's default: that default
+/// says what omitting the whole object means, and the member can decide
+/// what the others mean (`sort:{"order":"desc"}` lacks the key it ranks by).
 fn read_value(query: &Value, input: &mut Value, issue: &ValidationIssue) -> Option<String> {
-    if issue.rule_id == "schema.required" {
-        return fill_default(query, input, issue);
-    }
     let (schema, received) = (issue.schema.as_ref()?, issue.received.as_ref()?);
     let meant = match issue.rule_id.as_str() {
         "schema.type" => super::validate::lenient_value(schema, &query["$defs"], received)?,
@@ -387,67 +385,16 @@ fn read_value(query: &Value, input: &mut Value, issue: &ValidationIssue) -> Opti
     Some(note)
 }
 
-/// A member an object sent in a row lacks, whose default the object's schema
-/// states (`contextLines: {"after": 1}`, default `{"before": 0, "after": 0}`):
-/// omitting the member says what omitting the object says of it, so it is
-/// set to that default, and the note says the form. An object whose schemas
-/// state no default, or defaults that differ for the member, has no one
-/// reading.
-fn fill_default(query: &Value, input: &mut Value, issue: &ValidationIssue) -> Option<String> {
-    use super::schema_facts::{child_schemas, item_schemas, schema_keyword};
-    let [queries, index, within @ .., member] = issue.path.as_slice() else {
-        return None;
-    };
-    if queries != "queries" || within.is_empty() {
-        return None;
-    }
-    index.parse::<usize>().ok()?;
-    let defs = &query["$defs"];
-    let mut schemas = vec![query];
-    for segment in within {
-        schemas = schemas
-            .into_iter()
-            .flat_map(|schema| match segment.parse::<usize>() {
-                Ok(_) => item_schemas(schema, defs),
-                Err(_) => child_schemas(schema, defs, segment),
-            })
-            .collect();
-    }
-    let mut defaults = schemas
-        .into_iter()
-        .filter_map(|schema| schema_keyword(schema, defs, "default")?.get(member));
-    let default = defaults.next()?;
-    if defaults.any(|other| other != default) {
-        return None;
-    }
-    let holder = input
-        .pointer_mut(&crate::json_pointer::of(
-            &issue.path[..issue.path.len() - 1],
-        ))?
-        .as_object_mut()?;
-    if holder.is_empty() || holder.contains_key(member) {
-        return None;
-    }
-    holder.insert(member.clone(), default.clone());
-    let label = within.join(".");
-    Some(format!(
-        "{label}.{member}: {}, its default",
-        sketch(default)
-    ))
-}
-
 /// The page size a request sets; a cursor carries the one its walk was cut at.
 const PAGE_SIZE: &str = "responseChars";
 
-/// A cursor call that also sends a page size, as the cursor alone, with the
-/// note that says so. The cursor names a page of a walk cut at the size it
-/// was issued with (another size would cut other pages, so the same cursor
-/// would skip or repeat rows): the sent size has one reading, no effect.
-/// A query field beside a cursor is read against the query the cursor
-/// restores, once it is opened ([`read_beside_cursor`]); validation refuses
-/// any other.
+/// A cursor call sent as a row: the row's cursor lifted to the request. A
+/// page size beside a cursor is read once the cursor opens, against the walk
+/// it was issued for ([`beside_cursor::drop_lone_page_size`]). A query field
+/// beside a cursor is read against the query the cursor restores
+/// ([`read_beside_cursor`]); validation refuses any other.
 fn cursor_alone(input: Value) -> (Value, Option<(String, bool)>) {
-    let mut request = match input {
+    let request = match input {
         Value::Object(request) => request,
         other => return (other, None),
     };
@@ -459,16 +406,7 @@ fn cursor_alone(input: Value) -> (Value, Option<(String, bool)>) {
         let note = "queries[0].cursor as {\"cursor\":\"…\"} alone".to_owned();
         return (Value::Object(lifted), Some((note, false)));
     }
-    let only_size_beside =
-        request.contains_key("cursor") && request.len() == 2 && request.contains_key(PAGE_SIZE);
-    if !only_size_beside {
-        return (Value::Object(request), None);
-    }
-    request.remove(PAGE_SIZE);
-    let note = format!(
-        "`{PAGE_SIZE}` beside `cursor` was not applied: a cursor keeps the page size it was issued with; send {{\"cursor\":\"…\"}} alone, and `{PAGE_SIZE}` with queries in a new request."
-    );
-    (Value::Object(request), Some((note, true)))
+    (Value::Object(request), None)
 }
 
 /// A request whose only field is `queries` holding one row with a text

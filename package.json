@@ -18,6 +18,9 @@
   "packageManager": "yarn@4.9.1",
   "private": true,
   "repository": "bgauryy/octocode.git",
+  "scripts": {
+    "build:dev": "yarn workspace @octocodeai/config build && yarn workspace @octocodeai/octocode-native build:dev && yarn workspace octocode-mcp build:dev && yarn workspace octocode build:dev"
+  },
   "type": "module",
   "workspaces": [
     "packages/*",

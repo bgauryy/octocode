@@ -2,7 +2,7 @@
 //! its cursor restores. The cursor runs that whole query, so a field sent
 //! beside it at the value the query already holds has one reading and no
 //! effect: it is dropped and said, as a page size beside a cursor is
-//! ([`super::cursor_alone`]). A field the saved query holds at another value,
+//! ([`drop_lone_page_size`]). A field the saved query holds at another value,
 //! or does not hold, asks for another query: the call is left for validation
 //! to refuse, led by the fields that refuse it, and the refusal can name what
 //! the cursor holds. A private progress field
@@ -35,7 +35,7 @@ pub enum BesideCursor {
 /// `input`, a `tool_name` call holding a cursor, with the query fields
 /// beside the cursor dropped when each holds the value every row of `saved`
 /// (the request that cursor restores) holds. A page size beside them is then
-/// dropped as [`super::cursor_alone`] drops it. A call any other field
+/// dropped as [`drop_lone_page_size`] drops it. A call any other field
 /// refuses leads with the fields that refuse it, as validation names a
 /// request's fields in the order it holds them; beside them, the fields at
 /// their saved values are dropped, unless a private field stopped the
@@ -56,7 +56,11 @@ pub fn read_beside_cursor(tool_name: &str, input: &mut Value, saved: &Value) -> 
         .cloned()
         .collect();
     if beside.is_empty() {
-        return BesideCursor::AsSent;
+        return match drop_lone_page_size(request, Some(saved)) {
+            PageSize::Absent => BesideCursor::AsSent,
+            PageSize::AtIssued => BesideCursor::Held(Vec::new()),
+            PageSize::Said(note) => BesideCursor::Held(vec![note]),
+        };
     }
     // Private progress is the issued cursor's alone: a caller's is refused
     // before any value is read, and leads the refusal.
@@ -119,10 +123,65 @@ pub fn read_beside_cursor(tool_name: &str, input: &mut Value, saved: &Value) -> 
     let mut notes = vec![format!(
         "{named} beside `cursor` {was} not applied: the cursor's query already holds {them}; send {{\"cursor\":\"…\"}} alone."
     )];
-    let (alone, size) = super::cursor_alone(input.take());
-    *input = alone;
-    notes.extend(size.map(|(note, _)| note));
+    if let PageSize::Said(note) = drop_lone_page_size(request, Some(saved)) {
+        notes.push(note);
+    }
     BesideCursor::Held(notes)
+}
+
+/// A cursor whose walk could not be opened, sent with a page size and nothing
+/// else: the cursor alone, with the note that says so. The refusal that
+/// follows is the cursor's own.
+pub fn drop_unopened_page_size(input: &mut Value) -> Option<String> {
+    match drop_lone_page_size(input.as_object_mut()?, None) {
+        PageSize::Said(note) => Some(note),
+        PageSize::Absent | PageSize::AtIssued => None,
+    }
+}
+
+/// A page size sent beside a cursor and nothing else, dropped: the cursor
+/// names a page of a walk cut at the size it was issued with (another size
+/// would cut other pages, so the same cursor would skip or repeat rows), so
+/// a size has one reading, no effect. [`PageSize::Absent`]: nothing to drop. [`PageSize::AtIssued`]:
+/// the size is the one the walk was cut at (`saved`'s, else the default), so
+/// dropping it needs no note. [`PageSize::Said`]: another size, dropped and
+/// said.
+fn drop_lone_page_size(request: &mut Map<String, Value>, saved: Option<&Value>) -> PageSize {
+    if request.len() != 2 || !request.contains_key("cursor") {
+        return PageSize::Absent;
+    }
+    let Some(sent) = request.shift_remove(PAGE_SIZE) else {
+        return PageSize::Absent;
+    };
+    let issued = saved.map(|saved| {
+        saved
+            .get(PAGE_SIZE)
+            .and_then(chars)
+            .unwrap_or(crate::id::DEFAULT_RESPONSE_CHARS as u64)
+    });
+    if issued.is_some() && chars(&sent) == issued {
+        return PageSize::AtIssued;
+    }
+    PageSize::Said(format!(
+        "`{PAGE_SIZE}` beside `cursor` was not applied: a cursor keeps the page size it was issued with; send {{\"cursor\":\"…\"}} alone, and `{PAGE_SIZE}` with queries in a new request."
+    ))
+}
+
+/// What a lone page size beside a cursor came to.
+enum PageSize {
+    /// None was sent: nothing dropped.
+    Absent,
+    /// Dropped; it is the size the walk was cut at.
+    AtIssued,
+    /// Dropped; another size, with the note that says so.
+    Said(String),
+}
+
+/// A page size as a number, sent as one or as its digits.
+fn chars(value: &Value) -> Option<u64> {
+    value
+        .as_u64()
+        .or_else(|| value.as_str().and_then(|text| text.trim().parse().ok()))
 }
 
 /// `fields` as the notes name them: `` `a`, `b` ``.

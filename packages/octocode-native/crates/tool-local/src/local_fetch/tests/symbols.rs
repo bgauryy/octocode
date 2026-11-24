@@ -339,88 +339,9 @@ fn symbols_view_spans_sit_on_the_head_row_below_annotations() {
     }
 }
 
-/// A compact read says on its first page how many bytes its view keeps of
-/// what the content view serves for the same lines, gutters included, so
-/// the agent can choose it or the source: no threshold chooses for it.
-#[test]
-fn a_compact_read_says_how_much_of_the_source_it_keeps() {
-    let t = Fixture::new();
-    let p = t.0.join("c.rs");
-    let source = "// a comment\nfn a() -> u8 {\n    // another\n    1\n}\n";
-    fs::write(&p, source).expect("fixture");
-    let r = fetch(
-        &qj(&p, json_fixture(r#"{"view": "compact"}"#)),
-        &Paths(t.0.clone()),
-    );
-    assert_eq!(r.view, Some(ReadView::Compact), "{:?}", r.view_fallback);
-    let kept = r.content.as_deref().expect("compact").len();
-    let content = "1\t// a comment\n2\tfn a() -> u8 {\n3\t    // another\n4\t    1\n5\t}\n";
-    let note = format!(
-        "compact view: {kept} of {} bytes the content view serves",
-        content.len()
-    );
-    assert!(
-        r.warnings.iter().any(|warning| warning.starts_with(&note)),
-        "{note:?} in {:?}",
-        r.warnings
-    );
-}
-
-/// The compact note measures the whole selection, not the page that states
-/// it: a paged compact read says so, and its byte counts are every page's.
-#[test]
-fn a_paged_compact_note_measures_the_whole_selection() {
-    let t = Fixture::new();
-    let p = t.0.join("p.rs");
-    let source = (1..=12)
-        .map(|n| format!("// note {n}\nfn f{n}() -> u8 {{ {n} }}\n"))
-        .collect::<String>();
-    fs::write(&p, &source).expect("fixture");
-    let whole = fetch(
-        &qj(&p, json_fixture(r#"{"view": "compact"}"#)),
-        &Paths(t.0.clone()),
-    );
-    let paged = fetch(
-        &qj(&p, json_fixture(r#"{"view": "compact", "limit": 3}"#)),
-        &Paths(t.0.clone()),
-    );
-    assert!(
-        paged.pagination.as_ref().is_some_and(|page| page.has_more),
-        "a paged read: {:?}",
-        paged.pagination
-    );
-    let note = |r: &LocalFetchResult| {
-        r.warnings
-            .iter()
-            .find(|warning| warning.starts_with("compact view: "))
-            .cloned()
-            .unwrap_or_else(|| panic!("compact note in {:?}", r.warnings))
-    };
-    let kept = whole.content.as_deref().expect("compact").len();
-    let content = source
-        .lines()
-        .enumerate()
-        .map(|(index, line)| format!("{}\t{line}\n", index + 1))
-        .collect::<String>()
-        .len();
-    assert_eq!(
-        note(&paged),
-        note(&whole),
-        "every page's bytes, whichever page says it"
-    );
-    assert!(
-        note(&paged).starts_with(&format!(
-            "compact view: {kept} of {content} bytes the content view serves for the selected lines, all pages ("
-        )),
-        "{}",
-        note(&paged)
-    );
-}
-
 /// A compact view no smaller than the content view of the same lines (here
 /// nothing to remove) is not served as compact: the content view is, with
-/// `viewFallback` saying why. L17: no size comparison rides along: one
-/// that removed nothing tells the reader nothing `viewFallback` does not.
+/// `viewFallback` saying why, and no warning beside it.
 #[test]
 fn a_compact_view_no_smaller_than_the_content_view_serves_the_content() {
     let t = Fixture::new();
@@ -443,13 +364,7 @@ fn a_compact_view_no_smaller_than_the_content_view_serves_the_content() {
     );
     // The content view as the runtime serves it; the response numbers it.
     assert_eq!(r.content.as_deref(), Some(source));
-    assert!(
-        !r.warnings
-            .iter()
-            .any(|warning| warning.starts_with("compact view: ")),
-        "{:?}",
-        r.warnings
-    );
+    assert!(r.warnings.is_empty(), "{:?}", r.warnings);
 }
 
 /// L17: `viewFallback` names a view served in place of the one requested.

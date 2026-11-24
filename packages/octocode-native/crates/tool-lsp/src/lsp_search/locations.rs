@@ -42,13 +42,25 @@ pub(super) use snapshots::{
 pub(super) fn public_range(range: &Value) -> Option<Value> {
     let line = range.pointer("/start/line")?.as_u64()?;
     let character = range.pointer("/start/character")?.as_u64()?;
-    let end = range
-        .pointer("/end/line")
-        .and_then(Value::as_u64)
-        .unwrap_or(line);
     let mut place = json!({ "line": line + 1, "column": character + 1 });
-    place_end(&mut place, end + 1);
+    place_end(&mut place, last_line(range).unwrap_or(line + 1));
     Some(place)
+}
+
+/// The one-based last line of an LSP range. Its end is exclusive: an end at
+/// character 0 of a later line ends the range on the line before it.
+pub(super) fn last_line(range: &Value) -> Option<u64> {
+    let end = range.pointer("/end/line")?.as_u64()?;
+    let starts_later_line = range
+        .pointer("/start/line")
+        .and_then(Value::as_u64)
+        .is_some_and(|start| end > start);
+    let at_line_start = range.pointer("/end/character").and_then(Value::as_u64) == Some(0);
+    Some(if starts_later_line && at_line_start {
+        end
+    } else {
+        end + 1
+    })
 }
 
 /// Set `place`'s `endLine`, absent when it is the place's `line`.
@@ -388,11 +400,11 @@ pub(super) fn withheld(
     empty(
         query,
         "locationsWithheld",
-        &format!(
+        Some(&format!(
             "{} location(s) outside the allowed read roots were omitted{}; add the path to ALLOWED_PATHS to read them.",
             withheld.count(),
             withheld.listed(paths)
-        ),
+        )),
         true,
     )
 }

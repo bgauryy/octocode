@@ -16,7 +16,7 @@ BLUF with Claim–evidence: answer and confidence first, then each claim beside 
 
 ## Saved result
 
-Reports: `<workspace>/.octocode/octocode-research/<YYYY-MM-DD>-<slug>.md`; intermediate files in its `tmp/`. `<workspace>` = repository root, else the current directory, never a folder inside `.octocode/`. A user-named path wins; a scratch folder such as `.octocode/tmp/` does not (save here, link from scratch notes).
+Reports: `<workspace>/.octocode/octocode-research/<YYYY-MM-DD>-<slug>.md`; intermediate files in `<workspace>/.octocode/tmp/octocode-research/`. `<workspace>` = repository root, else the current directory, never a folder inside `.octocode/`. A user-named path wins; a scratch folder such as `.octocode/tmp/` does not (save here, link from scratch notes).
 
 ## Presentation choices
 

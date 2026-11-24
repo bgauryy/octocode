@@ -127,19 +127,12 @@ pub(super) fn select_view(
             };
         };
         // Like with like: what the content view serves for the same
-        // selection (every page of it, not the page that says it), gutters
-        // included. The first page of a smaller compact view says both, so
-        // the agent can choose either: no threshold decides for it.
+        // selection (every page of it), gutters included. A compact view
+        // no smaller is not served. What a smaller one saved is no evidence
+        // and no coverage, so no warning states it: the view served is
+        // `viewFallback`'s to say.
         let content = compact::content_bytes(&selected, ext.source_lines.as_deref());
         let smaller = text.len() < content;
-        let hundredths = text.len().saturating_mul(10_000) / content.max(1);
-        let kept = format!(
-            "compact view: {} of {} bytes the content view serves for the selected lines, all pages ({}.{:02}%).",
-            text.len(),
-            content,
-            hundredths / 100,
-            hundredths % 100
-        );
         let reasons: Vec<&str> = outline_reason
             .into_iter()
             .chain(unreduced.map(compact::Unreduced::reason))
@@ -166,10 +159,6 @@ pub(super) fn select_view(
                     applied,
                     reason,
                 }),
-            // The content view served in place of a compact one no smaller
-            // has said why (`viewFallback`): a size comparison that removed
-            // nothing is noise.
-            note: smaller.then_some(kept),
             ..view(text, mode)
         }
     };

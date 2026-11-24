@@ -6,7 +6,7 @@ The battery measures a graph change on one pinned clone per grammar: the files `
 
 - Clones: `packages/octocode-benchmark/local/repos/<clone>`, at the commits the [local benchmark README](../../../packages/octocode-benchmark/local/README.md) pins.
 - Binary: pin the binary under test with `$DEV pin` (it prints the frozen path and sha256). From the clone, call `NODE_ENV=development OCTOCODE_NATIVE_BIN=<frozen copy> node <repo>/packages/octocode-graph/bin/octocode-graph.mjs graphBuild|graphQuery '<json>'` with `path` set to the ingest dir. Without `NODE_ENV=development` the launcher ignores `OCTOCODE_NATIVE_BIN` and runs the installed binary, warning only on stderr.
-- Receipts: run every row before the change and after the rebuild; keep both runs in `packages/octocode-benchmark/campaigns/v<major>-<YYYY-MM-DD>-graph-battery/` (gitignored): `bench.json` (a record per row with every call's input), `compare.json` (before beside after, a verdict per row) and `report.md`.
+- Receipts: run every row before the change and after the rebuild; keep both runs in `packages/octocode-benchmark/campaigns/v<major>-<YYYY-MM-DD>-graph-battery/` (gitignored): `bench.json` (a record per row with every call's input), `compare.json` (before beside after, a verdict per row) and `report.md`. On request, [render-report.mjs](../scripts/render-report.mjs) turns `report.md` into one HTML page: `node skills-dev/octocode-graph-dev/scripts/render-report.mjs <report.md>` (`--help` lists options).
 
 | Row | Clone | Ingest dir | Probe | Oracle extensions | Exclude |
 |---|---|---|---|---|---|
@@ -36,6 +36,8 @@ Per row:
 4. For each missed file, `unresolved` with `target` set to it and `edges: ["calls"]` gives the graph's reason at the oracle's line, or none.
 5. `impact` on the probe's id, `issues`, `cycles` and `unresolved` each answer without an error.
 6. A second `graphBuild` without `refresh` on the unchanged tree reuses the snapshot (same id) and is faster.
+
+### Fields
 
 Record rows under the field names earlier receipts use, so runs compare field by field: `ingest.{ms,callSites,linked,callLinkRate,unresolvedByReason}`, `callers.pagesComplete` (false: the ratios are partial), `recall.{recall,precision,missed,extra,missedSites,dropped}`, `workflowOk`, `incremental.{ms,reused}`.
 

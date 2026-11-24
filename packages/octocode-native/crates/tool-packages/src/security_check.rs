@@ -532,7 +532,7 @@ async fn commit(
     };
     // The lead counts after GitHub's twins merged: a withdrawal either twin
     // states is the advisory's, on a commit row as on every other.
-    let lead = answer::commit_lead(commit, &answer::Facts::of(&results));
+    let (lead, answer) = answer::commit_lead(commit, &answer::Facts::of(&results));
     let mut data = source::into_row(lead, &results, View::of(view));
     if let Some((owner, name, read)) = &github {
         commit::apply(&mut data, (owner, name, commit), read, &brief, view)?;
@@ -571,7 +571,7 @@ async fn commit(
             asked_name: None,
             asked_version: None,
             unfixed_in_major: 0,
-            gives_verdict: true,
+            answer: Some(&answer),
             upgrade_prerelease: false,
         },
     ))

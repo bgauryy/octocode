@@ -11,6 +11,9 @@ const COMPLETE_KEYS: [&str; 6] = ["unit", "offset", "length", "total", "countSco
 /// `length` from the rows listed, so such a block keeps `unit` and `length`.
 const TEXT_UNITS: [&str; 4] = ["bytes", "chars", "characters", "lines"];
 /// A block on a row or nested row: `pagination`, or one file's patch window.
+/// What a block says only about where its page sits; any other key is
+/// evidence the block must keep stating.
+const POSITION_KEYS: [&str; 4] = ["offset", "length", "hasMore", "countScope"];
 const BLOCKS: [&str; 2] = ["pagination", "patchPagination"];
 /// A map of named blocks: one collection's page each.
 const BLOCK_MAP: &str = "sectionPagination";
@@ -22,6 +25,12 @@ const SHAPING_ONLY: [&str; 1] = ["nextOffset"];
 pub(crate) const LISTING_WALKS: [&str; 3] = ["nextPage", "continueWalk", "expandScan"];
 
 pub(crate) fn publish_rows(structured: &mut Value) {
+    // Reasons every row shares were stated once, in `shared.data`, which
+    // each row reads as its own.
+    let shared_reasons = structured
+        .pointer("/shared/data")
+        .and_then(Value::as_object)
+        .is_some_and(states_reasons);
     let Some(rows) = structured.get_mut("results").and_then(Value::as_array_mut) else {
         return;
     };
@@ -31,7 +40,7 @@ pub(crate) fn publish_rows(structured: &mut Value) {
         };
         publish(data, false);
         if let Some(data) = data.as_object_mut() {
-            drop_zero_disclosures(data);
+            drop_zero_disclosures(data, shared_reasons);
         }
         serve_blocks(data);
     }
@@ -72,7 +81,8 @@ fn serve_blocks(value: &mut Value) {
 }
 
 /// Strips what a served block never states and says whether it still states
-/// anything: a text window's place or an exact count.
+/// anything: a text window's place, an exact count, or evidence the block
+/// carries beside its position (a provider limit, a cursor).
 fn served_block_states(block: &mut Map<String, Value>) -> bool {
     block.remove("hasMore");
     let exact = block
@@ -81,7 +91,12 @@ fn served_block_states(block: &mut Map<String, Value>) -> bool {
     if !exact {
         block.remove("total");
     }
-    block.contains_key("unit") || block.contains_key("total") || block.contains_key("oversized")
+    block.contains_key("unit")
+        || block.contains_key("total")
+        || block.contains_key("oversized")
+        || block
+            .keys()
+            .any(|key| !POSITION_KEYS.contains(&key.as_str()))
 }
 
 /// `enclosing` says a holder around `value` carries a listing walk.
@@ -102,16 +117,8 @@ fn publish_fields(fields: &mut Map<String, Value>, enclosing: bool) {
             fields.remove(key);
         }
     }
-    // A page that remains counts rows: the rows listed are its length, and
-    // the operation names the unit.
-    if let Some(Value::Object(block)) = fields.get_mut("pagination")
-        && block
-            .get("unit")
-            .and_then(Value::as_str)
-            .is_some_and(|unit| !TEXT_UNITS.contains(&unit))
-    {
-        block.remove("unit");
-        block.remove("length");
+    if let Some(Value::Object(block)) = fields.get_mut("pagination") {
+        drop_row_unit(block);
     }
     if let Some(Value::Object(blocks)) = fields.get_mut(BLOCK_MAP) {
         blocks.retain(|_, block| {
@@ -119,6 +126,9 @@ fn publish_fields(fields: &mut Map<String, Value>, enclosing: bool) {
                 .as_object_mut()
                 .is_none_or(|block| !published_block_is_complete(block))
         });
+        for block in blocks.values_mut().filter_map(Value::as_object_mut) {
+            drop_row_unit(block);
+        }
         if blocks.is_empty() {
             fields.remove(BLOCK_MAP);
         }
@@ -128,6 +138,19 @@ fn publish_fields(fields: &mut Map<String, Value>, enclosing: bool) {
         if !CALL_CHANNELS.contains(&key.as_str()) && key != BLOCK_MAP {
             publish(value, enclosing);
         }
+    }
+}
+
+/// A page that remains counts rows: the rows listed are its length, and the
+/// operation names the unit. Only a text window states them.
+fn drop_row_unit(block: &mut Map<String, Value>) {
+    if block
+        .get("unit")
+        .and_then(Value::as_str)
+        .is_some_and(|unit| !TEXT_UNITS.contains(&unit))
+    {
+        block.remove("unit");
+        block.remove("length");
     }
 }
 
@@ -214,10 +237,18 @@ pub(crate) fn state_out_of_range(structured: &mut Value) {
     }
 }
 
+/// Whether `data` states a partial reason.
+fn states_reasons(data: &Map<String, Value>) -> bool {
+    data.get("partialReasons")
+        .and_then(Value::as_array)
+        .is_some_and(|reasons| !reasons.is_empty())
+}
+
 /// A fact that says nothing happened is absent; the row states it when it did.
-fn drop_zero_disclosures(data: &mut Map<String, Value>) {
-    drop_complete_listing_summary(data);
-    state_partial_once(data);
+/// `shared_reasons`: the envelope states the row's partial reasons.
+fn drop_zero_disclosures(data: &mut Map<String, Value>, shared_reasons: bool) {
+    drop_complete_listing_summary(data, shared_reasons);
+    state_partial_once(data, shared_reasons);
     data.retain(|key, value| match key.as_str() {
         "isPartial" => value != &Value::Bool(false),
         "filesSkipped" => value != 0,
@@ -232,12 +263,9 @@ fn drop_zero_disclosures(data: &mut Map<String, Value>) {
 /// page is its own entries counted: a page with no `pagination` and no
 /// partial mark holds the whole listing. A paged or partial page keeps it,
 /// the only source of the whole listing's split and size.
-fn drop_complete_listing_summary(data: &mut Map<String, Value>) {
-    let partial = data.get("isPartial") == Some(&Value::Bool(true))
-        || data
-            .get("partialReasons")
-            .and_then(Value::as_array)
-            .is_some_and(|reasons| !reasons.is_empty());
+fn drop_complete_listing_summary(data: &mut Map<String, Value>, shared_reasons: bool) {
+    let partial =
+        data.get("isPartial") == Some(&Value::Bool(true)) || shared_reasons || states_reasons(data);
     let counts = data
         .get("summary")
         .and_then(Value::as_object)
@@ -256,14 +284,11 @@ fn drop_complete_listing_summary(data: &mut Map<String, Value>) {
 /// answer: then `isPartial` is absent. A count the provider capped or could
 /// only partly read keeps `isPartial`, since the served block states no
 /// scope; `coverage.state:"partial"` never stands beside another statement.
-fn state_partial_once(data: &mut Map<String, Value>) {
+fn state_partial_once(data: &mut Map<String, Value>, shared_reasons: bool) {
     if data.get("isPartial") != Some(&Value::Bool(true)) {
         return;
     }
-    let reasons = data
-        .get("partialReasons")
-        .and_then(Value::as_array)
-        .is_some_and(|reasons| !reasons.is_empty());
+    let reasons = shared_reasons || states_reasons(data);
     // More pages are the reply's `next` to say, not a partial answer.
     let loading = data
         .get("pagination")

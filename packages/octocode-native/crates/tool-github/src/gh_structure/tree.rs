@@ -71,8 +71,13 @@ pub(super) async fn execute_tree(
         } else {
             build_structure(page.entries, &targets)
         },
-        "summary": summary(&traversal.entries),
     });
+    // The whole listing's counts are one fact of the pinned commit: its
+    // first page states them, and a later page repeats them only when this
+    // walk missed entries (its counts are then what this call saw).
+    if page.current == 1 || traversal.contents_limit || traversal.missed() {
+        value["summary"] = summary(&traversal.entries);
+    }
     // `commitSha` is the listed commit on every page; `ref` names the branch
     // or tag that resolved to it, never the commit itself, so a later page
     // (its cursor pins the commit) renames nothing.
@@ -115,6 +120,7 @@ pub(super) async fn execute_tree(
     {
         *state = json!("partial");
     }
+    state_checkout_partial_once(&mut value);
     // A directory GitHub capped is complete only in a checkout: the clone
     // reaches the entries this listing cannot, so the row needs it. A
     // selection one call cannot finish is finished by its own continuation.
@@ -142,6 +148,7 @@ pub(super) async fn execute_tree(
     if resumed && let Some(map) = value.as_object_mut() {
         map.remove("files");
         map.remove("pagination");
+        map.remove("summary");
     }
     if resumed {
         octocode_runtime_base::response::collection::remove_row_walk(&mut value);

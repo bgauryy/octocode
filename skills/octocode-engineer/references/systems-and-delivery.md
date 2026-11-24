@@ -169,7 +169,7 @@ Test types, doubles and the flaky-test rule are in [testing concepts](concepts.m
 | Single source of truth | One owner for each fact, setting and rule; derive the rest |
 | Make illegal states unrepresentable | Encode invariants in types instead of comments and checks |
 | Parse, don't validate | Convert raw input once at the boundary into types that carry the guarantee |
-| Functional core, imperative shell | Pure decisions inside, side effects at the edges |
+| [Functional core, imperative shell](concepts.md#architecture-styles) | Pure decisions inside, side effects at the edges |
 | Fail loudly at boundaries | Surface errors with context; never swallow them or return success-shaped fallbacks |
 | Simplicity first | Solve today's general case; abstract when repeated real requirements justify it |
 

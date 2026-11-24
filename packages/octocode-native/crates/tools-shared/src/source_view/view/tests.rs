@@ -145,6 +145,35 @@ fn a_misremembered_heads_name_counts_whole_identifiers_only() {
     );
 }
 
+/// `warnings` carry coverage, and a compact read served as requested covers
+/// its selection whole: no page of it, the first or a later one, in one page
+/// or many, states a warning. What compaction kept of the source is no
+/// evidence; a compact view no smaller than the content view is served as
+/// the content view, and `viewFallback` says so.
+#[test]
+fn a_compact_read_served_whole_states_no_warning_on_any_page() {
+    let source = format!("{}// a note\n{}", filler(60), filler(60)).replace("const", "    const");
+    for window in [500, 50_000] {
+        let mut q = query(json!({"view": "compact"}));
+        let mut pages = 0;
+        loop {
+            let result = fetch_window(&source, &q, window);
+            assert_eq!(result.view, Some(ReadView::Compact), "{result:?}");
+            assert!(
+                result.warnings.is_empty(),
+                "window {window} page {pages}: {:?}",
+                result.warnings
+            );
+            pages += 1;
+            let Some(next) = result.next.and_then(|next| next.continue_window) else {
+                break;
+            };
+            q = next.query;
+        }
+        assert_eq!(pages > 1, window == 500, "window {window}: {pages} pages");
+    }
+}
+
 mod fit;
 mod pages;
 mod scan_memo;

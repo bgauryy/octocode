@@ -2,14 +2,21 @@
 use super::*;
 use octocode_test_support::json_fixture;
 
+/// A summary of a row whose sentence the test states whole (`answer:
+/// None` keeps it); a test of which clauses stay sets `answer`.
 fn target(_query: Value) -> Target<'static> {
     Target {
         asked_name: Some("lodash"),
         asked_version: Some("4.17.20"),
         unfixed_in_major: 0,
-        gives_verdict: true,
+        answer: None,
         upgrade_prerelease: false,
     }
+}
+
+/// The clause-by-clause answer a package row with `facts` leads with.
+fn lead_answer(facts: &super::super::answer::Facts<'_>) -> super::super::answer::Answer {
+    super::super::answer::lead("lodash@4.17.20", facts).1
 }
 
 fn package() -> Value {
@@ -179,10 +186,20 @@ fn the_answer_and_the_coordinates_stay_only_when_they_say_something_new() {
         }
         row
     };
+    use super::super::answer::Facts;
+    let affected = lead_answer(&Facts {
+        version_evaluated: true,
+        count: 1,
+        matched: 1,
+        ..Facts::default()
+    });
     let verdict = apply(
         SecurityCheckView::Summary,
         row(json_fixture(r#"{"affected": true, "advisories": []}"#)),
-        target(package()),
+        Target {
+            answer: Some(&affected),
+            ..target(package())
+        },
     );
     for echoed in ["answer", "packageName", "version"] {
         assert!(verdict.get(echoed).is_none(), "{echoed}: {verdict}");
@@ -201,14 +218,21 @@ fn the_answer_and_the_coordinates_stay_only_when_they_say_something_new() {
         target(package()),
     );
     assert_eq!(no_verdict["answer"], "sentence", "{no_verdict}");
-    // A verdict of none known counts 0, which proves nothing: the sentence
-    // that says so stays.
+    // A verdict of none known is `affected:false`, whose meaning (it proves
+    // only that) the field states: no sentence repeats it.
+    let clear = lead_answer(&Facts {
+        version_evaluated: true,
+        ..Facts::default()
+    });
     let none_known = apply(
         SecurityCheckView::Summary,
         row(json_fixture(r#"{"affected": false, "advisories": []}"#)),
-        target(package()),
+        Target {
+            answer: Some(&clear),
+            ..target(package())
+        },
     );
-    assert_eq!(none_known["answer"], "sentence", "{none_known}");
+    assert!(none_known.get("answer").is_none(), "{none_known}");
     assert_eq!(none_known["advisoryCount"], 0, "{none_known}");
     // A range the registry resolved, or a URL: the row's coordinates are news.
     let mut resolved = target(package());
@@ -223,10 +247,9 @@ fn the_answer_and_the_coordinates_stay_only_when_they_say_something_new() {
     assert_eq!(lean["packageName"], "lodash", "{lean}");
     // A row that gives no verdict by design keeps its sentence: its count is
     // of its own records, and only the sentence says so.
-    let mut repository = target(json_fixture(
+    let repository = target(json_fixture(
         r#"{"operation": "repository", "owner": "o", "repo": "r"}"#,
     ));
-    repository.gives_verdict = false;
     let lean = apply(
         SecurityCheckView::Summary,
         json_fixture(r#"{"answer": "o/r: 5 stars.", "advisories": []}"#),
@@ -397,10 +420,9 @@ fn a_found_source_that_names_a_failed_read_is_named() {
 /// was read, whatever the operation, so the row never stands on leads alone.
 #[test]
 fn a_row_with_no_list_keeps_its_sentence() {
-    let mut repository = target(json_fixture(
+    let repository = target(json_fixture(
         r#"{"operation": "repository", "owner": "o", "repo": "r"}"#,
     ));
-    repository.gives_verdict = false;
     let lean = apply(
         SecurityCheckView::Summary,
         json_fixture(
@@ -526,16 +548,54 @@ fn a_vector_only_advisory_ranks_by_its_cvss_rating() {
     assert_eq!(lean["highestSeverity"], "critical", "{lean}");
 }
 
-/// A sentence that explains the pinned-dependency checks in `related` stays:
-/// no other field says why those checks are listed.
+/// The clause that explains the pinned-dependency checks in `related` stays
+/// alone: no field says why those checks are listed, while the verdict, the
+/// CVEs and the upgrade beside it are fields of the summary row.
 #[test]
-fn the_sentence_explaining_pinned_checks_stays_with_its_leads() {
-    let sentence = format!(
-        "No advisory. It pins 1 runtime dependency to an exact version: {}",
-        "related lists a check of each."
+fn the_sentence_explaining_pinned_checks_stays_alone() {
+    use super::super::answer::Facts;
+    let answer = lead_answer(&Facts {
+        version_evaluated: true,
+        count: 1,
+        matched: 1,
+        cves: vec!["CVE-2021-23337".to_owned()],
+        upgrade_to: Some("4.17.21"),
+        pinned_dependencies: 1,
+        ..Facts::default()
+    });
+    let row = json!({"affected": true, "upgradeTo": "4.17.21",
+        "advisories": [{"id": "GHSA-35jh-r3h4-6jhm", "cves": ["CVE-2021-23337"]}],
+        "answer": "whole"});
+    let lean = apply(
+        SecurityCheckView::Summary,
+        row,
+        Target {
+            answer: Some(&answer),
+            ..target(package())
+        },
     );
-    assert!(super::super::answer::explains_pinned_checks(&sentence));
-    assert!(!super::super::answer::explains_pinned_checks(
-        "No advisory is listed."
-    ));
+    assert_eq!(
+        lean["answer"],
+        "It pins 1 runtime dependency to an exact version, and advisories filed against those are not in this answer: related lists a check of each.",
+        "{lean}"
+    );
+}
+
+/// The OSV page of the first advisory is its id's, so the row's `link` is
+/// not restated; a page of another advisory is.
+#[test]
+fn a_link_the_first_advisory_id_derives_is_not_restated() {
+    let row = |first: &str| {
+        json_fixture(&format!(
+            r#"{{
+                "affected": true,
+                "advisories": [
+                    {{"id": "{first}", "severity": "high", "link": "https://osv.dev/vulnerability/{first}"}},
+                    {{"id": "OTHER", "severity": "low", "link": "https://osv.dev/vulnerability/OTHER"}}
+                ]
+            }}"#
+        ))
+    };
+    let lean = apply(SecurityCheckView::Summary, row("FIRST"), target(package()));
+    assert!(lean.get("link").is_none(), "{lean}");
 }

@@ -27,6 +27,7 @@
     "dist/index.js",
     "scripts/check-entrypoints.mjs",
     "dist/docs/**",
+    "skills/**",
     "assets/logo.png",
     "manifest.json",
     "server.json",
@@ -71,7 +72,7 @@
     "directory": "packages/octocode-mcp"
   },
   "scripts": {
-    "prepack": "node scripts/check-entrypoints.mjs",
+    "prepack": "node scripts/check-entrypoints.mjs && node ../../skills-dev/octocode-dev/scripts/package-build.mjs stage dist",
     "build": "yarn check:manifest && yarn clean && node build.mjs && node ../../skills-dev/octocode-dev/scripts/package-build.mjs docs dist",
     "build:dev": "node build.mjs",
     "check:manifest": "node scripts/sync-manifest.mjs --check",
@@ -81,8 +82,8 @@
     "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
     "lint": "yarn lint:own && yarn lint:oxlint",
     "sync:manifest": "node scripts/sync-manifest.mjs",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
+    "test": "node ../../scripts/test-tmp.mjs vitest run",
+    "test:coverage": "node ../../scripts/test-tmp.mjs vitest run --coverage",
     "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
     "verify:own": "yarn lint:own && yarn typecheck && yarn test:coverage",
     "verify": "yarn verify:own && yarn lint:oxlint"

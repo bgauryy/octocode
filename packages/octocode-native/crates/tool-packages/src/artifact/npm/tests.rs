@@ -124,6 +124,23 @@ fn requests(http: &RouteHttp) -> Vec<(String, bool)> {
         .collect()
 }
 
+/// The row's `registryUrl` is the page people open, never the API base the
+/// manifest was read from.
+#[tokio::test]
+async fn npm_row_states_the_package_page_not_the_api_url() {
+    let http = routes(vec![("/zod/latest", JSON, manifest("4.6.5", false))]);
+    let page = lookup(
+        &http,
+        json_fixture(r#"{"operation": "resolve", "packageName": "zod"}"#),
+    )
+    .await
+    .expect("lookup");
+    assert_eq!(
+        page.artifacts[0].registry_url,
+        "https://www.npmjs.com/package/zod"
+    );
+}
+
 /// A version that declares no peers shows no `peerDependencies` list;
 
 #[tokio::test]

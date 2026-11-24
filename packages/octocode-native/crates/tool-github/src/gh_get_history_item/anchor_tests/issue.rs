@@ -210,6 +210,50 @@ async fn an_issue_summary_previews_a_long_body_and_the_body_read_holds_it_whole(
     assert!(whole["issues"][0].get("bodyPreview").is_none(), "{whole}");
 }
 
+/// A summary previews what GitHub shows of the body: its template's HTML
+/// comments (`<!-- … -->`, hidden when rendered) spend none of the preview,
+/// and the body read keeps them verbatim. A body of only comments still
+/// previews its text: an absent preview means an empty body.
+#[tokio::test]
+async fn an_issue_preview_skips_the_html_comments_github_hides() {
+    let server = MockServer::builder().start().await;
+    let template = "<!-- Please do not ignore this template. ".repeat(20) + "-->";
+    let body = format!(
+        "{template}\n### Describe the bug\n<!-- A clear description. -->\nIt crashes.\n<!-- unclosed"
+    );
+    let comments_only = "<!-- only the template -->";
+    for (number, text) in [(7, body.as_str()), (8, comments_only)] {
+        mount_json(
+            &server,
+            &format!("/api/v3/repos/o/r/issues/{number}"),
+            200,
+            json!({"number":number,"title":"Crash","state":"open","user":{"login":"bob"},
+                "body":text,"comments":0,"created_at":"2024-01-01T00:00:00Z",
+                "updated_at":"2024-01-02T00:00:00Z"}),
+        )
+        .await;
+    }
+    let summary = |number: u64, sections: Value| {
+        let server = &server;
+        async move {
+            let mut query = json!({"operation":"issue","owner":"o","repo":"r","number":number});
+            if !sections.is_null() {
+                query["sections"] = sections;
+            }
+            read(server, query).await
+        }
+    };
+    let out = summary(7, Value::Null).await;
+    assert_eq!(
+        out["issues"][0]["bodyPreview"], "### Describe the bug It crashes. <!-- unclosed",
+        "{out}"
+    );
+    let whole = summary(7, json!(["body"])).await;
+    assert_eq!(whole["issues"][0]["body"], json!(body), "{whole}");
+    let only = summary(8, Value::Null).await;
+    assert_eq!(only["issues"][0]["bodyPreview"], comments_only, "{only}");
+}
+
 /// A discussion the caller asked for is stated even when it holds no
 /// comment: an empty list says zero, where an absent one reads as not
 /// fetched.

@@ -132,7 +132,7 @@ pub(super) fn movement(current: &str, latest: &str) -> Move {
 }
 
 /// `version` written as `current` writes its own, with or without the `v`.
-fn written_as(current: &str, version: &str) -> String {
+pub(super) fn written_as(current: &str, version: &str) -> String {
     if current.starts_with('v') && !version.starts_with('v') {
         format!("v{version}")
     } else {
@@ -210,6 +210,29 @@ pub(super) fn deciding_fix(current: &str, fixed_in: &mut Vec<String>, order: Ord
     };
     if let Some(fix) = lowest(true).or_else(|| lowest(false)) {
         *fixed_in = vec![fix];
+    }
+}
+
+/// The one fix of an advisory whose records (one per database, and aliases
+/// of other databases) each state their own fix for `current`'s line
+/// ([`deciding_fix`]): a version is clear of the advisory only outside
+/// every record's ranges, so the highest of them, as [`candidate`] takes
+/// the highest across advisories. The list is kept whole when `current` or
+/// a fix is not a version the order reads, or a fix is not above
+/// `current`: nothing is chosen by guess.
+pub(super) fn clearing_fix(current: &str, fixes: &mut Vec<String>, order: Order) {
+    if fixes.len() < 2
+        || !order.readable(current)
+        || !fixes.iter().all(|fix| order.above(fix, current))
+    {
+        return;
+    }
+    let highest = fixes
+        .iter()
+        .max_by(|left, right| order.cmp(left, right).unwrap_or(Ordering::Equal))
+        .cloned();
+    if let Some(highest) = highest {
+        *fixes = vec![highest];
     }
 }
 

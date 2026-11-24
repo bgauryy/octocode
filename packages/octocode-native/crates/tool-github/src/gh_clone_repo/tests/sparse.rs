@@ -462,7 +462,7 @@ fn a_sparse_location_states_its_scope() {
     let second = clone_pinned(&bench.fixture, &request, &context).expect("same scope again");
     let served = serde_json::to_value(&first).expect("serialized clone");
     let location = &served["location"];
-    for kept in ["path", "commitSha", "ref"] {
+    for kept in ["path", "commitSha"] {
         assert!(location.get(kept).is_some(), "{kept}: {served}");
     }
     assert!(served.get("bytes").is_some(), "{served}");

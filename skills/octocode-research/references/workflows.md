@@ -1,4 +1,4 @@
-Load for behavior changes and refactors. Tool choice and calls: [tool flow](tool-flow.md).
+Load for behavior changes and refactors.
 
 ## Change impact
 

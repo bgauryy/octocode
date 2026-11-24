@@ -47,8 +47,6 @@ Apply the [research loop](../SKILL.md#research-loop); a suspicious line, commit,
 3. Rivals, each with its most distinguishing check: source, references, history, tests.
 4. Changing the cause changes the symptom; if it cannot run, state equivalent evidence and limits.
 
-Report per [output](../output.md#response).
-
 ## Campaigns
 
 - Loop: `frame one question → cheapest call that can change the answer → observe status → learn → next call`.

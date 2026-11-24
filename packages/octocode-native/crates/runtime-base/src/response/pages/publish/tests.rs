@@ -146,6 +146,47 @@ fn a_partial_page_states_it_once() {
 }
 
 #[test]
+fn a_section_block_that_counts_rows_states_no_unit() {
+    // Like `pagination`, a named section's block that counts rows names no
+    // unit (only text windows do) and no length (its rows are listed).
+    let mut output = json_fixture(
+        r#"{"results": [{"index": 0, "data": {"sectionPagination": {
+            "files": {"unit": "items", "offset": 0, "length": 0, "total": 300, "countScope": "partial"},
+            "patches": {"unit": "lines", "offset": 0, "length": 40, "total": 90}
+        }}}]}"#,
+    );
+    publish_rows(&mut output);
+    let blocks = &output["results"][0]["data"]["sectionPagination"];
+    assert!(blocks["files"].get("unit").is_none(), "{output}");
+    assert!(blocks["files"].get("length").is_none(), "{output}");
+    assert_eq!(blocks["patches"]["unit"], "lines", "{output}");
+    assert_eq!(blocks["patches"]["length"], 40, "{output}");
+}
+
+#[test]
+fn reasons_the_rows_share_state_each_row_partial_once() {
+    // Every row's reasons went to `shared.data`, which each row reads: no
+    // row states `isPartial` beside them.
+    let mut output = json_fixture(
+        r#"{
+            "results": [
+                {"index": 0, "data": {"isPartial": true, "artifacts": [1]}},
+                {"index": 1, "data": {"isPartial": true, "artifacts": [2]}}
+            ],
+            "shared": {"data": {"partialReasons": ["providerResultCap"]}}
+        }"#,
+    );
+    publish_rows(&mut output);
+    for row in output["results"].as_array().expect("rows") {
+        assert!(row["data"].get("isPartial").is_none(), "{output}");
+    }
+    assert_eq!(
+        output["shared"]["data"]["partialReasons"],
+        json_fixture(r#"["providerResultCap"]"#)
+    );
+}
+
+#[test]
 fn a_listing_summary_is_stated_only_on_a_paged_or_partial_page() {
     let counts = json_fixture(r#"{"fileCount": 2, "dirCount": 1}"#);
     let mut output = json!({"results":[
@@ -216,14 +257,13 @@ fn section_maps_keep_only_the_blocks_with_more_to_read() {
         }"#,
     );
     publish_rows(&mut output);
+    // A block that counts rows names no unit or length, as `pagination` does.
     assert_eq!(
         output["results"][0]["data"]["sectionPagination"],
         json_fixture(
             r#"{
                 "comments": {
-                    "unit": "items",
                     "offset": 0,
-                    "length": 0,
                     "total": 4
                 },
                 "patches": {
@@ -529,4 +569,26 @@ fn a_served_block_states_no_walk_and_only_an_exact_total() {
             }
         }
     }
+}
+
+#[test]
+fn a_capped_section_block_survives_publishing_and_publishing_again() {
+    // The provider stopped the list short of its total: the block carries the
+    // limit as evidence, so no pass may drop it as complete or empty.
+    let mut once = json_fixture(
+        r#"{"results": [{"index": 0, "data": {"sectionPagination": {"files": {
+            "unit": "items", "offset": 0, "length": 3000, "total": 3500,
+            "countScope": "partial", "hasMore": false,
+            "terminalLimit": true, "providerLimit": {"reason": "providerFileLimit"}
+        }}}}]}"#,
+    );
+    publish_rows(&mut once);
+    let block = &once["results"][0]["data"]["sectionPagination"]["files"];
+    assert_eq!(
+        block["providerLimit"]["reason"], "providerFileLimit",
+        "{once}"
+    );
+    let mut twice = once.clone();
+    publish_rows(&mut twice);
+    assert_eq!(once, twice);
 }

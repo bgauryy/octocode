@@ -145,6 +145,29 @@ pub(super) fn mark_materialize_partial(value: &mut Value) {
     );
 }
 
+/// A partial checkout says so once: when the row's `partialReasons` state
+/// it, `location.coverage` holds no `state:"partial"` beside them, and a
+/// coverage left with nothing else to say is absent (its reference: absent
+/// when partialReasons states the page partial and nothing else is said).
+pub(super) fn state_checkout_partial_once(value: &mut Value) {
+    let reasons = value
+        .get("partialReasons")
+        .and_then(Value::as_array)
+        .is_some_and(|reasons| !reasons.is_empty());
+    let Some(Value::Object(location)) = value.get_mut("location") else {
+        return;
+    };
+    let Some(Value::Object(coverage)) = location.get_mut("coverage") else {
+        return;
+    };
+    if reasons && coverage.get("state").and_then(Value::as_str) == Some("partial") {
+        coverage.remove("state");
+        if coverage.is_empty() {
+            location.shift_remove("coverage");
+        }
+    }
+}
+
 pub(super) struct MaterializeOutcome {
     pub(super) location: Value,
     pub(super) next_offset: Option<usize>,

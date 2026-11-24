@@ -264,6 +264,91 @@ fn a_walk_states_files_walked_so_far_and_its_totals_on_its_last_page() {
     }
 }
 
+/// A search in any order but traversal, and every count view, reads its
+/// whole scope before page 1: page 1 states the scope's totals and coverage
+/// as one page holding the whole answer states them, and each later page
+/// states only its own rows, which every page together lists once.
+#[test]
+fn a_ranked_or_count_search_states_its_scope_facts_on_page_one_only() {
+    let dir = tempfile::tempdir().expect("fixture");
+    let root = dir.path().canonicalize().expect("real root");
+    for file in 0..3 {
+        fs::write(root.join(format!("e{file:02}.txt")), "nothing\n").expect("fixture");
+    }
+    for file in 0..12 {
+        fs::write(
+            root.join(format!("f{file:02}.txt")),
+            "needle needle\nother\nneedle\n",
+        )
+        .expect("fixture");
+    }
+    // A masked secret and a test file the scope leaves out: coverage facts
+    // of the whole scope.
+    fs::write(
+        root.join("k.txt"),
+        "needle\ntoken: ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+    )
+    .expect("fixture");
+    fs::create_dir_all(root.join("tests")).expect("fixture dir");
+    fs::write(root.join("tests/t.txt"), "needle\n").expect("fixture");
+    settle();
+    let stated = |row: &Value| {
+        crate::local_search::types::SCOPE_FACTS
+            .iter()
+            .filter_map(|name| Some((*name, row.get(*name)?.clone())))
+            .collect::<Vec<_>>()
+    };
+    // Each hit line under its file, or each file entry of a list or count
+    // view, in page order.
+    let rows = |pages: &[Value]| {
+        pages
+            .iter()
+            .flat_map(|page| page["files"].as_array().cloned().unwrap_or_default())
+            .flat_map(|file| match file["matches"].as_array() {
+                Some(matches) => matches
+                    .iter()
+                    .map(|hit| json!([file["path"], hit["line"]]))
+                    .collect(),
+                None => vec![file],
+            })
+            .collect::<Vec<_>>()
+    };
+    for order in [
+        json!({"view": "countMatches"}),
+        json!({"view": "countLines"}),
+        json!({"view": "files", "sort": {"by": "path", "order": "desc"}}),
+        json!({"sort": {"by": "matchCount"}}),
+        json!({"sort": {"by": "path"}}),
+    ] {
+        let mut fields = json!({"path": root, "matchString": ["needle"], "testCode": "exclude"});
+        for (key, value) in order.as_object().expect("order") {
+            fields[key] = value.clone();
+        }
+        let (whole, _) = walk(&root, fields.clone());
+        assert_eq!(whole.len(), 1, "{order}: one page holds it: {whole:?}");
+        for name in ["filesScanned", "maskedSpans", "testCodeExcluded"] {
+            assert!(
+                whole[0].get(name).is_some(),
+                "{order}: {name}: {}",
+                whole[0]
+            );
+        }
+        fields["limit"] = json!(4);
+        let (pages, _) = walk(&root, fields);
+        assert!(pages.len() > 2, "{order}: {pages:?}");
+        assert_eq!(
+            stated(&pages[0]),
+            stated(&whole[0]),
+            "{order}: page 1 states the scope's facts: {}",
+            pages[0]
+        );
+        for page in &pages[1..] {
+            assert_eq!(stated(page), [], "{order}: a later page: {page}");
+        }
+        assert_eq!(rows(&pages), rows(&whole), "{order}: every row once");
+    }
+}
+
 /// A finished walk lists what it skipped with no `sampled` key: absent
 /// means every skipped path is listed.
 #[test]

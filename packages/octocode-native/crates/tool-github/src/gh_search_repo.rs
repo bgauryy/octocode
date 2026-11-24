@@ -143,11 +143,15 @@ pub(crate) async fn execute(
     // A page ordered by a row field (an owner listing by push time, a search
     // by forks or update time) states that field on each row.
     let sorted = access::sorted_detail(query);
-    let detail = LISTED_DETAIL
+    let mut detail = LISTED_DETAIL
         .iter()
         .copied()
         .filter(|field| Some(*field) != sorted)
         .collect::<Vec<_>>();
+    // Under `archive:"only"` every row is archived: the request says it.
+    if access::archive(query) == GitHubArchive::Only {
+        detail.push("archived");
+    }
     lean_rows(&mut value, "repositories", &detail, &fields);
     pick_rows(&mut value, "repositories", REPO_ID, &fields);
     let owner_has_no_repositories = empty

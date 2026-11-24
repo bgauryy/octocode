@@ -1,5 +1,6 @@
 // Shared harness for the tool-depth tests: a loopback fixture site in a child process, a temporary
 // workspace, and an MCP client on the full preset. Callers get `call` (success or refusal text).
+import { DIE_WITH_PARENT } from '../fixtures/die-with-parent.mjs';
 import { spawn } from 'node:child_process';
 import {
   existsSync,
@@ -52,9 +53,13 @@ require('node:http').createServer((req, res) => {
 export const withSite = async (body, { startBrowser = true } = {}) => {
   const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'octo-depth-')));
   mkdirSync(join(cwd, '.octocode'), { recursive: true });
-  const web = spawn(process.execPath, ['-e', serverSource], {
-    stdio: ['ignore', 'pipe', 'inherit'],
-  });
+  const web = spawn(
+    process.execPath,
+    [...DIE_WITH_PARENT, '-e', serverSource],
+    {
+      stdio: ['pipe', 'pipe', 'inherit'],
+    }
+  );
   const base = `http://127.0.0.1:${await new Promise(resolve =>
     web.stdout.once('data', chunk => resolve(String(chunk).trim()))
   )}`;

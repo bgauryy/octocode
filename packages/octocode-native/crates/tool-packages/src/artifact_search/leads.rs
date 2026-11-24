@@ -351,8 +351,10 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
                 limit,
             );
             // The repair reads the nearest published versions: no hint
-            // tells the caller to discover them.
-            error.drop_version_hint();
+            // tells the caller to discover them, and the one left names the
+            // field to correct, never the package name the shared
+            // not-found recovery would.
+            error.point_at_version();
             let queries = versions
                 .iter()
                 .map(|version| {

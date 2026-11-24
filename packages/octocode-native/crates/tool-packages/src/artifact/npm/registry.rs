@@ -4,6 +4,7 @@
 //! gets the same refusal as a private one, naming only the host as given.
 use crate::artifact::http::DnsPin;
 use crate::artifact::query::artifact_search_query;
+use crate::artifact::util::encode_component;
 use crate::artifact::{ArtifactError, ResolvedNpmRegistry};
 use octocode_contract_types::{ArtifactSearchQuery, ErrorCode};
 use octocode_runtime_base::policy::network::{is_public, not_public_refusal};
@@ -50,6 +51,21 @@ pub(crate) fn validate_base(
 
 pub(super) fn trim_registry(url: &Url) -> String {
     url.as_str().trim_end_matches('/').to_owned()
+}
+
+/// The page of package `name` for people to open: npmjs.com's page for the
+/// public registry, else the package's address on the configured registry,
+/// which has no public page.
+pub(super) fn package_page(registry: &ResolvedNpmRegistry, name: &str) -> String {
+    if registry.base.origin() == ResolvedNpmRegistry::npmjs().base.origin() {
+        format!("https://www.npmjs.com/package/{name}")
+    } else {
+        format!(
+            "{}/{}",
+            trim_registry(&registry.base),
+            encode_component(name)
+        )
+    }
 }
 
 /// A `registryUrl` that is not a plain HTTP(S) registry base.

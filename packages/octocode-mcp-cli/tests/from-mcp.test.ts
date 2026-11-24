@@ -7,6 +7,7 @@ import { defineCli } from '../src/spec.js';
 import {
   cliFromMcp,
   connectClient,
+  childEnvironment,
   connectStdio,
   createStdioTransport,
   type McpClientLike,
@@ -324,6 +325,25 @@ describe('cliFromMcp', () => {
     } finally {
       await client.close();
       await server.close();
+    }
+  });
+
+  it('gives a server started without env the temp location its parent uses', () => {
+    const saved = { TMPDIR: process.env.TMPDIR, MAC_CHROMIUM_TMPDIR: process.env.MAC_CHROMIUM_TMPDIR };
+    process.env.TMPDIR = '/repo/.octocode/tmp/t/run';
+    process.env.MAC_CHROMIUM_TMPDIR = '/repo/.octocode/tmp/t/run';
+    try {
+      const env = childEnvironment();
+      expect(env.TMPDIR).toBe(process.env.TMPDIR);
+      expect(env.MAC_CHROMIUM_TMPDIR).toBe(process.env.MAC_CHROMIUM_TMPDIR);
+      expect(env.PATH).toBe(process.env.PATH);
+      // An env the caller states is the child's whole environment.
+      expect(childEnvironment({ ONLY: '1' })).toEqual({ ONLY: '1' });
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
     }
   });
 

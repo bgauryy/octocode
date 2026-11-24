@@ -34,7 +34,7 @@ Required, under these names: `## Summary`, `## Features`, `## Proposed design`, 
 
 ## Saved report
 
-Save at `<workspace>/.octocode/octocode-rfc-generator/<YYYY-MM-DD>-<slug>/RFC.md`; `<workspace>` is the project root (repository root, else current directory), never inside an existing `.octocode/`. A user-named path wins (including the repository's RFC folder); a scratch folder like `.octocode/tmp/` does not. Scratch notes and long requests go to `<workspace>/.octocode/octocode-rfc-generator/tmp/`. One file: no companion `PLAN.md`, `KPI.md`, `PREREQUISITES.md`, `IMPLEMENTATION.md` or `RESOURCES.md`.
+Save at `<workspace>/.octocode/octocode-rfc-generator/<YYYY-MM-DD>-<slug>/RFC.md`; `<workspace>` is the project root (repository root, else current directory), never inside an existing `.octocode/`. A user-named path wins (including the repository's RFC folder); a scratch folder like `.octocode/tmp/` does not. Scratch notes and long requests go to `<workspace>/.octocode/tmp/octocode-rfc-generator/`. One file: no companion `PLAN.md`, `KPI.md`, `PREREQUISITES.md`, `IMPLEMENTATION.md` or `RESOURCES.md`.
 
 The file starts with the [shared header](references/report-output.md#report-header), then the `#` title, a lead paragraph stating the answer, and the sections. Before replying, run `node <skill-folder>/scripts/rfc-trace.mjs <RFC.md>` and resolve or report each finding ([trace](references/checklist.md#trace)). Accepted `status` values: `Proposed`, `Accepted`, `Implemented`, `Rejected`, `Superseded`.
 `Implemented` means built and verified, with `next` naming any eval still owed; a `Superseded` lead names the replacement.

@@ -89,8 +89,8 @@ async fn materialize_skips_binary_files_and_stays_complete() {
 
 /// A materialize bounded by `maxDepth` lists folders it does not write:
 /// `location.skipped` names each (`<path>/`), the row is partial
-/// (`materializeDepth`) and `expandDepth` writes them; no count-only warning
-/// restates it.
+/// (`materializeDepth`, stated once: `location.coverage` does not repeat it)
+/// and `expandDepth` writes them; no count-only warning restates it.
 #[tokio::test]
 async fn a_depth_bounded_materialize_names_its_unwritten_folders() {
     let server = MockServer::builder().start().await;
@@ -131,8 +131,8 @@ async fn a_depth_bounded_materialize_names_its_unwritten_folders() {
         .unwrap_or_default();
     skipped.sort_by_key(ToString::to_string);
     assert_eq!(skipped, [json!("docs/"), json!("router/")], "{}", out.data);
-    assert_eq!(
-        out.data["location"]["coverage"]["state"], "partial",
+    assert!(
+        out.data["location"].get("coverage").is_none(),
         "{}",
         out.data
     );
@@ -233,12 +233,18 @@ async fn a_materialize_of_a_walk_with_a_failed_subtree_is_not_complete() {
     )
     .await
     .expect("materialize");
-    assert_eq!(
-        out.data["location"]["coverage"]["state"], "partial",
+    // `partialReasons` states the partial checkout once.
+    assert!(
+        out.data["location"].get("coverage").is_none(),
         "{}",
         out.data
     );
-    assert_eq!(out.data["isPartial"], true, "{}", out.data);
+    assert_eq!(
+        out.data["partialReasons"],
+        json!(["partialTreeFailures"]),
+        "{}",
+        out.data
+    );
 }
 
 /// Out of time, a materialize keeps what it wrote and resumes from the entry
@@ -490,8 +496,15 @@ async fn materialize_reports_files_it_did_not_write() {
         std::fs::read_to_string(local.join("util.rs")).expect("written file"),
         "fn u(){}"
     );
+    // `partialReasons` states the partial checkout once.
+    assert!(
+        out.data["location"].get("coverage").is_none(),
+        "{}",
+        out.data
+    );
     assert_eq!(
-        out.data["location"]["coverage"]["state"], "partial",
+        out.data["partialReasons"],
+        json!(["materializeIncomplete"]),
         "{}",
         out.data
     );

@@ -6,7 +6,7 @@ Connect the current host to agents sharing one local SQLite database. Agents own
 
 ## Install and inspect
 
-1. Identify the actual host, workspace, existing MCP binding and hooks. Vendor names are `codex`, `claude`, `cursor` and `octocode`. Octocode here means the coding agent, not the research CLI. An executable named `agent` alone does not identify Cursor.
+1. Identify the actual host, workspace, existing MCP binding and hooks. Vendor names are `codex`, `claude`, `cursor`, `grok` and `octocode`; Pi binds through the package's `pi-inbox` extension, not hooks. Octocode here means the coding agent, not the research CLI. An executable named `agent` alone does not identify Cursor.
 2. Reuse a working package at a stable path. If absent, use Node.js `^24.15.0` and `npm install --global @octocodeai/octocode-agents-communication`. Verify `octocode-agents-communication /cli --help`. Permanent hooks must not point into an ephemeral `npx` cache.
 3. Run `octocode-agents-communication /cli skill --json`. Read its `instructions`; resolve `HOST_SETUP.md` and `INSTALLATION.md` under its absolute `referenceRoot`. These installed guides own version-specific setup. Check `schema host-config` before choosing a preset; report an unsupported installed version.
 4. Reuse the shared database. Default: `<OCTOCODE_HOME or ~/.octocode>/agents-communication/communication.sqlite`. Linked worktrees use the same file. Check `db info --json --workspace PATH [--database FILE]` through `/cli`. An absent database is created at first binding. For incompatible databases follow [Requirements and recovery](coordination.md#requirements-and-recovery).
@@ -27,6 +27,7 @@ Read the preview's `settings` and `removed`: `--replace` must match only this in
 | Codex | `.codex/hooks.json` | `/hooks`; trusted project, hooks enabled |
 | Claude Code | `.claude/settings.local.json` | `/hooks`; restart/resume |
 | Cursor | `.cursor/hooks.json` | Preserve `version:1`; reload and inspect hook diagnostics |
+| Grok Build | `.grok/hooks/communication.json` | From the Git project root, `grok inspect --json`: `projectRoot`, `projectTrusted`, loaded hooks |
 | Octocode coding agent | `.octocode/hooks.json` | `/trust` if needed, `/reload`, `/harness hooks` |
 
 Octocode also imports Claude/Codex hooks. Disable duplicate imported **communication handlers** in its `/harness hooks` before enabling the native preset; retain unrelated hooks. Current Octocode uses native hooks and MCP, not Pi code extensions.

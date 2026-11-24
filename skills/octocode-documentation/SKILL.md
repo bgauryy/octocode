@@ -5,7 +5,7 @@ description: "Load this skill first when asked to write, shorten or review a REA
 
 # Octocode Documentation
 
-Read the requested page and nearby conventions; identify the reader, their next action and the destination. A named document authorizes editing there; a review returns findings. Resolve missing information only when it changes the content or destination.
+Read the requested page and nearby conventions; identify the reader, their next action and the destination. A named document authorizes editing there; a review returns findings (location, issue, correction, severity, verified). Resolve missing information only when it changes the content or destination.
 
 ## Writing rules
 
@@ -17,7 +17,7 @@ Follow user instructions, project style, local convention, then this skill. Pres
 | Drafting steps | Put prerequisites first and give the result the reader sees after each consequential step. |
 | Editing wording or repetition | Use the [style guide](references/style-guide.md) for disputed wording. Give each rule one home and link to it where readers need it. |
 | Comparing choices or explaining a branch | Use the [format chooser](references/report-output.md#choose-the-format). |
-| Before delivery | Run the [doc check](#check-before-delivery) and the project's own docs lint, if it has one. Verify changed examples and commands where safe and authorized, otherwise inspect their source. Identify which checks ran. |
+| Before delivery | Run the [doc check](#check-before-delivery) and the project's own docs lint, if it has one. Verify changed examples and commands where safe and authorized, otherwise inspect their source. |
 
 Before removing text, check whether the reader can still choose the next action, find each rule and recognize success. Test a consequential line literally: what can fail if followed? Verify that risk against its source.
 
@@ -37,11 +37,11 @@ node <skill-folder>/scripts/doc-check.mjs <docs-root> --renamed '<file.md>#<old 
 
 | Result | Action |
 |---|---|
-| Exit 0, `ok: true` | No mechanical finding; report the checks that ran. |
+| Exit 0, `ok: true` | No mechanical finding. |
 | `brokenLinks`, `missingAnchors` | Fix each entry; `suggestion` names the anchor a fragment was probably meant to be. |
 | `missingCommands` | Fix the path or script name, unless the command runs the reader's own file (such as `app.mjs`) or a folder the text names. |
 | `staleInboundAnchors` | An entry without `written: true` still needs its `link` replaced by `replacement`; `replacementOk: false` means the renamed heading or file does not exist yet. |
 | `headingIssues`, `wordListHits`, `styleIssues` | Judge each in context with `wordGuidance` and `styleGuidance`; keep names and quoted examples as written. |
 | Exit 2 | Fix the arguments the error names; `--help` lists the options. |
 
-Deliver the document or findings with stable source anchors, checks run and unverified items. Use [output.md](output.md) for saved reports and [render-report.mjs](scripts/render-report.mjs) to render them. Use `octocode-research` for unresolved code claims, `octocode-rfc-generator` for open decisions and `octocode-skills` for skill instructions and packaging.
+Deliver the document or findings. Cite stable source anchors; name the checks run and unverified items. Save reports per [output.md](output.md); render them with [render-report.mjs](scripts/render-report.mjs). Use `octocode-research` for unresolved code claims, `octocode-rfc-generator` for open decisions and `octocode-skills` for skill instructions and packaging.

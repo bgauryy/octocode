@@ -28,9 +28,12 @@ pub(super) struct Target<'a> {
     pub asked_version: Option<&'a str>,
     /// Counted advisories no release of the version's own major fixes.
     pub unfixed_in_major: usize,
-    /// The operation gives a verdict (`affected`): a row without one keeps
-    /// its `answer`, which says why.
-    pub gives_verdict: bool,
+    /// A package row's answer clause by clause: the summary states the
+    /// clauses no field of its row states, and no `answer` when its fields
+    /// state every one. `None`: a row that gives no verdict (a
+    /// repository's), whose count is of its own records and only its
+    /// sentence says so, keeps its sentence.
+    pub answer: Option<&'a super::answer::Answer>,
     /// `upgradeTo` is a prerelease of a stable version: the note that says
     /// no stable release clears the advisories stays.
     pub upgrade_prerelease: bool,
@@ -96,27 +99,9 @@ fn summary(row: Value, target: Target<'_>) -> Value {
     {
         indication(&mut lean, listed, target.unfixed_in_major);
     }
-    // The sentence stays where no field says what it does: a row that owes a
-    // verdict and gives none, a verdict of none known (a count of 0 proves
-    // nothing, and only the sentence says so), one with no finished list,
-    // and a row that owes no verdict (a repository's or a commit's), whose
-    // count is of its own records only: without the sentence its
-    // `advisoryCount` reads as the package's.
-    let none_counted = lean.get("advisoryCount").and_then(Value::as_u64) == Some(0);
-    let no_verdict = !target.gives_verdict
-        || lean.get("affected").is_none()
-        || fields.get("advisories").is_none()
-        || (lean.get("affected") == Some(&Value::Bool(false)) && none_counted);
     let echoes = |field: &str, asked: Option<&str>, fields: &Map<String, Value>| {
         asked.is_some() && fields.get(field).and_then(Value::as_str) == asked
     };
-    let explains_leads = fields
-        .get("answer")
-        .and_then(Value::as_str)
-        .is_some_and(super::answer::explains_pinned_checks);
-    if !no_verdict && !explains_leads {
-        fields.shift_remove("answer");
-    }
     if echoes("packageName", target.asked_name, &fields) {
         fields.shift_remove("packageName");
     }
@@ -150,6 +135,26 @@ fn summary(row: Value, target: Target<'_>) -> Value {
     }
     let sources = fields.shift_remove("sources");
     let related = fields.shift_remove("related");
+    // The sentence keeps what no field of the summary row says, in its
+    // place.
+    let sentence = target.answer.map(|answer| {
+        let mut stated = lean.clone();
+        stated.extend(
+            fields
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone())),
+        );
+        answer.unstated(&stated)
+    });
+    match sentence {
+        Some(Some(sentence)) => {
+            fields.insert("answer".to_owned(), json!(sentence));
+        }
+        Some(None) => {
+            fields.shift_remove("answer");
+        }
+        None => {}
+    }
     lean.extend(fields);
     if let Some(failed) = sources.as_ref().and_then(failed_sources) {
         lean.insert("sources".to_owned(), failed);
@@ -219,7 +224,19 @@ fn indication(lean: &mut Map<String, Value>, listed: &[Value], unfixed_in_major:
     if unfixed_in_major > 0 {
         lean.insert("unfixedInMajorCount".to_owned(), json!(unfixed_in_major));
     }
-    if let Some(link) = worst.get("link").or_else(|| worst.get("source")) {
+    // The OSV page of the first advisory is its id's: the output description
+    // states that form once.
+    let derivable = match (
+        lean.get("advisories").and_then(|rows| rows.get(0)),
+        worst.get("link").and_then(Value::as_str),
+    ) {
+        (Some(first), Some(link)) => first
+            .get("id")
+            .and_then(Value::as_str)
+            .is_some_and(|id| super::record::is_derivable_link(id, link)),
+        _ => false,
+    };
+    if !derivable && let Some(link) = worst.get("link").or_else(|| worst.get("source")) {
         lean.insert("link".to_owned(), link.clone());
     }
 }

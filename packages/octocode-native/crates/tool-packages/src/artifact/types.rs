@@ -401,6 +401,9 @@ pub struct ArtifactError {
 
 /// The recovery of a version a known package does not publish.
 const VERSION_NOT_FOUND_HINT: &str = "Version not found: check the registry and manifest/lockfile version; discover published versions before choosing another version.";
+/// The recovery of a version a known package does not publish, when the
+/// repair already reads its nearest published versions.
+const NEAREST_VERSIONS_HINT: &str = "Correct version: the package resolves.";
 
 impl ArtifactError {
     pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
@@ -432,6 +435,15 @@ impl ArtifactError {
     /// that call is the recovery, so the hint to discover them goes.
     pub(crate) fn drop_version_hint(&mut self) {
         self.hints.retain(|hint| hint != VERSION_NOT_FOUND_HINT);
+    }
+
+    /// [`Self::drop_version_hint`] for a row that gets the shared recovery
+    /// of its code when it carries no hint (artifactSearch's, which says
+    /// to respell `packageName`): the one hint left names the field to
+    /// correct.
+    pub(crate) fn point_at_version(&mut self) {
+        self.drop_version_hint();
+        self.hints.push(NEAREST_VERSIONS_HINT.to_owned());
     }
 
     pub fn with_status(mut self, status: u16) -> Self {

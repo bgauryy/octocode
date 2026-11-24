@@ -4,22 +4,33 @@
 //! such a page reads npm's widest window and keeps its matching rows, and
 //! reads on while a window holds none: a page is empty only where the
 //! search ends.
-use super::registry::trim_registry;
+use super::registry::{package_page, trim_registry};
 use crate::artifact::http::{DnsPin, JSON, RegistryClient};
 use crate::artifact::query::artifact_search_query;
-use crate::artifact::util::{
-    encode_component, endpoint, invalid, object_for, required, safe_url, string, total,
-};
+use crate::artifact::util::{endpoint, invalid, object_for, required, safe_url, string, total};
 use crate::artifact::{
     ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ResolvedNpmRegistry,
     TerminalLimit,
 };
 use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
+use octocode_engine::num::saturating_usize;
 use serde_json::Value;
 
 /// The widest window npm's search serves in one request (its documented
 /// `size` maximum: <https://github.com/npm/registry/blob/main/docs/REGISTRY-API.md#get-v1search>).
 const NPM_SEARCH_WINDOW: usize = 250;
+
+/// npm search serves `from` up to 5,000; a deeper `from` answers with the
+/// first rows again (registry.npmjs.org, measured 2026-10-15).
+const NPM_MAX_FROM: u64 = 5_000;
+
+/// The rows npm search serves: windows start at a `from` up to
+/// [`NPM_MAX_FROM`] and hold up to [`NPM_SEARCH_WINDOW`] rows, so a page
+/// starting past [`NPM_MAX_FROM`] is read from the window starting there
+/// (measured 2026-11-24: `from=5000&size=250` serves rows 5,001-5,250, the
+/// rows `from=4999` serves one later). Every walk, one keyword or several,
+/// at any `limit`, reaches these rows.
+pub(in crate::artifact) const NPM_REACHABLE_END: u64 = NPM_MAX_FROM + NPM_SEARCH_WINDOW as u64;
 
 pub(super) async fn search(
     query: &ArtifactSearchQuery,
@@ -29,14 +40,9 @@ pub(super) async fn search(
     dns_pin: Option<DnsPin>,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
     // An ANDed walk resumes at the npm row after the last one it showed,
-    // which its continuation carries (`registryCursor`); a page asked by
-    // number starts where pages of `limit` rows tile.
-    let mut offset = state
-        .token
-        .as_deref()
-        .and_then(|token| token.parse::<u64>().ok())
-        .or(state.offset)
-        .unwrap_or(0);
+    // which its continuation carries (`registryCursor`, the page state's
+    // offset); a page asked by number starts where pages of `limit` rows tile.
+    let mut offset = state.offset.unwrap_or(0);
     let size = artifact_search_query::page_size(query);
     let terms = artifact_search_query::keyword_list(query);
     let anded = terms.len() > 1;
@@ -47,17 +53,25 @@ pub(super) async fn search(
         // npm's own rows match any one keyword, so an ANDed page reads the
         // widest window and fills from its matching rows: a walk to the end
         // costs one request per npm window, not one per `limit` rows.
-        let (total_found, objects) =
-            window(offset, if anded { NPM_SEARCH_WINDOW } else { size }).await?;
+        // A page starting past npm's deepest `from` is read from the window
+        // starting there, its earlier rows skipped.
+        let from = offset.min(NPM_MAX_FROM);
+        let skip = saturating_usize(offset - from);
+        let width = if anded {
+            NPM_SEARCH_WINDOW
+        } else {
+            skip.saturating_add(size).min(NPM_SEARCH_WINDOW)
+        };
+        let (total_found, objects) = window(from, width).await?;
         // npm serves a deep window from an undocumented reach on and answers a
-        // `from` past it with earlier rows instead of an error. The page is its
-        // own rows only when the two rows ending just before it are the row
-        // before its first and its first: a restarted or clamped window fails
-        // that either way.
-        if offset > 0
+        // `from` past it with earlier rows instead of an error. The window is
+        // its own rows only when the two rows ending just before it are the
+        // row before its first and its first: a restarted or clamped window
+        // fails that either way.
+        if from > 0
             && let Some(first) = objects.first()
         {
-            let (_, probe) = window(offset - 1, 2).await?;
+            let (_, probe) = window(from - 1, 2).await?;
             let name = |entry: Option<&Value>| {
                 entry
                     .and_then(|entry| entry.pointer("/package/name"))
@@ -83,7 +97,7 @@ pub(super) async fn search(
         // row that fills it, so the next page starts at the row after it and no
         // matching row is skipped.
         let mut read = 0_u64;
-        for entry in &objects {
+        for entry in objects.iter().skip(skip) {
             if artifacts.len() == size {
                 break;
             }
@@ -108,11 +122,7 @@ pub(super) async fn search(
             let mut artifact = ArtifactItem::new(
                 ArtifactType::Npm,
                 name.clone(),
-                format!(
-                    "{}/{}",
-                    trim_registry(&registry.base),
-                    encode_component(&name)
-                ),
+                package_page(registry, &name),
             );
             artifact.version = string(package.get("version")).filter(|value| value != "unknown");
             artifact.downloads_monthly =
@@ -132,18 +142,22 @@ pub(super) async fn search(
         // rows matching one term of several: only rows holding every term are
         // kept. Paging stays on npm's raw rows, and npm's total, which counts
         // one-term rows, is not the count of these.
-        let has_more = offset.saturating_add(read) < total_found;
+        let next = offset + read;
+        let has_more = next < total_found;
+        // An ANDed walk's rows end at npm's reach, not at a page start: the
+        // page that reads npm's last served row ends the walk there.
+        let past_reach = anded && next >= NPM_REACHABLE_END;
         // A window with no row holding every term is no page of this search:
         // the page reads on, so it is empty only where npm's rows end (their
         // total, or the reach the check above finds).
-        if artifacts.is_empty() && has_more && read > 0 {
-            offset += read;
+        if artifacts.is_empty() && has_more && read > 0 && !past_reach {
+            offset = next;
             continue;
         }
-        let terminal_limit = (has_more && read == 0).then(|| unreachable_rows(offset, total_found));
-        let next = offset + read;
+        let terminal_limit =
+            (has_more && (read == 0 || past_reach)).then(|| unreachable_rows(next, total_found));
         return Ok(ArtifactProviderPage {
-            next_state: (has_more && read > 0).then(|| ArtifactProviderState {
+            next_state: (has_more && read > 0 && !past_reach).then(|| ArtifactProviderState {
                 offset: Some(next),
                 token: anded.then(|| next.to_string()),
                 ..Default::default()

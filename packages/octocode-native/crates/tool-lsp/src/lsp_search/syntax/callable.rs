@@ -63,7 +63,7 @@ pub(in super::super) fn non_callable(query: &LspSearchQuery, path: &str) -> Opti
     let mut row = failure::empty(
         query,
         "notCallable",
-        &reason(operation, wire_kind(&anchored.kind)),
+        Some(&reason(operation, wire_kind(&anchored.kind))),
         false,
     );
     row["kind"] = json!(wire_kind(&anchored.kind));

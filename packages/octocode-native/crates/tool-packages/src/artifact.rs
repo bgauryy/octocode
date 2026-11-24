@@ -162,7 +162,8 @@ pub async fn execute_artifact(
 /// The provider position of the saved private `page`: an item offset for
 /// offset-addressed registries, the page itself for page-addressed ones.
 /// Every page starts at `(page - 1) * policy page size`, so consecutive pages tile
-/// the result list without gaps.
+/// the result list without gaps; an ANDed npm page starts at the npm row its
+/// `registryCursor` names, since its pages consume npm rows unevenly.
 /// A token-paged registry's saved state also carries `registryCursor`, the
 /// registry token that starts it (the contract bounds its length).
 fn page_state(query: &ArtifactSearchQuery) -> ArtifactProviderState {
@@ -177,6 +178,17 @@ fn page_state(query: &ArtifactSearchQuery) -> ArtifactProviderState {
                 ..Default::default()
             }
         }
+        // An ANDed npm walk's token is the npm row its page starts at.
+        ArtifactType::Npm => ArtifactProviderState {
+            offset: Some(
+                token
+                    .as_deref()
+                    .and_then(|token| token.parse::<u64>().ok())
+                    .unwrap_or_else(|| page.saturating_sub(1).saturating_mul(size)),
+            ),
+            token,
+            ..Default::default()
+        },
         _ => ArtifactProviderState {
             offset: Some(page.saturating_sub(1).saturating_mul(size)),
             token,
@@ -190,17 +202,22 @@ fn page_state(query: &ArtifactSearchQuery) -> ArtifactProviderState {
 /// A next-page lead names only a page this admits.
 pub fn page_out_of_range(query: &ArtifactSearchQuery) -> Option<TerminalLimit> {
     let artifact_type = artifact_search_query::artifact_type(query);
-    validate_cursor_state(
+    let page = artifact_search_query::page(query);
+    let warning = match crossed_bound(
         artifact_type,
         &page_state(query),
         artifact_search_query::page_size(query),
-    )
-    .err()?;
-    Some(TerminalLimit::result_cap(format!(
-        "page {} starts past result {}, the deepest {artifact_type} search pages.",
-        artifact_search_query::page(query),
-        max_start_offset(artifact_type)
-    )))
+    )? {
+        CrossedBound::Page(max_page) => {
+            format!(
+                "page {page} is past page {max_page}, the last page {artifact_type} search serves."
+            )
+        }
+        CrossedBound::Start(max_start) => format!(
+            "page {page} starts past result {max_start}, the deepest {artifact_type} search pages."
+        ),
+    };
+    Some(TerminalLimit::result_cap(warning))
 }
 
 /// The deepest result a registry without its own entry in [`reach`] serves:
@@ -209,12 +226,9 @@ pub fn page_out_of_range(query: &ArtifactSearchQuery) -> Option<TerminalLimit> {
 /// past it fails loudly rather than serving a wrong page labeled as final
 /// data. A page number is bounded only by the row it starts at.
 const MAX_CURSOR_OFFSET: u64 = 10_000;
-/// npm search serves `from` up to 5,000; a deeper `from` answers with the
-/// first rows again (registry.npmjs.org, measured 2026-10-15).
-const NPM_MAX_FROM: u64 = 5_000;
 
-/// How deep a registry's discovery results reach: the one table both
-/// page bounds derive from.
+/// How deep a registry's discovery results reach: the one table every
+/// page bound derives from.
 struct Reach {
     /// The deepest result position a discovery page may start at.
     max_start: u64,
@@ -222,6 +236,9 @@ struct Reach {
     /// its results there rather than at a page's start; `None` when only
     /// the start of a page is bounded.
     end: Option<u64>,
+    /// The highest page number a page-addressed registry serves, whatever
+    /// the page size; `None` when only result positions bound its pages.
+    max_page: Option<u64>,
 }
 
 impl Reach {
@@ -231,6 +248,16 @@ impl Reach {
         Self {
             max_start: end - 1,
             end: Some(end),
+            max_page: None,
+        }
+    }
+
+    /// The same reach on a registry that also serves no page number past
+    /// `max_page`, whatever the page size.
+    const fn through_page(self, max_page: u64) -> Self {
+        Self {
+            max_page: Some(max_page),
+            ..self
         }
     }
 
@@ -238,25 +265,22 @@ impl Reach {
         Self {
             max_start,
             end: None,
+            max_page: None,
         }
     }
 }
 
 fn reach(artifact_type: ArtifactType) -> Reach {
     match artifact_type {
-        ArtifactType::Npm => Reach::starting_at_most(NPM_MAX_FROM),
-        ArtifactType::Crates => Reach::ending_at(crates::CRATES_RELEVANCE_LIMIT),
+        ArtifactType::Npm => Reach::ending_at(npm::NPM_REACHABLE_END),
+        ArtifactType::Crates => {
+            Reach::ending_at(crates::CRATES_RELEVANCE_LIMIT).through_page(crates::CRATES_MAX_PAGE)
+        }
         ArtifactType::Maven => Reach::ending_at(maven::REACHABLE_END),
         ArtifactType::Nuget => Reach::ending_at(nuget::REACHABLE_END),
         ArtifactType::Go => Reach::ending_at(go::GO_SEARCH_CAP),
         _ => Reach::starting_at_most(MAX_CURSOR_OFFSET),
     }
-}
-
-/// The deepest result position a discovery page of `artifact_type` may
-/// start at.
-fn max_start_offset(artifact_type: ArtifactType) -> u64 {
-    reach(artifact_type).max_start
 }
 
 /// The result position a discovery of `artifact_type` reaches no row past
@@ -278,13 +302,38 @@ fn page_start(state: &ArtifactProviderState, page_size: usize) -> u64 {
     })
 }
 
+/// The registry bound a page of `page_size` rows at `state` crosses: its
+/// page number past the registry's page cap, or its start past the deepest
+/// result position; `None` when the registry serves it.
+fn crossed_bound(
+    artifact_type: ArtifactType,
+    state: &ArtifactProviderState,
+    page_size: usize,
+) -> Option<CrossedBound> {
+    let reach = reach(artifact_type);
+    if let (Some(page), Some(max_page)) = (state.page, reach.max_page)
+        && page > max_page
+    {
+        return Some(CrossedBound::Page(max_page));
+    }
+    (page_start(state, page_size) > reach.max_start).then_some(CrossedBound::Start(reach.max_start))
+}
+
+/// Which of a registry's [`Reach`] bounds a page crosses.
+enum CrossedBound {
+    /// The page number is past the registry's page cap.
+    Page(u64),
+    /// The page starts past the deepest result position.
+    Start(u64),
+}
+
 fn validate_cursor_state(
     artifact_type: ArtifactType,
     state: &ArtifactProviderState,
     page_size: usize,
 ) -> Result<(), ArtifactError> {
     let out_of_range =
-        page_start(state, page_size) > max_start_offset(artifact_type) || state.page == Some(0);
+        crossed_bound(artifact_type, state, page_size).is_some() || state.page == Some(0);
     if out_of_range {
         return Err(ArtifactError::new(
             ErrorCode::InvalidInput,

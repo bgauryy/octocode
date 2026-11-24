@@ -8,14 +8,15 @@ For [thinking together](../output.md#think-together):
 
 - The user's view first, including what they already ruled out.
 - Refine each user idea before adding yours: its strongest form, riskiest assumption, cheapest test.
-- Generate your own options per lens before reading search results, so the results do not anchor you; label them as yours.
+- Generate your own options in [independent passes](../SKILL.md#steps) before reading search results, so neither the results nor your first ideas anchor the rest; label them as yours.
+- To challenge a view, the user's or yours, name one or two specific ways it could be wrong. Demanding many reasons that are hard to find entrenches the first view ([evidence](method-evidence.md#consider-the-opposite)).
 - Diverge, then converge: options without judging, then merge, cut, and rank against the user's criteria.
 - Say what is still unknown.
 
 ## Decompose, then recompose
 
-- Split into sub-questions that together decide it, each answerable alone and naming its settling evidence; mark each known, assumed, or to research.
-- Right sub-answers can compose wrongly: in step 8, check that each part's conditions (scale, version, workload) hold together before recommending the whole.
+- Split into sub-questions that together decide it, each answerable alone and naming its settling evidence; mark each known, assumed, or to research. The [research tree](../SKILL.md#steps) (step 4) holds them as plan rows.
+- Right sub-answers can compose wrongly: in step 9, check that each part's conditions (scale, version, workload) hold together before recommending the whole.
 
 ## Hypotheses before targeted search
 
@@ -23,7 +24,8 @@ After diverging and before targeted search, record for each option the claim, it
 
 - A hypothesis nothing could refute is a framing: sharpen or drop it.
 - Seek evidence likely under one hypothesis and unlikely under the others; evidence fitting all is context. Try to refute the leading one first.
-- Unknown space: one exploratory pass, then hypotheses. Test generated ideas, yours included, for feasibility.
+- Unknown space: one exploratory pass, then hypotheses. Test generated ideas, yours included, for feasibility: model ideas tend to be judged more novel and less feasible than experts' ([evidence](method-evidence.md#self-evaluation)).
+- Diagnosticity is a check on evidence, not a debiasing procedure: do not build a full competing-hypotheses matrix for that; searching against each claim does the debiasing ([evidence](method-evidence.md#competing-hypotheses)).
 
 ## Thinking lenses
 
@@ -63,6 +65,11 @@ Try to break every deciding claim before relying on it, the leading option's fir
 - Resolve disagreement with distinguishing evidence, not a majority vote; debate only when the [gate](#debate-when-and-how) holds.
 - Critics never gathered the evidence they check; they check evidence, not agreement.
 - Weigh by the author's stake: vendors, method authors, and advocates show a claim exists, not that it is true.
+- When the host offers another model, use it for a critic or diverger; the gain is a cheap test, not proven ([evidence](method-evidence.md#model-heterogeneity)).
+
+## Your own judgment is not evidence
+
+Your rating of an option, a worker's self-assessment and a critic's agreement are not evidence: without outside feedback, a model's self-correction of reasoning fails and its ranking of its own ideas is unreliable ([evidence](method-evidence.md#self-evaluation)). Rank and revise options by verified ledger rows. A self-review may improve wording; it never settles a claim.
 
 ## Judging without bias
 
@@ -97,10 +104,10 @@ Source-level checks (opened, quote, date, owner, primary, independence) are the 
 | Diagnosticity | Likelier under one hypothesis? If not, it decides nothing. |
 | Counterevidence | What cuts against it, and which is stronger? |
 
-For costly or irreversible choices, ask what would make the proposal fail, what happens afterward, and what contains the harm. A reversible experiment preserves options; a premortem alone proves nothing.
+For costly or irreversible choices, run a premortem: state the failure as certain ("a year on, this failed"), list its causes, and turn each into a check or a disconfirming query. Its reasons are hypotheses, not evidence ([evidence](method-evidence.md#premortem)). Then ask what happens afterward and what contains the harm. A reversible experiment preserves options.
 
 ## Debate: when and how
 
-Debate only when one contested conclusion decides the recommendation, verified evidence supports both sides, and both agree on a settling test. Otherwise gather the missing evidence or report the gap. Write a falsifiable resolution and its settling evidence, then use the [debater and judge briefs](briefs.md#debater-brief).
+Debate does not reliably beat cheaper single-agent methods ([evidence](method-evidence.md#debate)). Debate only when one contested conclusion decides the recommendation, verified evidence supports both sides, and both agree on a settling test. Otherwise gather the missing evidence or report the gap. Write a falsifiable resolution and its settling evidence, then use the [debater and judge briefs](briefs.md#debater-brief).
 
-Next: [briefs](briefs.md); report per [output](../output.md).
+Next: [briefs](briefs.md); report per [output](../output.md). Sources for these rules: [method evidence](method-evidence.md).

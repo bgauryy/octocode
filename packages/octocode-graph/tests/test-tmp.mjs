@@ -1,17 +1,43 @@
-// Temporary directories for script tests: each one is removed when the test process exits, pass or fail.
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+// Temporary directories for script tests, in the repository's scratch space: <repo>/.octocode/tmp/tests/octocode-graph/
+// holds one folder per test process (named by its pid). The folder is removed when the process exits, pass or fail,
+// and on SIGINT, SIGTERM or SIGHUP; one left by a killed process is removed by the next test process that starts.
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const made = new Set();
-process.on('exit', () => {
-  for (const dir of made) rmSync(dir, { recursive: true, force: true });
-});
+const ROOT = fileURLToPath(new URL('../../../.octocode/tmp/tests/octocode-graph/', import.meta.url));
+
+const alive = pid => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === 'EPERM';
+  }
+};
+
+let own;
+function processDir() {
+  if (own) return own;
+  mkdirSync(ROOT, { recursive: true });
+  for (const name of readdirSync(ROOT)) {
+    const pid = Number(name.split('-')[0]);
+    if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && !alive(pid)) rmSync(join(ROOT, name), { recursive: true, force: true });
+  }
+  own = mkdtempSync(join(ROOT, `${process.pid}-`));
+  const remove = () => rmSync(own, { recursive: true, force: true });
+  process.on('exit', remove);
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+    process.once(signal, () => {
+      remove();
+      process.kill(process.pid, signal);
+    });
+  }
+  return own;
+}
 
 export function tempDir(prefix) {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
-  made.add(dir);
-  return dir;
+  return mkdtempSync(join(processDir(), prefix));
 }
 
 // Source for the fake CLI scripts. They advertise themselves so tests exercise binary pinning as well.

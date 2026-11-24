@@ -11,10 +11,10 @@ Cite only a validated source. A source is validated for a claim when every check
 | Opened | You or a worker read the page or file itself. A search snippet, an AI search answer or its citation list is a lead only. |
 | Quote verified | Its ledger row is `verified`, or `verified-manual` after a read the script could not do. A row with `via` was read from an Exa or Tavily copy of the same URL, often cached: check its date like any other. |
 | Quote supports the claim | The quote says what the claim says, with nothing added. The verifier checks that the quote is on the page, not what it means. |
-| Exact page | The cited URL is the page read: abstract and full text, or two versions of a page, are separate sources. For versioned docs, cite the version the user runs (`/docs/16/`, not `/docs/current/`, which moves). |
+| Exact page | The cited URL is the page read: abstract and full text, or two versions of a page, are separate sources. For versioned docs, cite the version the user runs (`/docs/16/`, not `/docs/current/`, which moves); for GitHub, a permalink at a commit (`/blob/<sha>/`), not `/blob/main/`. |
 | Date | Inside the question's window, read from the page, not from the search row: run the verifier with `--since`/`--until` and read each claim's `dateInWindow` (`yes`, `no`, `unknown`) beside its `published` and `modified`. `unknown` means no usable date: check it by hand or label the date unverified. The verifier ignores the server's Last-Modified header (a deploy time) and falls back to a dated sentence in the text (`textDate`, such as "Last tested on …"); a timestamp that two or more pages of one site share in the run is marked `publishedFrom: "site-build"` and ignored. One page cited alone cannot show that its meta date is a build stamp, so read the date printed on the page before relying on it. `dateWindow` totals `yes`, `no` and `unknown`. |
-| Who is behind it | Owner, funding, and whether it sells what it praises, checked on other pages. A stake needs independent support. |
-| Primary | The original study, spec, release, dataset or incident report. Otherwise label it `secondary` and lower confidence. |
+| Who is behind it | Owner, funding, and whether it sells what it praises, checked on other pages. Authors measuring their own method also have a stake. A stake needs independent support. |
+| Primary | The original study, spec, release, dataset or incident report. Otherwise label it `secondary` and lower confidence. Trace a finding a summary attributes to a study back to that study and cite what the study found: a summary can claim more than the study showed ([example](method-evidence.md#premortem)). |
 | Independent | Not a syndicated copy, mirror or rewrite of a source already counted. The verifier marks rows citing one page under different URLs with `sameSourceAs` and gives each claim `distinctSources`; a rewrite on another site stays your judgment. |
 
 ## Run the verifier
@@ -36,7 +36,7 @@ Several ledgers (one per worker) verify in one run with repeated `--ledger`: the
 
 The orchestrator owns downloads and provenance; gatherers return source URLs. Reuse existing authorization for in-scope public-source research. Ask only when the download introduces unresolved scope, spend or authority.
 
-1. Run `scripts/fetch-asset.mjs --run-dir <workspace>/.octocode/octocode-brainstorming/tmp/<run> --url <url> ...` without `--approve`: it saves nothing and prints each file's host, type, size, or refusal.
+1. Run `scripts/fetch-asset.mjs --run-dir <run> --url <url> ...` without `--approve`: it saves nothing and prints each file's host, type, size, or refusal.
 2. Inspect the plan: primary source (publisher, official docs, standards body, government or authors' repository), expected type and size, no refusal. Resolve missing authorization before continuing.
 3. Rerun with `--approve` for the authorized URLs only. Files land in `<run>/assets/` with a `manifest.jsonl` (origin URL, size, SHA-256).
 

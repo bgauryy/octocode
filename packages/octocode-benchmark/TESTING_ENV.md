@@ -78,7 +78,7 @@ through the host's real mechanism and nothing else.
 
 | Setting | Do | Why |
 |---|---|---|
-| `OCTOCODE_HOME` | a new empty directory per round (per agent when agents run in parallel) | no caches, saved plans or config from earlier runs; first-call and repeat-call costs stay separable |
+| `OCTOCODE_HOME` | a new empty directory per round (per agent when agents run in parallel) under `<repo>/.octocode/tmp/<round>/` (gitignored), such as `.octocode/tmp/<round>/home-<agent>/` | no caches, saved plans or config from earlier runs; first-call and repeat-call costs stay separable |
 | Config and `.octocoderc` | none beyond what the round states; record any env var you set (`OCTOCODE_ENABLE_LOCAL`, `OCTOCODE_ENABLE_CLONE`, `OCTOCODE_SECURITY_CHECKS`, …) | an arm's tools must match what a user would have |
 | GitHub access | one token for the round, via `GH_TOKEN` or `octocode auth login`; a fresh `OCTOCODE_HOME` has no stored login | stored credentials live in `<OCTOCODE_HOME>/credentials.json`: do not copy it into a report or share it between arms |
 | Workspace | run from a neutral directory, or the clone itself, with no `.octocode/` of your own | workspace config is read from `<cwd>/.octocode/` |
@@ -104,8 +104,8 @@ through the host's real mechanism and nothing else.
    never by name pattern.
 4. **Keep raw evidence** in `campaigns/<version>-<date>-<purpose>/` (local, gitignored) and the conclusion in
    `results/rounds/<version>-<date>-<purpose>/` ([METHOD.md](METHOD.md#record)).
-5. **Remove your scratch files**, the temporary `OCTOCODE_HOME` directories and any fixture you created. Never
-   delete a worktree with uncommitted changes.
+5. **Remove your scratch files** (everything you wrote under `.octocode/tmp/<round>/`), the temporary
+   `OCTOCODE_HOME` directories and any fixture you created. Never delete a worktree with uncommitted changes.
 
 ## When the environment is the problem
 

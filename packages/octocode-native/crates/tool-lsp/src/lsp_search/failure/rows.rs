@@ -28,18 +28,21 @@ pub(super) fn attach_text_search(value: &mut Value, query: &LspSearchQuery) {
     }
 }
 
+/// An empty row: `reason` only when it says more than `category` does.
 pub(in super::super) fn empty(
     query: &LspSearchQuery,
     category: &str,
-    reason: &str,
+    reason: Option<&str>,
     server_available: bool,
 ) -> Value {
     let mut row = json!({
         "status": "empty",
         "category": category,
-        "reason": reason,
         "lsp": { "serverAvailable": server_available },
     });
+    if let Some(reason) = reason {
+        row["reason"] = json!(reason);
+    }
     // A workspaceRoot-only query has no file: the row names none.
     if let Some(path) = lsp_search_query::path(query) {
         row["path"] = json!(path);
@@ -59,7 +62,7 @@ pub(in super::super) fn still_indexing(
         "The language server was still indexing the project when this call ended after {:.1} s; the server stays loaded, so the same query again continues from there.",
         waited.as_secs_f64()
     );
-    let mut row = empty(query, "languageServerIndexing", &reason, true);
+    let mut row = empty(query, "languageServerIndexing", Some(&reason), true);
     let reason = octocode_runtime_base::response::paging::PartialReason::LanguageServerIndexing;
     partial_with_related_rerun(&mut row, query, reason, &[]);
     row
@@ -72,9 +75,14 @@ pub(in super::super) fn still_indexing(
 /// absence.
 pub(in super::super) fn no_answer(query: &LspSearchQuery, category: &str, reason: &str) -> Value {
     if !without_project(query) {
-        return empty(query, category, reason, true);
+        return empty(query, category, Some(reason), true);
     }
-    let mut row = empty(query, &NO_PROJECT.to_string(), NO_PROJECT_REASON, true);
+    let mut row = empty(
+        query,
+        &NO_PROJECT.to_string(),
+        Some(NO_PROJECT_REASON),
+        true,
+    );
     octocode_runtime_base::response::paging::mark_partial(&mut row, NO_PROJECT, &[]);
     row
 }

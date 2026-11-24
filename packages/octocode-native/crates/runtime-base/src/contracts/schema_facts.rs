@@ -168,6 +168,52 @@ pub(crate) fn property_order<'a>(schema: &'a Value, defs: &'a Value) -> Vec<&'a 
     order
 }
 
+/// The members an object schema requires whatever form its value takes: its
+/// own `required` and each `allOf` part's, with the ones every `oneOf` or
+/// `anyOf` branch requires (structureSearch `sort` requires `by` in each of
+/// its three forms), through `$ref`s.
+pub(crate) fn always_required<'a>(schema: &'a Value, defs: &'a Value) -> Vec<&'a str> {
+    fn walk<'a>(schema: &'a Value, defs: &'a Value, open: &mut Vec<*const Value>) -> Vec<&'a str> {
+        let schema = resolve_ref(schema, defs);
+        let at = std::ptr::from_ref(schema);
+        if open.contains(&at) {
+            return Vec::new();
+        }
+        open.push(at);
+        let mut required: Vec<&str> = schema["required"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        let mut add = |names: Vec<&'a str>| {
+            for name in names {
+                if !required.contains(&name) {
+                    required.push(name);
+                }
+            }
+        };
+        for part in schema["allOf"].as_array().into_iter().flatten() {
+            add(walk(part, defs, open));
+        }
+        for key in ["oneOf", "anyOf"] {
+            let Some((first, rest)) = schema[key].as_array().and_then(|all| all.split_first())
+            else {
+                continue;
+            };
+            let others: Vec<Vec<&str>> =
+                rest.iter().map(|branch| walk(branch, defs, open)).collect();
+            add(walk(first, defs, open)
+                .into_iter()
+                .filter(|name| others.iter().all(|other| other.contains(name)))
+                .collect());
+        }
+        open.pop();
+        required
+    }
+    walk(schema, defs, &mut Vec::new())
+}
+
 /// Item schemas through references and composition branches.
 pub(crate) fn item_schemas<'a>(schema: &'a Value, defs: &'a Value) -> Vec<&'a Value> {
     members(schema, defs, |schema| schema.get("items"))

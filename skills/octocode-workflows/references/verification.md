@@ -2,7 +2,7 @@ Load when verifying workflow work, sharing coverage, resuming, recovering, or re
 
 # Verification and recovery
 
-The orchestrator is the sole ledger writer. Actors return raw observations keyed to its row; neither maintains a competing ledger nor accepts work. Reuse an existing task ledger; otherwise keep `coverage.md` at `<workspace>/.octocode/octocode-workflows/tmp/<YYYY-MM-DD>-<slug>/`.
+The orchestrator is the sole ledger writer. Actors return raw observations keyed to its row; neither maintains a competing ledger nor accepts work. Reuse an existing task ledger; otherwise keep `coverage.md` at `<workspace>/.octocode/tmp/octocode-workflows/<YYYY-MM-DD>-<slug>/`.
 
 ## Automatically check artifact identity
 

@@ -51,4 +51,4 @@ On uncertain delivery, run `health`, inspect the recipient and follow `OPERATION
 
 Use `/cli <command> --json` for machine-readable output. Report outcomes per the [saved-report contract](../output.md#saved-report), which also says when a message or lease identifier belongs in the report.
 
-For unclear handoffs, use [prompt writing](prompt-writing.md); for independent code evidence use `octocode-research`; for multiple actors use `octocode-workflows` and its workflow composition reference.
+For unclear handoffs, use [prompt writing](prompt-writing.md); for independent code evidence use `octocode-research`; to shape a multi-actor process use `octocode-workflows`; to assign, track and recover live workers use `octocode-orchestrator`.

@@ -155,6 +155,78 @@ fn document_symbols_are_compact_outline_rows() {
 }
 
 #[test]
+fn nameless_placeholder_symbols_are_not_outline_rows() {
+    // typescript-language-server names a node it cannot name `<unknown>`
+    // (an object spread `...(c ? {a} : {})` arrives as `property <unknown>`):
+    // no name and no true kind, so no row; what it holds stays listed under
+    // the enclosing symbol.
+    let query: LspSearchQuery = serde_json::from_value(json_fixture(
+        r#"{"operation": "documentSymbols", "path": "file:///repo/src/a.ts"}"#,
+    ))
+    .expect("document symbols query");
+    let range = |start: u64, end: u64| {
+        serde_json::json!({
+            "start": {"line": start, "character": 2},
+            "end": {"line": end, "character": 1}
+        })
+    };
+    let symbol = |name: &str, kind: u64, lines: (u64, u64)| {
+        serde_json::json!({
+            "name": name,
+            "kind": kind,
+            "range": range(lines.0, lines.1),
+            "selectionRange": range(lines.0, lines.0)
+        })
+    };
+    let mut spread = symbol("<unknown>", 7, (3, 5));
+    spread["children"] = serde_json::json!([symbol("inner", 7, (4, 4))]);
+    let mut call = symbol("call", 6, (1, 8));
+    call["children"] = serde_json::json!([symbol("isError", 7, (2, 2)), spread]);
+    let envelope = items_payload(
+        &query,
+        "documentSymbols",
+        serde_json::json!([call]),
+        TEST_BUDGET,
+    );
+
+    assert!(!envelope.to_string().contains("<unknown>"), "{envelope}");
+    assert_eq!(
+        envelope["symbols"],
+        json_fixture(
+            r#"[{
+                "symbolName": "call",
+                "kind": "method",
+                "line": 2,
+                "endLine": 9,
+                "members": [
+                    {"symbolName": "isError", "kind": "property", "line": 3},
+                    {"symbolName": "inner", "kind": "property", "line": 5}
+                ]
+            }]"#
+        ),
+        "{envelope}"
+    );
+    assert_eq!(envelope["pagination"]["total"], 3, "{envelope}");
+}
+
+#[test]
+fn an_outline_range_ending_at_a_line_start_ends_on_the_line_before() {
+    let query: LspSearchQuery = serde_json::from_value(json_fixture(
+        r#"{"operation": "documentSymbols", "path": "file:///repo/src/a.ts"}"#,
+    ))
+    .expect("document symbols query");
+    let raw = json_fixture(
+        r#"[{
+            "name": "block", "kind": 2,
+            "range": {"start": {"line": 0, "character": 0}, "end": {"line": 5, "character": 0}},
+            "selectionRange": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 5}}
+        }]"#,
+    );
+    let envelope = items_payload(&query, "documentSymbols", raw, TEST_BUDGET);
+    assert_eq!(envelope["symbols"][0]["endLine"], 5, "{envelope}");
+}
+
+#[test]
 fn type_aliases_are_named_from_their_declaring_line() {
     let range = |line: u64| serde_json::json!({"start": {"line": line, "character": 0}, "end": {"line": line, "character": 1}});
     let symbol = |name: &str, line: u64| serde_json::json!({"name": name, "kind": 13, "range": range(line), "selectionRange": range(line)});

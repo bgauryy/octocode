@@ -11,7 +11,7 @@ fn annotated_empty(
     available: bool,
 ) -> serde_json::Value {
     let config = super::server_context::rust_server_config(json!({}));
-    let mut row = empty(query, category, message, available);
+    let mut row = empty(query, category, Some(message), available);
     annotate_empty_includes(&mut row, query, RustAnalysis::of(&config), None, &|| false);
     row
 }
@@ -86,7 +86,7 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
             "line": 10
         }"#,
     ));
-    let empty = with_next(&query, empty(&query, "noLocations", "none", true));
+    let empty = with_next(&query, empty(&query, "noLocations", Some("none"), true));
     assert_eq!(empty["status"], "empty");
     assert_eq!(empty["related"][0]["kind"], "related");
     // A package that includes no unloaded source: no tip, and no static
@@ -154,7 +154,7 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
     let configured = super::server_context::rust_server_config(json_fixture(
         r#"{"cargo": {"buildScripts": {"enable": true}}, "procMacro": {"enable": true}}"#,
     ));
-    let mut inherited = super::super::failure::empty(&scripted, "noLocations", "none", true);
+    let mut inherited = super::super::failure::empty(&scripted, "noLocations", Some("none"), true);
     annotate_empty_includes(
         &mut inherited,
         &scripted,

@@ -13,10 +13,10 @@ Tool names used below are the package's own; the default MCP surface is the rese
 
 ## Setup (all tasks)
 
-Isolated headless Chrome, a temp directory as cwd, no real profile, no network. Serve fixtures from that directory:
+Isolated headless Chrome, a scratch directory as cwd (`.octocode/tmp/browser-eval/` under the repository root, gitignored), no real profile, no network. Serve fixtures from that directory, and remove it when the round ends:
 
 ```bash
-mkdir -p "$TMPDIR/browser-eval" && cd "$TMPDIR/browser-eval"   # write the fixture files below here
+mkdir -p .octocode/tmp/browser-eval && cd .octocode/tmp/browser-eval   # from the repository root; fixture files go here
 python3 -m http.server 8765 --bind 127.0.0.1                   # keep its PID; stop it by PID afterwards
 ```
 

@@ -26,6 +26,7 @@ Rust owns Clap parsing, catalog presentation, validation, config and authenticat
 - `@typescript/native-preview` supplies the packaged `tsgo` language server used by native `lspSearch`; it is not a CLI parser.
 - The private `@octocodeai/config` root export is bundled for the development-override policy. The launcher does not import public tool contracts or instructions.
 - `scripts/stage-skills.mjs` stages canonical public skills for the npm package and native build. The native binary embeds the same publishable skill directories.
+- Prepack (`scripts/prepack.mjs`) stages the skills into `skills/` and the repository `docs/` into `out/docs` through `stagePackage` in `skills-dev/octocode-dev/scripts/package-build.mjs`, the same step `octocode-mcp` packs with, so a pack after any build ships both.
 - The build rejects undeclared external runtime imports.
 
 Publishing order and checks: [AGENTS.md "Release and environment"](../../AGENTS.md).

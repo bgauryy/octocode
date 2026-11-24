@@ -1,6 +1,7 @@
 // network-conditions on a real isolated headless Chrome: a blocked URL reports blocked, a mock
 // replaces a response body, offline fails the load, an extra header reaches the server, and a
 // bad mock is refused before the page is touched.
+import { DIE_WITH_PARENT } from '../fixtures/die-with-parent.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
@@ -70,9 +71,13 @@ test(
   { skip, timeout: 150000 },
   async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'octo-net-cond-'));
-    const web = spawn(process.execPath, ['-e', serverSource], {
-      stdio: ['ignore', 'pipe', 'inherit'],
-    });
+    const web = spawn(
+      process.execPath,
+      [...DIE_WITH_PARENT, '-e', serverSource],
+      {
+        stdio: ['pipe', 'pipe', 'inherit'],
+      }
+    );
     const webPort = await new Promise(resolve =>
       web.stdout.once('data', chunk => resolve(Number(chunk)))
     );

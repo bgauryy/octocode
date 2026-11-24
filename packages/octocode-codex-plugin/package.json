@@ -31,7 +31,7 @@
     "lint": "yarn lint:own && yarn lint:oxlint",
     "format": "prettier --write package.json tsconfig.json src scripts tests README.md ARCHITECTURE.md",
     "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
-    "test": "node --test tests/package.test.ts",
+    "test": "node ../../scripts/test-tmp.mjs node --test tests/package.test.ts",
     "verify:own": "yarn build && yarn lint:own && yarn typecheck && yarn test",
     "verify": "yarn verify:own && yarn lint:oxlint",
     "prepack": "yarn build && yarn typecheck && yarn test"

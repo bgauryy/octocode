@@ -262,11 +262,9 @@ fn empty_diagnostics_carry_no_read_recovery_and_symbol_reads_are_matched() {
     );
     assert_eq!(row["category"], "noDiagnostics");
     assert!(row.get("next").is_none(), "{row}");
-    // The row states the per-call fact; no static advice repeats on it.
-    assert_eq!(
-        row["reason"],
-        "The language server reported no diagnostics for this document."
-    );
+    // The category is the per-call fact: no reason restates it and no
+    // static advice repeats on it.
+    assert!(row.get("reason").is_none(), "{row}");
     assert!(row.get("hints").is_none(), "{row}");
 
     let q = query(json_fixture(

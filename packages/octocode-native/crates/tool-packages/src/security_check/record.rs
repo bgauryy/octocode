@@ -109,6 +109,7 @@ impl SecurityAdvisory {
         if !cves.is_empty() {
             row["cves"] = json!(cves);
         }
+        drop_own_cve(&mut row);
         match &self.severity {
             Some(severity) => row["severity"] = json!(severity),
             // No word from the database: its vectors as published. A score
@@ -320,11 +321,24 @@ pub(super) fn group_brief(group: &[&SecurityAdvisory]) -> Value {
     {
         row["githubType"] = json!(class);
     }
+    drop_own_cve(&mut row);
     // `link` stays last, as a brief row states it.
     if let Some(link) = row.as_object_mut().and_then(|fields| fields.remove("link")) {
         row["link"] = link;
     }
     row
+}
+
+/// Drops a brief row's `cves` when it lists only the row's own `id`: the id
+/// already states that CVE.
+fn drop_own_cve(row: &mut Value) {
+    let own = row
+        .get("cves")
+        .and_then(Value::as_array)
+        .is_some_and(|cves| matches!(cves.as_slice(), [only] if Some(only) == row.get("id")));
+    if let (true, Some(fields)) = (own, row.as_object_mut()) {
+        fields.shift_remove("cves");
+    }
 }
 
 /// The repositories a record's `GIT` ranges name.
@@ -653,6 +667,10 @@ fn affected_row(entry: &Value) -> Value {
 /// Drops the `link` of each details row that is the OSV page its `id` names
 /// (`https://osv.dev/vulnerability/{id}`): the output description states that
 /// form once, and any other link or `source` stays.
+pub(super) fn is_derivable_link(id: &str, link: &str) -> bool {
+    link == record_url(id)
+}
+
 pub(super) fn drop_derivable_links(rows: &mut [Value]) {
     for row in rows {
         let derivable = match (row.get("id").and_then(Value::as_str), row.get("link")) {

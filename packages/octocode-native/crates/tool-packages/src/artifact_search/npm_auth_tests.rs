@@ -126,11 +126,8 @@ async fn exact_lookup_states_its_release_ref_on_the_row() {
         assert!(!row.contains_key("sourceRef"), "{data}");
         assert_eq!(row["verification"], "registryRef", "{data}");
         assert!(row.keys().all(|key| key != "gitHead"), "{data}");
-        assert_eq!(
-            row.keys().next().map(String::as_str),
-            Some("packageName"),
-            "{data}"
-        );
+        // The request names the package: the row does not restate it.
+        assert!(!row.contains_key("packageName"), "{data}");
     }
 }
 

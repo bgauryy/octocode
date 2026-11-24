@@ -74,9 +74,10 @@ pub struct CloneLocation {
     /// The checkout directory the local tools take.
     pub path: String,
     pub commit_sha: String,
-    /// The branch or tag resolved to `commitSha`, else that commit.
-    #[serde(rename = "ref")]
-    pub ref_: String,
+    /// The branch or tag resolved to `commitSha`; absent when the request's
+    /// `ref` names it or named the commit.
+    #[serde(rename = "ref", skip_serializing_if = "Option::is_none")]
+    pub ref_: Option<String>,
     /// The sparse scope the checkout holds: the requested paths on disk, in
     /// request order (a withheld credential file is in `skipped` alone);
     /// absent on a full checkout.
@@ -196,7 +197,7 @@ pub async fn run(
         .off_runtime(move |context| execute_prepared(&pinned, context))
         .await
         .map_err(CloneFailure::from)?;
-    result.location.ref_ = pin.label;
+    result.location.ref_ = query.ref_.is_none().then_some(pin.label);
     if pin.renamed {
         result
             .warnings

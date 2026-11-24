@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -24,8 +24,12 @@ function ask(t, args, comm = {}) {
     cwd: dir, encoding: 'utf8',
     env: { ...process.env, PATH: dir + path.delimiter + process.env.PATH, PYTHONDONTWRITEBYTECODE: '1' },
   });
-  return { result, state: state() };
+  return { result, state: state(), dir };
 }
+
+// The proxy's log of one run: scratch under the workspace, never the OS temp dir.
+const logDir = dir => path.join(realpathSync(dir), '.octocode', 'tmp', 'octocode-messages-proxy');
+const logNamed = stderr => stderr.match(/log: (\S+\.log)/)?.[1];
 
 function alive(pid) {
   try {
@@ -113,4 +117,16 @@ test('dry-run resolves operator, worker and proxy without starting a model', t =
     ['octocode', 'codex', 'claude', 'haiku']);
   assert.equal(state.proxyPid, undefined);
   assert.deepEqual(state.sent, []);
+});
+
+test('the proxy log is workspace scratch: named in the output, kept on failure, removed on success', t => {
+  const failed = ask(t, ['--ready-timeout', '1'], { proxy: 'silent' });
+  const kept = logNamed(failed.result.stderr);
+  assert.ok(kept, failed.result.stderr);
+  assert.equal(path.dirname(kept), logDir(failed.dir));
+  assert.ok(existsSync(kept), 'a failed run keeps the log its error names');
+  const passed = ask(t, []);
+  assert.equal(passed.result.status, 0, passed.result.stderr);
+  assert.equal(path.dirname(logNamed(passed.result.stderr)), logDir(passed.dir));
+  assert.deepEqual(readdirSync(logDir(passed.dir)), []);
 });

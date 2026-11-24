@@ -4,5 +4,5 @@ export type { CliCommand, CliSpec, JsonSchema } from './spec.js';
 export { commandHelp } from './help.js';
 export { cliView, runCli } from './run.js';
 export type { CliIo } from './run.js';
-export { cliFromMcp, connectStdio } from './from-mcp.js';
+export { childEnvironment, cliFromMcp, connectStdio } from './from-mcp.js';
 export { mcpServerOptions, registerOn } from './to-mcp.js';

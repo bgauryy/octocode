@@ -254,14 +254,15 @@ async fn later_pages(
 }
 
 /// A page size beside a cursor has one reading: the cursor keeps the size it
-/// was issued with. The field is dropped and each page says so, and the walk
-/// reads page for page the rows the cursor alone reads, whether its pages
-/// replay or re-execute.
+/// was issued with. The field is dropped, and each page says so unless it
+/// equals that size, and the walk reads page for page the rows the cursor
+/// alone reads, whether its pages replay or re-execute.
 #[tokio::test]
 async fn a_page_size_beside_a_cursor_reads_the_same_pages_and_says_so() {
     let workspace = Workspace::new();
     let file = workspace.write("captured.txt", source());
-    let start = json!({"queries":[{"path":file,"matchString":["needle"]}],"responseChars":1200});
+    let issued = 1200;
+    let start = json!({"queries":[{"path":file,"matchString":["needle"]}],"responseChars":issued});
     for evicted in [false, true] {
         let alone = later_pages(
             &workspace,
@@ -276,7 +277,7 @@ async fn a_page_size_beside_a_cursor_reads_the_same_pages_and_says_so() {
             alone.iter().all(|(_, warnings)| warnings.is_null()),
             "{alone:?}"
         );
-        for size in [60_000, 1200, 300] {
+        for size in [60_000, issued, 300] {
             let sized = later_pages(
                 &workspace,
                 "localSearch",
@@ -298,6 +299,13 @@ async fn a_page_size_beside_a_cursor_reads_the_same_pages_and_says_so() {
             );
             for (_, warnings) in &sized {
                 let notes = warnings.as_array().map_or(&[][..], Vec::as_slice);
+                if size == issued {
+                    assert!(
+                        notes.is_empty(),
+                        "the issued size changes nothing: {warnings}"
+                    );
+                    continue;
+                }
                 assert_eq!(notes.len(), 1, "{warnings}");
                 let note = notes[0].as_str().unwrap_or_default();
                 assert!(

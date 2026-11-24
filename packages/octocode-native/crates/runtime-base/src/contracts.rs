@@ -8,7 +8,7 @@ mod normalize;
 mod prepare;
 mod private_state;
 pub mod query_limits;
-pub use normalize::{BesideCursor, normalized_input, read_beside_cursor};
+pub use normalize::{BesideCursor, drop_unopened_page_size, normalized_input, read_beside_cursor};
 pub use private_state::{BRIEF_FIELDS, state_fields};
 pub(crate) mod output_fields;
 mod schema_facts;

@@ -146,7 +146,7 @@ async fn existing_checkout_is_not_served_to_a_caller_without_access() {
     let alice = clone_as(&bench, &provider, &query(), ALICE)
         .await
         .unwrap_or_else(|_| panic!("Alice clones"));
-    assert_eq!(alice.location.ref_, "main");
+    assert_eq!(alice.location.ref_, None);
     let clones = bench.clones_seen();
 
     match clone_as(&bench, &provider, &query(), BOB).await {
@@ -234,7 +234,7 @@ async fn the_default_branch_requires_access() {
     let alice = clone_as(&bench, &provider, &unbranched(), ALICE)
         .await
         .unwrap_or_else(|_| panic!("Alice clones the default branch"));
-    assert_eq!(alice.location.ref_, "main");
+    assert_eq!(alice.location.ref_.as_deref(), Some("main"));
     match clone_as(&bench, &provider, &unbranched(), BOB).await {
         Ok(served) => panic!("Bob was served Alice's checkout: {served:?}"),
         Err(CloneFailure::Clone(error)) => assert_eq!(error.code, ErrorCode::NotFound, "{error:?}"),

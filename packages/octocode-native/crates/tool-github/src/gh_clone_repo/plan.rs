@@ -60,7 +60,7 @@ impl Plan<'_> {
     /// with their recovery lead; the checkout holds the others. A sparse
     /// scope is stated by `location.paths`: the row searches nothing, so the
     /// local tools that search the checkout state its coverage, not this row.
-    pub(super) fn result(&self, commit: &str, clone_dir: &Path, checkout: Checkout) -> CloneResult {
+    pub(super) fn result(&self, clone_dir: &Path, checkout: Checkout) -> CloneResult {
         let bytes = checkout.size;
         let on_disk = self.missing_paths(clone_dir, &checkout.withheld);
         // The row names what is on disk: a withheld credential file is in
@@ -116,7 +116,7 @@ impl Plan<'_> {
             location: CloneLocation {
                 path,
                 commit_sha: checkout.commit_sha,
-                ref_: commit.to_owned(),
+                ref_: None,
                 paths,
                 symlinks: (!checkout.symlinks.is_empty()).then_some(checkout.symlinks),
                 skipped: (!checkout.withheld.is_empty()).then_some(checkout.withheld),

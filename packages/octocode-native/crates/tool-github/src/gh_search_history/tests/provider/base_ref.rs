@@ -153,3 +153,56 @@ async fn without_graphql_a_base_ref_pick_states_none() {
     );
     assert!(warns_of(&data, "baseRef"), "{data}");
 }
+
+/// A REST listing names each pull request's target branch: a row states
+/// it when it is not the repository's default branch (a backport's), and a
+/// `fields` pick that names `baseRef` states it on every row.
+#[tokio::test]
+async fn a_listing_states_a_target_branch_other_than_the_default() {
+    let server = MockServer::builder().start().await;
+    let item = |number: u64, base: &str| {
+        json!({"number": number, "title": format!("pr {number}"), "state": "open",
+            "user": {"login": "dev"}, "created_at": "2026-11-01T00:00:00Z",
+            "base": {"ref": base, "repo": {"default_branch": "main"}}})
+    };
+    mount_json(
+        &server,
+        "/api/v3/repos/vitejs/vite/pulls",
+        200,
+        json!([item(24204, "main"), item(24064, "v7")]),
+    )
+    .await;
+    let list = |fields: Value| {
+        let server = &server;
+        async move {
+            let mut query = json!({
+                "operation": "pullRequest", "owner": "vitejs", "repo": "vite",
+                "filters": {"state": "open"}
+            });
+            if !fields.is_null() {
+                query["fields"] = fields;
+            }
+            let query = serde_json::from_value(query).expect("query");
+            execute(
+                &one_shot_provider(server),
+                &query,
+                &default_context(),
+                &Passthrough,
+            )
+            .await
+            .expect("pull request listing")
+        }
+    };
+    let data = list(Value::Null).await;
+    assert_eq!(
+        column(&data, "baseRef"),
+        [Value::Null, json!("v7")],
+        "{data}"
+    );
+    let picked = list(json!(["number", "baseRef"])).await;
+    assert_eq!(
+        column(&picked, "baseRef"),
+        [json!("main"), json!("v7")],
+        "{picked}"
+    );
+}

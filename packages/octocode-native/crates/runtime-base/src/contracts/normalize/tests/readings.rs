@@ -186,14 +186,17 @@ fn every_independent_reading_of_one_row_is_made_together() {
     assert!(tools.len() > 1, "several tools read two fields: {tools:?}");
 }
 
-/// An object sent without a member its schema states a default for runs
-/// with that default, and the call says the form: held for every row field
-/// whose schema states an object default, on each example whose form takes
-/// the field.
+/// An object sent without a member it requires is refused as sent, never
+/// filled from the object's default: that default says what omitting the
+/// whole object means, and the member it lacks can decide what the members
+/// it holds mean (`sort:{"order":"desc"}` read as a path sort ranked a
+/// structureSearch meant by `modifiedAt` by path, silently, on 2026-11-24).
+/// The refusal names the member. Held for every row field whose schema
+/// states an object default, on each example whose form takes the field.
 #[test]
-fn a_missing_member_is_filled_from_its_declared_default() {
+fn a_missing_required_member_is_refused_not_filled_from_the_default() {
     use crate::contracts::schema_facts::{child_schemas, property_names, schema_keyword};
-    let mut filled: Vec<(ToolId, &str)> = Vec::new();
+    let mut refused: Vec<(ToolId, &str)> = Vec::new();
     for (tool, row) in examples() {
         if bills(tool) {
             continue;
@@ -223,21 +226,25 @@ fn a_missing_member_is_filled_from_its_declared_default() {
                 if issues(tool, &sent).is_empty() {
                     continue;
                 }
-                let (input, notes) = normalized_readings(tool.as_str(), sent.clone());
-                assert_eq!(input, whole, "{tool:?} {sent}");
-                assert!(
-                    matches!(notes.as_slice(), [note] if note.contains(field) && note.contains(member.as_str())),
-                    "{notes:?}"
+                assert_eq!(
+                    normalized_readings(tool.as_str(), sent.clone()),
+                    (sent.clone(), Vec::new()),
+                    "{tool:?} {sent}"
                 );
-                if !filled.contains(&(tool, field)) {
-                    filled.push((tool, field));
+                let shown = refusal(tool, &sent).expect("refused");
+                assert!(
+                    shown.contains(&format!("{field}.{member}")),
+                    "{tool:?} {sent} names no member: {shown}"
+                );
+                if !refused.contains(&(tool, field)) {
+                    refused.push((tool, field));
                 }
             }
         }
     }
     assert!(
-        filled.len() > 1,
-        "several fields state an object default: {filled:?}"
+        refused.len() > 1,
+        "several fields require a member their default holds: {refused:?}"
     );
 }
 

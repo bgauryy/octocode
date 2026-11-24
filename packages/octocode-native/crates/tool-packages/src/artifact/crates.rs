@@ -354,6 +354,13 @@ fn listed_exact<'a>(requested: &str, listed: &'a [String]) -> Option<&'a str> {
 /// HTTP 400): the shared page bounds end discovery there.
 pub(super) const CRATES_RELEVANCE_LIMIT: u64 = 1000;
 
+/// crates.io refuses a page number past this one whatever `per_page` is
+/// (HTTP 400 "Page 201 is unavailable for performance reasons", measured
+/// 2026-11-24 for every user agent and sort), though its own `next_page`
+/// still names page 201: the shared page bounds end small pages here,
+/// before the relevance limit.
+pub(super) const CRATES_MAX_PAGE: u64 = 200;
+
 #[cfg(test)]
 mod tests;
 mod vcs;

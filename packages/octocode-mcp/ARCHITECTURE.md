@@ -55,8 +55,10 @@ runtime and exits; the launcher exits with the same code.
 
 ## Distribution
 
-The package ships the bundled launcher (`dist/index.js`), `dist/docs/`, the
-manifests and the logo. Its `optionalDependencies` pin every
+The package ships the bundled launcher (`dist/index.js`), the repository
+`docs/` as `dist/docs/`, the public skills as `skills/`, the manifests and the
+logo. Prepack stages the skills and docs from the repository
+(`package-build.mjs stage dist`), so a pack after any build carries both. Its `optionalDependencies` pin every
 `@octocodeai/octocode-native-<platform>` package in `PLATFORMS` at the release
 version, so `npx octocode-mcp` installs the one binary for the machine; when
 npm skipped it, the shared launcher code fetches it once from the registry

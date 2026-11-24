@@ -6,16 +6,6 @@ use octocode_runtime_base::id::ToolId;
 use octocode_runtime_base::response::result::Continuation;
 use serde_json::{Map, Value, json};
 
-/// The clause that explains the pinned-dependency checks in `related`.
-const PINNED_CHECKS_CLAUSE: &str = "related lists a check of each.";
-
-/// Whether a sentence explains the pinned-dependency checks that `related`
-/// carries: the summary keeps such a sentence, as no field says why those
-/// checks are there.
-pub(super) fn explains_pinned_checks(answer: &str) -> bool {
-    answer.ends_with(PINNED_CHECKS_CLAUSE)
-}
-
 /// What the sources' results and the target say, for the lead.
 #[derive(Default)]
 pub(super) struct Facts<'a> {
@@ -289,90 +279,183 @@ pub(super) fn unconfirmed_warning(facts: &Facts<'_>) -> Option<String> {
 
 const STOPPED: &str = "the source stopped before its last page, so this is not an answer yet: follow the reply's next.";
 
-/// The lead fields, in reading order: `answer`, `affected`, `upgradeTo`, `upgradeNote`, `cves`.
-pub(super) fn lead(target: &str, facts: &Facts<'_>) -> Value {
+/// One clause of a package row's `answer`, and the field of a summary row
+/// that states the same, if one does.
+struct Clause {
+    text: String,
+    stated_by: Option<&'static str>,
+}
+
+/// A package row's `answer`, clause by clause in sentence order: the details
+/// view states the whole sentence, the summary only the clauses no field of
+/// its row states.
+#[derive(Default)]
+pub(super) struct Answer(Vec<Clause>);
+
+impl Answer {
+    /// An answer of one sentence no field states (a rewrite of the lead).
+    pub(super) fn whole(text: &str) -> Self {
+        let mut answer = Self::default();
+        answer.push(text.to_owned(), None);
+        answer
+    }
+
+    fn push(&mut self, text: String, stated_by: Option<&'static str>) {
+        if !text.is_empty() {
+            self.0.push(Clause { text, stated_by });
+        }
+    }
+
+    /// The whole sentence.
+    fn sentence(&self) -> String {
+        self.0.iter().map(|clause| clause.text.as_str()).collect()
+    }
+
+    /// What `row` (a summary row) states in no field: the clauses whose
+    /// field it does not hold; `None` when its fields state every one.
+    pub(super) fn unstated(&self, row: &Map<String, Value>) -> Option<String> {
+        let text = self
+            .0
+            .iter()
+            .filter(|clause| {
+                clause
+                    .stated_by
+                    .is_none_or(|field| !row.contains_key(field))
+            })
+            .map(|clause| clause.text.as_str())
+            .collect::<String>();
+        let text = text.trim_start();
+        (!text.is_empty()).then(|| text.to_owned())
+    }
+}
+
+/// The lead fields, in reading order: `answer`, `affected`, `upgradeTo`,
+/// `upgradeNote`, `cves`; and the answer clause by clause.
+pub(super) fn lead(target: &str, facts: &Facts<'_>) -> (Value, Answer) {
     let found = facts.matched > 0;
     let target = typed(target);
-    let mut sentence = match (found, facts.stopped, facts.version_evaluated) {
-        (_, true, _) => format!("{target}: {STOPPED}"),
-        (false, false, true) if facts.count > 0 && facts.compared_here => format!(
-            "{target}: not evaluated. OSV cannot order this ecosystem's versions and {} could not be compared with this version here, so none matches or clears it; listed: {}.",
-            counted(facts.count),
-            ids_clause(&facts.unmatched)
-        ),
-        (false, false, _) if facts.release_unmatched => format!(
-            "{target}: OSV has no record for this release. It answers alike for a release with no advisory and for one it does not name (forms: 12, 22.04:LTS, v3.18), so this is not none known."
-        ),
-        (false, false, _) if facts.release_missing => format!(
-            "{target}: not evaluated. This distribution matches versions per release and none was given, so OSV's empty answer is not none known: pass release (forms: 12, 22.04:LTS, v3.18)."
-        ),
-        (true, false, _) if facts.all_versions => format!(
-            "{target}: no version was given and no registry confirms this package, so OSV's {} span every version of it; none is a verdict on a version.",
-            counted(facts.count)
-        ),
-        (false, false, _) if facts.all_versions => {
-            format!("{target}: none known to OSV for any version.")
-        }
-        (true, false, true) => format!("{target} is affected: {}.", counted(facts.matched)),
-        (true, false, false) => match &facts.unregistered {
-            Some((version, listed)) if !listed.is_empty() => format!(
-                "{target}: version {} is not on the registry (yanked, unpublished or removed), and OSV lists it as affected by {}.",
-                typed(version),
-                ids_clause(listed)
+    // A plain verdict (affected, with its count; none known, which proves
+    // only that) is what `affected` and `advisoryCount` state; every other
+    // opening says what no field does.
+    let (opening, verdict) = match (found, facts.stopped, facts.version_evaluated) {
+        (_, true, _) => (format!("{target}: {STOPPED}"), None),
+        (false, false, true) if facts.count > 0 && facts.compared_here => (
+            format!(
+                "{target}: not evaluated. OSV cannot order this ecosystem's versions and {} could not be compared with this version here, so none matches or clears it; listed: {}.",
+                counted(facts.count),
+                ids_clause(&facts.unmatched)
             ),
-            Some((version, _)) if facts.unregistered_clear => format!(
-                "{target}: version {} is not on the registry (yanked, unpublished or removed). OSV has {} for this package, and asked at this version it lists none of them as affecting it.",
-                typed(version),
+            None,
+        ),
+        (false, false, _) if facts.release_unmatched => (
+            format!(
+                "{target}: OSV has no record for this release. It answers alike for a release with no advisory and for one it does not name (forms: 12, 22.04:LTS, v3.18), so this is not none known."
+            ),
+            None,
+        ),
+        (false, false, _) if facts.release_missing => (
+            format!(
+                "{target}: not evaluated. This distribution matches versions per release and none was given, so OSV's empty answer is not none known: pass release (forms: 12, 22.04:LTS, v3.18)."
+            ),
+            None,
+        ),
+        (true, false, _) if facts.all_versions => (
+            format!(
+                "{target}: no version was given and no registry confirms this package, so OSV's {} span every version of it; none is a verdict on a version.",
                 counted(facts.count)
             ),
-            _ => format!(
-                "{target}: the requested version is not on the registry, so it was not evaluated. OSV has {} for this package, none listing this version by name (their ranges were not compared).",
-                counted(facts.count)
-            ),
-        },
-        (false, false, true) if facts.release_named => format!(
-            "{target}: none known to OSV at this version. OSV answered the version with nothing, and asked by name it lists this package in the release, so that empty answer is a real one."
+            None,
         ),
-        (false, false, true) => {
-            format!("{target}: none known to OSV, which does not prove it safe.")
-        }
-        (false, false, false) => format!(
-            "{target}: the requested version is not on the registry, so it was not evaluated, and OSV knows none for this package."
+        (false, false, _) if facts.all_versions => (
+            format!("{target}: none known to OSV for any version."),
+            None,
+        ),
+        (true, false, true) => (
+            format!("{target} is affected: {}.", counted(facts.matched)),
+            Some("affected"),
+        ),
+        (true, false, false) => (
+            match &facts.unregistered {
+                Some((version, listed)) if !listed.is_empty() => format!(
+                    "{target}: version {} is not on the registry (yanked, unpublished or removed), and OSV lists it as affected by {}.",
+                    typed(version),
+                    ids_clause(listed)
+                ),
+                Some((version, _)) if facts.unregistered_clear => format!(
+                    "{target}: version {} is not on the registry (yanked, unpublished or removed). OSV has {} for this package, and asked at this version it lists none of them as affecting it.",
+                    typed(version),
+                    counted(facts.count)
+                ),
+                _ => format!(
+                    "{target}: the requested version is not on the registry, so it was not evaluated. OSV has {} for this package, none listing this version by name (their ranges were not compared).",
+                    counted(facts.count)
+                ),
+            },
+            None,
+        ),
+        (false, false, true) if facts.release_named => (
+            format!(
+                "{target}: none known to OSV at this version. OSV answered the version with nothing, and asked by name it lists this package in the release, so that empty answer is a real one."
+            ),
+            None,
+        ),
+        (false, false, true) => (
+            format!("{target}: none known to OSV, which does not prove it safe."),
+            Some("affected"),
+        ),
+        (false, false, false) => (
+            format!(
+                "{target}: the requested version is not on the registry, so it was not evaluated, and OSV knows none for this package."
+            ),
+            None,
         ),
     };
-    sentence.push_str(&cve_clause(&facts.cves));
-    sentence.push_str(&withdrawn_clause(&facts.withdrawn));
+    let mut answer = Answer::default();
+    answer.push(opening, verdict);
+    // Each advisory row states its CVEs.
+    answer.push(cve_clause(&facts.cves), Some("advisories"));
+    // The count leaves withdrawn records out; the details name them.
+    answer.push(withdrawn_clause(&facts.withdrawn), Some("advisoryCount"));
     if found && !facts.stopped && !facts.disputed.is_empty() {
         let (noun, verb) = if facts.disputed.len() == 1 {
             ("a record", "does")
         } else {
             ("records", "do")
         };
-        sentence.push_str(&format!(
-            " Disputed by {}, {noun} of a listed advisory in another database that {verb} not list this version; see warnings.",
-            ids_clause(&facts.disputed)
-        ));
+        answer.push(
+            format!(
+                " Disputed by {}, {noun} of a listed advisory in another database that {verb} not list this version; see warnings.",
+                ids_clause(&facts.disputed)
+            ),
+            Some("warnings"),
+        );
     }
-    sentence.push_str(&evaluation_clause(facts));
-    sentence.push_str(&module_clause(facts));
+    answer.push(evaluation_clause(facts), None);
+    answer.push(module_clause(facts), Some("moduleOnly"));
     if let Some(version) = facts.upgrade_to {
-        sentence.push_str(&format!(
-            " Upgrade to {} to clear every one listed.",
-            typed(version)
-        ));
+        answer.push(
+            format!(" Upgrade to {} to clear every one listed.", typed(version)),
+            Some("upgradeTo"),
+        );
     } else if facts.upgrade_note.is_some() {
-        sentence.push_str(" No upgrade is named: see upgradeNote.");
+        answer.push(
+            " No upgrade is named: see upgradeNote.".to_owned(),
+            Some("upgradeNote"),
+        );
     }
     if facts.pinned_dependencies > 0 && !facts.stopped {
-        sentence.push_str(&format!(
-            " It pins {} to an exact version, and advisories filed against those are not in this answer: {PINNED_CHECKS_CLAUSE}",
-            match facts.pinned_dependencies {
-                1 => "1 runtime dependency".to_owned(),
-                count => format!("{count} runtime dependencies"),
-            }
-        ));
+        answer.push(
+            format!(
+                " It pins {} to an exact version, and advisories filed against those are not in this answer: related lists a check of each.",
+                match facts.pinned_dependencies {
+                    1 => "1 runtime dependency".to_owned(),
+                    count => format!("{count} runtime dependencies"),
+                }
+            ),
+            None,
+        );
     }
-    let mut data = json!({ "answer": sentence });
+    let mut data = json!({ "answer": answer.sentence() });
     if let Some(affected) = facts.verdict() {
         data["affected"] = json!(affected);
     }
@@ -383,7 +466,7 @@ pub(super) fn lead(target: &str, facts: &Facts<'_>) -> Value {
         data["upgradeNote"] = json!(note);
     }
     // CVEs are stated on each advisory; the answer names them first.
-    data
+    (data, answer)
 }
 
 /// The lead of an advisory row: each record's id, its aliases, and every
@@ -819,29 +902,36 @@ fn intervals(range: &Value) -> Vec<String> {
 /// The lead of a commit row. An empty answer is the same for a commit OSV tracks
 /// and one it has never seen, and OSV can hold a release's advisories by version
 /// and none by commit: empty here proves nothing, so it never says `affected`.
-pub(super) fn commit_lead(commit: &str, facts: &Facts<'_>) -> Value {
+pub(super) fn commit_lead(commit: &str, facts: &Facts<'_>) -> (Value, Answer) {
     let found = facts.count > 0;
     let commit = typed(commit);
-    let mut sentence = if facts.stopped {
-        format!("Commit {commit}: {STOPPED}")
+    let mut answer = Answer::default();
+    if facts.stopped {
+        answer.push(format!("Commit {commit}: {STOPPED}"), None);
     } else if found {
-        format!(
-            "Commit {commit} is in the affected range of {}.",
-            counted(facts.count)
-        )
+        answer.push(
+            format!(
+                "Commit {commit} is in the affected range of {}.",
+                counted(facts.count)
+            ),
+            Some("affected"),
+        );
     } else {
-        format!(
-            "None known to OSV for commit {commit}, which proves nothing for a commit: OSV answers the same for one it does not track."
-        )
-    };
-    sentence.push_str(&cve_clause(&facts.cves));
-    sentence.push_str(&withdrawn_clause(&facts.withdrawn));
-    let mut data = json!({ "answer": sentence });
+        answer.push(
+            format!(
+                "None known to OSV for commit {commit}, which proves nothing for a commit: OSV answers the same for one it does not track."
+            ),
+            None,
+        );
+    }
+    answer.push(cve_clause(&facts.cves), Some("advisories"));
+    answer.push(withdrawn_clause(&facts.withdrawn), Some("advisoryCount"));
+    let mut data = json!({ "answer": answer.sentence() });
     if found && !facts.stopped {
         data["affected"] = json!(true);
     }
     // CVEs are stated on each advisory; the answer names them first.
-    data
+    (data, answer)
 }
 
 /// The answer's clause for withdrawn advisories: named with when, never

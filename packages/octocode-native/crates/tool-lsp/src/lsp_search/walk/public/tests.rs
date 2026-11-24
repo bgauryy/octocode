@@ -40,3 +40,29 @@ fn a_signature_label_is_named_by_its_identifier() {
     let call = public_hierarchy_node(&node("operator()(int)", json!("")));
     assert_eq!(call["symbolName"], "operator()(int)", "{call}");
 }
+
+/// An LSP range end is exclusive: a module that ends at character 0 of the
+/// line after the file's last ends on that last line, not past the file.
+#[test]
+fn an_end_at_the_next_line_start_ends_on_the_line_before() {
+    let module = json_fixture(
+        r#"{
+            "name": "spec.test.ts", "kind": 2, "uri": "file:///w/spec.test.ts",
+            "range": {"start": {"line": 0, "character": 0}, "end": {"line": 324, "character": 0}},
+            "selectionRange": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}
+        }"#,
+    );
+    assert_eq!(public_hierarchy_node(&module)["endLine"], 324, "{module}");
+    let function = json_fixture(
+        r#"{
+            "name": "run", "kind": 12, "uri": "file:///w/a.ts",
+            "range": {"start": {"line": 2, "character": 0}, "end": {"line": 9, "character": 1}},
+            "selectionRange": {"start": {"line": 2, "character": 9}, "end": {"line": 2, "character": 12}}
+        }"#,
+    );
+    assert_eq!(
+        public_hierarchy_node(&function)["endLine"],
+        10,
+        "{function}"
+    );
+}

@@ -20,12 +20,14 @@ Options:
   --setup "<command>"  Shell command run in the base tree before --cmd (install dependencies, build).
   --head <rev>         Refuse unless the checkout's HEAD is this revision (the pinned head).
   --repo <dir>         Directory inside the checkout to run from (default: the current directory).
-  --logs <dir>         Directory for setup.log, base.log and head.log (default: a new temporary directory).
+  --logs <dir>         Directory for setup.log, base.log and head.log (default: a new folder per run under
+                       <checkout>/.octocode/tmp/octocode-pr-review/test-at-base/, kept for reading).
   --help               Show this help.
 
 Effects: adds a detached worktree under the system temporary directory (registered in the checkout's
 .git/worktrees, checkout hooks disabled) and removes it on success, failure or interrupt. The script
-leaves the checkout's files untouched; --cmd runs there as given.
+writes only its logs (by default under the checkout's .octocode/tmp/) and leaves the checkout's other files
+untouched; --cmd runs there as given.
 
 Output (stdout, one JSON line):
   {"ok":true,"covers":<bool>,"tests":[...],"logs":"<dir>",
@@ -119,11 +121,15 @@ export async function testAtBase(options, state = {}) {
     if (!existsSync(full)) throw invalid('testMissing', `${path} does not exist in the checkout`);
     return rel;
   });
-  const logs = options.logs ? resolve(options.logs) : mkdtempSync(join(tmpdir(), 'test-at-base-logs-'));
+  const logRoot = join(top, '.octocode', 'tmp', 'octocode-pr-review', 'test-at-base');
+  if (!options.logs) mkdirSync(logRoot, { recursive: true });
+  // Each default run gets its own folder, kept so its result can be read.
+  const logs = options.logs ? resolve(options.logs) : mkdtempSync(join(logRoot, `${new Date().toISOString().replace(/[:.]/g, '-')}-`));
   mkdirSync(logs, { recursive: true });
-  // Logs kept inside the checkout (.octocode/…/tmp) are this script's output, not uncommitted work.
-  const logsRel = relative(top, logs);
-  const ownLogs = logsRel && !logsRel.startsWith('..') && !isAbsolute(logsRel) ? ['--', '.', `:(exclude)${logsRel}`] : [];
+  // Logs kept inside the checkout (this run's, and every earlier run's default folder) are this script's output,
+  // not uncommitted work.
+  const own = [logs, logRoot].map(dir => relative(top, dir)).filter(rel => rel && !rel.startsWith('..') && !isAbsolute(rel));
+  const ownLogs = own.length ? ['--', '.', ...own.map(rel => `:(exclude)${rel}`)] : [];
   const dirty = git(top, ['status', '--porcelain', ...ownLogs]).out !== '';
 
   const scratch = mkdtempSync(join(tmpdir(), 'test-at-base-'));

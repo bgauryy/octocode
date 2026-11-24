@@ -31,14 +31,9 @@ fn an_exact_row_carries_the_release_source_anchors() {
     ));
     let data = respond(&query, ArtifactProviderPage::single(exact_row())).expect("row");
     let row = data["artifacts"][0].as_object().expect("row");
-    for anchor in [
-        "packageName",
-        "version",
-        "owner",
-        "repo",
-        "ref",
-        "verification",
-    ] {
+    // The request names the package: the row does not restate it.
+    assert!(!row.contains_key("packageName"), "{data}");
+    for anchor in ["version", "owner", "repo", "ref", "verification"] {
         assert!(row.contains_key(anchor), "{anchor}: {data}");
     }
     assert_eq!(row["owner"], "colinhacks");
@@ -250,7 +245,11 @@ fn failures_carry_one_repair_lead() {
     missing.nearest = vec!["3.22.4".into(), "3.22.0".into()];
     let repaired = leads::with_repair(missing, &pinned);
     // The repair reads the published versions: no hint says to discover them.
-    assert!(repaired.hints.is_empty(), "{:?}", repaired.hints);
+    assert!(
+        repaired.hints.iter().all(|hint| !hint.contains("discover")),
+        "{:?}",
+        repaired.hints
+    );
     let next = repaired.calls.expect("lead");
     let versions = next["repair"]["input"]["queries"]
         .as_array()
@@ -357,14 +356,65 @@ fn a_missing_version_repair_fills_one_call_or_reads_every_version() {
         .rev()
         .map(|patch| format!("8.3.{patch}"))
         .collect::<Vec<_>>();
+    let restates = |error: &ArtifactError| error.hints.iter().any(|hint| hint.contains("discover"));
     assert_eq!(versions(&error), newest);
-    assert!(error.hints.is_empty(), "{:?}", error.hints);
+    assert!(!restates(&error), "{:?}", error.hints);
 
     let few =
         crate::artifact::version_not_found(ArtifactType::Npm, "vite", "99.0.0", &published[..2]);
     let error = leads::with_repair(few, &pinned);
     assert_eq!(versions(&error), ["8.3.1", "8.3.0"]);
-    assert!(error.hints.is_empty(), "{:?}", error.hints);
+    assert!(!restates(&error), "{:?}", error.hints);
+}
+
+/// A missing version of a package that resolves is a `version` to correct,
+/// never a `packageName` to respell. The runtime gives a registry error
+/// without hints of its own the code's shared recovery before it attaches
+/// the repair (`registry_row`), so the error itself names `version`, and
+/// the repair reading the nearest versions stays.
+#[test]
+fn a_missing_version_of_a_resolving_package_points_at_version() {
+    let query = typed(&json_fixture(
+        r#"{
+            "operation": "resolve",
+            "ecosystem": "npm",
+            "packageName": "zod",
+            "version": "99.0.0"
+        }"#,
+    ));
+    let published = ["4.6.6".to_owned(), "4.6.7".to_owned()];
+    let missing =
+        crate::artifact::version_not_found(ArtifactType::Npm, "zod", "99.0.0", &published);
+    let error = leads::with_repair(missing, &query);
+    let mut hints = error.hints.clone();
+    if hints.is_empty() {
+        hints.extend(
+            octocode_runtime_base::response::rows::error_code_hint(
+                &super::Output,
+                error.code,
+                &Value::Null,
+            )
+            .map(str::to_owned),
+        );
+    }
+    assert!(
+        hints.iter().all(|hint| !hint.contains("packageName")),
+        "{hints:?}"
+    );
+    assert!(
+        hints.iter().any(|hint| hint.contains("version")),
+        "{hints:?}"
+    );
+    assert!(
+        hints.iter().all(|hint| !hint.contains("discover")),
+        "the repair reads the versions: {hints:?}"
+    );
+    assert!(
+        error
+            .calls
+            .as_ref()
+            .is_some_and(|calls| calls.get("repair").is_some())
+    );
 }
 
 /// A package the registry does not know gets one short recovery, naming the

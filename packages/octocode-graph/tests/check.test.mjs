@@ -21,11 +21,13 @@ const fs = (files) => ({
   kinds: Object.fromEntries(files.map((f) => [f, ['external-builtin', 'static-import']])),
 });
 
-// A project whose files exist on disk (written before the graph), and its saved result.
+// A project whose files exist on disk (written before the graph), and its saved result. The project is its own
+// repository (a `.git` entry), wherever the test's temporary folder sits.
 function project() {
   const base = tempDir('graph-check-');
   const root = join(base, 'project');
   const out = join(base, 'result');
+  mkdirSync(join(root, '.git'), { recursive: true });
   const ids = ['src/index.ts', 'src/browser/view.ts', 'src/browser/legacy.ts', 'src/shared/io.ts'];
   for (const id of ids) {
     mkdirSync(dirname(join(root, id)), { recursive: true });
@@ -196,6 +198,8 @@ function overlayRepo() {
   mkdirSync(bin);
   writeFileSync(join(base, 'engine.cjs'), FAKE_ENGINE, { mode: 0o755 });
   writeFileSync(join(bin, 'git'), FAKE_GIT, { mode: 0o755 });
+  // The fake git is CommonJS, whatever package.json sits above the test's temporary folder.
+  writeFileSync(join(bin, 'package.json'), '{"type":"commonjs"}\n');
   const state = join(base, 'state.json');
   const gitLog = join(base, 'git.jsonl');
   writeFileSync(gitLog, '');

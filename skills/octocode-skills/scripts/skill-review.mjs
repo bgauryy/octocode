@@ -118,15 +118,30 @@ function checkLayout({ dir, files, texts, skill, add }) {
   if (files.includes('scripts/render-report.mjs') && !/^## Saved report\b[\s\S]*(?:--manifest|references\/report-output\.md)/m.test(output)) add('WARN', 'saved-report-missing', 'output.md needs a Saved report section linking shared report guidance.');
 }
 
-// Every file a skill writes stays under <workspace>/.octocode/<skill-name>/ (scratch in its tmp/), never a shared .octocode/tmp/.
-const SHARED_TMP = /\.octocode\/tmp\/[A-Za-z0-9<{_-]|['"]\.octocode['"],\s*['"]tmp['"]/;
+// A skill keeps its outputs (reports, RFCs, saved runs) under <workspace>/.octocode/<skill-name>/ and its scratch
+// under <workspace>/.octocode/tmp/<skill-name>/. A scratch path into another folder of .octocode/tmp/ (shared, a run
+// or task name, another skill's) is flagged; the skill's own folder, a <skill-name> placeholder and a bare
+// `.octocode/tmp/` mention are not. In code, a joined path counts when its next segment is a literal or absent.
+// Repo-only skills (the skills-dev collection) are the repository's own tooling: they follow its
+// `.octocode/tmp/<task>/` rule, so their task folders are not flagged.
+const TMP_PATH = /\.octocode\/tmp\/(<[^>\s]*>|\{[^}\s]*\}|[^\s/`'"()[\]<>{}$*…]+)/g;
+const TMP_JOIN = /['"]\.octocode['"],\s*['"]tmp['"]\s*(?:,\s*['"]([^'"]*)['"]|(\)))/g;
+const SKILL_PLACEHOLDER = /^[<{]skill(?:[-_]name)?[>}]$/;
 // These two hold the rule's own test fixtures.
 const SHARED_TMP_FIXTURES = ['scripts/lib/report/self-test.mjs', 'scripts/skill-review.mjs'];
 
+function foreignScratch(source, name) {
+  const folders = [...source.matchAll(TMP_PATH)].map((m) => m[1]);
+  for (const m of source.matchAll(TMP_JOIN)) folders.push(m[2] ? '' : m[1]);
+  return folders.filter((folder) => folder !== name && !SKILL_PLACEHOLDER.test(folder));
+}
+
 function checkConventions({ name, files, texts, dir, add }) {
+  if (basename(dirname(realpathSync(dir))) === 'skills-dev') return;
   for (const path of files.filter((item) => /\.(md|mjs|js|cjs|sh|py)$/.test(item) && !SHARED_TMP_FIXTURES.includes(item))) {
     const source = texts.get(path) ?? readFileSync(join(dir, path), 'utf8');
-    if (SHARED_TMP.test(source)) add('WARN', 'output-outside-skill-folder', `${path} writes or points to <workspace>/.octocode/tmp/; use <workspace>/.octocode/${name}/tmp/ so every output stays in the skill's own folder.`);
+    const [folder] = foreignScratch(source, name);
+    if (folder !== undefined) add('WARN', 'scratch-outside-skill-folder', `${path} points to <workspace>/.octocode/tmp/${folder ? `${folder}/` : ''}; keep scratch in <workspace>/.octocode/tmp/${name}/ and outputs in <workspace>/.octocode/${name}/.`);
   }
 }
 
@@ -395,7 +410,7 @@ function selfTestLinks(skill) {
   return source;
 }
 
-// Part 3: scalar forms, fenced code, shared tmp paths, and the Resources table.
+// Part 3: scalar forms, fenced code, scratch paths, and the Resources table.
 function selfTestContent(skill, source) {
   source = source.replace('description: "Use when an example needs review."', 'description: |-\n  Review an example.');
   writeFileSync(join(skill, 'SKILL.md'), source);
@@ -413,10 +428,12 @@ function selfTestContent(skill, source) {
   writeFileSync(join(skill, 'README.md'), '# Example\n\n```md\n[link](not-here.md) [anchor](#nowhere)\n```\n\n```bash\nnode scripts/example-tool.mjs\n```\n');
   const fenced = review(skill).findings.filter((item) => item.code !== 'description-length');
   if (fenced.some((item) => item.level === 'ERROR') || !fenced.some((item) => item.code === 'missing-support-file-in-code')) throw new Error(`fenced code was linted as links, or a missing command went unreported: ${JSON.stringify(fenced)}`);
-  writeFileSync(join(skill, 'README.md'), '# Example\n\nRuns save to `<workspace>/.octocode/tmp/example/<run>`.\n');
-  if (!review(skill).findings.some((item) => item.code === 'output-outside-skill-folder')) throw new Error('a shared .octocode/tmp/ output path was not flagged');
-  writeFileSync(join(skill, 'README.md'), '# Example\n\nRuns save to `<workspace>/.octocode/example-skill/tmp/<run>`; a scratch folder such as `.octocode/tmp/` is not a report location.\n');
-  if (review(skill).findings.some((item) => item.code === 'output-outside-skill-folder')) throw new Error('a skill tmp path or a passing mention was flagged');
+  for (const foreign of ['`<workspace>/.octocode/tmp/example/<run>`', '`<workspace>/.octocode/tmp/<run>/notes.md`', "`join(root, '.octocode', 'tmp', 'other-skill')`", "`join(root, '.octocode', 'tmp')`"]) {
+    writeFileSync(join(skill, 'README.md'), `# Example\n\nScratch goes to ${foreign}.\n`);
+    if (!review(skill).findings.some((item) => item.code === 'scratch-outside-skill-folder')) throw new Error(`scratch outside the skill's own .octocode/tmp/ folder was not flagged: ${foreign}`);
+  }
+  writeFileSync(join(skill, 'README.md'), "# Example\n\nRuns keep scratch in `<workspace>/.octocode/tmp/example-skill/<run>` (`join(root, '.octocode', 'tmp', 'example-skill', run)`, or `join(root, '.octocode', 'tmp', SKILL)`) and save to `<workspace>/.octocode/example-skill/`; skills keep scratch in `<workspace>/.octocode/tmp/<skill-name>/`; a scratch folder such as `.octocode/tmp/` is not a report location.\n");
+  if (review(skill).findings.some((item) => item.code === 'scratch-outside-skill-folder')) throw new Error("the skill's own scratch folder, a placeholder or a passing mention was flagged");
   writeFileSync(join(skill, 'README.md'), '# Example\n');
   writeFileSync(join(skill, 'SKILL.md'), source.replace('description: |-\n  Review an example.', 'description:\nlicense: MIT'));
   if (!review(skill).findings.some((item) => item.code === 'description-missing')) throw new Error('empty description consumed the next field');
@@ -516,6 +533,8 @@ function selfTestEscapingLinks(skill) {
   mkdirSync(devSkill, { recursive: true });
   writeFileSync(join(devSkill, 'SKILL.md'), readFileSync(join(skill, 'SKILL.md'), 'utf8').replace('name: example-skill', 'name: repo-skill'));
   if (review(devSkill).findings.some((item) => item.code === 'link-escapes-skill')) throw new Error('a repo-only skills-dev skill was held to standalone link portability');
+  writeFileSync(join(devSkill, 'README.md'), '# Repo skill\n\nGate logs go to `<repo>/.octocode/tmp/gates/<run>/`.\n');
+  if (review(devSkill).findings.some((item) => item.code === 'scratch-outside-skill-folder')) throw new Error("a repo-only skills-dev skill was held to the installed skills' scratch folder");
   rmSync(join(dirname(skill), 'skills-dev'), { recursive: true });
   writeFileSync(join(skill, 'SKILL.md'), source);
 }

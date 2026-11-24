@@ -107,8 +107,9 @@ export function checkReport(full, meta, body, workspace, { check = false, owner 
   const support = supportingFile(full, meta, workspace);
   if (support) return support.hasPrimary ? [] : [`${support.folder}/: a report folder needs README.md (or RFC.md) as its entry point`];
   const rel = toPosix(path.relative(path.join(workspace, '.octocode'), full)).split('/');
-  // A skill report written into scratch space (.octocode/<skill>/tmp/, or a legacy .octocode/tmp/) never reaches
-  // the catalog. tmp/showcase holds the rendered sample set and is exempt.
+  // A skill report written into scratch space (.octocode/tmp/<skill>/, or a tmp/ folder inside a skill's output
+  // folder) never reaches the catalog: reports go in .octocode/<skill>/. tmp/showcase holds the rendered sample set
+  // and is exempt.
   const scratch = rel[0] === 'tmp' ? rel[1] !== 'showcase' : rel[1] === 'tmp';
   if (scratch && meta.status && meta.question)
     return [`${rel.join('/')}: this has a report header but sits in a tmp/ folder, which the catalog skips; save it as .octocode/<skill>/<YYYY-MM-DD>-<slug>.md`];

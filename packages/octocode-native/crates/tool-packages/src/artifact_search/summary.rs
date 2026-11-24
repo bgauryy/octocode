@@ -53,20 +53,32 @@ pub(super) fn row(row: &mut Value, query: &ArtifactSearchQuery) {
         // The resolved release is the question: what it is for is a detail.
         // A name or version the request named is restated; a range or tag it
         // resolved, or a spelling the registry normalized, is the answer.
-        Some(name) => {
+        Some(_) => {
             fields.shift_remove("description");
-            if fields.get("packageName").and_then(Value::as_str) == Some(name) {
-                fields.shift_remove("packageName");
-            }
-            let asked = artifact_search_query::version(query);
-            if asked.is_some() && fields.get("version").and_then(Value::as_str) == asked {
-                fields.shift_remove("version");
-            }
+            drop_echoes(fields, query);
         }
         None => {
             for resolved in RESOLVE_FIELDS {
                 fields.shift_remove(resolved);
             }
         }
+    }
+}
+
+/// Drops the name and version of a resolve row that the request named:
+/// both views leave them out, as the caller has them.
+pub(super) fn drop_echoes(
+    fields: &mut serde_json::Map<String, Value>,
+    query: &ArtifactSearchQuery,
+) {
+    let Some(name) = artifact_search_query::package_name(query) else {
+        return;
+    };
+    if fields.get("packageName").and_then(Value::as_str) == Some(name) {
+        fields.shift_remove("packageName");
+    }
+    let asked = artifact_search_query::version(query);
+    if asked.is_some() && fields.get("version").and_then(Value::as_str) == asked {
+        fields.shift_remove("version");
     }
 }

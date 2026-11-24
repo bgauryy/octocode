@@ -1,5 +1,6 @@
 // Attach and the redirect guard against a real isolated headless
 // Chrome (temporary workspace, loopback page server in a child process).
+import { DIE_WITH_PARENT } from '../fixtures/die-with-parent.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -31,9 +32,13 @@ test(
   { skip, timeout: 240000 },
   async () => {
     const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'octo-open-multi-')));
-    const web = spawn(process.execPath, ['-e', serverSource], {
-      stdio: ['ignore', 'pipe', 'inherit'],
-    });
+    const web = spawn(
+      process.execPath,
+      [...DIE_WITH_PARENT, '-e', serverSource],
+      {
+        stdio: ['pipe', 'pipe', 'inherit'],
+      }
+    );
     const webPort = await new Promise(resolve =>
       web.stdout.once('data', chunk => resolve(String(chunk).trim()))
     );

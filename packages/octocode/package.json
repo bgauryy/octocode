@@ -72,8 +72,8 @@
     "lint": "yarn lint:own && yarn lint:oxlint",
     "postinstall": "node scripts/postinstall.mjs",
     "prepack": "node scripts/prepack.mjs",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
+    "test": "node ../../scripts/test-tmp.mjs vitest run",
+    "test:coverage": "node ../../scripts/test-tmp.mjs vitest run --coverage",
     "typecheck": "yarn run -T tsgo --noEmit",
     "verify:own": "yarn lint:own && yarn typecheck && yarn test:coverage",
     "verify": "yarn verify:own && yarn lint:oxlint"

@@ -1,7 +1,7 @@
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('vscode', async () => (await import('./ideBridgeMock')).vscodeMock());
 
@@ -256,13 +256,14 @@ describe('workspace confinement', () => {
 describe.skipIf(process.platform === 'win32')(
   'symlinked workspace folder',
   () => {
+    let root = '';
     let real = '';
     let link = '';
     let outside = '';
 
     beforeEach(async () => {
       await ctx.bridge.start();
-      const root = await fs.realpath(
+      root = await fs.realpath(
         await fs.mkdtemp(path.join(os.tmpdir(), 'octocode-symlink-'))
       );
       real = path.join(root, 'real');
@@ -276,6 +277,8 @@ describe.skipIf(process.platform === 'win32')(
       host.folders = [{ uri: { scheme: 'file', fsPath: link } }];
       host.execute.mockResolvedValue([]);
     });
+
+    afterEach(() => fs.rm(root, { recursive: true, force: true }));
 
     it('serves a canonical path and opens the folder spelling', async () => {
       const reply = await lsp(

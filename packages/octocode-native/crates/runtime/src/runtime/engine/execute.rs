@@ -148,7 +148,10 @@ impl ToolRuntime {
                         contracts::BesideCursor::AsSent => None,
                     }
                 }
-                Err(_) => None,
+                Err(_) => {
+                    repairs.extend(contracts::drop_unopened_page_size(&mut input));
+                    None
+                }
             };
             contracts::validate(&tool, input.clone())
                 .map_err(|error| naming_saved(invalid_input_error(&tool, error, &input), holds))?;

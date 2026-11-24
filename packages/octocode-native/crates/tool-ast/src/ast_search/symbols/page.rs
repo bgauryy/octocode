@@ -51,10 +51,18 @@ pub(crate) fn render_page(
     // scan time budget resumes after the files this window outlined
     // (`scanOffset`), so it is offered once the window's last page is reached.
     let expand_scan = crate::ast_search::scan_window::expand_scan(truncated, set.scan_resume);
-    let mut out = json!({"operation":"symbols","filesScanned":set.files_scanned,"filesSkipped":skipped,"diagnostics":outline_diagnostics(set)});
+    let mut out = json!({"operation":"symbols","filesSkipped":skipped,"diagnostics":outline_diagnostics(set)});
     octocode_runtime_base::response::paging::set_partial(&mut out, incomplete || set.recovered);
-    if let Some(excluded) = set.test_code_excluded.stated() {
-        out["testCodeExcluded"] = json!(excluded);
+    // What the pass scanned and what its testCode scope left out are facts
+    // of the whole pass, stated once, on page 1, as its `skippedPaths` are
+    // (below); a later page states its own declarations.
+    if page == 1 {
+        if let Some(fields) = out.as_object_mut() {
+            fields.shift_insert(1, "filesScanned".to_owned(), json!(set.files_scanned));
+        }
+        if let Some(excluded) = set.test_code_excluded.stated() {
+            out["testCodeExcluded"] = json!(excluded);
+        }
     }
     if let Some(note) = unproven {
         octocode_runtime_base::response::paging::mark_partial(

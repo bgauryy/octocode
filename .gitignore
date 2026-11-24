@@ -1,5 +1,5 @@
 node_modules
-# Stale test temp dirs — tests must use os.tmpdir(), not package dir
+# Stale test temp dirs: temp data goes under .octocode/tmp/<task>/ (AGENTS.md), never a package dir
 .tmp-*
 build
 # Cargo build-script modules (`build.rs` includes them by #[path]); source, not output.
@@ -54,8 +54,9 @@ coverage
 .env
 .cursor
 .context
-# Bundled skills copied into the octocode CLI package during build/prepack.
+# Bundled skills copied into the octocode CLI and octocode-mcp packages during build/prepack.
 /packages/octocode/skills/
+/packages/octocode-mcp/skills/
 # sqlite DB
 mcp.sqlite
 

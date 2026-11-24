@@ -220,7 +220,7 @@ Behavior, judged by reading, on both surfaces. The per-tool sections below list 
   missing it names the package and fetches the pinned one; `config view` refuses a request with a foreign
   `Host` or no session token.
 - [ ] Plugins: the packed Claude plugin in a temporary `CLAUDE_CONFIG_DIR` and the Codex plugin in a temporary
-  `CODEX_HOME`, no real credentials: the installed manifest and skills are complete, and the MCP server reads
+  `CODEX_HOME`, both under `.octocode/tmp/<task>/` and removed afterwards, no real credentials: the installed manifest and skills are complete, and the MCP server reads
   only the project root it starts in.
 - [ ] Credentials: the [packaged auth checks](../octocode-native/docs/GITHUB_AUTH_TESTS.md#packaged-checks).
 

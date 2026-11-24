@@ -62,8 +62,9 @@
     "lint:own": "node scripts/generate-config-contract.ts --check",
     "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
     "lint": "yarn lint:own && yarn lint:oxlint",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
+    "test:scripts": "node ../../scripts/test-tmp.mjs node --test ../../scripts/test-tmp.test.mjs",
+    "test": "yarn test:scripts && node ../../scripts/test-tmp.mjs vitest run",
+    "test:coverage": "yarn test:scripts && node ../../scripts/test-tmp.mjs vitest run --coverage",
     "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
     "verify:own": "yarn lint:own && yarn typecheck && yarn test:coverage && yarn build",
     "verify": "yarn verify:own && yarn lint:oxlint"

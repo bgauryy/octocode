@@ -10,7 +10,7 @@ Record requests and expected skill/action/output/check: ordinary and implicit in
 
 | Surface | Check |
 |---|---|
-| Served discovery listing | Recognizable intent, neighbor boundary, no stale overrides. |
+| Served discovery listing | Recognizable intent whose wording alone separates it from neighbors (no other skill names, no “Not for …”), no stale overrides. |
 | Entry (`SKILL.md`) | First action, missing-input handling, deciding conditions, safeguards, usable result and completion without obligatory directory exploration. |
 | References | Named load condition, predictive filename, direct route to critical detail; no prerequisite detours or orphan cycles. |
 | Scripts/assets | Real commands, dependencies, inputs, effects, output and failure/recovery. Inspect imports needed by the shipped operation. Every script has a documented command and answers `--help`. |
@@ -18,7 +18,7 @@ Record requests and expected skill/action/output/check: ordinary and implicit in
 | Result | Evidence and unchecked scope are clear; readiness or ratings have stated criteria. |
 | Standalone bundle | Required resources and imports ship without sibling skills or repository-only dependencies. |
 
-Classify each resource as required, conditional or unrouted. Read authored instructions and script contracts. Compare repeated decisions and examples by purpose. Walk a common task and a conditional branch, including what the reader must open before acting. Check the same route from an isolated skill folder. A link can pass in a monorepo while failing for someone who installed just that skill; the checker warns on it (`link-escapes-skill`).
+Classify each resource as required, conditional or unrouted. Read authored instructions and script contracts. Compare repeated decisions and examples by purpose. Walk the two requests from the [work loop](../SKILL.md#work-loop), including what the reader must open before acting, from an isolated skill folder. A link can pass in a monorepo while failing for someone who installed just that skill; the checker warns on it (`link-escapes-skill`).
 
 Apply the [placement rules](../SKILL.md#decide-placement). Merge repeated decisions and pages always needed together; keep distinct recipes conditional. Preserve permissions, identifiers, exact commands, exceptions, evidence, recovery and completion. Do not replace clear prose with a larger table or decorative diagram. Rewalk both tasks after changes. Moving text does not establish a size or efficiency improvement.
 

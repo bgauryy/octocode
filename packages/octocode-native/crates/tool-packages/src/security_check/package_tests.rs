@@ -486,10 +486,50 @@ async fn a_go_package_path_sends_its_module() {
     assert_eq!(data["packageName"], "golang.org/x/text");
 }
 
+/// A Go row spells every version as the module does, with the `v`: the
+/// fixes of an advisory as `upgradeTo`.
+#[tokio::test]
+async fn a_go_rows_fixes_are_spelled_with_the_v_of_its_version() {
+    let vuln = json_fixture(
+        r#"{
+            "id": "GO-2023-0001",
+            "affected": [{
+                "package": {"name": "golang.org/x/text", "ecosystem": "Go"},
+                "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "0.3.8"}]}]
+            }]
+        }"#,
+    );
+    let http = RouteHttp::new()
+        .json(
+            "/v1/module/golang.org/x/text",
+            json_fixture(r#"{"path": "golang.org/x/text", "version": "v0.3.5"}"#),
+        )
+        .osv_pages(vec![(200, json!({"vulns": [vuln]})), (200, json!({}))]);
+    let data = answer_viewed(
+        &http,
+        ArtifactType::Go,
+        "golang.org/x/text",
+        Some("v0.3.5"),
+        None,
+        octocode_contract_types::SecurityCheckView::Summary,
+    )
+    .await
+    .expect("row");
+    let fixed = &data["advisories"][0]["fixedIn"];
+    assert_eq!(fixed, &json!([data["upgradeTo"].clone()]), "{data}");
+    assert!(
+        data["upgradeTo"]
+            .as_str()
+            .is_some_and(|v| v.starts_with('v')),
+        "{data}"
+    );
+}
+
 /// OSV keys Go by module, so a package path inside it hears its module's other
-/// packages' advisories too: the summary names the package it checked, says the
-/// module has advisories it does not count, and leads to the `details` read
-/// that lists them (live: github.com/gin-gonic/gin/binding v1.9.0).
+/// packages' advisories too: the summary names the module, says it has
+/// advisories it does not count, and leads to the `details` read that lists
+/// them (live: github.com/gin-gonic/gin/binding v1.9.0). The package checked
+/// is the request's, and none known is `affected:false`.
 #[tokio::test]
 async fn a_go_package_summary_names_its_package_and_leads_to_its_modules_advisories() {
     const PACKAGE: &str = "golang.org/x/text/language";
@@ -521,7 +561,8 @@ async fn a_go_package_summary_names_its_package_and_leads_to_its_modules_advisor
     .await
     .expect("row");
     let answer = data["answer"].as_str().expect("answer");
-    assert!(answer.starts_with(&format!("{PACKAGE}@v0.3.5")), "{data}");
+    assert_eq!(data["affected"], false, "{data}");
+    assert!(!answer.contains("none known"), "affected states it: {data}");
     assert!(answer.contains("golang.org/x/text"), "the module: {data}");
     assert!(answer.contains("GO-SIBLING"), "the advisory's id: {data}");
     assert!(answer.contains("moduleOnly"), "where to read it: {data}");
@@ -816,6 +857,40 @@ async fn twin_records_of_one_advisory_are_counted_and_listed_once() {
     );
     assert!(!rows[0].to_string().contains("4.17.21"), "{data}");
     assert!(rows[2].to_string().contains("4.17.21"), "{data}");
+}
+
+/// Two databases' records of one advisory can close the asked version's
+/// range at different fixes (time 0.1.45: GHSA-wcg3-cvx6-7396 is fixed
+/// only at 0.2.23, its RUSTSEC-2020-0071 alias at 0.2.0). The summary row
+/// is one advisory, and a version is clear of it only outside every
+/// record's ranges: its one fix is the highest of its records' fixes for
+/// that line, the version upgradeTo also clears, never a list of each.
+#[tokio::test]
+async fn an_advisorys_one_fix_is_the_one_every_record_of_it_clears() {
+    let ranged = |id: &str, aliases: &[&str], events: Value| {
+        json!({"id": id, "aliases": aliases,
+               "affected": [{"package": {"name": "lodash", "ecosystem": "npm"},
+                             "ranges": [{"type": "SEMVER", "events": events}]}]})
+    };
+    let page = json!({"vulns": [
+        ranged("GHSA-aaaa", &["CVE-2020-1", "PYSEC-1"],
+            json!([{"introduced": "4.0.0"}, {"fixed": "4.18.1"}])),
+        ranged("PYSEC-1", &["CVE-2020-1", "GHSA-aaaa"],
+            json!([{"introduced": "0"}, {"fixed": "4.17.21"},
+                   {"introduced": "4.18.0"}, {"fixed": "4.18.1"}])),
+    ]});
+    let http = registry().osv_pages(vec![(200, page), (200, json!({"vulns": []}))]);
+    let data = answer_in(
+        &http,
+        Some("4.17.20"),
+        octocode_contract_types::SecurityCheckView::Summary,
+    )
+    .await
+    .expect("row");
+    assert_eq!(data["upgradeTo"], "4.18.1", "{data}");
+    let rows = data["advisories"].as_array().expect("advisories");
+    assert_eq!(rows.len(), 1, "{data}");
+    assert_eq!(rows[0]["fixedIn"], json!(["4.18.1"]), "{data}");
 }
 
 /// The extra read of the registry's latest release that fails leaves the row

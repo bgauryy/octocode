@@ -153,8 +153,9 @@ async fn github_tree_materialize_with_unwritten_folders_is_not_complete() {
     .await
     .expect("tree materialize");
     let data = row_data(&outcome);
-    assert_eq!(data["location"]["coverage"]["state"], "partial", "{data}");
-    // A partial page states it once: partialReasons or a floor countScope, no isPartial.
+    // A partial page states it once: partialReasons or a floor countScope, no
+    // isPartial and no `location.coverage` beside them.
+    assert!(data["location"].get("coverage").is_none(), "{data}");
     assert!(data.get("isPartial").is_none(), "{data}");
     assert!(
         !data["partialReasons"].is_null()

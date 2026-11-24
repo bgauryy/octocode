@@ -9,11 +9,11 @@
 //                   when they share the machine with the Rust suite
 // Every gate runs to its end whatever the others do, except that a failed build
 // skips the rest (they would only repeat its failure). Output goes to one log per
-// gate; the summary table states each gate's exit, time and the line that counts.
-// Exit 0 only when every gate passed.
+// gate in the run's folder under <repo>/.octocode/tmp/gates/; the summary table
+// states each gate's exit, time and the line that counts. Exit 0 only when every
+// gate passed.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ROOT } from './lib/workspaces.mjs';
@@ -50,6 +50,50 @@ export const STAGES = [
   ],
 ];
 
+/** Every gate run's log folder sits here, one folder per run. */
+export const RUNS = path.join(ROOT, '.octocode', 'tmp', 'gates');
+// A run folder holds this file, naming its process, until the run ends.
+const OWNER = 'owner.pid';
+
+/** A new run folder under `runs`, named by its start time and marked as written by `pid`. */
+export function startRun(runs = RUNS, { now = new Date(), pid = process.pid } = {}) {
+  fs.mkdirSync(runs, { recursive: true });
+  const dir = fs.mkdtempSync(path.join(runs, `${now.toISOString().replace(/[:.]/g, '-')}-`));
+  fs.writeFileSync(path.join(dir, OWNER), String(pid));
+  return dir;
+}
+
+/** Mark a run folder finished: nothing writes to it any more. */
+export const finishRun = dir => fs.rmSync(path.join(dir, OWNER), { force: true });
+
+const processAlive = pid => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === 'EPERM';
+  }
+};
+
+/**
+ * Remove every run folder under `runs` except `keep` and those a live process still writes. A gate run is the
+ * owner's, so the newest run is the only one worth reading; an interrupted run's folder names a dead process.
+ */
+export function pruneRuns(runs, keep, alive = processAlive) {
+  for (const entry of fs.readdirSync(runs, { withFileTypes: true })) {
+    const dir = path.join(runs, entry.name);
+    if (!entry.isDirectory() || dir === keep) continue;
+    let owner = 0;
+    try {
+      owner = Number(fs.readFileSync(path.join(dir, OWNER), 'utf8'));
+    } catch {
+      // finished: no owner file
+    }
+    if (Number.isInteger(owner) && owner > 0 && alive(owner)) continue;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 /** Run one gate into its log; resolves with its row for the summary. */
 function runGate(gate, logDir) {
   const log = path.join(logDir, `${gate.name.replace(/[^a-z0-9]+/gi, '-')}.log`);
@@ -83,7 +127,8 @@ function summary(rows) {
 }
 
 async function main() {
-  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-gates-'));
+  const logDir = startRun();
+  pruneRuns(RUNS, logDir);
   console.log(`gates: logs in ${logDir}`);
   const rows = [];
   let stopped;
@@ -100,6 +145,7 @@ async function main() {
   console.log(`\n${summary(rows)}`);
   const failed = rows.filter(({ state }) => state === 'FAIL');
   for (const { gate, log } of failed) console.log(`\n${gate.name}: ${log}`);
+  finishRun(logDir);
   process.exit(failed.length === 0 ? 0 : 1);
 }
 

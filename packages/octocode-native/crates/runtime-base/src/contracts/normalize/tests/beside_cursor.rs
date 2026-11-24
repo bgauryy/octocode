@@ -151,11 +151,27 @@ fn a_private_field_beside_a_cursor_is_never_compared() {
 #[test]
 fn a_page_size_keeps_its_note_and_other_request_fields_stay() {
     let saved = json!({"queries": [{"operation": "search"}], "responseChars": 900});
+    // The size the cursor was issued at needs no note; another size does.
     let sent = json!({"cursor": "issued", "responseChars": 900});
-    assert_eq!(
-        against("ghSearchRepo", &sent, &saved),
-        (sent, BesideCursor::AsSent)
+    let (input, read) = against("ghSearchRepo", &sent, &saved);
+    assert_eq!(input, json!({"cursor": "issued"}));
+    assert_eq!(held_notes(read), Vec::<String>::new());
+    let sent = json!({"cursor": "issued", "responseChars": "900"});
+    let (_, read) = against("ghSearchRepo", &sent, &saved);
+    assert_eq!(held_notes(read), Vec::<String>::new());
+    let sent = json!({"cursor": "issued", "responseChars": 901});
+    let (input, read) = against("ghSearchRepo", &sent, &saved);
+    assert_eq!(input, json!({"cursor": "issued"}));
+    assert!(
+        held_notes(read)[0].contains("page size it was issued with"),
+        "another size is said"
     );
+    // A walk issued without a size was cut at the default.
+    let unsized_walk = json!({"queries": [{"operation": "search"}]});
+    let default = crate::id::DEFAULT_RESPONSE_CHARS;
+    let sent = json!({"cursor": "issued", "responseChars": default});
+    let (_, read) = against("ghSearchRepo", &sent, &unsized_walk);
+    assert_eq!(held_notes(read), Vec::<String>::new());
     let sent = json!({"cursor": "issued", "operation": "search", "responseChars": 5});
     let (input, read) = against("ghSearchRepo", &sent, &saved);
     assert_eq!(input, json!({"cursor": "issued"}));

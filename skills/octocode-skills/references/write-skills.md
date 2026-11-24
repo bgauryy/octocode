@@ -29,12 +29,12 @@ The body cannot rescue a trigger the host never selects. Check the actual served
 
 - Match the stable folder name: 1–64 lowercase ASCII letters, digits and single hyphens; no leading/trailing hyphen.
 - The description is the trigger (when to load) plus a concise motivation (what the skill does and why to load it instead of working alone). Put the trigger first; keep procedure in the body.
-- Begin the description with “Load this skill first when” and the request as a user would phrase it. An agent reads only the description when choosing, so it answers three questions: which requests, why load it instead of working alone, and what it is not for. Host runs on 2026-11-14 measured this lead against “Use when”: Haiku held-out 9.5 → 13 of 20, Sonnet 18 → 19 of 20, no new false triggers.
-- Put the requested deliverable first when skills overlap. A merge verdict belongs to PR review, a clickable dependency map to Graph View, and a written set of test cases to Test Plan. Name a neighbor in the description only if a concrete near-miss remains ambiguous. Match the entry’s input branches to the same boundary.
+- Begin the description with “Load this skill first when” and the request as a user would phrase it. An agent reads only the description when choosing, so it answers two questions: which requests, and why load it instead of working alone. In host runs this lead beat “Use when” on held-out requests with no new false triggers.
+- Put the requested deliverable first when skills overlap. A merge verdict belongs to PR review, a clickable dependency map to Graph View, and a written set of test cases to Test Plan. Separate neighbors by that deliverable and the intent wording; the description names no other skill and carries no “Not for …” clause. Put handoffs to neighbors in the body, beside the input branch they serve.
 - For jobs agents believe they can do alone (research, debugging, docs), name the shortcut it replaces in the lead (“before searching or reading files yourself”); recheck no-skill requests for false triggers.
 - Avoid exhaustive keywords, setup steps and marketing.
 - Respect the 1,024-character format limit; it is not a target. Public Octocode skills require one JSON-string `description:` line because the native build embeds it. Other hosts may accept other YAML forms.
-- Test the description against the skill's actual actions. Include the distinguishing capability and essential neighbor boundary; keep procedure, commands and quality claims in the body.
+- Test the description against the skill's actual actions. Include the distinguishing capability; keep procedure, commands and quality claims in the body.
 
 ## Lobby and files
 

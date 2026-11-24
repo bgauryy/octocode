@@ -240,8 +240,10 @@ async fn a_walk_with_no_tree_leaves_out_what_it_cannot_type_and_says_so() {
                 .is_some_and(|reasons| !reasons.is_empty()),
             "{status}: {data}"
         );
-        assert_eq!(
-            data["location"]["coverage"]["state"], "partial",
+        // `partialReasons` states the partial checkout once: no
+        // `location.coverage` repeats it.
+        assert!(
+            data["location"].get("coverage").is_none(),
             "{status}: {data}"
         );
         assert!(

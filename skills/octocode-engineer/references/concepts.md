@@ -2,7 +2,7 @@ Load when naming what code is (a style, pattern, role, transport, or mechanism),
 
 # Architecture concepts
 
-A name is a hypothesis about intent. `OrderService` or a `facade/` folder is declared intent; the mechanism the code implements is observed. Use this reference to name what you see, to pick the rival explanation to rule out, and to choose the evidence that separates them. Every section answers three questions: which responsibility belongs where, which dependencies are permitted, and which complexity the requirements justify.
+A name is a hypothesis about intent. `OrderService` or a `facade/` folder is declared intent; the mechanism the code implements is observed. Use this reference to name what you see, to pick the rival explanation to rule out, and to choose the evidence that separates them. Each section answers which responsibility belongs where, which dependencies are permitted and which complexity the requirements justify.
 
 ## Contents
 

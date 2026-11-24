@@ -248,18 +248,11 @@ async fn compare_file_filters_page_the_commits_apart() {
             "{filter}: {out}"
         );
         assert!(out["next"]["commits"].is_object(), "{out}");
-        // No commit is shown: the section's page is empty, its total the range's.
-        assert_eq!(
-            out["sectionPagination"]["commits"],
-            json_fixture(
-                r#"{
-                    "unit": "items",
-                    "offset": 0,
-                    "length": 0,
-                    "total": 337,
-                    "hasMore": true
-                }"#
-            ),
+        // No commit is shown: `aheadBy` counts the range's commits once, and
+        // no empty page block repeats it.
+        assert_eq!(out["aheadBy"], 337, "{filter}: {out}");
+        assert!(
+            out["sectionPagination"].get("commits").is_none(),
             "{filter}: {out}"
         );
         let page = &out["next"]["commits"]["input"]["queries"][0];
@@ -299,9 +292,10 @@ async fn compare_file_filters_page_the_commits_apart() {
 
 /// A comparison read with no `sections` (and no file filter or literal) is
 /// the summary row: both commits, how far each side is ahead, and the sizes
-/// of its two lists, with neither list in the row. Each list's continuation
-/// reads it from its first item, so the summary and its two walks hold every
-/// file and commit once.
+/// of its two lists (`aheadBy`, `changedFileCount`, each stated once: no
+/// empty page block repeats them), with neither list in the row. Each
+/// list's continuation reads it from its first item, so the summary and its
+/// two walks hold every file and commit once.
 #[tokio::test]
 async fn compare_without_sections_is_the_summary_row() {
     let server = MockServer::builder().start().await;
@@ -321,13 +315,8 @@ async fn compare_without_sections_is_the_summary_row() {
     );
     assert_eq!(summary["aheadBy"], 337, "{summary}");
     assert_eq!(summary["changedFileCount"], changed, "{summary}");
-    for (section, total) in [("files", changed), ("commits", 337)] {
-        let page = &summary["sectionPagination"][section];
-        assert_eq!(
-            (&page["length"], &page["total"], &page["hasMore"]),
-            (&json!(0), &json!(total), &json!(true)),
-            "{section}: {summary}"
-        );
+    assert!(summary.get("sectionPagination").is_none(), "{summary}");
+    for section in ["files", "commits"] {
         let first = &summary["next"][section]["input"]["queries"][0];
         assert_eq!(first["sections"], json!([section]), "{summary}");
         assert!(first.get("page").is_none(), "{summary}");

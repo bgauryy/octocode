@@ -38,13 +38,13 @@ pub(super) async fn compare(
     let page = gh_get_history_item_query::page(query).unwrap_or(1);
     let per = gh_get_history_item_query::collection_page_size(query);
     // Named sections read what they name. Omitted sections answer with the
-    // summary row: the range's identity and its counts, each list one
-    // section away (`sectionPagination.files` and `.commits` state their
-    // sizes with nothing shown, and continue to their first pages). A file
+    // summary row: the range's identity and its counts (`aheadBy`,
+    // `changedFileCount`), each list one section away (`next.commits` and
+    // `next.files` read their first pages). A file
     // filter (`include`, `fileStatus`) or a `matchString`
     // asks about files: it answers with its file page. Neither scopes the
     // commits: a filtered read pages them apart, from their first page, by
-    // `sectionPagination.commits` or `sections: ["commits"]`. A patch window
+    // `next.commits` or `sections: ["commits"]`. A patch window
     // continues one file page's patches only.
     let window = gh_get_history_item_query::char_offset(query).is_some_and(|offset| offset > 0);
     let sections = query.sections();
@@ -161,30 +161,35 @@ pub(super) async fn compare(
     });
     cursors.commit_page = more.then(|| saturating_u64(page + 1));
     // A file answer and the summary leave the range's commits to their own
-    // pages: the section states their count with none shown, and its page
-    // lists them from the first. An empty file answer is the whole answer.
+    // pages: `next.commits` lists them from the first. `aheadBy` counts them
+    // (GitHub's `total_commits` is that count), so no empty page block
+    // repeats it; only a count that differs is stated there. An empty file
+    // answer is the whole answer.
     let files_first = files_asked && !window && first_page(query);
     if (files_first || summary) && total > 0 && out["status"] != "empty" {
-        out["sectionPagination"][Axis::Commits.key()] =
-            octocode_runtime_base::response::pages::PageFacts::unshown(total).to_value();
+        if out.get("aheadBy") != Some(&json!(total)) {
+            out["sectionPagination"][Axis::Commits.key()] =
+                octocode_runtime_base::response::pages::PageFacts::unshown(total).to_value();
+        }
         cursors.commit_page = Some(1);
     }
-    // The summary states the changed files the same way: their count, none
-    // shown, and the page that lists them from the first. At GitHub's cap
-    // the count is a floor, which the section says and no row count claims.
+    // The summary states the changed files the same way: `changedFileCount`
+    // counts them and `next.files` lists them from the first. At GitHub's
+    // cap the count is a floor: no row count claims it, and the empty files
+    // block states the floor (`countScope`).
     if summary && !no_files {
         let listed = listed_files
             .as_ref()
             .and_then(Value::as_array)
             .map_or(0, Vec::len);
-        let mut files =
-            octocode_runtime_base::response::pages::PageFacts::unshown(listed).to_value();
         if capped {
+            let mut files =
+                octocode_runtime_base::response::pages::PageFacts::unshown(listed).to_value();
             files["countScope"] = json!("partial");
+            out["sectionPagination"][Axis::Files.key()] = files;
         } else {
             out["changedFileCount"] = json!(listed);
         }
-        out["sectionPagination"][Axis::Files.key()] = files;
         cursors.file_page = Some(1);
     }
     attach_diff_continuations(&mut out, &pinned, ItemOperation::Compare, None, cursors);

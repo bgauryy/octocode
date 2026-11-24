@@ -10,7 +10,7 @@ fn full_row() -> ArtifactItem {
     let mut item = ArtifactItem::new(
         ArtifactType::Npm,
         "vite".into(),
-        "https://registry.npmjs.org/vite".into(),
+        "https://www.npmjs.com/package/vite".into(),
     );
     item.version = Some("5.4.1".into());
     item.description = Some("Native-ESM powered web dev build tool".into());
@@ -73,7 +73,7 @@ fn details_lead(data: &Value) -> Option<&Value> {
 }
 
 /// A resolve names where the release's source lives; the name and version
-/// the request pinned are its own, so only `details` restates them. What the
+/// the request pinned are its own, so neither view restates them. What the
 /// package is, declares and depends on is `details`. A name the registry
 /// spells otherwise is stated.
 #[test]
@@ -109,7 +109,7 @@ fn a_resolve_summary_is_the_release_and_its_source() {
         assert!(
             lean.get(field).is_some()
                 || DETAIL_FIELDS.contains(&field)
-                || ["registryUrl", "description", "packageName", "version"].contains(&field),
+                || ["registryUrl", "description"].contains(&field),
             "{field} is in neither view's account"
         );
     }
@@ -141,8 +141,8 @@ fn a_resolve_summary_is_the_release_and_its_source() {
     }
 }
 
-/// The registry page follows from the ecosystem and the name; a registry
-/// the request named is where the row was read, so the summary states it.
+/// The registry page follows from the ecosystem and the name, never the API
+/// base the row was read from; a request that named a registry gets it stated.
 #[test]
 fn a_named_registry_is_stated_in_the_summary() {
     let summary = rows(json_fixture(
@@ -154,7 +154,7 @@ fn a_named_registry_is_stated_in_the_summary() {
         }"#,
     ));
     assert_eq!(
-        summary["artifacts"][0]["registryUrl"], "https://registry.npmjs.org/vite",
+        summary["artifacts"][0]["registryUrl"], "https://www.npmjs.com/package/vite",
         "{summary}"
     );
 }

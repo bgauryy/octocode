@@ -275,7 +275,7 @@ pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, A
     }
     let compared = notes.trust.as_ref().is_some_and(Trust::compared_in_full);
     let needs_release = ecosystem::needs_release(package.ecosystem)?;
-    let mut data = respond(
+    let (mut data, mut answer) = respond(
         package,
         &confirmed,
         notes,
@@ -292,6 +292,8 @@ pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, A
             .as_ref()
             .map_or(global::Answered::Not, global::Global::answered);
         osv_unanswered(&mut data, &confirmed, &results, answered, error);
+        // The rewrite says what no field does: OSV did not answer.
+        answer = answer::Answer::whole(data["answer"].as_str().unwrap_or_default());
         // The rewrite replaced the answer: it names the review cautions again.
         answer::name_review_cautions(&mut data);
     }
@@ -335,7 +337,7 @@ pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, A
             )],
         );
     }
-    Ok(in_view(package, data, &upgrade))
+    Ok(in_view(package, data, &upgrade, &answer))
 }
 
 /// The databases that dispute a listed advisory, read for `details` only:
@@ -354,7 +356,12 @@ async fn disputes(
 }
 
 /// The finished row as the package's view states it.
-fn in_view(package: &Package<'_>, data: Value, upgrade: &Upgrade) -> Value {
+fn in_view(
+    package: &Package<'_>,
+    data: Value,
+    upgrade: &Upgrade,
+    answer: &answer::Answer,
+) -> Value {
     summary::apply(
         package.view,
         data,
@@ -362,7 +369,7 @@ fn in_view(package: &Package<'_>, data: Value, upgrade: &Upgrade) -> Value {
             asked_name: Some(package.name),
             asked_version: package.version,
             unfixed_in_major: upgrade.unfixed_in_major,
-            gives_verdict: true,
+            answer: Some(answer),
             upgrade_prerelease: upgrade.prerelease,
         },
     )
@@ -1405,7 +1412,8 @@ fn not_evaluated(data: &mut Value, why: &str) {
     }
 }
 
-/// The answer first, the target's facts, the sources' row, and what continues it.
+/// The answer first, the target's facts, the sources' row, and what continues
+/// it; and the answer clause by clause, for the summary.
 fn respond(
     package: &Package<'_>,
     confirmed: &Confirmed,
@@ -1413,7 +1421,7 @@ fn respond(
     results: &[SourceResult],
     upgrade: &Upgrade,
     needs_release: bool,
-) -> Value {
+) -> (Value, answer::Answer) {
     let name = confirmed.name.as_str();
     let version = confirmed.version.as_deref();
     // A Go package path is the package checked; its module is where OSV keys
@@ -1444,7 +1452,7 @@ fn respond(
     facts.unregistered_name = notes
         .unregistered_name
         .map(crate::artifact::query::artifact_type::as_str);
-    let mut data = answer::lead(&target, &facts);
+    let (mut data, answer) = answer::lead(&target, &facts);
     data["packageName"] = json!(name);
     match version {
         // OSV was asked at a version the registry does not list: no version
@@ -1458,6 +1466,39 @@ fn respond(
         data["registryConfirmed"] = json!(false);
     }
     let mut data = into_row(data, results, View::of(package.view));
+    // A summary row is one advisory, its records' fixes merged; each record
+    // closes the asked version's line at its own fix, and the advisory is
+    // clear only where every record is.
+    if let Some(version) = version {
+        let order = upgrade::Order::of(ecosystem::version_order(confirmed.ecosystem));
+        let brief = View::of(package.view) == View::Brief;
+        for row in data
+            .get_mut("advisories")
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
+            let Some(listed) = row.get("fixedIn").and_then(Value::as_array) else {
+                continue;
+            };
+            let mut fixes = listed
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            if brief {
+                upgrade::clearing_fix(version, &mut fixes, order);
+            }
+            // Fixes are spelled as the asked version is (a Go version keeps
+            // its `v`), as `upgradeTo` is.
+            row["fixedIn"] = json!(
+                fixes
+                    .iter()
+                    .map(|fix| upgrade::written_as(version, fix))
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
     if !facts.stopped {
         // Not none known: OSV answers a release it does not name (no record of the
         // package in it, by name), and a version
@@ -1570,7 +1611,7 @@ fn respond(
         );
     }
     octocode_runtime_base::response::result::finish_calls(&mut data);
-    data
+    (data, answer)
 }
 
 #[cfg(test)]

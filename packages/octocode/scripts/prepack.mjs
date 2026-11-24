@@ -2,7 +2,7 @@
 import { statSync } from 'node:fs';
 import manifest from '../package.json' with { type: 'json' };
 import { fileURLToPath } from 'node:url';
-import { stageSkills } from './stage-skills.mjs';
+import { stagePackage } from '../../../skills-dev/octocode-dev/scripts/package-build.mjs';
 
 for (const entry of [manifest.bin, manifest.exports['./native']]) {
   if (!statSync(new URL(entry, new URL('../', import.meta.url)), { throwIfNoEntry: false })?.isFile()) {
@@ -10,8 +10,7 @@ for (const entry of [manifest.bin, manifest.exports['./native']]) {
   }
 }
 
-stageSkills(
-  fileURLToPath(new URL('../../../skills/', import.meta.url)),
-  fileURLToPath(new URL('../skills/', import.meta.url))
-);
-console.log('✓ skills staged from monorepo root');
+// Skills and docs come from the repository on every pack, so a pack after any build ships both.
+const packageRoot = fileURLToPath(new URL('../', import.meta.url));
+const { skills, docs } = stagePackage(packageRoot, 'out');
+console.log(`✓ skills staged → ${skills}\n✓ docs bundled → ${docs}`);

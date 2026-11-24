@@ -217,6 +217,11 @@ pub(super) fn settle_row(
     if is_partial {
         stats.matched_files = None;
     }
+    // Any order but traversal, and every count view, ranks the whole scope
+    // before page 1, which states its totals and coverage once, as it states
+    // `skippedPaths`; a walk states them where it ends (above).
+    let scope_stated_on_page_one =
+        layout.walk.is_none() && local_search_query::page(query).max(1) > 1;
     Ok(LocalSearchResult {
         status,
         stats,
@@ -235,6 +240,7 @@ pub(super) fn settle_row(
         skipped_paths: disclosed.skipped_paths,
         source_snapshot: None,
         derived_value: None,
+        scope_stated_on_page_one,
     })
 }
 

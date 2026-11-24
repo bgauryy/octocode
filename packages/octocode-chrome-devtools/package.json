@@ -41,7 +41,7 @@
     "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
     "lint": "yarn lint:own && yarn lint:oxlint",
     "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
-    "test:run": "node --test tests/unit/*.test.mjs tests/*-self-test.mjs",
+    "test:run": "node ../../scripts/test-tmp.mjs node --test tests/unit/*.test.mjs tests/*-self-test.mjs",
     "test": "yarn build && yarn test:run",
     "verify:own": "yarn build && yarn lint:own && yarn typecheck && yarn test:run",
     "verify": "yarn verify:own && yarn lint:oxlint",

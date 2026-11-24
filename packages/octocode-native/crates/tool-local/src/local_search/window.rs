@@ -169,6 +169,7 @@ pub(super) fn paused_row(
         skipped_paths: None,
         source_snapshot: None,
         derived_value: None,
+        scope_stated_on_page_one: false,
     })
 }
 

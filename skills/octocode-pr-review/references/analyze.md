@@ -31,10 +31,10 @@ When an orchestrator assigns parallel lanes, size them to the diff's risk (for e
 In a user-provided checkout at the pinned head, or with approval, run from the directory the test command expects:
 
 ```bash
-node <skill-folder>/scripts/test-at-base.mjs --base <baseCommitSha> --head <pinned head SHA> --test <test path> --cmd "<command that runs that test>" [--setup "<install or build step>"] --logs <workspace>/.octocode/octocode-pr-review/tmp/test-at-base
+node <skill-folder>/scripts/test-at-base.mjs --base <baseCommitSha> --head <pinned head SHA> --test <test path> --cmd "<command that runs that test>" [--setup "<install or build step>"]
 ```
 
-[test-at-base.mjs](../scripts/test-at-base.mjs) runs the command in a temporary git worktree at base with the checkout's test copied in, then in the checkout, and removes the worktree even on failure or interrupt. It does not modify the checkout's files; `--cmd` runs there as given. `--setup` runs only in the base tree: pass the project's install or build step when the test needs one. Options: `--help`.
+[test-at-base.mjs](../scripts/test-at-base.mjs) runs the command in a temporary git worktree at base with the checkout's test copied in, then in the checkout, and removes the worktree even on failure or interrupt. It writes nothing in the checkout but its logs; `--cmd` runs there as given. Each run's `setup.log`, `base.log` and `head.log` stay in a new folder under `<workspace>/.octocode/tmp/octocode-pr-review/test-at-base/` (the output's `logs`; `--logs <dir>` picks another). `--setup` runs only in the base tree: pass the project's install or build step when the test needs one. Options: `--help`.
 
 | Result | Read it as |
 |---|---|

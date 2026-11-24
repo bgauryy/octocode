@@ -14,7 +14,7 @@ Every workspace resolves one Zod 4 (`rg -n '^"zod@' -A1 yarn.lock`; 4.6.7 when w
 
 ## Sources and outputs
 
-Edit the Zod source and run its generator; never edit the output.
+Edit the Zod source and run its generator (`$DEV` as [AGENTS.md](../../AGENTS.md#work-locally) defines it); never edit the output.
 
 | Zod source | Output | Regenerate |
 |---|---|---|
@@ -26,17 +26,9 @@ Edit the Zod source and run its generator; never edit the output.
 - agents-communication: Zod is a devDependency; nothing in `src/runtime`, `src/entries` or `src/hosts` may import it (`tests/catalog-source.test.ts`). A shared shape goes through `define()` in `catalog/registry.ts` (one `$defs` entry, `$ref` at each use); keywords Zod cannot state ride in `.meta()`; `catalog/json-schema.ts` maps Zod's output to the dialect `src/runtime/validation.ts` enforces.
 - mcp-cli: flags come from `z.toJSONSchema(schema, { io: 'input', unrepresentable: 'any' })`. MCP SDK v2 takes the Zod schema itself as a Standard Schema; a JSON Schema tool is wrapped by `jsonSchemaStandard`.
 
-## Zod 4 behaviors to check (verified on 4.6.7)
+## Zod 4 behaviors
 
-- `z.toJSONSchema` defaults to `io: 'output'`: a plain `z.object` gets `additionalProperties: false` and `.default()` keys are required; with `io: 'input'`, neither. Refinements vanish. Output-side transforms, dates, bigints and `z.custom` throw unless `unrepresentable: 'any'` (each becomes `{}`). `z.int()` emits ±`MAX_SAFE_INTEGER` bounds. A reused schema is inlined unless it is registered in a `z.registry` (with `uri`) or `reused: 'ref'` is set.
-- `.default(v)` short-circuits on `undefined`: it returns `v`, an output value, without running checks or transforms. `.prefault(v)` parses `v`.
-- String `min`, `max` and `length` count code points, as JSON Schema does, not UTF-16 `.length`.
-- `z.object` strips unknown keys, `z.strictObject` rejects them, `z.looseObject` keeps them. `.extend()` keeps the mode; spreading `.shape` into `z.object()` resets it to strip. `.pick`, `.omit` and `.partial` throw on an object with a refinement; `.extend` keeps the refinement.
-- `z.record(z.enum([...]), v)` requires every key (`z.partialRecord` does not). `.optional()` accepts an explicit `undefined`; `.exactOptional()` does not.
-- Errors: pass `{ error }` (a string, or a function returning a string or `undefined` to defer). `message` is deprecated; `required_error`, `invalid_type_error` and `errorMap` are gone; a schema's `error` beats a per-parse one. Read `err.issues` (there is no `.errors`) and format with `z.prettifyError`, `z.treeifyError` or `z.flattenError`. An issue carries the raw `input` only with `reportInput: true`: keep that off for real data.
-- `safeParse` does not catch an exception thrown inside `refine` or `transform`. An async check under `parse` throws `$ZodAsyncError`; use `parseAsync`.
-- `z.coerce.boolean()` turns `"false"` into `true` (use `z.stringbool()`). `z.number()` rejects `Infinity`; `z.int()` accepts safe integers only.
-- Prefer `z.email()`, `z.url()`, `z.uuid()`, `z.iso.datetime()` to the string methods, `z.enum(obj)` to `z.nativeEnum`, `A.extend(B.shape)` to `.merge`, `z.ZodType` to `ZodTypeAny`. `z.input` and `z.output` type the two sides of a transform.
+Before writing a schema, reading its JSON Schema output or asserting on its errors, check [Zod 4 behaviors](references/zod4-behaviors.md): `toJSONSchema` modes, `.default` versus `.prefault`, object modes, records, errors, coercion and the preferred APIs.
 
 ## Tests
 
@@ -45,3 +37,7 @@ Edit the Zod source and run its generator; never edit the output.
 - Vary one field per rejection case from a valid base; cover missing versus `undefined` versus `null`, both sides of each bound, and the transformed output.
 - A JSON Schema snapshot misses refinements and transforms, and fixtures generated from the schema share its mistakes: keep hand-written cases.
 - After a JSON Schema change, run its consumer too: CLI help and flags (`commandHelp`), MCP `tools/list`, or the catalog validator.
+
+## Done
+
+Stop when the source is edited, its generator has run, the generated-file test passes and the consumer shows the change. Return the result first, then the source and generated files changed, the generator and tests run with results, and any consumer left unchecked.

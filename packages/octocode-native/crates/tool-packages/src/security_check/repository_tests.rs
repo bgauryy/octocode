@@ -487,6 +487,54 @@ async fn a_repository_summary_counts_and_links_and_details_lists() {
     );
 }
 
+/// `view: "details"` reads every database's whole record: each advisory
+/// row of the repository carries its text, its affected ranges and its
+/// database, as the package and advisory reads' details do, while the
+/// summary keeps its brief rows; both count the same advisories.
+#[tokio::test]
+async fn repository_details_list_each_record_whole() {
+    use crate::security_check::github_double::recorded_advisories;
+    let recorded = recorded_advisories(1);
+    let github =
+        || Double::repo(RepoRead::Found(named("o", "r"))).page(None, recorded.clone(), None);
+    let query =
+        |view: &str| json!({"operation": "repository", "owner": "o", "repo": "r", "view": view});
+    let summary = query_row(query("summary"), &github()).await;
+    let details = query_row(query("details"), &github()).await;
+    let rows = details["advisories"].as_array().expect("advisories");
+    assert_eq!(rows.len(), recorded.len(), "{details}");
+    for (row, advisory) in rows.iter().zip(&recorded) {
+        assert_eq!(row["id"], advisory.ghsa_id, "{row}");
+        assert!(row["database"].is_string(), "{row}");
+        assert_eq!(
+            row["summary"].as_str(),
+            advisory.summary.as_deref(),
+            "{row}"
+        );
+        assert!(row["details"].is_string(), "{row}");
+        let ranges = row["affected"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| entry["ecosystemSpecific"]["vulnerable_version_range"].as_str())
+            .collect::<Vec<_>>();
+        let published = advisory
+            .vulnerabilities
+            .iter()
+            .filter_map(|entry| entry.vulnerable_version_range.as_deref())
+            .collect::<Vec<_>>();
+        assert_eq!(ranges, published, "{row}");
+    }
+    octocode_runtime_base::test_support::assert_row_contract(ToolId::SecurityCheck, &details);
+    let brief = summary["advisories"].as_array().expect("brief rows");
+    assert!(
+        brief
+            .iter()
+            .all(|row| row.get("details").is_none() && row.get("affected").is_none()),
+        "{summary}"
+    );
+}
+
 /// GitHub's rate limit is the credential's, the same on every row of a
 /// batch: its words (the reset time, the sign-in) are said once for the
 /// response, and each row's GitHub entry keeps its code and what it missed.

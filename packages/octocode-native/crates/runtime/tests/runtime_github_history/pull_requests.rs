@@ -203,9 +203,9 @@ async fn gh_pull_request_read_of_an_issue_number_offers_read_issue() {
     runtime.close().await;
 }
 
-/// A PR summary previews the opening of its verbatim body (an HTML
-/// comment is text like any other, never minified away) and leads to the
-/// whole body.
+/// A PR summary previews the opening of its body as GitHub shows it (a
+/// template's HTML comment, hidden when rendered, spends none of it) and
+/// leads to the whole body, which keeps the comment verbatim.
 #[tokio::test]
 async fn pr_summary_previews_the_body() {
     let server = MockServer::builder().start().await;
@@ -243,10 +243,7 @@ async fn pr_summary_previews_the_body() {
     let preview = data["pullRequests"][0]["bodyPreview"]
         .as_str()
         .expect("preview");
-    assert!(
-        preview.starts_with("<!-- template: describe the change --> Fixes the cache race."),
-        "{preview}"
-    );
+    assert!(preview.starts_with("Fixes the cache race."), "{preview}");
     assert!(
         preview.ends_with('…') && preview.chars().count() <= 301,
         "{preview}"

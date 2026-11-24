@@ -1,6 +1,7 @@
 // Cookie evidence on a real isolated headless Chrome: a login POST answers 302 with Set-Cookie and
 // the next request carries the cookie. The live HAR and the network-events jsonl keep the header
 // and cookie NAMES, with values redacted; the cookie value is never written or printed.
+import { DIE_WITH_PARENT } from '../fixtures/die-with-parent.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
@@ -73,9 +74,13 @@ test(
   { skip, timeout: 150000 },
   async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'octo-har-cookies-'));
-    const web = spawn(process.execPath, ['-e', serverSource], {
-      stdio: ['ignore', 'pipe', 'inherit'],
-    });
+    const web = spawn(
+      process.execPath,
+      [...DIE_WITH_PARENT, '-e', serverSource],
+      {
+        stdio: ['pipe', 'pipe', 'inherit'],
+      }
+    );
     const webPort = await new Promise(resolve =>
       web.stdout.once('data', chunk => resolve(Number(chunk)))
     );

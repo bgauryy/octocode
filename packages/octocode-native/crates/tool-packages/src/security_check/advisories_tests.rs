@@ -25,6 +25,35 @@ fn two_pages() -> Double {
         .page(Some("cursor-2"), recorded_advisories(2), None)
 }
 
+/// The `lodash/lodash` repository row in `view`, against `http` and `github`.
+async fn repository_row(
+    view: octocode_contract_types::SecurityCheckView,
+    http: &RouteHttp,
+    github: &Double,
+) -> Value {
+    let (budget, reused) = (test_budget(), ReusedSince::default());
+    let config = crate::security_check::tests::default_config();
+    crate::security_check::repository::run(
+        ("lodash", "lodash"),
+        None,
+        serde_json::Map::new(),
+        view,
+        &net(http, &budget, &reused, &config, github),
+    )
+    .await
+    .expect("row")
+}
+
+/// The ids of a row's advisories, in order.
+fn listed_ids(data: &Value) -> Vec<&str> {
+    data["advisories"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|row| row["id"].as_str())
+        .collect()
+}
+
 #[tokio::test]
 async fn the_walk_asks_each_page_once_and_reads_every_advisory_once() {
     let github = two_pages();
@@ -150,20 +179,25 @@ async fn the_repository_row_merges_github_with_osv_by_id_and_lists_each_advisory
         &format!("/v1/vulns/{first}"),
         json!({"id": first, "aliases": ["CVE-2026-4800"], "summary": "from OSV", "modified": "2026-01-01T00:00:00Z"}),
     );
-    let (budget, reused) = (test_budget(), ReusedSince::default());
-    let config = crate::security_check::tests::default_config();
-    let data = crate::security_check::repository::run(
-        ("lodash", "lodash"),
-        None,
-        serde_json::Map::new(),
-        octocode_contract_types::SecurityCheckView::Details,
-        &net(&http, &budget, &reused, &config, &github),
-    )
-    .await
-    .expect("row");
+    use octocode_contract_types::SecurityCheckView::{Details, Summary};
+    let data = repository_row(Summary, &http, &github).await;
     let expected = recorded_advisories(1).len() + recorded_advisories(2).len();
     let rows = data["advisories"].as_array().expect("advisories");
     assert_eq!(rows.len(), expected, "{data}");
+    // The details list each database's record: OSV's and GitHub's of the
+    // merged advisory, side by side, told apart by database.
+    let details = repository_row(Details, &http, &github).await;
+    let records = listed_ids(&details);
+    assert_eq!(records.len(), expected + 1, "{details}");
+    let twins = details["advisories"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|row| row["id"] == first)
+        .map(|row| row["database"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(twins.len(), 2, "{details}");
+    assert_ne!(twins[0], twins[1], "{details}");
     let merged = rows.iter().find(|row| row["id"] == first).expect("merged");
     assert_eq!(
         merged.get("link"),
@@ -516,20 +550,18 @@ async fn an_osv_failure_for_one_advisory_keeps_github_rows_and_names_the_unread_
             json!({"id": read, "summary": "from OSV", "modified": "2026-01-01T00:00:00Z"}),
         )
         .status(&format!("/v1/vulns/{failing}"), 503, json!({}));
-    let (budget, reused) = (test_budget(), ReusedSince::default());
-    let config = crate::security_check::tests::default_config();
-    let data = crate::security_check::repository::run(
-        ("lodash", "lodash"),
-        None,
-        serde_json::Map::new(),
-        octocode_contract_types::SecurityCheckView::Details,
-        &net(&http, &budget, &reused, &config, &github),
-    )
-    .await
-    .expect("GitHub's list survives OSV's failure");
+    use octocode_contract_types::SecurityCheckView::{Details, Summary};
     let expected = recorded_advisories(1).len() + recorded_advisories(2).len();
+    let summary = repository_row(Summary, &http, &github).await;
+    assert_eq!(
+        listed_ids(&summary).len(),
+        expected,
+        "every advisory stays: {summary}"
+    );
+    let data = repository_row(Details, &http, &github).await;
     let rows = data["advisories"].as_array().expect("advisories");
-    assert_eq!(rows.len(), expected, "every GitHub row stays: {data}");
+    // Every GitHub record, and OSV's record of the one it answered.
+    assert_eq!(rows.len(), expected + 1, "every GitHub row stays: {data}");
     assert_eq!(
         rows.iter()
             .find(|row| row["id"] == read)
@@ -635,45 +667,44 @@ fn a_github_advisory_row_keeps_its_scores_epss_publisher_and_credits() {
     );
 }
 
-/// A public repository's advisory OSV keeps no record of is one ready
-/// `advisory` call away, with `repo`, so GitHub's own record of it is read
-/// whole (RV-SEC F6).
+/// A public repository's advisory OSV keeps no record of has GitHub's
+/// record as its only one: the details view lists it whole (its text and
+/// ranges), so the row offers no `advisory` read of an id it lists whole
+/// (RV-SEC F6).
 #[tokio::test]
-async fn a_repository_row_offers_each_advisory_osv_lacks_with_its_repo() {
+async fn a_repository_row_lists_each_advisory_osv_lacks_whole() {
     let github = two_pages();
     let first = recorded_advisories(1)[0].ghsa_id.clone();
     let http = RouteHttp::new().json(
         &format!("/v1/vulns/{first}"),
         json!({"id": first, "summary": "from OSV", "modified": "2026-01-01T00:00:00Z"}),
     );
-    let (budget, reused) = (test_budget(), ReusedSince::default());
-    let config = crate::security_check::tests::default_config();
-    let data = crate::security_check::repository::run(
-        ("lodash", "lodash"),
-        None,
-        serde_json::Map::new(),
+    let data = repository_row(
         octocode_contract_types::SecurityCheckView::Details,
-        &net(&http, &budget, &reused, &config, &github),
+        &http,
+        &github,
     )
-    .await
-    .expect("row");
-    // The row lists these advisories in brief and no other read reaches
-    // their text: each call is marked as one the row needs, so an answer
-    // keeps it.
-    let advisory_calls = data["related"]
-        .as_array()
+    .await;
+    let lacking = recorded_advisories(1)
         .into_iter()
-        .flatten()
-        .filter(|call| call["input"]["queries"][0]["operation"] == "advisory")
+        .chain(recorded_advisories(2))
+        .filter(|advisory| advisory.ghsa_id != first)
         .collect::<Vec<_>>();
-    assert!(!advisory_calls.is_empty(), "{data}");
-    assert!(
-        advisory_calls
+    assert!(!lacking.is_empty());
+    let rows = data["advisories"].as_array().expect("advisories");
+    for advisory in &lacking {
+        let row = rows
             .iter()
-            .all(|call| { call[octocode_runtime_base::response::result::REQUIRED_KEY] == true }),
-        "{data}"
-    );
-    let rows = data["related"]
+            .find(|row| row["id"] == advisory.ghsa_id.as_str())
+            .unwrap_or_else(|| panic!("{}: {data}", advisory.ghsa_id));
+        assert_eq!(
+            row["details"].as_str(),
+            advisory.description.as_deref(),
+            "{row}"
+        );
+        assert!(row["affected"].is_array(), "{row}");
+    }
+    let reads = data["related"]
         .as_array()
         .into_iter()
         .flatten()
@@ -685,16 +716,7 @@ async fn a_repository_row_offers_each_advisory_osv_lacks_with_its_repo() {
         })
         .filter(|row| row["operation"] == "advisory")
         .collect::<Vec<_>>();
-    assert!(!rows.is_empty(), "{data}");
-    assert!(
-        rows.iter()
-            .all(|row| row["owner"] == "lodash" && row["repo"] == "lodash"),
-        "{rows:?}"
-    );
-    assert!(
-        rows.iter().all(|row| row["id"] != json!(first)),
-        "OSV's own record needs no repository read: {rows:?}"
-    );
+    assert!(reads.is_empty(), "the row lists them whole: {reads:?}");
 }
 
 /// GitHub's class of a record reaches its row as `githubType`, in the whole
@@ -769,25 +791,22 @@ async fn a_withdrawn_duplicate_never_hides_a_live_repository_advisory() {
     listed.push(duplicate);
     let github = Double::repo(found()).page(None, listed, None);
     let http = RouteHttp::new();
-    let (budget, reused) = (test_budget(), ReusedSince::default());
-    let config = crate::security_check::tests::default_config();
-    let data = crate::security_check::repository::run(
-        ("lodash", "lodash"),
-        None,
-        serde_json::Map::new(),
-        octocode_contract_types::SecurityCheckView::Details,
-        &net(&http, &budget, &reused, &config, &github),
-    )
-    .await
-    .expect("row");
+    use octocode_contract_types::SecurityCheckView::{Details, Summary};
+    let data = repository_row(Details, &http, &github).await;
     let answer = data["answer"].as_str().unwrap_or_default();
     assert!(
         answer.ends_with("1 published repository advisory."),
         "{answer}"
     );
+    // The details list both records, the withdrawal on the duplicate's own.
     let rows = data["advisories"].as_array().expect("advisories");
-    assert_eq!(rows.len(), 1, "{data}");
+    assert_eq!(rows.len(), 2, "{data}");
     assert!(rows[0].get("withdrawn").is_none(), "{data}");
+    assert!(rows[1].get("withdrawn").is_some(), "{data}");
+    let summary = repository_row(Summary, &http, &github).await;
+    let rows = summary["advisories"].as_array().expect("advisories");
+    assert_eq!(rows.len(), 1, "{summary}");
+    assert!(rows[0].get("withdrawn").is_none(), "{summary}");
 }
 
 /// A maintainer writes patched versions free hand, as a list or as ranges:

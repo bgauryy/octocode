@@ -25,7 +25,7 @@ Order findings by severity; a table helps compare several:
 
 Save when the review has several findings, a diagram or evidence comparison helps, or the user or project instructions ask for a record. A short review can stay in chat.
 
-Path: `<workspace>/.octocode/octocode-pr-review/<YYYY-MM-DD>-pr-<number>.md`, or `<YYYY-MM-DD>-review-<branch>.md` without a PR; intermediate files go in its `tmp/`. `<workspace>` is the repository root, else the current directory, never a folder inside `.octocode/`. A user-named path wins.
+Path: `<workspace>/.octocode/octocode-pr-review/<YYYY-MM-DD>-pr-<number>.md`, or `<YYYY-MM-DD>-review-<branch>.md` without a PR; intermediate files go in `<workspace>/.octocode/tmp/octocode-pr-review/`. `<workspace>` is the repository root, else the current directory, never a folder inside `.octocode/`. A user-named path wins.
 
 Use the [shared header](references/report-output.md#report-header). `status` is the verdict. Accepted `status` values: `APPROVE`, `COMMENT`, `REQUEST_CHANGES`.
 

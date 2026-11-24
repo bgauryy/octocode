@@ -199,3 +199,34 @@ fn the_next_published_release_is_stable_unless_prereleases_are_asked() {
     assert_eq!(next_published("0.3.40", &published, npm(), true), None);
     assert!(npm().same("v1.2.3", "1.2.3"));
 }
+
+/// An advisory's records each close the asked version's line at their own
+/// fix: the advisory is clear at the highest of them, in the registry's
+/// order; a fix not above the version, or one the order cannot read, keeps
+/// the list whole.
+#[test]
+fn an_advisory_clears_at_the_highest_of_its_records_fixes() {
+    let clearing = |current: &str, listed: &[&str], order: Order| {
+        let mut listed = listed.iter().map(|fix| (*fix).to_owned()).collect();
+        clearing_fix(current, &mut listed, order);
+        listed
+    };
+    assert_eq!(clearing("0.1.45", &["0.2.23", "0.2.0"], npm()), ["0.2.23"]);
+    assert_eq!(
+        clearing("4.17.20", &["4.18.0", "4.18.1"], npm()),
+        ["4.18.1"]
+    );
+    assert_eq!(
+        clearing("1.0.0", &["1.10.0", "1.9.0"], dotted()),
+        ["1.10.0"]
+    );
+    assert_eq!(clearing("4.17.20", &["4.18.0"], npm()), ["4.18.0"]);
+    assert_eq!(
+        clearing("4.17.20", &["4.18.0", "4.0.0"], npm()),
+        ["4.18.0", "4.0.0"]
+    );
+    assert_eq!(
+        clearing("4.17.20", &["4.18.0", "next"], npm()),
+        ["4.18.0", "next"]
+    );
+}

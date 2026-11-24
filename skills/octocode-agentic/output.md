@@ -33,12 +33,12 @@ Order findings worst first. Give each its location (file, tool, prompt section o
 
 ## Saved result
 
-Approved edits to the project's own code, prompts or skills stay at their source paths. When saving other artifacts, use `<workspace>/.octocode/octocode-agentic/`. `<workspace>` is the repository root, else the current directory, and is never inside an existing `.octocode/`. Scratch files go in its `tmp/`. A path the user or a parent names wins. Reuse existing durable evidence rather than copying it into another record.
+Approved edits to the project's own code, prompts or skills stay at their source paths. When saving other artifacts, use `<workspace>/.octocode/octocode-agentic/`. `<workspace>` is the repository root, else the current directory, and is never inside an existing `.octocode/`. Scratch files go in `<workspace>/.octocode/tmp/octocode-agentic/`. A path the user or a parent names wins. Reuse existing durable evidence rather than copying it into another record.
 
 | Result | Path |
 |---|---|
 | Design, audit, prompt review, standalone prompt, coordination status, interview report | `<YYYY-MM-DD>-<slug>.md` |
-| [Cold interview](references/interview.md) rounds | `tmp/<run>/round-<n>/`, linked from the report |
+| [Cold interview](references/interview.md) rounds | `<workspace>/.octocode/tmp/octocode-agentic/<run>/round-<n>/`, linked from the report |
 | [Conversation audit](references/conversation-audit.md) | `<YYYY-MM-DD>-<slug>/` with `prompting-practices.md` and the private `user-messages.md` |
 | Measured result evidence | Link native runner output; create `<YYYY-MM-DD>-<slug>/` only when evidence needs a new home. See [run folders](references/eval-harness.md#suite-and-run-folders). |
 

@@ -7,8 +7,6 @@
 /// restates the request, and the graph row facts every row of a page shares
 /// (hoisting table rows 3, 11 and 14).
 const WAVE_2: &[&str] = &[
-    "B4 echo | artifactSearch | artifacts[].packageName <- request packageName",
-    "B4 echo | artifactSearch | artifacts[].version <- request version",
     "B4 echo | ghGetHistoryItem | commitSha <- request ref",
     "B4 echo | ghGetHistoryItem | pullRequests[].number <- request number",
     "B4 echo | ghSearchRepo | repositories[].repo <- request repo",

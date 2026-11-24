@@ -301,7 +301,24 @@ pub struct LocalSearchResult {
     /// omits it there.
     #[serde(skip)]
     pub(crate) derived_value: Option<String>,
+    /// A later page of a search that read its whole scope before page 1
+    /// (any order but traversal, every count view): page 1 stated the
+    /// scope's totals and coverage ([`SCOPE_FACTS`]), so [`Self::to_row`]
+    /// leaves them out of this page, which states its own rows.
+    #[serde(skip)]
+    pub(crate) scope_stated_on_page_one: bool,
 }
+
+/// The row fields that state a whole scope's totals and coverage, not a
+/// page's rows.
+pub(crate) const SCOPE_FACTS: [&str; 6] = [
+    "matchCount",
+    "matchedLineCount",
+    "matchedFiles",
+    "filesScanned",
+    "maskedSpans",
+    "testCodeExcluded",
+];
 
 impl LocalSearchResult {
     /// The result as its row, its partial reasons written by the one
@@ -309,6 +326,11 @@ impl LocalSearchResult {
     pub fn to_row(&self) -> serde_json::Result<serde_json::Value> {
         let mut row = serde_json::to_value(self)?;
         if let Some(data) = row.as_object_mut() {
+            if self.scope_stated_on_page_one {
+                for fact in SCOPE_FACTS {
+                    data.shift_remove(fact);
+                }
+            }
             let empty = self.status == SearchStatus::Empty;
             if empty {
                 // An empty row is its empty list and what the scan covered

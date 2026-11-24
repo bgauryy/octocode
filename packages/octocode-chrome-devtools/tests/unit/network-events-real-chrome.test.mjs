@@ -1,5 +1,6 @@
 // network-events on a real isolated headless Chrome: a WebSocket echo exchange (frames in both
 // directions, in order), a Server-Sent Events stream, and credential headers redacted.
+import { DIE_WITH_PARENT } from '../fixtures/die-with-parent.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
@@ -77,10 +78,14 @@ test(
   { skip, timeout: 150000 },
   async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'octo-net-events-'));
-    const web = spawn(process.execPath, ['-e', serverSource], {
-      cwd: join(import.meta.dirname, '../..'),
-      stdio: ['ignore', 'pipe', 'inherit'],
-    });
+    const web = spawn(
+      process.execPath,
+      [...DIE_WITH_PARENT, '-e', serverSource],
+      {
+        cwd: join(import.meta.dirname, '../..'),
+        stdio: ['pipe', 'pipe', 'inherit'],
+      }
+    );
     const webPort = await new Promise(resolve =>
       web.stdout.once('data', chunk => resolve(Number(chunk)))
     );

@@ -583,3 +583,42 @@ fn retired_sort_keys_and_an_ascending_relevance_are_refused() {
         );
     }
 }
+
+/// Under `archive:"only"` every row is archived, so no row repeats the
+/// filter as `archived:true`; a `fields` pick of `archived` states it.
+#[tokio::test]
+async fn archive_only_rows_leave_the_filter_to_the_request() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/repositories"))
+        .and(query_param("q", "vite archived:true"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(page(vec![repo_item("old", true), repo_item("older", true)])),
+        )
+        .mount(&server)
+        .await;
+    let search = |fields: Value| {
+        let mut query = json!({"operation": "search", "keywords": ["vite"],
+            "filters": {"archive": "only"}});
+        if !fields.is_null() {
+            query["fields"] = fields;
+        }
+        run(&server, query)
+    };
+    let out = search(Value::Null).await;
+    let rows = out.data["repositories"].as_array().expect("rows");
+    assert_eq!(rows.len(), 2, "{}", out.data);
+    assert!(
+        rows.iter().all(|row| row.get("archived").is_none()),
+        "{}",
+        out.data
+    );
+    let picked = search(json!(["archived"])).await;
+    let rows = picked.data["repositories"].as_array().expect("rows");
+    assert!(
+        rows.iter().all(|row| row["archived"] == true),
+        "{}",
+        picked.data
+    );
+}

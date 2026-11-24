@@ -1,4 +1,4 @@
-use super::{test_registry, validate_registry, validate_resolved_addresses};
+use super::{package_page, test_registry, validate_registry, validate_resolved_addresses};
 use crate::artifact::query::artifact_query;
 use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
 use std::net::SocketAddr;
@@ -135,4 +135,20 @@ fn rejects_mixed_public_private_dns_answers() {
         "an empty answer is refused like a private one"
     );
     assert!(validate_resolved_addresses(host, &[addresses[0]]).is_ok());
+}
+
+/// npmjs.com's page belongs to the public registry: a package read from a
+/// configured registry keeps that registry's address, which npmjs.com may
+/// not have.
+#[test]
+fn the_package_page_is_npmjs_only_for_the_public_registry() {
+    assert_eq!(
+        package_page(&test_registry("https://registry.npmjs.org/"), "@babel/core"),
+        "https://www.npmjs.com/package/@babel/core"
+    );
+    let private = package_page(&test_registry("https://npm.example.com/repo/"), "@acme/kit");
+    assert!(
+        private.starts_with("https://npm.example.com/repo/") && !private.contains("npmjs"),
+        "{private}"
+    );
 }

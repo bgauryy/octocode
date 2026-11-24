@@ -24,11 +24,19 @@ pub(in crate::gh_get_history_item) const WHOLE_COUNT_KEY: &str = "total_comments
 /// Characters a summary's `bodyPreview` shows.
 const BODY_PREVIEW_CHARS: usize = 300;
 
-/// The opening of a pull request's or an issue's body, whitespace runs
-/// collapsed; a cut preview ends with `…` (`sections:["body"]` reads it whole).
-/// `None` for an empty body.
+/// The opening of a pull request's or an issue's body as GitHub shows it:
+/// its HTML comments (`<!-- … -->`, a template's hidden prompts) left out
+/// and whitespace runs collapsed; a cut preview ends with `…`
+/// (`sections:["body"]` reads it whole, comments included). A body of only
+/// comments previews them, so `None` is an empty body alone.
 pub(in crate::gh_get_history_item) fn body_preview(body: &str) -> Option<String> {
-    let flat = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    let flatten = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let shown = flatten(&without_html_comments(body));
+    let flat = if shown.is_empty() {
+        flatten(body)
+    } else {
+        shown
+    };
     if flat.is_empty() {
         return None;
     }
@@ -40,6 +48,27 @@ pub(in crate::gh_get_history_item) fn body_preview(body: &str) -> Option<String>
     let mut preview = flat.chars().take(end).collect::<String>();
     preview.push('…');
     Some(preview)
+}
+
+/// `text` less each closed HTML comment (`<!--` through the next `-->`); an
+/// unclosed `<!--` and what follows it stay.
+fn without_html_comments(text: &str) -> std::borrow::Cow<'_, str> {
+    if !text.contains("<!--") {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    let mut kept = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some((before, after_open)) = rest.split_once("<!--") {
+        let Some((_, after_close)) = after_open.split_once("-->") else {
+            break;
+        };
+        kept.push_str(before);
+        // A space keeps the words on each side of the comment apart.
+        kept.push(' ');
+        rest = after_close;
+    }
+    kept.push_str(rest);
+    std::borrow::Cow::Owned(kept)
 }
 
 pub(in crate::gh_get_history_item) fn pr_metadata(

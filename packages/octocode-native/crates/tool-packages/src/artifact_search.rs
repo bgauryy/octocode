@@ -223,6 +223,8 @@ fn respond(
         name_github_repository(row);
         if view == ArtifactSearchView::Summary {
             summary::row(row, query);
+        } else if let Some(fields) = row.as_object_mut() {
+            summary::drop_echoes(fields, query);
         }
     }
     let mut data = json!({ "artifacts": rows });

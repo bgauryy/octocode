@@ -866,3 +866,22 @@ fn a_row_never_pairs_a_twins_severity_with_the_leads_vectors() {
     // Alone, the vectors are still stated.
     assert_eq!(group_brief(&[&cve])["cvss"][0]["vector"], vector);
 }
+
+/// A CVE the row's own id names is not restated in `cves`; another CVE is.
+#[test]
+fn a_brief_row_lists_no_cve_that_is_only_its_id() {
+    let own = row(
+        json!({"id": "CVE-2021-23337", "aliases": []}),
+        ArtifactType::Npm,
+        "lodash",
+    )
+    .brief();
+    assert!(own.get("cves").is_none(), "{own}");
+    let alias = row(
+        json!({"id": "GHSA-35jh-r3h4-6jhm", "aliases": ["CVE-2021-23337"]}),
+        ArtifactType::Npm,
+        "lodash",
+    )
+    .brief();
+    assert_eq!(alias["cves"], json!(["CVE-2021-23337"]), "{alias}");
+}

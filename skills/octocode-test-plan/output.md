@@ -6,7 +6,7 @@ Write for an executor receiving only the plan and repository. Lead in chat with 
 
 ## Saved report
 
-Always save at `<workspace>/.octocode/octocode-test-plan/<YYYY-MM-DD>-<slug>.md`; scratch goes in its `tmp/`. `<workspace>` is the repository root, else current directory, never inside `.octocode/`. A user-named path wins.
+Always save at `<workspace>/.octocode/octocode-test-plan/<YYYY-MM-DD>-<slug>.md`; scratch goes in `<workspace>/.octocode/tmp/octocode-test-plan/`. `<workspace>` is the repository root, else current directory, never inside `.octocode/`. A user-named path wins.
 
 Use the [shared header](references/report-output.md#report-header) and `question: "Test plan: <target>"`. Accepted `status` values: `Ready`, `Draft`, `Blocked`. Each means:
 

@@ -150,8 +150,12 @@ pub(super) async fn refs(
     let mut value = json!({
         "owner": owner,
         "repo": repo,
-        "defaultBranch": default_branch,
     });
+    // The default branch is a fact of the listing, stated on its first page:
+    // a later page lists only its own refs.
+    if page == 1 {
+        value["defaultBranch"] = Value::from(default_branch);
+    }
     if let Some(sha) = default_sha {
         value["defaultBranchSha"] = Value::from(sha);
     }

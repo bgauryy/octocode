@@ -2,9 +2,20 @@
 
 Use these when `ask` does not fit: an ongoing relay, a native same-vendor proxy, A2A Agent Cards, a Claude cloud proxy, or a manual managed relay.
 
+## Bind a missing worker
+
+A worker with no store binding is unreachable until it binds from its own host; the operator cannot bind it.
+
+| Worker host | Bind |
+|---|---|
+| Cursor or Grok | `octocode-agents-communication /cli host-config --json --vendor cursor` (or `grok`) `--workspace "$REPO"` prints the hooks. Merge them into `.cursor/hooks.json` or `.grok/hooks/communication.json` and reload the host; Grok also needs a trusted Git project root (`grok inspect --json`). |
+| Pi | Load the package's `pi-inbox` extension (`registerPiInbox`). Only when a new worker is requested, `run --vendor pi` starts one already bound. |
+
+Version-specific steps: `HOST_SETUP.md` under the `referenceRoot` that `octocode-agents-communication /cli skill --json` returns. The worker is bound once `python3 "$RELAY" peers --workspace "$REPO"` lists it under `store`; then `ask`.
+
 ## Manual managed relay
 
-All participants need live bindings in the same Octocode store and repository scope (linked worktrees share scope). Establish a missing worker binding from its own host (`host-config --vendor <label>`; see `octocode-agentic`). Use one package installation throughout; both `comm` and the launcher prefer an `octocode-agents-communication` on PATH over `npx`:
+All participants need live bindings in the same Octocode store and repository scope (linked worktrees share scope); [bind a missing worker](#bind-a-missing-worker) first. Use one package installation throughout; both `comm` and the launcher prefer an `octocode-agents-communication` on PATH over `npx`:
 
 ```sh
 comm() (
@@ -24,7 +35,8 @@ Set `OPERATOR` to your binding (or `comm join --name message-operator --vendor "
 ```sh
 TASK="Operator: $OPERATOR. Authorized worker: $WORKER. Relay only between these identities and return the worker's actual replies and outcomes."
 python3 "$RELAY" start --worker-vendor "$WORKER_VENDOR" --workspace "$REPO" --task "$TASK" --dry-run
-RUN_LOG=$(mktemp "${TMPDIR:-/tmp}/octocode-proxy.XXXXXX")
+mkdir -p "$REPO/.octocode/tmp/octocode-messages-proxy"   # scratch: the relay log of this run
+RUN_LOG=$(mktemp "$REPO/.octocode/tmp/octocode-messages-proxy/relay.XXXXXX")
 python3 "$RELAY" start --worker-vendor "$WORKER_VENDOR" --workspace "$REPO" --task "$TASK" >"$RUN_LOG" 2>&1 &
 PROXY_PID=$!
 ```
@@ -40,7 +52,7 @@ comm send_message - --session "$OPERATOR" --json < request.json   # receipt: {"i
 python3 "$RELAY" wait --workspace "$REPO" --session "$OPERATOR" --receipt RECEIPT_ID
 ```
 
-`wait` waits for the answer whose `replyTo` is the receipt's `id`, completes it and prints `reply` (verbatim parts), `outcome`, `sent` and `answer`. Exit 0 means `completed`, and exit 1 means another outcome or `{ok:false, error}`: `noReply` after `--timeout` seconds (default 600; the message stays pending), `bindingInactive` or `commFailed`. Reuse a key only for unchanged input. Silence, a timeout or queuing proves no handling. Stop the proxy with `kill "$PROXY_PID"`.
+`wait` waits for the answer whose `replyTo` is the receipt's `id`, completes it and prints `reply` (verbatim parts), `outcome`, `sent` and `answer`. Exit 0 means `completed`, and exit 1 means another outcome or `{ok:false, error}`: `noReply` after `--timeout` seconds (default 600; the message stays pending), `bindingInactive` or `commFailed`. Reuse a key only for unchanged input. Silence, a timeout or queuing proves no handling. Stop the proxy with `kill "$PROXY_PID"`, then remove `"$RUN_LOG"` unless a failure needs it.
 
 ## Native, A2A and cloud
 

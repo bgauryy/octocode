@@ -75,6 +75,15 @@ fn budget_cut(scan: &Scan) -> bool {
     scan.truncated && !scan.filled
 }
 
+/// The answer is empty or partial, so what it did not search (the grammar
+/// it inferred, the grammars and formats it skipped) qualifies it. A window
+/// its page filled is pagination of an answer with matches, as a whole one
+/// is: `limit` and the response window decide where pages end, never what
+/// the answer states.
+fn qualified(grouped: &Grouped, scan: &Scan) -> bool {
+    grouped.total_matches == 0 || budget_cut(scan)
+}
+
 pub(super) fn render_match_page(
     (build, q): (&str, MatchQuery<'_>),
     scope: &Scope,
@@ -128,7 +137,7 @@ pub(super) fn render_match_page(
     // Matches name their files, whose grammar is plain: the inferred
     // grammar qualifies only an answer that is empty or partial.
     if let Some(inferred) = &scope.inferred
-        && (grouped.total_matches == 0 || scan.truncated)
+        && qualified(&grouped, scan)
     {
         out["inferredLanguage"] = json!(inferred);
     }
@@ -205,12 +214,6 @@ pub(super) fn render_match_page(
             data.shift_insert(0, "files".to_owned(), Value::Array(Vec::new()));
         }
     }
-    // The scan saw its whole scope: the row's later pages are pagination of
-    // a complete result (the same on every page), and its expansions and
-    // reads are drill-downs, not unread rest.
-    if !groups.is_empty() && !incomplete && !truncated && scan.skipped.withheld.total() == 0 {
-        out["coverage"] = json!({"state": "complete"});
-    }
     // The next window counts on after this one's rows, and lists the file
     // this one ended inside from where its pages stopped.
     // A window that ends inside a file binds its pin to this build, whose
@@ -241,14 +244,6 @@ pub(super) fn render_match_page(
     // After the page leads, which replace `next`.
     if let Some(skipped) = include_skipped {
         skipped.attach(&mut out);
-    }
-    // `coverage.state: "complete"` tells a reader the row's pages are
-    // drill-downs; a row with no page needs no such note.
-    let has_page = out["calls"]
-        .as_object()
-        .is_some_and(|next| next.values().any(|call| call["kind"] == "continue"));
-    if !has_page && let Some(fields) = out.as_object_mut() {
-        fields.shift_remove("coverage");
     }
     if empty {
         attach_syntax_lead(q, scope, &mut out, grouped.first_parsed.as_deref());
@@ -496,7 +491,7 @@ impl Census {
         let named = q.language().is_some();
         // Files of other formats and grammars beside matches did not change
         // the answer: their counts qualify an empty or partial one.
-        let qualifies = grouped.total_matches == 0 || scan.truncated;
+        let qualifies = qualified(grouped, scan);
         let skipped_formats = skipped_formats.filter(|_| !named && qualifies);
         let skipped_grammars = ((whole || named) && qualifies)
             .then(|| grouped.skipped_grammars.clone())

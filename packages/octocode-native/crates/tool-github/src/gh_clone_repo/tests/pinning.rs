@@ -29,7 +29,7 @@ async fn checkouts_are_keyed_by_the_commit_the_ref_names_now() {
     .await
     .unwrap_or_else(|_| panic!("clone by SHA"));
     assert_eq!(by_sha.location.path, before.location.path);
-    assert_eq!(by_sha.location.ref_, first);
+    assert_eq!(by_sha.location.ref_, None, "a request's ref is not echoed");
 
     let second = bench.fixture.push_second();
     server.reset().await;
@@ -87,7 +87,7 @@ async fn the_default_branch_and_canonical_name_pin_the_checkout() {
     let cloned = clone_as(&bench, &provider, &renamed, ALICE)
         .await
         .unwrap_or_else(|failure| panic!("renamed clone: {failure:?}"));
-    assert_eq!(cloned.location.ref_, "main");
+    assert_eq!(cloned.location.ref_.as_deref(), Some("main"));
     assert_eq!(cloned.location.commit_sha, bench.fixture.first_commit);
     assert!(cloned.location.path.contains("fixture-owner"), "{cloned:?}");
     assert_eq!(

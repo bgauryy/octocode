@@ -7,7 +7,7 @@ use super::Net;
 use super::osv::CONCURRENT_READS;
 use super::record::{self, SecurityAdvisory, Selection};
 use super::repository::{RepoFailure, RepoRead, RepositoryRead, Visibility};
-use super::source::{self, Target};
+use super::source::{self, Target, View};
 use crate::artifact::ArtifactError;
 use futures_util::{StreamExt as _, stream};
 use octocode_contract_types::ErrorCode;
@@ -514,11 +514,12 @@ pub(super) struct Listed {
     /// What OSV said when it was asked for at least one id: `found` when it
     /// kept a record of one, `noneKnown` when it kept none; `None`: not asked.
     pub osv_status: Option<&'static str>,
-    /// Advisory ids OSV was asked for and keeps no record of: GitHub's record
-    /// is the only one, read whole by an `advisory` call with `repo`.
-    pub osv_lacks: Vec<String>,
     /// Where a walk that stopped reads on.
     pub resume: Option<SavedWalk>,
+    /// With [`View::Whole`]: each database's record as read, whole (text,
+    /// ranges, references), the records of one advisory together in the
+    /// order of `advisories`; empty with [`View::Brief`].
+    pub records: Vec<Value>,
 }
 
 /// The repository's advisories, each merged with OSV's record of the same
@@ -534,6 +535,7 @@ pub(super) async fn list(
     net: &Net<'_>,
     selection: &Selection<'_>,
     from: Option<&SavedWalk>,
+    view: View,
 ) -> Result<Listed, ArtifactError> {
     let (github, end, resume) = github_rows(owner, repo, net, selection, from).await?;
     let osv_skipped = !visibility.third_party_may_hear() && !github.is_empty();
@@ -549,11 +551,12 @@ pub(super) async fn list(
         .await;
     let mut osv = Vec::new();
     let mut osv_failed = Vec::new();
-    let mut osv_lacks = Vec::new();
     for (id, answer) in answers {
         match answer {
             Ok(results) => osv.extend(results.into_iter().flat_map(|result| result.advisories)),
-            Err(error) if error.code == ErrorCode::NotFound => osv_lacks.push(id.clone()),
+            // OSV keeps no record of it: GitHub's is the advisory's only one,
+            // listed whole by the details view.
+            Err(error) if error.code == ErrorCode::NotFound => {}
             Err(error) => osv_failed.push((id.clone(), error)),
         }
     }
@@ -563,19 +566,29 @@ pub(super) async fn list(
         "found"
     });
     let rows = osv.iter().chain(&github).collect::<Vec<_>>();
-    let mut advisories = record::advisory_groups(&rows)
-        .iter()
-        .map(|group| record::group_brief(group))
+    let mut groups = record::advisory_groups(&rows)
+        .into_iter()
+        .map(|group| (record::group_brief(&group), group))
         .collect::<Vec<_>>();
-    record::most_severe_first(&mut advisories);
+    groups.sort_by_key(|(brief, _)| record::severity_rank(brief));
+    let mut records = match view {
+        View::Brief => Vec::new(),
+        View::Whole => groups
+            .iter()
+            .flat_map(|(_, group)| group)
+            .filter_map(|record| serde_json::to_value(record).ok())
+            .collect(),
+    };
+    record::drop_restated_fixes(&mut records);
+    record::drop_restated_text(&mut records);
     Ok(Listed {
-        advisories,
+        advisories: groups.into_iter().map(|(brief, _)| brief).collect(),
         end,
         osv_skipped,
         osv_failed,
         osv_status,
-        osv_lacks,
         resume,
+        records,
     })
 }
 

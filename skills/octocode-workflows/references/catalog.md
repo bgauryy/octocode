@@ -43,6 +43,6 @@ Choose the domain owner separately from the execution pattern. Use installed ski
 | Ideas or comparisons / design proposal | `octocode-brainstorming` / `octocode-rfc-generator`, respectively |
 | Public-page extraction / live browser work | `octocode-scraping` / `octocode-chrome-devtools`, respectively |
 | Documentation / skill maintenance | `octocode-documentation` / `octocode-skills`, respectively |
-| Prompts, evaluation or cross-session coordination | `octocode-agentic` |
+| Prompts, evaluation, one agent's harness or agent messaging setup | `octocode-agentic` |
 
 In the Octocode repository, `octocode-dev` owns builds, tests and contract generation. All roles may use available Octocode tools within their authority; see the [tool-use map](composition.md#octocode-tools-for-every-role).

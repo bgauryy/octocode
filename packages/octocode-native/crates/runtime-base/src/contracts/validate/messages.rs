@@ -1390,13 +1390,15 @@ fn unknown_field_message(
     match owning_row_fields(tool_name, &row_fields, field).as_slice() {
         [] => {}
         [owner] => {
+            let form = owner_form(tool_name, owner, field);
             return format!(
-                "'{field}' is a field of {owner}, not of {query}: send {owner}:{{\"{field}\":…}}."
+                "'{field}' is a field of {owner}, not of {query}: send {owner}:{form}."
             );
         }
         [rest @ .., last] => {
+            let form = owner_form(tool_name, last, field);
             return format!(
-                "'{field}' is a field of {} or {last}, not of {query}: send it inside the one meant, as {last}:{{\"{field}\":…}}.",
+                "'{field}' is a field of {} or {last}, not of {query}: send it inside the one meant, as {last}:{form}.",
                 rest.join(", ")
             );
         }
@@ -1595,6 +1597,44 @@ fn owning_row_fields<'a>(tool_name: &str, row_fields: &'a [String], field: &str)
             })
         })
         .collect()
+}
+
+/// The row field `owner`'s object as a misplaced `field`'s hint shows it:
+/// `field` with every member the object requires whatever its form, in
+/// declared order (`{"by":…,"order":…}` for a sort that requires `by`), so
+/// the form the hint names is one the tool accepts.
+fn owner_form(tool_name: &str, owner: &str, field: &str) -> String {
+    use crate::contracts::schema_facts::{always_required, property_order, property_schemas};
+    let mut members: Vec<String> = Vec::new();
+    if let Some(contract) = crate::id::ToolId::from_name(tool_name)
+        .and_then(|tool| crate::contracts::tool_contract(tool).ok())
+    {
+        let (query, defs) = (&contract["querySchema"], &contract["querySchema"]["$defs"]);
+        let schemas = property_schemas(query, defs, owner);
+        if let Some((first, rest)) = schemas.split_first() {
+            let others: Vec<Vec<&str>> = rest
+                .iter()
+                .map(|schema| always_required(schema, defs))
+                .collect();
+            let required: Vec<&str> = always_required(first, defs)
+                .into_iter()
+                .filter(|name| others.iter().all(|other| other.contains(name)))
+                .collect();
+            members = property_order(first, defs)
+                .into_iter()
+                .filter(|name| *name == field || required.contains(name))
+                .map(str::to_owned)
+                .collect();
+        }
+    }
+    if !members.iter().any(|name| name == field) {
+        members.push(field.to_owned());
+    }
+    let shown: Vec<String> = members
+        .into_iter()
+        .map(|name| format!("{}:…", Value::String(name)))
+        .collect();
+    format!("{{{}}}", shown.join(","))
 }
 
 /// For an unknown `field` beside the tool of a `{tool, query}` value (a

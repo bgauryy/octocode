@@ -10,7 +10,8 @@ use super::{
 use crate::artifact::query::artifact_search_query;
 use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
 use provenance::attested_commit;
-use registry::{registry_url, trim_registry, validate_registry};
+use registry::{package_page, registry_url, trim_registry, validate_registry};
+pub(super) use search::NPM_REACHABLE_END;
 use search::search;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -262,11 +263,7 @@ fn manifest_row(
     let mut artifact = ArtifactItem::new(
         ArtifactType::Npm,
         returned.clone(),
-        format!(
-            "{}/{}",
-            trim_registry(&registry.base),
-            encode_component(&returned)
-        ),
+        package_page(registry, &returned),
     );
     artifact.description = string(row.get("description"));
     artifact.license = match row.get("license") {

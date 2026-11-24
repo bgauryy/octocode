@@ -1,6 +1,7 @@
 // Success replies are compact AND still lead to every piece of evidence. Each tool answers once in
 // a temporary workspace (real headless Chrome where the tool needs a browser). Size is measured as
 // JSON chars / 4 (a stable token estimate), against the ceilings below, never against copied output.
+import { DIE_WITH_PARENT } from '../fixtures/die-with-parent.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -84,10 +85,11 @@ test(
     const web = spawn(
       process.execPath,
       [
+        ...DIE_WITH_PARENT,
         '-e',
         `require('node:http').createServer((q,r)=>{r.setHeader('content-type','text/html');r.end('<!doctype html><title>reply</title><h1>Reply</h1><button>Go</button><ul><li>a</li><li>b</li></ul>')}).listen(0,'127.0.0.1',function(){console.log(this.address().port)});`,
       ],
-      { stdio: ['ignore', 'pipe', 'inherit'] }
+      { stdio: ['pipe', 'pipe', 'inherit'] }
     );
     const base = `http://127.0.0.1:${await new Promise(resolve =>
       web.stdout.once('data', chunk => resolve(String(chunk).trim()))

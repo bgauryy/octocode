@@ -110,7 +110,7 @@ The importer maps each frame to a graph file and line: a graph file directly; a 
 
 | Query | Answer |
 | --- | --- |
-| `hot [files\|functions] [n\|all]` | Files (default) or functions by self cost, with total and their shares of busy time (sampled minus idle) or of sampled bytes. Rows cite `path:line`: a file's hottest function, a function's declaration. The best 20 show; the summary names the `all` form. |
+| `hot [files\|functions] [n\|all]` | Files (default) or functions by self cost, with total and their shares of busy time (sampled minus idle) or of sampled bytes. Rows cite `path:line`: a file's hottest function, a function's declaration. Row count: [ranked answers](query.md#ask-the-graph). |
 | `hot … --from <file>` | Only files in `reach <file> --runtime`: the hot code of one flow. `stats.outsideReach` is the mapped self cost left out. |
 | `hot … --heap` | The heap profiles; without it the CPU profiles answer when there are any. Several profiles of one kind add up. |
 

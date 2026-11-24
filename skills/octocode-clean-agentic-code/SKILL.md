@@ -1,15 +1,15 @@
 ---
 name: octocode-clean-agentic-code
-description: "Load this skill first when asked to remove dead code, duplicate helpers, debug leftovers or stale agent instructions. Check consumers and verify that behavior survives each removal."
+description: "Load this skill first when asked to remove dead code, duplicate helpers, debug leftovers and unused agent instructions or config. Check consumers and verify that behavior survives each removal."
 ---
 
 # Octocode clean agentic code
 
-1. Record the requested scope, existing edits and affected checks before cleanup. Save each affected check's baseline report (JUnit XML, TAP, JSON, or a list of failing check names) and coverage report under `<workspace>/.octocode/octocode-clean-agentic-code/tmp/`; mark a blocked baseline.
-2. List literal candidates with [scan-signals](scripts/scan-signals.mjs): `node <skill-folder>/scripts/scan-signals.mjs [paths] --diff <base>` for the change (omit `--diff` to audit whole paths). Each JSON line is a candidate (`file`, `line`, `signal`, `category`, `match`); judge it with the reference that names its signal. Exit 1 only means rows were printed.
+1. Record the requested scope, existing edits and affected checks before cleanup. Save each affected check's baseline report (JUnit XML, TAP, JSON, or a list of failing check names) and coverage report under `<workspace>/.octocode/tmp/octocode-clean-agentic-code/`; mark a blocked baseline.
+2. List literal candidates with [scan-signals](scripts/scan-signals.mjs): `node <skill-folder>/scripts/scan-signals.mjs [paths] --diff <base>` for the change (omit `--diff` to audit whole paths). Judge each JSON-line candidate with the reference below that names its `signal`; exit 1 only means rows were printed.
 3. For each candidate, check semantic references, public entry points, configuration, dynamic loading and external consumers. Use Octocode `lspSearch` references and exact `localSearch` reads. An empty search alone cannot justify deletion.
 4. Keep live contracts. Defer uncertain removals with the check that would settle them. Group proven removals into reversible batches, update their callers and regenerate derived files at their source. Flag authentication, authorization, deletion, billing and public API changes for human review. Explain any rewrite beyond the candidates, or a file where `git diff --numstat` shows more added than deleted lines (an untracked file counts as all added).
-5. Replay the affected checks and inspect the diff, then compare with the baseline: `node <skill-folder>/scripts/check-diff.mjs <baseline> <after>` ([check-diff](scripts/check-diff.mjs)). Exit 1 means `introduced` holds failures your batch caused: revise the diagnosis or undo only your batch and report the blocker. `preExisting` failures stay baseline; `missing` checks ran before but were skipped or absent after, so they are unverified; exit 2 names a report it cannot read. Preserve existing edits and coverage floors.
+5. Replay the affected checks and inspect the diff, then compare with the baseline: `node <skill-folder>/scripts/check-diff.mjs <baseline> <after>` ([check-diff](scripts/check-diff.mjs)). Exit 1 means `introduced` holds failures your batch caused: revise the diagnosis or undo only your batch and report the blocker. Report `missing` checks as unverified; other fields: `--help`. Preserve existing edits and coverage floors.
 
 | Candidate | Decision |
 |---|---|

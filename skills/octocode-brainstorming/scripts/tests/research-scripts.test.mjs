@@ -183,7 +183,8 @@ test('deepseek sends filters as query operators, maps its rows, and serves only 
   const { server, base } = await serve(async (req, res) => {
     calls.push({ url: req.url, auth: req.headers.authorization, body: await readBody(req) });
     res.setHeader('content-type', 'application/json');
-    res.end(JSON.stringify({ results: [{ rerank_score: 2.4, title: 'V4', url: 'https://www.d.test/v4/', snippet: 'short line', summary: 'the longer summary for models', content: '', site_name: null, site_icon: null, date: '2026-06-01T00:00:00+00:00', authority: 3 }] }));
+    // DeepSeek can return several passages of one page, each URL with its own #fragment.
+    res.end(JSON.stringify({ results: [{ rerank_score: 2.4, title: 'V4', url: 'https://www.d.test/v4/', snippet: 'short line', summary: 'the longer summary for models', content: '', site_name: null, site_icon: null, date: '2026-06-01T00:00:00+00:00', authority: 3 }, { rerank_score: 2.1, title: 'V4', url: 'https://www.d.test/v4/#2', snippet: 'second passage', summary: 'another passage of the same page', content: '', site_name: null, site_icon: null, date: null, authority: 3 }] }));
   });
   try {
     const env = { DEEPSEEK_API_KEY: 'SECRETKEY123', DEEPSEEK_BASE_URL: base };
@@ -193,6 +194,7 @@ test('deepseek sends filters as query operators, maps its rows, and serves only 
     assert.deepEqual(calls, [{ url: '/v1/tools/search', auth: 'Bearer SECRETKEY123', body: { query: 'release notes site:github.com OR site:huggingface.co -site:spam.test after:2026-01-01', count: 4 } }]);
     assert.deepEqual(r.json.results.map(({ url, title, snippet, published, seenBy }) => ({ url, title, snippet, published, by: seenBy.map((s) => s.provider) })),
       [{ url: 'https://www.d.test/v4/', title: 'V4', snippet: 'the longer summary for models', published: '2026-06-01T00:00:00+00:00', by: ['deepseek'] }]);
+    assert.equal(r.json.results[0].seenBy[0].rank, 1, 'a repeated page keeps its best rank and counts once per provider and query');
     // DeepSeek has no news or scholarly surface: skipped beside the others, refused when it is the only one asked.
     const news = await run('search.mjs', ['--query', 'q', '--kind', 'news'], { ...env, EXA_API_KEY: 'k', EXA_BASE_URL: base });
     assert.deepEqual(news.json.providers.deepseek, { status: 'skipped', reason: 'no news search' });
@@ -560,7 +562,7 @@ test('fetch-asset plans without saving, downloads only with --approve, and recor
     res.statusCode = 404; return res.end();
   });
   const dir = mkdtempSync(join(tmpdir(), 'brainstorm-assets-'));
-  const runDir = join(dir, '.octocode', 'octocode-brainstorming', 'tmp', 'run');
+  const runDir = join(dir, '.octocode', 'tmp', 'octocode-brainstorming', 'run');
   const env = { OCTOCODE_NET_GUARD_TEST_LOOPBACK: '1' };
   try {
     const plan = await run('fetch-asset.mjs', ['--run-dir', runDir, '--url', `${base}/paper.pdf`, '--url', `${base}/bundle.zip`, '--url', `${base}/big.pdf`, '--max-mb', '2'], env);
@@ -643,8 +645,11 @@ test('every script runs when called through a symlink, as installed skills are',
 
 // A repository's `.octocode/.env` must never choose where the user's key goes:
 // a home API key sent to a repository-chosen host is a stolen key.
-test('a workspace .env cannot redirect a home search key to its own host', async () => {
+test('a workspace .env cannot redirect a home search key to its own host', async (t) => {
   const script = fileURLToPath(new URL('../search.mjs', import.meta.url));
+  // One folder holds every provider's home and workspace; it is removed whether the test passes or fails.
+  const root = mkdtempSync(join(tmpdir(), 'search-env-redirect-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   for (const [provider, keyName, baseName] of [
     ['tavily', 'TAVILY_API_KEY', 'TAVILY_BASE_URL'],
     ['exa', 'EXA_API_KEY', 'EXA_BASE_URL'],
@@ -658,11 +663,13 @@ test('a workspace .env cannot redirect a home search key to its own host', async
       response.end('{"results":[],"organic":[]}');
     });
     await new Promise(resolve => attacker.listen(0, '127.0.0.1', resolve));
+    t.after(() => attacker.close());
     const base = `http://127.0.0.1:${attacker.address().port}`;
-    const home = mkdtempSync(join(tmpdir(), 'search-home-'));
-    const workspace = mkdtempSync(join(tmpdir(), 'search-workspace-'));
+    const home = join(root, provider, 'home');
+    const workspace = join(root, provider, 'workspace');
+    mkdirSync(home, { recursive: true });
+    mkdirSync(join(workspace, '.octocode'), { recursive: true });
     writeFileSync(join(home, '.env'), `${keyName}=home-secret-key\n`);
-    mkdirSync(join(workspace, '.octocode'));
     writeFileSync(join(workspace, '.octocode', '.env'), `${baseName}=${base}\n`);
     const child = spawn(process.execPath, [script, '--query', 'hello', '--providers', provider], {
       cwd: workspace,
@@ -673,7 +680,6 @@ test('a workspace .env cannot redirect a home search key to its own host', async
     const stop = setTimeout(() => child.kill(), 20_000);
     await new Promise(resolve => child.on('exit', resolve));
     clearTimeout(stop);
-    attacker.close();
     assert.deepEqual(seen, [], `${provider}: the repository's host received a request`);
   }
 });

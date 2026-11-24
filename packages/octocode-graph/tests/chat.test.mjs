@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,12 +14,14 @@ import test from 'node:test';
 import { parseFrame } from '../src/runtime/ws.ts';
 import { startServer } from '../src/runtime/serve.ts';
 import { computeMetrics } from '../src/runtime/metrics.ts';
+import { tempDir } from './test-tmp.mjs';
 
 const here = fileURLToPath(new URL('../src/runtime/', import.meta.url));
 
-// A finished result to replay: one run event over a one-file repository.
+// A finished result to replay: one run event over a one-file repository. Each test removes it after the servers and
+// children it started have stopped; test-tmp.mjs removes whatever is left when the process ends.
 function fixture() {
-  const dir = mkdtempSync(join(tmpdir(), 'gv-chat-'));
+  const dir = tempDir('gv-chat-');
   const repo = join(dir, 'repo');
   const out = join(dir, 'out');
   mkdirSync(join(repo, 'src'), { recursive: true });
@@ -99,6 +101,13 @@ const replyCli = (...args) => new Promise((ok) => {
 const post = (pageUrl, path, body, token = new URL(pageUrl).searchParams.get('t')) =>
   fetch(new URL(`${path}${token ? `?t=${token}` : ''}`, pageUrl), { method: 'POST', body: JSON.stringify(body) });
 
+// Stops a child and resolves once it has exited, so nothing it writes outlives the folder removed after it.
+const stopped = (child) => new Promise((ok) => {
+  if (child.exitCode !== null || child.signalCode !== null) return ok();
+  child.once('exit', () => ok());
+  child.kill();
+});
+
 // The channel as Claude Code runs it: a child on stdio, one JSON-RPC message per line.
 function channel(cwd, command = 'channel') {
   const child = spawn(process.execPath, [join(here, 'commands', `${command}.ts`)], { cwd, env: { ...process.env, GRAPH_VIEW_NO_OPEN: '1' }, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -158,7 +167,7 @@ test('the channel declares claude/channel, an earlier protocol revision and its 
 test('MCP searches a saved export without creating a viewer and reloads a changed graph', async t => {
   const f = fixture();
   const c = channel(f.dir);
-  t.after(() => { c.child.kill(); rmSync(f.dir, {recursive:true, force:true}); });
+  t.after(async () => { await stopped(c.child); rmSync(f.dir, { recursive: true, force: true }); });
   const ask = async query => (await c.call('tools/call', {name:'query_graph', arguments:{result:f.out, query, format:'json'}})).result;
   const before = readFileSync(join(f.out,'events.jsonl'),'utf8');
   const result = JSON.parse((await ask('files src/a.ts:9 src/b.ts')).content[0].text);
@@ -174,7 +183,7 @@ test('MCP searches a saved export without creating a viewer and reloads a change
 test('the channel reuses only viewers with the requested LSP and build scope', async t => {
   const f = fixture();
   const c = channel(f.dir);
-  t.after(() => { c.child.kill(); rmSync(f.dir, {recursive:true, force:true}); });
+  t.after(async () => { await stopped(c.child); rmSync(f.dir, { recursive: true, force: true }); });
   const open = async options => {
     const reply = await c.call('tools/call', {name:'open_graph', arguments:{path:f.dir, ...options}});
     assert.ok(!reply.result.isError, reply.result.content[0].text);
@@ -194,7 +203,7 @@ test('the channel reuses only viewers with the requested LSP and build scope', a
 test('a viewer chat reaches the session as notifications/claude/channel and the reply tool answers it', { timeout: 30000 }, async (t) => {
   const f = fixture();
   const c = channel(f.dir);
-  t.after(() => { c.child.kill(); rmSync(f.dir, { recursive: true, force: true }); });
+  t.after(async () => { await stopped(c.child); rmSync(f.dir, { recursive: true, force: true }); });
   await c.call('initialize', { protocolVersion: '2025-06-18', capabilities: {} });
   c.notify('notifications/initialized');
   const opened = await c.call('tools/call', { name: 'open_graph', arguments: { result: f.out } });
@@ -226,13 +235,12 @@ test('a viewer chat reaches the session as notifications/claude/channel and the 
   await new Promise((ok) => c.child.on('exit', ok));
   assert.ok(c.lines.every((m) => m.jsonrpc === '2.0'), 'stdout carries only JSON-RPC');
   assert.equal(existsSync(join(f.out, 'server.json')), false, 'server.json is removed on shutdown');
-  rmSync(f.dir, { recursive: true, force: true });
 });
 
 test('inbox mode: chat lands in chat-inbox.jsonl, /reply needs the token, the reply command answers', { timeout: 30000 }, async (t) => {
   const f = fixture();
   const s = await startServer({ out: f.out, replay: true, open: false });
-  t.after(() => { rmSync(f.dir, { recursive: true, force: true }); return s.close(); });
+  t.after(async () => { await s.close(); rmSync(f.dir, { recursive: true, force: true }); });
   const info = JSON.parse(readFileSync(join(f.out, 'server.json'), 'utf8'));
   assert.deepEqual({ url: info.url, token: info.token, port: info.port, pid: info.pid }, { url: s.url, token: s.token, port: new URL(s.url).port * 1, pid: process.pid });
   await assert.rejects(connect(s.url, 'http://evil.example'), (e) => e.status === 403);
@@ -269,7 +277,6 @@ test('inbox mode: chat lands in chat-inbox.jsonl, /reply needs the token, the re
   const gone = await replyCli(f.out, 'late');
   assert.equal(gone.status, 3);
   assert.match(gone.stderr, /no viewer serves .*server\.json missing or stale/);
-  rmSync(f.dir, { recursive: true, force: true });
 });
 
 test('refreshes run one at a time: requests during a run coalesce into one follow-up', { timeout: 20000 }, async (t) => {
@@ -287,7 +294,7 @@ test('refreshes run one at a time: requests during a run coalesce into one follo
     running--;
   };
   const s = await startServer({ out: f.out, replay: true, open: false, refreshRun });
-  t.after(() => { rmSync(f.dir, { recursive: true, force: true }); return s.close(); });
+  t.after(async () => { await s.close(); rmSync(f.dir, { recursive: true, force: true }); });
   const first = s.refresh();
   const second = s.refresh();
   const third = s.refresh();
@@ -309,7 +316,7 @@ test('refreshes run one at a time: requests during a run coalesce into one follo
 test('the channel points at nodes: query_graph emits a query event, reply nodes resolve to ids', { timeout: 30000 }, async (t) => {
   const f = fixture();
   const c = channel(f.dir);
-  t.after(() => { c.child.kill(); rmSync(f.dir, { recursive: true, force: true }); });
+  t.after(async () => { await stopped(c.child); rmSync(f.dir, { recursive: true, force: true }); });
   await c.call('initialize', { protocolVersion: '2025-06-18', capabilities: {} });
   const opened = await c.call('tools/call', { name: 'open_graph', arguments: { result: f.out } });
   const ws = await connect(JSON.parse(opened.result.content[0].text).url);
@@ -347,7 +354,7 @@ test('the channel points at nodes: query_graph emits a query event, reply nodes 
 test('POST /query and /wiki need the token; queries answer over HTTP, the socket and the reply command; reply --nodes', { timeout: 30000 }, async (t) => {
   const f = fixture();
   const s = await startServer({ out: f.out, replay: true, open: false });
-  t.after(() => { rmSync(f.dir, { recursive: true, force: true }); return s.close(); });
+  t.after(async () => { await s.close(); rmSync(f.dir, { recursive: true, force: true }); });
   const ws = await connect(s.url);
   t.after(() => ws.close());
   ws.send({ op: 'hello', since: 0 });
@@ -384,12 +391,11 @@ test('POST /query and /wiki need the token; queries answer over HTTP, the socket
 
 test('a reconnect pages a sparse event log and continues live without overlap', { timeout: 15000 }, async t => {
   const f = fixture();
-  t.after(() => rmSync(f.dir, {recursive:true,force:true}));
   const history = Array.from({length:180}, (_, i) => ({type:'note', seq:(i+1)*2, text:'page🙂'.repeat(400)}));
   const eventsFile = join(f.out, 'events.jsonl');
   writeFileSync(eventsFile, `${readFileSync(eventsFile, 'utf8')}${history.map(e=>JSON.stringify(e)).join('\n')}\n`);
   const viewer = await startServer({out:f.out,replay:true,open:false});
-  t.after(() => viewer.close());
+  t.after(async () => { await viewer.close(); rmSync(f.dir, {recursive:true,force:true}); });
   const ws = await connect(viewer.url);
   t.after(() => ws.close());
   ws.send({op:'hello', since:17});
@@ -430,7 +436,7 @@ test('viewer serves its renderer locally and revalidates its cached copy', async
 test('names inherited from Object.prototype are unknown actions, tools, methods and socket ops', { timeout: 30000 }, async (t) => {
   const f = fixture();
   const s = await startServer({ out: f.out, replay: true, open: false });
-  t.after(() => { rmSync(f.dir, { recursive: true, force: true }); return s.close(); });
+  t.after(async () => { await s.close(); rmSync(f.dir, { recursive: true, force: true }); });
   for (const action of ['toString', 'constructor', '__proto__']) {
     const res = await post(s.url, '/wiki', { action });
     assert.equal(res.status, 400, action);
@@ -457,7 +463,7 @@ test('names inherited from Object.prototype are unknown actions, tools, methods 
 test('the channel builds, queries, refreshes and diffs a saved graph without a viewer', { timeout: 60000 }, async (t) => {
   const f = fixture();
   const c = channel(f.dir);
-  t.after(() => { c.child.kill(); rmSync(f.dir, { recursive: true, force: true }); });
+  t.after(async () => { await stopped(c.child); rmSync(f.dir, { recursive: true, force: true }); });
   await c.call('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '0' } });
   const call = async (name, args) => (await c.call('tools/call', { name, arguments: args })).result;
   // The saved run answers by its result directory in text, the default format.

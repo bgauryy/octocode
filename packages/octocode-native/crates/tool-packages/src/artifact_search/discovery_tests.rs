@@ -186,6 +186,77 @@ fn maven_discovery_pages_through_its_one_window() {
     );
 }
 
+/// crates.io refuses a page number past its page cap whatever the page
+/// size: 3-row pages reach page 200, so the stated reach is the 600 rows
+/// those pages serve, the walk ends there with a terminal warning, and no
+/// cursor names page 201. The bound the next page crosses is the one its
+/// refusal names.
+#[test]
+fn crates_small_pages_end_at_the_page_cap_not_the_relevance_limit() {
+    let query_at = |page: u64| {
+        typed(
+            &json!({"operation":"search","ecosystem":"crates","keywords":["toml"],"limit":3,"page":page}),
+        )
+    };
+    let page = |page: u64| {
+        let start = (page as usize - 1) * 3;
+        respond(
+            &query_at(page),
+            ArtifactProviderPage {
+                artifacts: (start..start + 3)
+                    .map(|n| {
+                        ArtifactItem::new(
+                            ArtifactType::Crates,
+                            format!("pkg{n}"),
+                            format!("https://example.org/pkg{n}"),
+                        )
+                    })
+                    .collect(),
+                next_state: Some(crate::artifact::ArtifactProviderState {
+                    page: Some(page + 1),
+                    ..Default::default()
+                }),
+                total: Some(73_164),
+                terminal_limit: None,
+                registry: None,
+                any_keyword_total: None,
+            },
+        )
+        .expect("rows")
+    };
+    assert_eq!(last_reachable_page(&query_at(1)), 200);
+    let first = page(1);
+    assert_eq!(
+        first[octocode_runtime_base::contracts::envelope::NOTICES],
+        json!([
+            "crates matched 73164 results; paging reaches only the first 600 (through page 200)."
+        ]),
+        "{first}"
+    );
+    let last = page(200);
+    assert_eq!(last["pagination"]["hasMore"], json!(false), "{last}");
+    assert!(last["next"].get("nextPage").is_none(), "{last}");
+    assert_eq!(last["terminalLimit"], true, "{last}");
+    assert_eq!(
+        last["warnings"],
+        json!([
+            "crates matched 73164 results; paging reaches only the first 600, which end on this page."
+        ]),
+        "{last}"
+    );
+    let refused = crate::artifact::page_out_of_range(&query_at(201)).expect("past the page cap");
+    assert!(
+        refused.warning.contains("page 201") && refused.warning.contains("200"),
+        "{}",
+        refused.warning
+    );
+    assert!(
+        !refused.warning.contains("starts past result"),
+        "page 201 of 3 starts at row 601, inside the relevance limit: {}",
+        refused.warning
+    );
+}
+
 /// NuGet search reaches its first 4,000 rows and crates.io its first
 /// 1,000: the page that ends them is the terminal limit, stating the
 /// total and the reach, through the same rule as every bounded registry,

@@ -121,9 +121,10 @@ fn a_later_window_does_not_claim_the_scope_holds_no_file() {
     assert!(!out["hints"].to_string().contains("was parsed"), "{out}");
 }
 
-/// The same result answers `coverage` the same on each of its pages: the
-/// requested scope was walked whole. Its skipped paths are counted on page 1,
-/// never offered beside the matches.
+/// The same result answers its coverage the same on each of its pages: the
+/// requested scope was walked whole, which no page marks partial and none
+/// states again as a `coverage` block. Its skipped paths are counted on
+/// page 1, never offered beside the matches.
 #[test]
 fn every_match_page_states_the_same_coverage() {
     let root = Fixture::new();
@@ -144,8 +145,11 @@ fn every_match_page_states_the_same_coverage() {
         first["skippedPaths"].to_string().contains("dist"),
         "{first}"
     );
-    assert_eq!(first["coverage"]["state"], "complete", "{first}");
-    assert_eq!(first["coverage"], later["coverage"], "{first}\n{later}");
+    for page in [&first, &later] {
+        for field in ["coverage", "isPartial", "partialReasons"] {
+            assert!(page.get(field).is_none(), "{field}: {page}");
+        }
+    }
 }
 
 /// An include glob that matches no file is said as localSearch says it (one

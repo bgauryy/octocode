@@ -5,8 +5,7 @@ use super::*;
 use octocode_test_support::json_fixture;
 
 /// A result with every match delivered and no required call omits the
-/// coverage note. Structural expansion can retain a complete note; a file
-/// page left or a scope gap must remain visible.
+/// coverage note; a file page left or a scope gap must remain visible.
 #[test]
 fn match_rows_without_unread_pages_are_complete() {
     let root = Fixture::new();
@@ -549,5 +548,41 @@ fn a_rule_naming_no_node_warns_when_its_rows_nest() {
         .expect("match");
         assert!(out["files"][0]["matches"].is_array(), "{named}: {out}");
         assert!(nesting_warnings(&out).is_empty(), "{named}: {out}");
+    }
+}
+
+/// One rule states a match answer's coverage and qualifiers, whatever pages
+/// it: a complete answer with matches, in one page or paged by `limit` (each
+/// page a filled scan window), states no `coverage` block (no `isPartial` or
+/// `partialReasons` already says it is complete; more pages are the reply's
+/// `next`) and none of [`QUALIFIERS`] (its matches name their files, and the
+/// grammar it did not search changed nothing) on any page.
+#[test]
+fn a_complete_answer_states_the_same_facts_whether_or_not_limit_pages_it() {
+    let root = Fixture::new();
+    for name in ["a", "b", "c"] {
+        root.write(
+            &format!("src/{name}.ts"),
+            "function f() {}\nfunction g() {}\n",
+        );
+    }
+    root.write("py/m.py", "def f():\n    pass\n");
+    let base = json!({"operation":"match","path":root.0,"rule":{"kind":"function_declaration"}});
+    for limit in [None, Some(1), Some(2)] {
+        let mut query = base.clone();
+        if let Some(limit) = limit {
+            query["limit"] = json!(limit);
+        }
+        let pages = ast_chain(&root.0, query);
+        assert_eq!(pages.len() > 1, limit.is_some(), "{limit:?}: {pages:?}");
+        assert_eq!(ast_rows(&pages).len(), 6, "{limit:?}: every match once");
+        for page in &pages {
+            for field in ["coverage", "isPartial", "partialReasons"]
+                .into_iter()
+                .chain(QUALIFIERS)
+            {
+                assert!(page.get(field).is_none(), "{field} {limit:?}: {page}");
+            }
+        }
     }
 }

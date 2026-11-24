@@ -6,8 +6,10 @@ use super::{HistorySearch, gh_search_history_query};
 /// request or issue also its `state`, a commit its `merge` mark and its
 /// author, which the listing already carries): enough to choose the one to
 /// read. A pull request's or issue's author, its labels, its comment counts,
-/// its last update and its target branch, and a commit's committer, are read
-/// by `fields`, or by ghGetHistoryItem.
+/// its last update and a search row's target branch, and a commit's
+/// committer, are read by `fields`, or by ghGetHistoryItem; a listed pull
+/// request states a target branch other than the default
+/// ([`super::rows::drop_default_base`]).
 pub(super) const PULL_REQUEST_DETAIL: &[&str] = &[
     "author",
     "labels",

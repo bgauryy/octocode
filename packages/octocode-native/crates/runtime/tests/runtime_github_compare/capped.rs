@@ -60,13 +60,12 @@ async fn capped_compare_with_a_path_leads_to_the_path_history() {
         "{data}"
     );
     // The range's commit list is not path-scoped: a file read pages it
-    // apart (none shown), and its page names each commit by its headline.
+    // apart (none shown; `aheadBy` counts it once, no empty page block
+    // repeats it), and its page names each commit by its headline.
     assert!(data.get("commits").is_none(), "{data}");
-    assert_eq!(data["sectionPagination"]["commits"]["length"], 0, "{data}");
+    assert_eq!(data["aheadBy"], 150, "{data}");
     assert!(
-        data["sectionPagination"]["commits"]
-            .get("currentPage")
-            .is_none(),
+        data.pointer("/sectionPagination/commits").is_none(),
         "{data}"
     );
     let page = data["next"]["commits"]["input"].clone();

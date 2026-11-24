@@ -11,9 +11,8 @@ Load when the route or `--provider` is unclear, or before a broad crawl or hoste
 | Need | Route | Key |
 |---|---|---|
 | Public static page | `direct`, `--mode html` | no |
-| Thin 200 or JS shell | `octocode-chrome-devtools` capture, bridged into the corpus | no |
 | Local JS render, no clicks | `cdp`, `--mode html` | no |
-| Auth, clicks, network, screenshots | `octocode-chrome-devtools` ([browser-scraping](browser-scraping.md)) | no |
+| Auth, clicks, network, screenshots | `octocode-chrome-devtools` capture, bridged into the corpus ([browser-scraping](browser-scraping.md)) | no |
 | Hosted anti-bot, `markdown`, `extended`, `extract` | `scrapingant`, explicit choice | `SCRAPING_ANT` |
 
 - Default `direct`; installing chrome-devtools or setting `SCRAPING_ANT` never auto-selects a provider. Only a non-html `--mode` implies `scrapingant` (fails early without the key).

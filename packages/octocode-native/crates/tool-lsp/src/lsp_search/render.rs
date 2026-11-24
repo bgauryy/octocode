@@ -10,10 +10,15 @@ use serde_json::{Value, json};
 use octocode_contract_types::LspSearchQuery;
 use octocode_runtime_base::response::page_windows::{Paging, select};
 
+/// The name typescript-language-server gives a node it cannot name (an
+/// object spread): no name and no true kind, so no outline row.
+const NAMELESS: &str = "<unknown>";
+
 /// One flattened document symbol: `name`, `kind`, one-based `line` (the
 /// name line, a usable `line`) and `endLine` (the full extent), the
 /// one-based name `character`, and `parent`/`parentLine` for a nested
-/// symbol (a member, or a function's local). Every symbol is listed.
+/// symbol (a member, or a function's local). Every named symbol is listed;
+/// a nameless node's children are listed under the enclosing symbol.
 pub(super) fn flatten_document_symbol(
     value: &Value,
     output: &mut Vec<Value>,
@@ -26,7 +31,10 @@ pub(super) fn flatten_document_symbol(
     let range = symbol
         .get("range")
         .or_else(|| symbol.get("location")?.get("range"));
-    let name = symbol.get("name").and_then(Value::as_str);
+    let name = symbol
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|name| *name != NAMELESS);
     let children = symbol
         .get("children")
         .and_then(Value::as_array)
@@ -46,7 +54,7 @@ pub(super) fn flatten_document_symbol(
             "line": start,
             // 1-based, like every public column.
             "character": anchor.pointer("/start/character").and_then(Value::as_u64).unwrap_or(0) + 1,
-            "endLine": range.pointer("/end/line").and_then(Value::as_u64).unwrap_or(0) + 1,
+            "endLine": super::locations::last_line(range).unwrap_or(start),
         });
         if let Some((parent, parent_line)) = parent {
             compact["parent"] = json!(parent);

@@ -7,7 +7,7 @@ The smallest bundle is `<skill-name>/SKILL.md`. Replace placeholders and delete 
 ```markdown
 ---
 name: <skill-name>
-description: "Load this skill first when <recognizable task or situation>. <Distinctive result and essential boundary>."
+description: "Load this skill first when <recognizable task or situation>. <What it does and its distinctive result>."
 ---
 
 # <Title>

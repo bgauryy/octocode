@@ -400,3 +400,35 @@ fn stored_pages_equal_fresh_pages_at_every_window() {
         }
     }
 }
+
+/// What an outline's pass scanned (`filesScanned`) and what its `testCode`
+/// scope left out (`testCodeExcluded`) are facts of the whole pass, stated
+/// on its page 1 as `skippedPaths` is: a later page of the same pass lists
+/// only its own declarations, for a file outline and a directory one.
+#[test]
+fn a_later_outline_page_states_no_scan_fact_of_the_pass() {
+    let root = Fixture::new();
+    root.write("src/a.ts", numbered_functions(12));
+    root.write("src/b.test.ts", numbered_functions(2));
+    octocode_engine::stamp::settle_written_so_far();
+    for (path, test_code) in [("src/a.ts", false), ("src", true)] {
+        let mut row = json!({"operation":"symbols","path":root.0.join(path),"limit":3});
+        if test_code {
+            row["testCode"] = json!("exclude");
+        }
+        let pages = walk(&root.0, row, symbol_rows);
+        assert!(pages.len() > 2, "{path}: {pages:?}");
+        assert!(pages[0]["filesScanned"].is_u64(), "{path}: {}", pages[0]);
+        assert_eq!(
+            pages[0]["testCodeExcluded"].is_object(),
+            test_code,
+            "{path}: {}",
+            pages[0]
+        );
+        for page in &pages[1..] {
+            for fact in ["filesScanned", "testCodeExcluded"] {
+                assert!(page.get(fact).is_none(), "{path}: {fact}: {page}");
+            }
+        }
+    }
+}

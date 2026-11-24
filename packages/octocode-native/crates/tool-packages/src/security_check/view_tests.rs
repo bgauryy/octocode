@@ -134,10 +134,8 @@ async fn a_package_summary_is_the_verdict_the_counts_and_one_lead() {
     assert_eq!(summary["advisoryCount"], 2, "{summary}");
     assert_eq!(summary["highestSeverity"], "high", "{summary}");
     assert_eq!(summary["unfixedInMajorCount"], 1, "{summary}");
-    assert_eq!(
-        summary["link"], "https://osv.dev/vulnerability/GHSA-HIGHER",
-        "{summary}"
-    );
+    // The worst advisory is the first listed: its OSV page is its id's.
+    assert!(summary.get("link").is_none(), "{summary}");
     // `outdated:true` is derived from the release the row names: the
     // `latestVersion` stays only when it is not the `upgradeTo` already stated.
     assert!(summary.get("outdated").is_none(), "{summary}");
@@ -324,8 +322,7 @@ async fn a_commit_summary_counts_and_links_and_details_lists() {
                     {"id": "CVE-2023-1", "severity": "high"},
                     {"id": "OSV-2020-1", "severity": "medium"}
                 ],
-                "highestSeverity": "high",
-                "link": "https://osv.dev/vulnerability/CVE-2023-1"
+                "highestSeverity": "high"
             }"#
         )
     );
@@ -646,11 +643,8 @@ async fn details_states_nothing_its_other_fields_derive() {
         listed.iter().any(|row| row["severity"] == "high"),
         "{details}"
     );
-    // The summary's one reference is the OSV page of the worst advisory.
-    assert_eq!(
-        summary["link"], "https://osv.dev/vulnerability/GHSA-HIGHER",
-        "{summary}"
-    );
+    // The OSV page of the first advisory is its id's: no link is stated.
+    assert!(summary.get("link").is_none(), "{summary}");
 }
 
 /// Advisory text is third-party text: after the summary's ids, the distro

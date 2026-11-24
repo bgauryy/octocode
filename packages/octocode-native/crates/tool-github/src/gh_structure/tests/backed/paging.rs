@@ -55,6 +55,55 @@ async fn tree_pins_its_pages_to_the_resolved_commit() {
     );
 }
 
+/// The listing's `summary` counts the whole listing of the pinned commit,
+/// the same on every page: the first page states it, a later page does not
+/// repeat it.
+#[tokio::test]
+async fn a_later_tree_page_does_not_repeat_the_summary() {
+    let server = MockServer::builder().start().await;
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b",
+        200,
+        json_fixture(r#"{"default_branch": "main"}"#),
+    )
+    .await;
+    mount_ref(&server, "HEAD").await;
+    let entries = json!(
+        (0..5)
+            .map(|i| json!({"name":format!("f{i}.rs"),"path":format!("f{i}.rs"),"type":"file","size":1}))
+            .collect::<Vec<_>>()
+    );
+    octocode_test_support::mock_http::mount_folder_tree(
+        &server,
+        "/api/v3/repos/a/b",
+        TREE_SHA,
+        "",
+        &entries,
+    )
+    .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents"))
+        .and(query_param("ref", TREE_SHA))
+        .respond_with(ResponseTemplate::new(200).set_body_json(entries))
+        .mount(&server)
+        .await;
+    let first = run(
+        &server,
+        json!({"operation": "tree", "owner": "a", "repo": "b", "limit": 2}),
+    )
+    .await
+    .expect("tree");
+    assert_eq!(first.data["summary"]["fileCount"], 5, "{}", first.data);
+    let mut later = first.data["next"]["nextPage"]["input"]["queries"][0].clone();
+    while later.is_object() {
+        let page = run(&server, later).await.expect("later page");
+        assert!(page.data["files"].is_array(), "{}", page.data);
+        assert!(page.data.get("summary").is_none(), "{}", page.data);
+        later = page.data["next"]["nextPage"]["input"]["queries"][0].clone();
+    }
+}
+
 /// A deep listing pages directory by directory, so its first
 /// page carries files, not only folders.
 #[tokio::test]

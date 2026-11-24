@@ -70,7 +70,7 @@ fn an_empty_row_names_the_server_error_on_its_anchor_line() {
     let mut row = empty(
         &q,
         "noLocations",
-        "definitionProvider returned no locations",
+        Some("definitionProvider returned no locations"),
         true,
     );
     super::super::analysis_context::annotate_diagnostics(&mut row, &q, Some(&diagnostics), 7);
@@ -114,7 +114,7 @@ fn an_empty_row_names_the_server_error_on_its_anchor_line() {
     let mut clean = empty(
         &q,
         "noLocations",
-        "definitionProvider returned no locations",
+        Some("definitionProvider returned no locations"),
         true,
     );
     super::super::analysis_context::annotate_diagnostics(&mut clean, &q, Some(&diagnostics), 4);

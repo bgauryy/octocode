@@ -164,7 +164,10 @@ def ask(args, comm, operator, plan_proxy, proxy_command):
             return 0
         task = (f"Operator: {operator_id}. Authorized worker: {worker['id']}. Relay only between these identities "
                 "and return the worker's actual replies and outcomes.")
-        log = tempfile.NamedTemporaryFile("w", prefix="octocode-proxy-", suffix=".log", delete=False)
+        # The log of one run is workspace scratch: removed on success, kept (and named) when the run fails.
+        log_dir = os.path.join(comm.workspace, ".octocode", "tmp", "octocode-messages-proxy")
+        os.makedirs(log_dir, exist_ok=True)
+        log = tempfile.NamedTemporaryFile("w", prefix="proxy-", suffix=".log", dir=log_dir, delete=False)
         print(f"Starting {vendor} proxy with {model}; log: {log.name}", file=sys.stderr, flush=True)
         process = subprocess.Popen(proxy_command(vendor, model, f"octocode-messages-proxy-{suffix}", task),
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,

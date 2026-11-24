@@ -1,48 +1,49 @@
 ---
 name: octocode-get-started
-description: "Load this skill first when setting up Octocode. Install the CLI or bundled skills, connect an MCP client, configure GitHub access and verify the chosen interface with a real call."
+description: "Load this skill first when setting up Octocode: install the CLI or bundled skills, connect an MCP client, sign in to GitHub and verify with a real call."
 metadata:
   excluded-hosts: "octocode-code"
 ---
 
 # Get started with Octocode
 
-Identify the client, project and requested setup. Check whether a plugin already supplies MCP. Use the CLI for terminal access and GitHub login. Use MCP for tools inside an editor or agent. Follow the branch the user needs.
+Identify the client, project and requested setup; ask when the client is unknown. Run only needed sections (CLI: terminal and GitHub login; MCP: tools inside a client). Full setup order: CLI, MCP client, GitHub sign-in; done when MCP step 3 returns the README line and `auth status --json` shows `verified`.
 
 ## Try the CLI
 
-The npm launchers need Node.js 22 or later. The standalone native CLI runs without Node.js. From a project with a README, run:
+The npm launchers need Node.js 22 or later; the standalone native CLI needs none. From a project with a README, run:
 
 ```sh
 npx -y octocode --version
 npx -y octocode localFetch '{"queries":[{"path":"README.md","ranges":[{"startLine":1,"endLine":1}]}]}'
 ```
 
-The reply should contain the first line of that project’s README. Local reads work before sign-in. For a global CLI, use `npm install -g octocode`, then run the same commands as `octocode`. [CLI guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md)
+The reply should hold the README’s first line; local reads work before sign-in. For a global CLI, `npm install -g octocode`, then drop `npx -y`. [CLI guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLI.md)
 
 ## Connect an MCP client
 
-1. Run `npx -y octocode install --list` to find the client ID. For Cursor, check its existing entry with `npx -y octocode install --ide cursor --check`.
-2. If the entry is missing, run `npx -y octocode install --ide cursor`, substituting the user’s client ID. For a project-specific entry, add `--scope workspace` on clients that support it. For manual setup, use the [stdio configuration](references/configure.md#manual-mcp-configuration).
-3. Restart the client, open the project, and ask **“Use Octocode to read the first line of README.md.”** Verify that the client calls `localFetch` and returns the same line as the CLI. If the files differ, inspect the MCP working directory and `WORKSPACE_ROOT`.
+1. `npx -y octocode install --list` shows each client ID and whether its Octocode entry exists (a plugin may supply it); check an existing one with `npx -y octocode install --ide <client-id> --check`.
+2. If the entry is missing, run `npx -y octocode install --ide <client-id>` (`--scope workspace` for a project entry where supported; `--dry-run` previews). For a client with no ID, use the [stdio configuration](references/configure.md#manual-mcp-configuration).
+3. Restart the client, open the project, and ask **“Use Octocode to read the first line of README.md.”** It should call `localFetch` and return the CLI’s line. On failure, do not reinstall: no Octocode tools → rerun `--check`, then the client’s MCP log names the start error; a different line or missing file → set the server’s working directory or `WORKSPACE_ROOT` (stdio configuration), restart, ask again.
 
-## Sign in to GitHub through the CLI
+## Sign in to GitHub
 
-On the machine running Octocode, start the login from an interactive terminal.
+Code search and private repositories need a login. On the machine running Octocode, start it from an interactive terminal.
 
 ```sh
 npx -y octocode auth login
 npx -y octocode auth status --json
 ```
 
-Have the user open the displayed URL and enter the one-time code there. Check for `verification: "verified"`, the expected `hostname`, and the expected `username`. A selected device login reports `tokenSource: "octocode-storage"`. MCP can use that login when it shares the CLI’s Octocode home and GitHub host. Code search and private repositories require authentication. For CI tokens, existing GitHub CLI accounts, or Enterprise, see [GitHub credential selection](references/configure.md#github-credential-selection).
+The user opens the displayed URL and enters the one-time code. Check for `verification: "verified"` and the expected `hostname` and `username`; a device login reports `tokenSource: "octocode-storage"`, which MCP shares when it uses the same Octocode home and GitHub host. CI tokens, GitHub CLI accounts or Enterprise: [credential selection](references/configure.md#github-credential-selection).
 
 ## Configure settings or add skills
 
-| Need | Action |
-|---|---|
-| Choose a tool after setup | Read [first tool calls](references/configure.md#choose-a-tool) or inspect the active catalog with `npx -y octocode schema` (CLI) or the client's tool list (MCP). |
-| Change settings, enable tools or add a provider key | Check [configuration precedence](references/configure.md#configuration-and-folders), [optional tools](references/configure.md#optional-tools) or [key setup](references/configure.md#add-and-configure-keys). |
-| Install a bundled skill | Run `npx -y octocode skill list`. For research in a Codex project, run `npx -y octocode skill install octocode-research --platform codex --project-dir .`. Substitute the requested skill, platform and scope. [Skill catalog](https://github.com/bgauryy/octocode/blob/main/skills/README.md) |
+| Need | Action | Check |
+|---|---|---|
+| Choose a tool | [First tool calls](references/configure.md#choose-a-tool) | `npx -y octocode schema` or the client’s tool list |
+| Change settings or enable tools | [Precedence](references/configure.md#configuration-and-folders), [optional tools](references/configure.md#optional-tools); restart MCP after | `npx -y octocode config list` |
+| Add a provider key | [Key setup](references/configure.md#add-and-configure-keys); the user enters the secret on stdin | `npx -y octocode config check <KEY>` (exit 0 when set) |
+| Install a bundled skill | `npx -y octocode skill list`, then `npx -y octocode skill install <name> --platform <platform> --project-dir .` (or `--global`) | `npx -y octocode skill check <name>` |
 
-Report the interface, project, and checks that succeeded. For a failed check, give the failing command or tool, the error, and which part of setup it affects. Keep tokens and device codes out of the report.
+Report the interface, project and passing checks, or the failing command or tool, its error and the setup part it affects. Omit tokens and device codes.

@@ -64,7 +64,7 @@ Load when reading script output, searching a session, mapping a site, or extract
 ## Extraction
 
 - Define the schema or claim list first. `sources.jsonl` holds route, URL, status, content type, fetch time.
-- Extract rows with code, not by reading pages: write an extractor module exporting `async function run(ctx)` that reads candidate files with `ctx.read(rel)` (`ctx.files` lists them), writes JSONL with `ctx.write('extracts/<name>.jsonl', text)` and returns `{ok, rows}`. Save it under `.octocode/octocode-scraping/tmp/` and run `node <skill-folder>/scripts/corpus-run.mjs --session-dir <d> --script <extractor.mjs> [--script-arg key=value]`. The output's `script` holds the return value (inline up to 4000 bytes, else its `next` continuation); a thrown error is `scriptFailed` (exit 1). Fix the extractor and rerun; report its row count and representative rows.
+- Extract rows with code, not by reading pages: write an extractor module exporting `async function run(ctx)` that reads candidate files with `ctx.read(rel)` (`ctx.files` lists them), writes JSONL with `ctx.write('extracts/<name>.jsonl', text)` and returns `{ok, rows}`. Save it under `.octocode/tmp/octocode-scraping/` and run `node <skill-folder>/scripts/corpus-run.mjs --session-dir <d> --script <extractor.mjs> [--script-arg key=value]`. The output's `script` holds the return value (inline up to 4000 bytes, else its `next` continuation); a thrown error is `scriptFailed` (exit 1). Fix the extractor and rerun; report its row count and representative rows.
 - Claim–evidence: each row carries `pageId`, URL, `file` and `line` (or the quoted span); spot-check critical rows against raw HTML or snippets and cross-check key claims with another selector or source.
 - Facts, assumptions, unknowns: mark partial, blocked, transformed, or inferred data instead of presenting it as fact.
 - Excerpts in `snippets/`; narrative in the saved report ([output](../output.md)), not `reports/summary.md`.
@@ -81,7 +81,7 @@ Load when reading script output, searching a session, mapping a site, or extract
 - Reuse the saved capture; narrow files by metadata, titles, URLs, and literal search. Skip empty and repeated captures by data: `node <skill-folder>/scripts/corpus-inspect.mjs --session-dir <d> --view captures` lists each capture's `bytes` and `sha256`; drop rows marked `empty` or carrying `duplicateOf` (`captureSummary` counts both).
 - Log, HAR, or minified JSON: extract records as text first, keeping the original (positions are not DOM coordinates); read small ones directly.
 - Which passages to read: `localSearch` over the capture directory with a literal; when an evidence question can choose the next passages to read, run that search as `clasify` `source:{tool:"localSearch",query:{...}}` with `predicates:[...]`.
-- A typed judgment about one capture file: `clasify` with a `source` reference; save large requests as `.octocode/octocode-scraping/tmp/clasify-request.json`.
+- A typed judgment about one capture file: `clasify` with a `source` reference; save large requests as `.octocode/tmp/octocode-scraping/clasify-request.json`.
 
 ```json
 {"queries": [{
@@ -96,5 +96,5 @@ Load when reading script output, searching a session, mapping a site, or extract
 }]}
 ```
 
-- Run: `npx -y octocode clasify --input .octocode/octocode-scraping/tmp/clasify-request.json` (MCP `clasify` takes the same JSON when available; inspect the live catalog). A capture over the state limit fails its row: select `ranges`.
+- Run: `npx -y octocode clasify --input .octocode/tmp/octocode-scraping/clasify-request.json` (MCP `clasify` takes the same JSON when available; inspect the live catalog). A capture over the state limit fails its row: select `ranges`.
 - Before citing, follow the emitted captured-source continuation or read the deciding lines with `localFetch`; `hints` are prose, not executable reads. A low answer never proves whole-site absence.

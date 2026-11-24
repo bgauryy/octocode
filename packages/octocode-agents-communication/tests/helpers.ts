@@ -197,9 +197,17 @@ export async function waitFor<Value>(check: () => Value | Promise<Value>, {timeo
   }
 }
 
-/** Fresh temporary directory; `real` resolves symlinked temp roots such as /var → /private/var. */
+/** Every tempDir of this test process: removed when the process exits, pass or fail. */
+const tempDirs = new Set<string>();
+function removeTempDirs(): void {
+  for (const directory of tempDirs) rmSync(directory, { recursive: true, force: true });
+}
+
+/** Fresh temporary directory, removed at process exit; `real` resolves symlinked temp roots such as /var → /private/var. */
 export function tempDir(prefix: string, { real = false, parent = tmpdir() }: { real?: boolean; parent?: string } = {}): string {
   const directory = mkdtempSync(join(parent, prefix));
+  if (tempDirs.size === 0) process.once('exit', removeTempDirs);
+  tempDirs.add(directory);
   return real ? realpathSync(directory) : directory;
 }
 

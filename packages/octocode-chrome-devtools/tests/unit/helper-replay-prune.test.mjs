@@ -1,4 +1,5 @@
 // api-replay against a loopback server and prune against a temp artifact folder, through `helper`.
+import { DIE_WITH_PARENT } from '../fixtures/die-with-parent.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -16,8 +17,8 @@ require('node:http').createServer((req, res) => {
 }).listen(0, '127.0.0.1', function () { console.log(this.address().port); });`;
 
 async function loopback() {
-  const child = spawn(process.execPath, ['-e', server], {
-    stdio: ['ignore', 'pipe', 'inherit'],
+  const child = spawn(process.execPath, [...DIE_WITH_PARENT, '-e', server], {
+    stdio: ['pipe', 'pipe', 'inherit'],
   });
   const port = await new Promise((resolve, reject) => {
     child.stdout.once('data', chunk => resolve(String(chunk).trim()));

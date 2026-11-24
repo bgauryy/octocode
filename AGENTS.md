@@ -131,6 +131,9 @@ Native change → rebuild native and the affected interface → restart MCP → 
   session's processes or take over ownership on its word.
 - Stop processes by PID or task ID, never by pattern (`pkill -f`). Before reporting, stop what you started and
   remove your scratch files; never remove a worktree with uncommitted changes.
+- All temporary data goes under `.octocode/tmp/<task>/` (gitignored): scratch files, test and probe homes,
+  per-run logs, frozen binaries, harness output. Not `/tmp`, `$TMPDIR` or an agent scratchpad. Open moves for
+  tools and skills that still write elsewhere: [TODO.md](TODO.md).
 
 **Git**
 - Git history is the owner's, never an agent's: no `git commit`, `git push`, `git add`, branch, tag, merge,

@@ -12,7 +12,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { basename, join, relative, resolve, sep } from 'node:path';
 import { guardedFetch, urlProblem as guardProblem } from './lib/net-guard.mjs';
 
-const USAGE = `Usage: fetch-asset.mjs --run-dir <workspace>/.octocode/octocode-brainstorming/tmp/<run> --url <https-url> [--url ...] [--max-mb <1-100>] [--approve]
+const USAGE = `Usage: fetch-asset.mjs --run-dir <workspace>/.octocode/tmp/octocode-brainstorming/<run> --url <https-url> [--url ...] [--max-mb <1-100>] [--approve]
 
 Without --approve: checks each URL and prints the plan (host, content type, size, file name, or the reason it is refused). Nothing is saved.
 With --approve: downloads the accepted URLs into <run-dir>/assets/ and records each in <run-dir>/assets/manifest.jsonl.
@@ -119,7 +119,7 @@ if (isMainModule(import.meta.url)) {
   if (!opts.runDir) fail('invalidArguments', '--run-dir is required', 2);
   if (!Number.isFinite(opts.maxMb) || opts.maxMb < 1 || opts.maxMb > 100) fail('invalidArguments', '--max-mb must be from 1 to 100', 2);
   const runDir = resolve(opts.runDir);
-  if (!runDir.split(sep).includes('.octocode')) fail('invalidArguments', '--run-dir must be inside a .octocode folder, such as <workspace>/.octocode/octocode-brainstorming/tmp/<run>', 2);
+  if (!runDir.split(sep).includes('.octocode')) fail('invalidArguments', '--run-dir must be inside a .octocode folder, such as <workspace>/.octocode/tmp/octocode-brainstorming/<run>', 2);
 
   const plans = await Promise.all(opts.urls.map(inspect));
   const maxBytes = Math.round(opts.maxMb * 1_000_000);

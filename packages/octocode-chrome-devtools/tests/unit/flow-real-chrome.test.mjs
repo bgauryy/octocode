@@ -1,5 +1,6 @@
 // `flow run login-form` on a real isolated headless Chrome behaves like the hand-written plan:
 // the cookie is set, the success text appears, and the typed password reaches no saved file.
+import { DIE_WITH_PARENT } from '../fixtures/die-with-parent.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -41,10 +42,11 @@ test(
     const web = spawn(
       process.execPath,
       [
+        ...DIE_WITH_PARENT,
         '-e',
         `require('node:http').createServer((_, r) => { r.setHeader('content-type', 'text/html'); r.end(${JSON.stringify(page)}); }).listen(0, '127.0.0.1', function () { console.log(this.address().port); });`,
       ],
-      { stdio: ['ignore', 'pipe', 'inherit'] }
+      { stdio: ['pipe', 'pipe', 'inherit'] }
     );
     const webPort = await new Promise(resolve =>
       web.stdout.once('data', chunk => resolve(Number(chunk)))

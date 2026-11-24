@@ -546,6 +546,7 @@ pub(super) async fn run(
             net,
             &Selection::All,
             from.as_ref(),
+            super::source::View::of(view),
         )
         .await?;
         reads_on = listed.resume.clone();
@@ -566,21 +567,6 @@ pub(super) async fn run(
         osv_part = listed
             .osv_status
             .map(|status| json!({"source": "osv", "status": status}));
-        // Each advisory OSV keeps no record of: GitHub's own, read whole with
-        // `repo`. Only asked of a repository GitHub calls public, as OSV hears
-        // the id. The row lists such an advisory in brief and no other read
-        // reaches its text (a bare `advisory` read asks OSV, which has none),
-        // so the row needs the call.
-        if !listed.osv_lacks.is_empty() {
-            let mut with_repo = brief.clone();
-            name_in(&mut with_repo, &facts.owner, &facts.name);
-            let ids = listed
-                .osv_lacks
-                .iter()
-                .map(String::as_str)
-                .collect::<Vec<_>>();
-            super::answer::advisory_calls(&mut data, "readWhole", &ids, &with_repo, true);
-        }
         if !listed.osv_failed.is_empty() {
             let why = osv_failure(&listed.osv_failed);
             // `osv_part` below states why on the OSV entry.
@@ -613,7 +599,12 @@ pub(super) async fn run(
                 "{} {clause}.",
                 data["answer"].as_str().unwrap_or_default()
             ));
-            data["advisories"] = Value::Array(rows);
+            // The summary's brief rows count the advisories; details lists
+            // each database's record of them whole.
+            data["advisories"] = Value::Array(match view {
+                SecurityCheckView::Summary => rows,
+                SecurityCheckView::Details => listed.records,
+            });
         }
         if let Some(stopped) = stopped {
             // Nothing read is a source that did not answer, not a partial one.
@@ -680,8 +671,9 @@ fn in_view(view: SecurityCheckView, data: Value) -> Value {
             asked_name: None,
             asked_version: None,
             unfixed_in_major: 0,
-            // A repository row counts and cautions; it never says `affected`.
-            gives_verdict: false,
+            // A repository row counts and cautions; it never says `affected`,
+            // and only its sentence says its count is of its own records.
+            answer: None,
             upgrade_prerelease: false,
         },
     )

@@ -68,7 +68,7 @@ pub(super) fn reuse_checkout(
         .map_err(policy_denied)?;
     // A checkout made before scopes were recorded gets its record now.
     storage::record_scope(clone_dir, &record(plan, clone_dir, &checkout))?;
-    let mut result = plan.result(reference, clone_dir, checkout);
+    let mut result = plan.result(clone_dir, checkout);
     result.location.cloned_at = storage::completed_at(clone_dir);
     result.location.reused = true;
     Ok(Some(result))
@@ -115,7 +115,7 @@ pub(super) fn fresh_clone(
         .path_policy
         .validate(clone_dir)
         .map_err(policy_denied)?;
-    let mut result = plan.result(reference, clone_dir, checkout);
+    let mut result = plan.result(clone_dir, checkout);
     result.location.cloned_at = storage::completed_at(clone_dir);
     Ok(Fresh::Published(Box::new(result)))
 }

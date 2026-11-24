@@ -38,7 +38,7 @@ fn a_page_number_is_bounded_by_its_start_not_a_page_count() {
         page: Some(page),
         ..Default::default()
     };
-    let deepest = max_start_offset(ArtifactType::Rubygems);
+    let deepest = reach(ArtifactType::Rubygems).max_start;
     assert!(validate_cursor_state(ArtifactType::Rubygems, &at(deepest + 1), 1).is_ok());
     assert!(validate_cursor_state(ArtifactType::Rubygems, &at(deepest + 2), 1).is_err());
 }
@@ -64,6 +64,39 @@ fn a_page_addressed_registry_is_bounded_by_its_page_start() {
             "page {page} of {page_size}"
         );
     }
+}
+
+/// crates.io also refuses a page number past its page cap, whatever the
+/// page size (`page=201&per_page=3` is HTTP 400 "Page 201 is unavailable"):
+/// small pages end at the page cap before the relevance limit, large ones
+/// at the relevance limit before the page cap.
+#[test]
+fn crates_pages_end_at_the_page_cap_or_the_relevance_limit_whichever_comes_first() {
+    let at = |page: u64| ArtifactProviderState {
+        page: Some(page),
+        ..Default::default()
+    };
+    let cap = reach(ArtifactType::Crates)
+        .max_page
+        .expect("crates.io caps page numbers");
+    for page_size in [1, 3, 5] {
+        assert!(
+            validate_cursor_state(ArtifactType::Crates, &at(cap), page_size).is_ok(),
+            "page {cap} of {page_size}"
+        );
+        assert!(
+            validate_cursor_state(ArtifactType::Crates, &at(cap + 1), page_size).is_err(),
+            "page {} of {page_size}",
+            cap + 1
+        );
+    }
+    let relevance = crates::CRATES_RELEVANCE_LIMIT;
+    assert!(
+        relevance / 100 < cap,
+        "100-row pages end at the relevance limit"
+    );
+    assert!(validate_cursor_state(ArtifactType::Crates, &at(relevance / 100), 100).is_ok());
+    assert!(validate_cursor_state(ArtifactType::Crates, &at(relevance / 100 + 1), 100).is_err());
 }
 
 /// pkg.go.dev serves its first 1,000 search results only: a Go page

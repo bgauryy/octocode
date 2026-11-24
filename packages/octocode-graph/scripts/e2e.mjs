@@ -11,12 +11,12 @@
 import { spawn, spawnSync } from 'node:child_process';
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
@@ -29,7 +29,10 @@ const { values } = parseArgs({
     keep: { type: 'boolean', default: false },
   },
 });
-const scratch = mkdtempSync(join(tmpdir(), 'octocode-graph-e2e-'));
+// Scratch lives in the repository's scratch space, removed at the end unless --keep.
+const SCRATCH = join(REPO, '.octocode', 'tmp', 'octocode-graph');
+mkdirSync(SCRATCH, { recursive: true });
+const scratch = mkdtempSync(join(SCRATCH, 'e2e-'));
 const RUN = join(scratch, 'run');
 const results = [];
 

@@ -5,7 +5,7 @@ Load when saving or rendering. The owning skill's `output.md` and `report-contra
 
 ## Artifact ownership
 
-Use the target workspace root, never the installed skill, tool checkout or an existing `.octocode/` subdirectory. Unless the user names a destination, save authored results under `<workspace>/.octocode/<skill-name>/` and captures under its `tmp/`. Edits to project sources stay in place. Reuse an explicitly selected result for revisions; give a new analysis its own path so it cannot overwrite earlier evidence.
+Use the target workspace root, never the installed skill, tool checkout or an existing `.octocode/` subdirectory. Unless the user names a destination, save authored results under `<workspace>/.octocode/<skill-name>/`, and scratch and captures under `<workspace>/.octocode/tmp/<skill-name>/`. Edits to project sources stay in place. Reuse an explicitly selected result for revisions; give a new analysis its own path so it cannot overwrite earlier evidence.
 
 Build copies are not evidence: record the build's digest and version in the run, and remove copied binaries and `node_modules` once the run is final and will not resume. Keep raw evidence and machine-readable records complete. A brief or visual may select a view, but must identify that selection and link to the full records. Preserve Unicode, long values, failed cases, citations, schema fields and executable continuations; disclose terminal limits and unread scope. Rendering reads the saved snapshot and leaves its source intact.
 

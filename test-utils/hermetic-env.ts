@@ -26,9 +26,11 @@ function removeHomes(): void {
 }
 
 /**
- * `base` without credentials or live flags, with a new empty home under the OS
- * temp dir (`label` names it) and the dead proxy. The home is removed when the
- * process exits; vitest workers skip exit handlers, so the vitest guard removes its own.
+ * `base` without credentials or live flags, with a new empty home under tmpdir()
+ * (`label` names it) and the dead proxy. Package test scripts run through
+ * scripts/test-tmp.mjs, so tmpdir() is that run's root under <repo>/.octocode/tmp/t.
+ * The home is removed when the process exits; vitest workers skip exit handlers,
+ * so the vitest guard removes its own.
  */
 export function hermeticEnv(
   base: NodeJS.ProcessEnv = process.env,

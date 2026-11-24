@@ -4,9 +4,11 @@
 // build-time check that every external runtime import is a declared
 // dependency, and the shared docs copy.
 //
-//   node package-build.mjs docs <outDir>   copy repo docs/ to <cwd>/<outDir>/docs
+//   node package-build.mjs docs <outDir>    copy repo docs/ to <cwd>/<outDir>/docs
+//   node package-build.mjs stage <outDir>   also stage repo skills/ into <cwd>/skills (prepack)
 import { isMainModule } from './lib/entrypoint.mjs';
 import { ROOT } from './lib/workspaces.mjs';
+import { stageSkills } from '../../../packages/octocode/scripts/stage-skills.mjs';
 import { cpSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { builtinModules } from 'node:module';
 import { dirname, join, relative, resolve, sep } from 'node:path';
@@ -110,14 +112,14 @@ export const REPO_BLOB_URL = 'https://github.com/bgauryy/octocode/blob/main/';
  * `../packages/x/README.md#a`) to the repository URL, so they still resolve
  * from the package's `dist/docs` copy. Links inside `docs/` stay relative.
  */
-export function rewriteEscapingLinks(markdown, docPath, sourceDocs) {
+export function rewriteEscapingLinks(markdown, docPath, sourceDocs, root = ROOT) {
   return markdown.replace(/\]\(([^)\s]+)\)/g, (match, target) => {
     if (/^(?:[a-z][a-z0-9+.-]*:|#|\/)/i.test(target)) return match;
     const [file, fragment = ''] = target.split(/(?=#)/);
     const absolute = resolve(dirname(docPath), file);
     const inside = relative(sourceDocs, absolute);
     if (!inside.startsWith('..')) return match;
-    const repoPath = relative(ROOT, absolute).split(sep).join('/');
+    const repoPath = relative(root, absolute).split(sep).join('/');
     return `](${REPO_BLOB_URL}${repoPath}${fragment})`;
   });
 }
@@ -130,8 +132,8 @@ const markdownFiles = dir =>
   });
 
 /** Copy the shared repo `docs/` into `<packageRoot>/<outDir>/docs`. */
-export function bundleDocs(packageRoot, outDir) {
-  const sourceDocs = join(ROOT, 'docs');
+export function bundleDocs(packageRoot, outDir, root = ROOT) {
+  const sourceDocs = join(root, 'docs');
   if (!existsSync(sourceDocs)) {
     throw new Error(`Shared documentation directory is missing: ${sourceDocs}`);
   }
@@ -140,20 +142,36 @@ export function bundleDocs(packageRoot, outDir) {
   cpSync(sourceDocs, outputDocs, { recursive: true });
   for (const output of markdownFiles(outputDocs)) {
     const source = join(sourceDocs, relative(outputDocs, output));
-    writeFileSync(output, rewriteEscapingLinks(readFileSync(output, 'utf8'), source, sourceDocs));
+    writeFileSync(output, rewriteEscapingLinks(readFileSync(output, 'utf8'), source, sourceDocs, root));
   }
   return outputDocs;
 }
 
+/**
+ * What every published Node package ships from the repository: the public skills, staged into
+ * `<packageRoot>/skills`, and `docs/`, bundled into `<packageRoot>/<outDir>/docs`. Prepack runs it,
+ * so a pack after any build carries the current skills and docs, never stale or missing ones.
+ */
+export function stagePackage(packageRoot, outDir, root = ROOT) {
+  const skills = join(packageRoot, 'skills');
+  stageSkills(join(root, 'skills'), skills);
+  return { skills, docs: bundleDocs(packageRoot, outDir, root) };
+}
+
 if (isMainModule(import.meta.url)) {
   const [command, outDir] = process.argv.slice(2);
+  const usage = 'Usage: node package-build.mjs docs <outDir>\n       node package-build.mjs stage <outDir>';
   if (command === '--help' || command === '-h') {
-    console.log('Usage: node package-build.mjs docs <outDir>\nCopies the repository docs/ into <cwd>/<outDir>/docs for the octocode and octocode-mcp package builds (their build scripts run it). Exit 0 on success, 2 on invalid input.');
+    console.log(`${usage}\ndocs copies the repository docs/ into <cwd>/<outDir>/docs (the octocode and octocode-mcp builds run it). stage also stages the repository skills/ into <cwd>/skills (their prepack runs it). Exit 0 on success, 2 on invalid input.`);
     process.exit(0);
   }
-  if (command !== 'docs' || !outDir) {
-    console.error('Usage: node package-build.mjs docs <outDir>');
+  if (!['docs', 'stage'].includes(command) || !outDir) {
+    console.error(usage);
     process.exit(2);
   }
-  console.log(`✓ docs bundled → ${bundleDocs(process.cwd(), outDir)}`);
+  if (command === 'docs') console.log(`✓ docs bundled → ${bundleDocs(process.cwd(), outDir)}`);
+  else {
+    const { skills, docs } = stagePackage(process.cwd(), outDir);
+    console.log(`✓ skills staged → ${skills}\n✓ docs bundled → ${docs}`);
+  }
 }

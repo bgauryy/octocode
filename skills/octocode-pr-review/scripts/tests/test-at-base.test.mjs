@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SCRIPT = fileURLToPath(new URL('../test-at-base.mjs', import.meta.url));
@@ -78,11 +78,24 @@ test('a test that passes at base does not cover the change', t => {
 test('logs kept inside the checkout do not mark head dirty; an uncommitted edit does', t => {
   const { repo, base } = fixture(t);
   const args = ['--base', base, '--test', 'pkg/test/one.test.mjs', '--cmd', 'true',
-    '--logs', join(repo, '.octocode', 'octocode-pr-review', 'tmp', 'test-at-base')];
+    '--logs', join(repo, '.octocode', 'tmp', 'octocode-pr-review', 'test-at-base', 'named')];
   assert.equal(runScript(repo, args).json.head.dirty, false);
   assert.equal(runScript(repo, args).json.head.dirty, false);
   writeFileSync(join(repo, 'pkg', 'add.mjs'), 'export const add = () => 0;\n');
   assert.equal(runScript(repo, args).json.head.dirty, true);
+});
+
+test('without --logs, each run keeps its logs in its own folder under the workspace scratch, never the OS temp dir', t => {
+  const { repo, base } = fixture(t);
+  const args = ['--base', base, '--test', 'pkg/test/one.test.mjs', '--cmd', 'true'];
+  const runs = [runScript(repo, args).json, runScript(repo, args).json];
+  const scratch = join(repo, '.octocode', 'tmp', 'octocode-pr-review', 'test-at-base');
+  for (const run of runs) {
+    assert.equal(dirname(run.logs), scratch, run.logs);
+    assert.ok(existsSync(run.head.log) && existsSync(run.base.log));
+    assert.equal(run.head.dirty, false, 'its own logs do not mark head dirty');
+  }
+  assert.notEqual(runs[0].logs, runs[1].logs);
 });
 
 test('a failed setup is a failed run, and the worktree is still removed', t => {

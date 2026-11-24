@@ -2,15 +2,15 @@
 
 <!-- report-contract {"statuses":["Proposed","Accepted","Needs work"],"required":["Findings","Decision","Checks"],"anyOf":[]} -->
 
-Lead with the decision or finding, then the evidence, material trade-offs and remaining uncertainty. Answer in chat unless a saved result serves the task.
+Lead with the decision or finding in the [result form](SKILL.md#result), then material trade-offs and remaining uncertainty. Answer in chat unless a saved result serves the task.
 
 ## Design answer
 
-Recommend the simplest option that fits the workload. Explain the deciding trade-off, strongest alternative and what would change the recommendation. Include relevant failure modes and the test or measurement that can settle the choice.
+Recommend the simplest option that fits the workload. Include relevant failure modes and the test or measurement that can settle the choice.
 
 ## Review findings
 
-Order findings by impact. Give the location, trigger, consequence and proposed repair with its evidence. Separate confirmed defects from unresolved candidates; identify missing checks rather than assigning decorative scores.
+Order findings by impact, each with its evidence. Identify missing checks rather than assigning decorative scores.
 
 ## Decision record
 

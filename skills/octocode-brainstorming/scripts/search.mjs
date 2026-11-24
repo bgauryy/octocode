@@ -188,7 +188,8 @@ const SEARCHERS = {
 
 const score = (h) => new Set(h.seenBy.map((s) => s.provider)).size * 10 + h.seenBy.length - Math.min(...h.seenBy.map((s) => s.rank)) / 100;
 
-// Merges one provider answer into `merged` (canonical URL → hit); the first non-empty field wins.
+// Merges one provider answer into `merged` (canonical URL → hit); the first non-empty field wins. A page one
+// provider returns twice for one query (passages of it, as #fragments) counts once, at its best rank.
 function mergeRows(merged, out) {
   out.rows.forEach((row, index) => {
     if (!row.url) return;
@@ -197,7 +198,7 @@ function mergeRows(merged, out) {
     if (!hit.published && row.published) hit.published = row.published;
     if (!hit.snippet && row.snippet) hit.snippet = clip(row.snippet);
     for (const extra of ['pdfUrl', 'citedBy']) if (row[extra] != null && hit[extra] == null) hit[extra] = row[extra];
-    hit.seenBy.push({ provider: out.name, query: out.query, rank: index + 1 });
+    if (!hit.seenBy.some((s) => s.provider === out.name && s.query === out.query)) hit.seenBy.push({ provider: out.name, query: out.query, rank: index + 1 });
     merged.set(id, hit);
   });
 }

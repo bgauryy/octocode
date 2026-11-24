@@ -290,6 +290,7 @@ fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms:
         .map(|item| {
             let mut row = rows::map_pr(item.clone());
             rows::drop_implied(&mut row, state.as_deref(), keep_created, &fields);
+            rows::drop_default_base(&mut row, item, &fields);
             rows::name_repository(
                 &mut row,
                 item,
@@ -304,12 +305,13 @@ fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms:
     if carries(&fields, "body") {
         attach_text(&mut v, "pullRequests", items, "body", item_body);
     }
-    lean_rows(
-        &mut v,
-        "pullRequests",
-        &detail_unless_sorted(query, PULL_REQUEST_DETAIL),
-        &fields,
-    );
+    // A listed row states a target branch other than the default
+    // ([`rows::drop_default_base`]); a search row's is read by `fields`.
+    let mut detail = detail_unless_sorted(query, PULL_REQUEST_DETAIL);
+    if paging.listed {
+        detail.retain(|field| *field != "baseRef");
+    }
+    lean_rows(&mut v, "pullRequests", &detail, &fields);
     pick_rows(
         &mut v,
         "pullRequests",

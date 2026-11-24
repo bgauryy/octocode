@@ -46,7 +46,7 @@ Cancellation stops owned work and reconciles effects using permitted capabilitie
 
 ## Dependency graph
 
-Represent only dependencies that change readiness. Each node names an output, its owner and acceptance; each edge names the input the consumer requires. Keep the graph in the existing plan or tracker; to check it, write it as `plan.json` (tasks with `id`, `owner`, `inputs`, `output`, `scope`, `status`; the full shape is in `--help` of [dep-graph](../scripts/dep-graph.mjs)) under `<workspace>/.octocode/octocode-orchestrator/tmp/<run>/`.
+Represent only dependencies that change readiness. Each node names an output, its owner and acceptance; each edge names the input the consumer requires. Keep the graph in the existing plan or tracker; to check it, write it as `plan.json` (tasks with `id`, `owner`, `inputs`, `output`, `scope`, `status`; the full shape is in `--help` of [dep-graph](../scripts/dep-graph.mjs)) under `<workspace>/.octocode/tmp/octocode-orchestrator/<run>/`.
 
 ```mermaid
 flowchart LR

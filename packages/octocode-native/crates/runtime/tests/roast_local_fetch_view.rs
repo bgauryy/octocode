@@ -131,7 +131,7 @@ async fn a_format_served_as_is_carries_no_compact_size_note() {
     assert_eq!(md["viewFallback"]["applied"], "content", "{md}");
     assert_eq!(size_notes(&md), 0, "{md}");
     let rs = compact_row(&runtime, &code).await;
-    assert_eq!(size_notes(&rs), 1, "{rs}");
+    assert_eq!(size_notes(&rs), 0, "{rs}");
     runtime.close().await;
 }
 

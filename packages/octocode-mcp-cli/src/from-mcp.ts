@@ -1,5 +1,5 @@
 import { Client } from '@modelcontextprotocol/client';
-import { StdioClientTransport, type StdioServerParameters } from '@modelcontextprotocol/client/stdio';
+import { getDefaultEnvironment, StdioClientTransport, type StdioServerParameters } from '@modelcontextprotocol/client/stdio';
 import { cliView, contentText, type CliView } from './run.js';
 import { commandToken, defineCli, defineCommand, type CliSpec, type JsonSchema, type ToolAnnotations } from './spec.js';
 
@@ -188,8 +188,26 @@ async function cliFromProtocol(client: McpClientLike, signal: AbortSignal | unde
   });
 }
 
+/** Where a process puts temporary files: TMPDIR, TMP, TEMP, and the one Chromium reads on macOS. */
+const TEMP_LOCATION_VARS = ['TMPDIR', 'TMP', 'TEMP', 'MAC_CHROMIUM_TMPDIR'] as const;
+
+/**
+ * The environment of a server started over stdio. A stated `env` is the whole environment. Without one, the
+ * SDK's default inherited variables plus the parent's temporary-file location, so the server and the browsers
+ * or tools it starts write temporary data where the parent was told to (a test run's root, for example).
+ */
+export function childEnvironment(env?: Record<string, string>): Record<string, string> {
+  if (env) return env;
+  const inherited = getDefaultEnvironment();
+  for (const name of TEMP_LOCATION_VARS) {
+    const value = process.env[name];
+    if (value !== undefined) inherited[name] = value;
+  }
+  return inherited;
+}
+
 export function createStdioTransport(parameters: StdioServerParameters): StdioClientTransport {
-  return new StdioClientTransport(parameters);
+  return new StdioClientTransport({ ...parameters, env: childEnvironment(parameters.env) });
 }
 
 export async function connectClient(transport: Parameters<Client['connect']>[0]): Promise<Client> {

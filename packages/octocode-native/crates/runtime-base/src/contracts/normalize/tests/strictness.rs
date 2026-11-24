@@ -220,3 +220,70 @@ fn differs(value: &Value) -> Value {
         Value::Null => serde_json::json!(true),
     }
 }
+
+/// A field sent in the row that belongs inside an object field is refused
+/// with a hint naming that object in a form it accepts: with every member
+/// the object requires, whatever its form (`sort:{"by":…,"order":…}`, not
+/// `sort:{"order":…}`, which lacks the `by` a sort requires). Held for every
+/// row field whose object requires a member, on each example.
+#[test]
+fn a_misplaced_members_hint_names_the_members_its_object_requires() {
+    use crate::contracts::schema_facts::{always_required, property_names, property_schemas};
+    let mut hinted: Vec<(ToolId, String)> = Vec::new();
+    for (tool, row) in examples() {
+        let contract = crate::contracts::tool_contract(tool).expect("contract");
+        let query = &contract["querySchema"];
+        let defs = &query["$defs"];
+        let row_fields = property_names(query, defs);
+        for owner in &row_fields {
+            let schemas = property_schemas(query, defs, owner);
+            let Some((first, rest)) = schemas.split_first() else {
+                continue;
+            };
+            let required: Vec<&str> = always_required(first, defs)
+                .into_iter()
+                .filter(|name| {
+                    rest.iter()
+                        .all(|other| always_required(other, defs).contains(name))
+                })
+                .collect();
+            if required.is_empty() {
+                continue;
+            }
+            let members: Vec<&str> = schemas
+                .iter()
+                .flat_map(|schema| property_names(schema, defs))
+                .filter(|member| !row_fields.contains(member) && !required.contains(member))
+                .collect();
+            for member in members {
+                let sent = request(&with(&row, member, json!("x")));
+                let shown = refusal(tool, &sent).expect("refused");
+                let Some(form) = shown
+                    .lines()
+                    .filter(|line| line.contains(&format!("'{member}' is a field of")))
+                    .find_map(|line| line.split_once(&format!("{owner}:{{")))
+                    .and_then(|(_, form)| form.split_once('}'))
+                    .map(|(form, _)| form)
+                else {
+                    continue;
+                };
+                for name in required.iter().chain([&member]) {
+                    assert!(
+                        form.contains(&format!("\"{name}\":…")),
+                        "{tool:?} {member}: the hint lacks `{owner}.{name}`: {shown}"
+                    );
+                }
+                let at = (tool, format!("{owner}.{member}"));
+                if !hinted.contains(&at) {
+                    hinted.push(at);
+                }
+            }
+        }
+    }
+    assert!(
+        hinted
+            .iter()
+            .any(|(tool, at)| tool.as_str() == "structureSearch" && at == "sort.order"),
+        "structureSearch's misplaced `order` is hinted: {hinted:?}"
+    );
+}

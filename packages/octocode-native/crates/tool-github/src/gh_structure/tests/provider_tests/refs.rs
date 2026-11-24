@@ -308,11 +308,17 @@ async fn refs_pages_continue_at_the_read_size_and_lead_from_page_one() {
         .expect("next page");
     assert_eq!(next["page"], 2);
     assert!(next.get("pageSize").is_none());
+    assert!(first.data.get("defaultBranch").is_some(), "{}", first.data);
 
     let second = list(&server, next).await.expect("refs page 2");
     // Newest first: the 31st tag (the oldest) is page 2's one tag.
     assert_eq!(second.data["tags"], json!(["v1"]), "{}", second.data);
     assert!(second.data.get("warnings").is_none(), "{}", second.data);
+    assert!(
+        second.data.get("defaultBranch").is_none(),
+        "a later page restates no listing fact: {}",
+        second.data
+    );
     assert_eq!(second.data["pagination"]["offset"], 30, "{}", second.data);
     assert_eq!(
         second.data["pagination"]["hasMore"], false,

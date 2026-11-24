@@ -4,7 +4,6 @@
 // contract types.
 import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { buildRenderer } from './renderer.mjs';
 import { graphDeclarations } from './contract.mjs';
@@ -68,7 +67,10 @@ if (!check) {
     await update(file.path, file.contents);
     if (BINS.has(name)) await chmod(file.path, 0o755);
   };
-  const declarations = await mkdtemp(join(tmpdir(), 'octocode-graph-types-'));
+  // Scratch for the declaration emit, in the repository's scratch space; removed below.
+  const scratch = join(root, '..', '..', '.octocode', 'tmp', 'octocode-graph');
+  await mkdir(scratch, { recursive: true });
+  const declarations = await mkdtemp(join(scratch, 'types-'));
   try {
     const compiler = fileURLToPath(
       new URL(

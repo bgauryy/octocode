@@ -11,3 +11,8 @@ Bulk exports save the raw cursor replies. The viewer streams each completed grap
 For a method with several owners, use native `graphQuery find` with `Owner.method` or `Owner::method`. If the call site is known, `lspSearch definition` with `view:"files"` returns its target path and line. To identify every declaration with the same name in that file, use `astSearch symbols` with an exact symbol filter. A single `localFetch` batch can then read the call site and the chosen declaration.
 
 For an unresolved member call (`member-unknown-receiver-in-repo`: a matching name exists in the repository), locate the call with `astSearch`, then ask `lspSearch` for the definition at the method name and line; keep the reason beside the open call site.
+
+## Measured
+
+- Structure: one call answered cross-package structure over 697 files and 11 crates in 0.36 s.
+- Callers: graph `callers` recall was 0.94–1.00 on 13 of 14 language battery rows; `lspSearch callers` decides a complete list.

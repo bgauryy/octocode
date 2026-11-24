@@ -99,25 +99,40 @@ async fn a_repeated_npm_window_is_a_terminal_limit_with_the_reachable_count() {
     assert_eq!(data["terminalLimit"], true, "{data}");
 }
 
+/// The rows npm serves (its reach) and the last page 20-row pages reach.
+fn npm_reach() -> (u64, u64) {
+    let reach = crate::artifact::reachable_end(ArtifactType::Npm).expect("npm rows end");
+    (reach, reach.div_ceil(20))
+}
+
 /// A next page the registry cannot serve (its first result past the
 /// deepest offset a discovery pages) is no lead either: the last
 /// reachable page has no more (`hasMore:false`) and ends the row at the
-/// registry's result cap, naming the reach without a hidden field.
+/// registry's result cap, naming the reach without a hidden field. That
+/// page holds the rows up to the reach, a short page when the reach ends
+/// inside it.
 #[tokio::test]
 async fn a_next_page_past_the_registry_reach_states_a_terminal_limit() {
+    let (reach, last) = npm_reach();
     let server = npm_window(100_000, 100_000).await;
     let deadline = Instant::now() + std::time::Duration::from_secs(300);
-    let inside = execute(npm_page(&server, 250), call(deadline, true))
+    let inside = execute(npm_page(&server, last - 1), call(deadline, true))
         .await
         .expect("discovery succeeds");
     assert_eq!(
-        inside["next"]["nextPage"]["input"]["queries"][0]["page"], 251,
+        inside["next"]["nextPage"]["input"]["queries"][0]["page"], last,
         "{inside}"
     );
-    let data = execute(npm_page(&server, 251), call(deadline, true))
+    let data = execute(npm_page(&server, last), call(deadline, true))
         .await
         .expect("discovery succeeds");
-    assert_eq!(data["artifacts"][0]["packageName"], "p5000", "{data}");
+    let rows = data["artifacts"].as_array().expect("rows");
+    assert_eq!(rows.len() as u64, reach - (last - 1) * 20, "{data}");
+    assert_eq!(
+        rows.last().map(|row| row["packageName"].clone()),
+        Some(json!(format!("p{}", reach - 1))),
+        "{data}"
+    );
     assert!(data["next"].get("nextPage").is_none(), "{data}");
     assert_eq!(data["pagination"]["hasMore"], false, "{data}");
     // The matched total, not the reach: the warning states the reach.
@@ -130,11 +145,9 @@ async fn a_next_page_past_the_registry_reach_states_a_terminal_limit() {
     );
     assert_eq!(
         data["warnings"],
-        json_fixture(
-            r#"[
-                "npm matched 100000 results; paging reaches only the first 5020, which end on this page."
-            ]"#
-        ),
+        json!([format!(
+            "npm matched 100000 results; paging reaches only the first {reach}, which end on this page."
+        )]),
         "{data}"
     );
     let mut placed = json!({"results": [{"index": 0, "data": data}]});
@@ -197,6 +210,10 @@ async fn discovery_pagination_states_the_shared_page_facts() {
 /// response says it on the first page only).
 #[tokio::test]
 async fn a_total_past_the_reach_states_the_reachable_window() {
+    let (reach, last) = npm_reach();
+    let notice = json!([format!(
+        "npm matched 146295 results; paging reaches only the first {reach} (through page {last})."
+    )]);
     let server = npm_window(146_295, 146_295).await;
     let deadline = Instant::now() + std::time::Duration::from_secs(300);
     let data = execute(npm_page(&server, 1), call(deadline, true))
@@ -215,24 +232,13 @@ async fn a_total_past_the_reach_states_the_reachable_window() {
     assert!(data.get("warnings").is_none(), "{data}");
     assert_eq!(
         data[octocode_runtime_base::contracts::envelope::NOTICES],
-        json_fixture(
-            r#"[
-                "npm matched 146295 results; paging reaches only the first 5020 (through page 251)."
-            ]"#
-        ),
+        notice,
         "{data}"
     );
     // The response stage places the notice (here: in `warnings`).
     let mut placed = json!({"results": [{"index": 0, "data": data}]});
     octocode_runtime_base::response::notices::place(&mut placed, "results");
-    assert_eq!(
-        placed["results"][0]["data"]["warnings"],
-        json_fixture(
-            r#"[
-                "npm matched 146295 results; paging reaches only the first 5020 (through page 251)."
-            ]"#
-        )
-    );
+    assert_eq!(placed["results"][0]["data"]["warnings"], notice);
     octocode_runtime_base::test_support::validate_sealed(ToolId::ArtifactSearch.as_str(), &placed)
         .expect("contract-valid capped page");
 }
@@ -242,9 +248,10 @@ async fn a_total_past_the_reach_states_the_reachable_window() {
 /// capped page, continuing or terminal, says the fact once.
 #[tokio::test]
 async fn a_capped_page_states_the_cap_once() {
+    let (_, last) = npm_reach();
     let server = npm_window(146_295, 146_295).await;
     let deadline = Instant::now() + std::time::Duration::from_secs(300);
-    for page in [1, 251] {
+    for page in [1, last] {
         let data = execute(npm_page(&server, page), call(deadline, true))
             .await
             .expect("discovery succeeds");
@@ -505,4 +512,160 @@ async fn npm_description_matches_and_a_lone_keyword_filters_nothing() {
         3,
         "{data}"
     );
+}
+
+/// npm's own paging rule (measured 2026-11-24 on registry.npmjs.org):
+/// `from` up to 5,000 is served, a deeper `from` restarts at the first
+/// rows, and a window holds up to 250 rows. Rows `n % every == 0` hold
+/// both `json` and `parser`; `served` records the deepest genuine row end
+/// any request was given.
+struct NpmRule {
+    total: u64,
+    every: u64,
+    served: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl wiremock::Respond for NpmRule {
+    fn respond(&self, request: &wiremock::Request) -> wiremock::ResponseTemplate {
+        let param = |name: &str| {
+            request
+                .url
+                .query_pairs()
+                .find(|(key, _)| key == name)
+                .and_then(|(_, value)| value.parse::<u64>().ok())
+        };
+        let size = param("size").unwrap_or(20).min(250);
+        let from = param("from").unwrap_or(0);
+        let from = if from > 5_000 {
+            0
+        } else {
+            let end = (from + size).min(self.total);
+            self.served
+                .fetch_max(end, std::sync::atomic::Ordering::SeqCst);
+            from
+        };
+        let end = (from + size).min(self.total);
+        let objects: Vec<Value> = (from..end)
+            .map(|n| {
+                let package = if n % self.every == 0 {
+                    json!({"name": format!("p{n}"), "keywords": ["json", "parser"], "version": "1.0.0"})
+                } else {
+                    json!({"name": format!("p{n}"), "description": "just json", "version": "1.0.0"})
+                };
+                json!({"package": package})
+            })
+            .collect();
+        wiremock::ResponseTemplate::new(200)
+            .set_body_json(json!({"objects": objects, "total": self.total}))
+    }
+}
+
+/// Every page of a `keywords` walk at `limit` rows against [`NpmRule`]:
+/// the shown names in order, the first page's notices, the last page's
+/// warnings and the deepest genuine npm row end the walk was served.
+async fn npm_rule_walk(
+    keywords: &[&str],
+    limit: u64,
+    every: u64,
+) -> (Vec<String>, Value, Value, u64) {
+    let served = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let server = wiremock::MockServer::builder().start().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .respond_with(NpmRule {
+            total: 100_000,
+            every,
+            served: served.clone(),
+        })
+        .mount(&server)
+        .await;
+    let mut query = json!({"operation":"search",
+        "ecosystem": "npm",
+        "keywords": keywords,
+        "limit": limit,
+        "registryUrl": format!("http://127.0.0.1:{}", server.address().port())});
+    let (mut names, mut notices) = (Vec::new(), Value::Null);
+    loop {
+        let deadline = Instant::now() + std::time::Duration::from_secs(300);
+        let data = execute(typed(&query), call(deadline, true))
+            .await
+            .expect("discovery succeeds");
+        if notices.is_null() {
+            notices = data[octocode_runtime_base::contracts::envelope::NOTICES].clone();
+        }
+        for row in data["artifacts"].as_array().expect("rows") {
+            names.push(row["packageName"].as_str().expect("name").to_owned());
+        }
+        let Some(next) = data.pointer("/next/nextPage/input/queries/0") else {
+            let served = served.load(std::sync::atomic::Ordering::SeqCst);
+            return (names, notices, data["warnings"].clone(), served);
+        };
+        query = next.clone();
+    }
+}
+
+/// The one number a reach statement names: the digits after "first ".
+fn stated_reach(text: &Value) -> Option<u64> {
+    let text = text.to_string();
+    let digits = text.split("first ").nth(1)?;
+    digits
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>()
+        .parse()
+        .ok()
+}
+
+/// An ANDed walk reads npm's 250-row windows, so the reach page 1 states
+/// is the number of npm rows the walk reads, whatever `limit` is: the same
+/// at 3, 12 and 100 rows a page, sparse or dense matches, and the walk's
+/// own end names it too.
+#[tokio::test]
+async fn an_anded_npm_reach_is_the_rows_the_walk_reads_whatever_the_limit() {
+    let mut reaches = Vec::new();
+    for (limit, every) in [(3, 1_000), (12, 1_000), (100, 1)] {
+        let (names, notices, last_warnings, served) =
+            npm_rule_walk(&["json", "parser"], limit, every).await;
+        let stated = stated_reach(&notices).expect("page 1 states the reach");
+        assert_eq!(stated, served, "limit {limit}: {notices}");
+        assert_eq!(
+            stated_reach(&last_warnings),
+            Some(served),
+            "limit {limit}: {last_warnings}"
+        );
+        let unique = names.iter().collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(unique.len(), names.len(), "limit {limit}: no row twice");
+        assert_eq!(
+            names.len() as u64,
+            served.div_ceil(every),
+            "limit {limit}: every match read"
+        );
+        reaches.push(stated);
+    }
+    assert!(
+        reaches.windows(2).all(|pair| pair[0] == pair[1]),
+        "{reaches:?}"
+    );
+}
+
+/// A one-keyword walk tiles `limit`-row pages; pages starting past npm's
+/// deepest `from` are read from the window that starts there, so every
+/// row npm serves is reached once at any `limit`, and the stated reach is
+/// those rows.
+#[tokio::test]
+async fn a_one_keyword_npm_walk_reaches_every_row_npm_serves() {
+    for limit in [20, 100] {
+        let (names, notices, last_warnings, served) = npm_rule_walk(&["json"], limit, 1).await;
+        let expected = (0..served).map(|n| format!("p{n}")).collect::<Vec<_>>();
+        assert_eq!(names, expected, "limit {limit}");
+        assert_eq!(
+            stated_reach(&notices),
+            Some(served),
+            "limit {limit}: {notices}"
+        );
+        assert_eq!(
+            stated_reach(&last_warnings),
+            Some(served),
+            "limit {limit}: {last_warnings}"
+        );
+    }
 }

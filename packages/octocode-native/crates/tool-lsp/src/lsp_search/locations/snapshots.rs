@@ -91,12 +91,7 @@ pub(in super::super) fn salted_items_payload(
     }
     if raw_items.is_empty() {
         if kind == "diagnostics" {
-            return empty(
-                query,
-                "noDiagnostics",
-                "The language server reported no diagnostics for this document.",
-                true,
-            );
+            return empty(query, "noDiagnostics", None, true);
         }
         return no_answer(
             query,

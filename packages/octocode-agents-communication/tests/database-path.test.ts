@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { binary, jsonCall, spawnSync, tempWorkspace, tempDir } from './helpers.ts';
+import { binary, jsonCall, spawnSync, tempWorkspace } from './helpers.ts';
 import { database as runtimeDatabase } from '../dist/runtime.js';
 
 const LIMIT = runtimeDatabase.SQLITE_UNIX_DATABASE_PATH_BYTES;
@@ -47,7 +47,7 @@ test('Given a short symlink to a long directory, when the resolved path passes t
   const base = tempWorkspace(t, 'communication-path-db-', { real: true });
   const target = join(base, 'real', 'd'.repeat(100), 'd'.repeat(100), 'd'.repeat(100));
   mkdirSync(target, { recursive: true });
-  const link = join(tempDir('communication-path-link-', { real: true }), 'link');
+  const link = join(tempWorkspace(t, 'communication-path-link-', { real: true }), 'link');
   symlinkSync(target, link);
   const name = (total: number) => 'f'.repeat(total - bytes(target) - 1);
   assert.ok(bytes(join(link, name(LIMIT + 1))) < LIMIT - 100, 'the unresolved path is well below the limit');

@@ -100,23 +100,25 @@ fn a_non_object_row_is_reported_as_sent() {
     }
 }
 
-/// A page size beside a cursor has one reading: the cursor keeps the size it
-/// was issued with. The field is dropped, whatever its value, and the call
-/// says so; any other field beside a cursor has no reading and stays for
-/// validation to refuse.
+/// A page size beside a cursor stays through normalization: the cursor's
+/// saved walk, once opened, decides whether it needs a note
+/// ([`read_beside_cursor`]); any other field beside a cursor has no reading
+/// and stays for validation to refuse.
 #[test]
-fn a_page_size_beside_a_cursor_is_dropped_and_said() {
+fn a_page_size_beside_a_cursor_is_left_for_the_opened_cursor() {
     for size in [json!(60_000), json!("60000"), json!(null)] {
         let sent = json!({"cursor":"issued","responseChars":size});
         let (input, notes) = normalized_readings("localSearch", sent.clone());
-        assert_eq!(input, json_fixture(r#"{"cursor": "issued"}"#), "{sent}");
-        assert_eq!(notes.len(), 1, "{sent}: {notes:?}");
+        assert_eq!(input, sent);
+        assert!(notes.is_empty(), "{sent}: {notes:?}");
+        let mut unopened = input;
+        let note = drop_unopened_page_size(&mut unopened).expect("said");
         assert!(
-            notes[0].contains("`responseChars`")
-                && notes[0].contains("page size it was issued with"),
-            "{notes:?}"
+            note.contains("`responseChars`") && note.contains("page size it was issued with"),
+            "{note}"
         );
-        crate::contracts::validate("localSearch", input).expect("the cursor alone is valid");
+        assert_eq!(unopened, json_fixture(r#"{"cursor": "issued"}"#));
+        crate::contracts::validate("localSearch", unopened).expect("the cursor alone is valid");
     }
     for sent in [
         json_fixture(r#"{"cursor": "issued", "path": "."}"#),

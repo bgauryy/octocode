@@ -1,6 +1,7 @@
 // The evidence recipes on a real isolated headless Chrome and a loopback fixture server:
 // page-html, page-archive, page-resources, console-log and downloads. Each recipe module runs in its
 // own process (options come from the environment), as in storage-dump-real-chrome.test.mjs.
+import { DIE_WITH_PARENT } from '../fixtures/die-with-parent.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
@@ -101,9 +102,13 @@ test(
   { skip, timeout: 280000 },
   async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'octo-evidence-'));
-    const web = spawn(process.execPath, ['-e', serverSource], {
-      stdio: ['ignore', 'pipe', 'inherit'],
-    });
+    const web = spawn(
+      process.execPath,
+      [...DIE_WITH_PARENT, '-e', serverSource],
+      {
+        stdio: ['pipe', 'pipe', 'inherit'],
+      }
+    );
     const webPort = await new Promise(resolve =>
       web.stdout.once('data', chunk => resolve(Number(chunk)))
     );

@@ -1,6 +1,6 @@
 # Research basis and design choices
 
-Read when reviewing the coordinator's architecture or considering an alternative. Sources checked 2026-11-14; the rules below are Octocode design decisions, not claims that one topology always performs best. Recheck provider documentation before adopting API-specific behavior.
+Read when reviewing the coordinator's architecture or considering an alternative. The rules below are Octocode design decisions, not claims that one topology always performs best. Recheck provider documentation before adopting API-specific behavior.
 
 | Primary source | Relevant finding | Application here |
 |---|---|---|

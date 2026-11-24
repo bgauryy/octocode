@@ -1,5 +1,6 @@
 // CDP built-in flows on a real isolated headless Chrome: each flow is expanded with `flow show`,
 // spliced into a larger plan (renumbering $step) with a page check, and run with `run`.
+import { DIE_WITH_PARENT } from '../fixtures/die-with-parent.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
@@ -49,10 +50,11 @@ test(
     const web = spawn(
       process.execPath,
       [
+        ...DIE_WITH_PARENT,
         '-e',
         `require('node:http').createServer((q, r) => { r.setHeader('content-type', 'text/html'); r.end(q.url === '/nometa' ? ${JSON.stringify(bare)} : ${JSON.stringify(page)}); }).listen(0, '127.0.0.1', function () { console.log(this.address().port); });`,
       ],
-      { stdio: ['ignore', 'pipe', 'inherit'] }
+      { stdio: ['pipe', 'pipe', 'inherit'] }
     );
     const webPort = await new Promise(resolve =>
       web.stdout.once('data', chunk => resolve(Number(chunk)))

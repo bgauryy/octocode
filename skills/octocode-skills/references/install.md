@@ -39,19 +39,19 @@ Fetch with the resolved source's `ghCloneRepo` value as the argument: `npx -y oc
 
 ## Sync a local skill to vendors
 
-- `scripts/skill-sync.mjs`: for a stable local skill you control, or on request; published skills use the install command.
+- `node <this-skill>/scripts/skill-sync.mjs`: for a stable local skill you control, or on request; published skills use the install command.
 - Read the dry-run plan (no `--approve`) first:
 
 ```bash
-node scripts/skill-sync.mjs <skill-dir> --platforms top
-node scripts/skill-sync.mjs <skill-dir> --platforms top --approve
-node scripts/skill-sync.mjs <skill-dir> --platforms claude,cursor --approve --force
-node scripts/skill-sync.mjs --list-vendors --json
+node <this-skill>/scripts/skill-sync.mjs <skill-dir> --platforms top
+node <this-skill>/scripts/skill-sync.mjs <skill-dir> --platforms top --approve
+node <this-skill>/scripts/skill-sync.mjs <skill-dir> --platforms claude,cursor --approve --force
+node <this-skill>/scripts/skill-sync.mjs --list-vendors --json
 ```
 
 - `--force` replaces conflicts; use it only when replacement is authorized. The script never prompts.
 - `--project-root` adds project destinations **as well as user destinations**; inspect every row. For project-only installation use the Octocode CLI's `--project-dir`.
-- `top`: `claude`, `cursor`, `codex`; `all` adds `opencode`, `pi`, `copilot`, `gemini`.
+- `top` is `claude,cursor,codex`; `--list-vendors --json` lists every id `all` covers.
 
 ## Recovery
 
