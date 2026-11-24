@@ -101,6 +101,61 @@ async fn tree_pattern_finds_paths_by_name_at_any_depth() {
     assert_eq!(invalid.kind, ProviderErrorKind::Validation);
 }
 
+/// An `include` entry that is a bare word matches only an entry of exactly
+/// that name: the empty listing names the substring form, and its one
+/// related listing asks it (never the listing without `include`).
+#[tokio::test]
+async fn a_bare_word_include_leads_to_its_substring_glob() {
+    let server = MockServer::builder().start().await;
+    mount_ref(&server, "main").await;
+    mount_json(
+        &server,
+        format!("/api/v3/repos/a/b/git/trees/{TREE_SHA}"),
+        200,
+        json!({"sha":TREE_SHA,"truncated":false,"tree":[
+            {"path": "starlette", "type": "tree"},
+            {"path": "starlette/routing.py", "type": "blob", "size": 3},
+            {"path": "docs/index.md", "type": "blob", "size": 3}
+        ]}),
+    )
+    .await;
+    let out = run(
+        &server,
+        json!({"operation":"tree","owner":"a","repo":"b","ref":"main",
+               "include":["routing", "*.toml"]}),
+    )
+    .await
+    .expect("empty listing");
+    assert_eq!(out.status, Some("empty"), "{}", out.data);
+    assert_eq!(
+        out.data["hints"],
+        json!([
+            "include \"routing\" matches only that exact name; \"*routing*\" matches a substring."
+        ]),
+        "{}",
+        out.data
+    );
+    let related = out.data["related"].as_array().expect("related");
+    assert_eq!(related.len(), 1, "{}", out.data);
+    let queries = related[0]["input"]["queries"].as_array().expect("queries");
+    assert_eq!(queries.len(), 1, "{}", out.data);
+    assert_eq!(
+        queries[0]["include"],
+        json!(["*routing*", "*.toml"]),
+        "{}",
+        out.data
+    );
+    let listed = run(&server, queries[0].clone())
+        .await
+        .expect("substring listing");
+    assert_eq!(
+        listed.data["files"],
+        json_fixture(r#"["starlette/routing.py (3)"]"#),
+        "{}",
+        listed.data
+    );
+}
+
 /// An `include` glob that restates the listed `path` matches nothing, since
 /// globs read paths below `path`: the empty listing says so and leads first
 /// with the same globs relative to `path`.
@@ -149,12 +204,23 @@ async fn an_include_that_restates_path_leads_to_the_path_relative_globs() {
     );
     octocode_runtime_base::contracts::validate("ghStructure", broaden["input"].clone())
         .expect("canonical rebased listing");
-    let hints = out.data["hints"].to_string();
-    assert!(
-        hints.contains("relative to path") && hints.contains("starlette/"),
-        "the hint says globs are relative to path: {}",
+    // The repaired listing alone, with the one hint that names the fix:
+    // no listing without `include` and no generic broadening note.
+    assert_eq!(
+        broaden["input"]["queries"].as_array().map(Vec::len),
+        Some(1),
+        "{}",
         out.data
     );
+    assert_eq!(
+        out.data["hints"],
+        json!([
+            "include globs are relative to path `starlette`: \"starlette/routing.py\", \"starlette/sub/*.py\" restate it, so they match nothing below it."
+        ]),
+        "{}",
+        out.data
+    );
+    let hints = out.data["hints"].to_string();
     // The related request's globs, relative to path, list what they name:
     // the rows stay repo-relative.
     let mut relative = broaden["input"]["queries"][0].clone();

@@ -88,7 +88,7 @@ fn a_form_with_one_typed_reading_is_read_as_the_declared_form() {
             continue;
         }
         for form in forms(&row) {
-            let (input, notes) = normalized_input(tool.as_str(), form.sent.clone());
+            let (input, notes) = normalized_readings(tool.as_str(), form.sent.clone());
             if !has_one_reading(tool, &form) {
                 assert_eq!(
                     (&input, notes.len()),
@@ -159,7 +159,7 @@ fn every_independent_reading_of_one_row_is_made_together() {
             .filter(|form| form.kind == "literal in another case")
             .filter(|form| {
                 form.sent != request(&row)
-                    && normalized_input(tool.as_str(), form.sent.clone()).0 == request(&row)
+                    && normalized_readings(tool.as_str(), form.sent.clone()).0 == request(&row)
             })
             .collect();
         if cased.len() < 2 {
@@ -170,7 +170,7 @@ fn every_independent_reading_of_one_row_is_made_together() {
             let field = form.field.as_deref().expect("a field form");
             all[field] = form.sent["queries"][0][field].clone();
         }
-        let (input, notes) = normalized_input(tool.as_str(), request(&all));
+        let (input, notes) = normalized_readings(tool.as_str(), request(&all));
         assert_eq!(input, request(&row), "{tool:?}: {all}");
         let [note] = notes.as_slice() else {
             panic!("{tool:?}: one warning, not {notes:?}");
@@ -223,7 +223,7 @@ fn a_missing_member_is_filled_from_its_declared_default() {
                 if issues(tool, &sent).is_empty() {
                     continue;
                 }
-                let (input, notes) = normalized_input(tool.as_str(), sent.clone());
+                let (input, notes) = normalized_readings(tool.as_str(), sent.clone());
                 assert_eq!(input, whole, "{tool:?} {sent}");
                 assert!(
                     matches!(notes.as_slice(), [note] if note.contains(field) && note.contains(member.as_str())),
@@ -248,7 +248,7 @@ fn a_reading_is_said_once_for_the_rows_that_share_it() {
     let terms: Vec<String> = (0..40).map(|at| format!("term{at}")).collect();
     let row = json!({"path": ".", "matchString": ["x"], "exclude": json!(terms).to_string()});
     let sent = json!({"queries": [row, {"path": ".", "matchString": ["y"]}, row]});
-    let (input, notes) = normalized_input("localSearch", sent);
+    let (input, notes) = normalized_readings("localSearch", sent);
     assert_eq!(input["queries"][0]["exclude"], json!(terms));
     let [note] = notes.as_slice() else {
         panic!("one warning: {notes:?}");
@@ -270,7 +270,7 @@ fn fields_read_the_same_way_share_one_reading() {
         "include": json!(["*.rs"]).to_string(),
         "exclude": json!(["target"]).to_string()
     });
-    let (input, notes) = normalized_input("localSearch", json!({"queries": [row]}));
+    let (input, notes) = normalized_readings("localSearch", json!({"queries": [row]}));
     assert_eq!(input["queries"][0]["include"], json!(["*.rs"]));
     assert_eq!(input["queries"][0]["matchString"], json!(["x"]));
     let [note] = notes.as_slice() else {
@@ -291,7 +291,7 @@ fn fields_read_the_same_way_share_one_reading() {
 #[test]
 fn a_pair_reads_as_the_ordered_object() {
     let sent = json!({"queries": [{"path": "a.rs", "ranges": [[3, 9], {"startLine": 20, "endLine": 22}]}]});
-    let (input, notes) = normalized_input("localFetch", sent);
+    let (input, notes) = normalized_readings("localFetch", sent);
     assert_eq!(
         input["queries"][0]["ranges"],
         json!([{"startLine": 3, "endLine": 9}, {"startLine": 20, "endLine": 22}])
@@ -302,7 +302,7 @@ fn a_pair_reads_as_the_ordered_object() {
     assert!(note.contains("ranges[0]"), "{note}");
     let context =
         json!({"queries": [{"path": "a.rs", "matchString": ["x"], "contextLines": [2, 4]}]});
-    let (input, _) = normalized_input("localFetch", context.clone());
+    let (input, _) = normalized_readings("localFetch", context.clone());
     assert_eq!(input, context, "contextLines declares no order");
 }
 
@@ -312,7 +312,7 @@ fn a_pair_reads_as_the_ordered_object() {
 #[test]
 fn an_unpaired_bracket_in_a_regex_reads_as_text() {
     let sent = json!({"queries": [{"path": "a.py", "regexEngine": "rust", "matchString": ["^class ", "def route(", "def map[|def imap"]}]});
-    let (input, notes) = normalized_input("localFetch", sent);
+    let (input, notes) = normalized_readings("localFetch", sent);
     assert_eq!(
         input["queries"][0]["matchString"],
         json!(["^class ", "def route\\(", "def map\\[|def imap"])
@@ -326,7 +326,7 @@ fn an_unpaired_bracket_in_a_regex_reads_as_text() {
         json!({"path": "a.py", "matchString": ["def route("]}),
     ] {
         let sent = json!({"queries": [kept]});
-        let (input, notes) = normalized_input("localFetch", sent.clone());
+        let (input, notes) = normalized_readings("localFetch", sent.clone());
         assert_eq!(input, sent);
         assert!(notes.is_empty(), "{notes:?}");
     }
@@ -339,13 +339,13 @@ fn an_unpaired_bracket_in_a_regex_reads_as_text() {
 #[test]
 fn a_cursor_in_the_one_row_reads_as_the_cursor_call() {
     let (input, notes) =
-        normalized_input("securityCheck", json!({"queries": [{"cursor": "issued"}]}));
+        normalized_readings("securityCheck", json!({"queries": [{"cursor": "issued"}]}));
     assert_eq!(input, json!({"cursor": "issued"}));
     let [note] = notes.as_slice() else {
         panic!("one warning: {notes:?}");
     };
     assert!(note.starts_with("read queries[0].cursor"), "{note}");
-    let (input, _) = normalized_input(
+    let (input, _) = normalized_readings(
         "securityCheck",
         json!({"queries": [{"operation": "package", "view": "details", "cursor": "issued"}]}),
     );
@@ -354,6 +354,56 @@ fn a_cursor_in_the_one_row_reads_as_the_cursor_call() {
         json!({"operation": "package", "view": "details", "cursor": "issued"})
     );
     let kept = json!({"queries": [{"cursor": "issued"}, {"cursor": "other"}]});
-    let (input, _) = normalized_input("localSearch", kept.clone());
+    let (input, _) = normalized_readings("localSearch", kept.clone());
     assert_eq!(input, kept);
+}
+
+/// What a call states: a reading that changes no value or meaning (the
+/// envelope, JSON text, a one-item list, an integral float, an ordered pair,
+/// a cursor in its row) is made silently; a regex bracket read as text
+/// changes the pattern, so the call says so.
+#[test]
+fn only_a_reading_that_changes_meaning_is_stated() {
+    for (tool, sent) in [
+        (
+            "localSearch",
+            json!({"path": ".", "matchString": "x", "exclude": "[\"target\"]"}),
+        ),
+        ("localFetch", json!({"path": "a.rs", "ranges": [[3, 9]]})),
+        (
+            "localFetch",
+            json!({"queries": [{"path": "a.rs", "limit": 3.0}]}),
+        ),
+        ("securityCheck", json!({"queries": [{"cursor": "issued"}]})),
+    ] {
+        let (read, said) = normalized_input(tool, sent.clone());
+        assert_ne!(read, sent, "{tool}: read");
+        assert!(said.is_empty(), "{tool}: {said:?}");
+    }
+    let (_, said) = normalized_input(
+        "localFetch",
+        json!({"path": "a.py", "regexEngine": "rust", "matchString": ["def route("]}),
+    );
+    let [note] = said.as_slice() else {
+        panic!("one warning: {said:?}");
+    };
+    assert!(note.contains("matchString[0] as `def route\\(`"), "{note}");
+}
+
+/// The brief fields a tool other than clasify does not declare are dropped,
+/// beside the request or in a row, and the call says so; clasify keeps them.
+#[test]
+fn a_brief_field_is_dropped_and_said_outside_clasify() {
+    let sent = json!({"mainGoal": "g", "queries": [{"path": ".", "matchString": ["x"], "mainGoal": "g", "reasoning": "r"}]});
+    let (read, said) = normalized_input("localSearch", sent);
+    assert!(read.get("mainGoal").is_none(), "{read}");
+    assert!(
+        read["queries"][0].get("mainGoal").is_none()
+            && read["queries"][0].get("reasoning").is_none(),
+        "{read}"
+    );
+    let [note] = said.as_slice() else {
+        panic!("one warning: {said:?}");
+    };
+    assert!(note.contains("mainGoal, reasoning dropped"), "{note}");
 }

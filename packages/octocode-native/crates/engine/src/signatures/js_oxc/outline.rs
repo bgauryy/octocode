@@ -241,6 +241,8 @@ fn flatten_symbols(
             return_elements: Vec::new(),
             asynchronous: false,
             function_typed: false,
+            params: symbol.params.clone(),
+            returns: symbol.returns.clone(),
         });
         if let Some(parent_id) = parent {
             edges.push(GraphFactEdge {

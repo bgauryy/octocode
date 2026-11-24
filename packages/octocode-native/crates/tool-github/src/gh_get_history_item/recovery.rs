@@ -1,7 +1,7 @@
 //! A failed history-item read as the tool states it: the shared wording,
 //! the recovery read (the right operation, the listing that names the
-//! right item, the refs listing) and, for a ref that is not there, the same
-//! call at the default branch.
+//! right item, the refs listing) and, for a ref that is not there, the
+//! default branch named (a comparison also retries there).
 use octocode_contract_types::{GhGetHistoryItemQuery, GhSearchHistoryQuery};
 use octocode_github::{
     GitHubProvider, ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext,
@@ -19,7 +19,7 @@ use serde_json::{Map, Value, json};
 /// The failure of a history-item read of `query` (its wire row): the
 /// shared history wording ([`octocode_tools_shared::gh_shared::history::history_failure`]),
 /// [`recovery`]'s lead and, for a missing ref, [`missing_ref`]'s message
-/// and `atDefaultBranch` retry. A bare 404 of a repository that does not
+/// (and a comparison's `atDefaultBranch` retry). A bare 404 of a repository that does not
 /// resolve is the shared repository failure, whose leads search for it
 /// ([`failure_scope`]), or names the owner when no such login exists
 /// ([`name_missing_owner`]). A repository renamed since the query was written is
@@ -67,8 +67,13 @@ pub(crate) async fn recover(
         error.message = match retry {
             Some(retry) => {
                 let named = retry.message(&message);
-                let (name, lead) = retry.lead();
-                next.get_or_insert_with(|| json!({}))[name] = lead;
+                // A commit read's fix is a ref the refs listing names: the
+                // default branch's head answers another question. A
+                // comparison keeps its retry, which still compares two refs.
+                if query.get("operation").and_then(Value::as_str) == Some("compare") {
+                    let (name, lead) = retry.lead();
+                    next.get_or_insert_with(|| json!({}))[name] = lead;
+                }
                 named
             }
             None => message,

@@ -17,10 +17,13 @@ fn bare_issue_number_keywords_offer_the_issue_links_read() {
     assert!(issue_links_read(&words).is_none());
 }
 
+/// A capped date-ordered search continues past the window from its last
+/// reachable page only: before it, the page walk reaches the same rows.
 #[test]
 fn a_capped_search_omits_unchanged_narrowing_and_keeps_its_page_walk() {
     let boundary = "2026-04-01T08:00:00Z";
-    let read = |row: Value| {
+    let last = octocode_github::SEARCH_RESULT_CAP;
+    let read = |row: Value, at: usize| {
         let query =
             HistorySearch::new(serde_json::from_value(row).expect("query")).expect("search");
         let page = octocode_github::HistoryPage {
@@ -34,18 +37,29 @@ fn a_capped_search_omits_unchanged_narrowing_and_keeps_its_page_walk() {
             listed: false,
             has_more: false,
         };
-        let paging = super::shape::Paging::new(&page, 1, 1);
+        let paging = super::shape::Paging::new(&page, at, 1);
         super::shape::shape(&query, page, &paging, String::new())
     };
     for operation in ["pullRequest", "issue"] {
-        let first = read(json!({
+        let search = json!({
             "operation": operation, "owner": "o", "repo": "r", "limit": 1,
             "filters": {"state": "closed", "createdAt": {"to": "2026-04-02T00:00:00Z"}},
-        }));
-        let narrowed = first["calls"]["narrowScope"]["input"]["queries"][0].clone();
-        assert_eq!(narrowed["filters"]["createdAt"]["to"], boundary, "{first}");
+        });
+        let route = json!(super::leads::PastWindow::FromLastRow.warning());
+        let states_route = |value: &Value| {
+            value["warnings"]
+                .as_array()
+                .is_some_and(|warnings| warnings.contains(&route))
+        };
+        let first = read(search.clone(), 1);
+        assert!(first["calls"].get("narrowScope").is_none(), "{first}");
+        assert!(!states_route(&first), "{first}");
+        let end = read(search, last);
+        let narrowed = end["calls"]["narrowScope"]["input"]["queries"][0].clone();
+        assert_eq!(narrowed["filters"]["createdAt"]["to"], boundary, "{end}");
+        assert!(states_route(&end), "{end}");
 
-        let second = read(narrowed);
+        let second = read(narrowed, 1);
         assert!(second["calls"].get("narrowScope").is_none(), "{second}");
         assert_eq!(
             second["calls"]["nextPage"]["tool"], "ghSearchHistory",
@@ -59,14 +73,22 @@ fn a_capped_search_omits_unchanged_narrowing_and_keeps_its_page_walk() {
     }
 }
 
-/// commits, pull requests and issues all take `since`/`until`).
+/// An empty search broadens by its filters alone, one filter dropped per
+/// variant: commits, pull requests and issues alike. `path` and `keywords`
+/// stay in every variant: a listing without its path answers no question
+/// about the path, and the terms' own hint covers the keywords.
 #[test]
-fn empty_searches_offer_a_broader_search() {
-    let broadened = |row: Value| {
+fn empty_searches_broaden_by_dropping_one_filter_at_a_time() {
+    let variants = |row: Value| {
         let query: GhSearchHistoryQuery = serde_json::from_value(row).expect("query");
-        super::leads::broaden_search(&query).map(|lead| lead["input"]["queries"][0].clone())
+        super::leads::broaden_search(&query).map(|lead| {
+            lead["input"]["queries"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+        })
     };
-    let scoped: GhSearchHistoryQuery = serde_json::from_value(json_fixture(
+    let scoped = variants(json_fixture(
         r#"{
             "operation": "pullRequest",
             "owner": "o",
@@ -76,47 +98,30 @@ fn empty_searches_offer_a_broader_search() {
             "filters": {"author": "x"}
         }"#,
     ))
-    .expect("query");
-    let scoped = super::leads::broaden_search(&scoped).expect("lead")["input"]["queries"].clone();
-    // A variant keeps at least one keyword: dropping the only one would
-    // list the scope, unrelated to the topic searched.
-    assert_eq!(scoped.as_array().map(Vec::len), Some(1), "{scoped}");
-    assert!(scoped[0].get("filters").is_none(), "{scoped}");
-    assert!(scoped[0].get("page").is_none(), "{scoped}");
+    .expect("lead");
+    assert_eq!(scoped.len(), 1, "{scoped:?}");
+    assert!(scoped[0].get("filters").is_none(), "{scoped:?}");
+    assert!(scoped[0].get("page").is_none(), "{scoped:?}");
+    assert_eq!(scoped[0]["keywords"], json_fixture(r#"["fix"]"#));
+    // Each filter gets its own variant, which keeps every other one.
+    let two = variants(json!({"operation":"issue","owner":"o","repo":"r",
+        "keywords":["a","b"],
+        "filters":{"labels":["bug"],"createdAt":{"from":"2030-01-01T00:00:00Z"}}}))
+    .expect("lead");
+    let mut kept = two
+        .iter()
+        .map(|row| {
+            let filters = row["filters"].as_object().cloned().unwrap_or_default();
+            assert_eq!(row["keywords"], json!(["a", "b"]), "{row}");
+            filters.keys().cloned().collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    kept.sort();
     assert_eq!(
-        scoped[0]["keywords"],
-        json_fixture(r#"["fix"]"#),
-        "{scoped}"
+        kept,
+        vec![vec!["createdAt".to_owned()], vec!["labels".to_owned()]]
     );
-    // Every narrowing filter gets its own variant: a scoped keyword search
-    // that is empty because of its date window is recoverable too.
-    let both: GhSearchHistoryQuery = serde_json::from_value(json_fixture(
-        r#"{
-            "operation": "pullRequest",
-            "owner": "o",
-            "repo": "r",
-            "keywords": ["fix"],
-            "filters": {"createdAt": {"from": "2030-01-01T00:00:00Z"}}
-        }"#,
-    ))
-    .expect("query");
-    let both = super::leads::broaden_search(&both).expect("lead")["input"]["queries"].clone();
-    assert_eq!(both.as_array().map(Vec::len), Some(1), "{both}");
-    assert!(
-        both[0].get("filters").is_none() && both[0]["keywords"] == json_fixture(r#"["fix"]"#),
-        "{both}"
-    );
-    let qualifiers = broadened(json_fixture(
-        r#"{
-            "operation": "issue",
-            "owner": "o",
-            "repo": "r",
-            "filters": {"labels": ["bug"]}
-        }"#,
-    ))
-    .expect("qualifiers dropped");
-    assert!(qualifiers.get("filters").is_none(), "{qualifiers}");
-    let window = broadened(json_fixture(
+    let window = variants(json_fixture(
         r#"{
             "operation": "commit",
             "owner": "o",
@@ -126,76 +131,76 @@ fn empty_searches_offer_a_broader_search() {
         }"#,
     ))
     .expect("window dropped");
-    assert!(window.get("filters").is_none(), "{window}");
-    assert_eq!(window["path"], "src", "{window}");
-    for operation in ["pullRequest", "issue"] {
-        let window = broadened(json!({"operation":operation,"owner":"o","repo":"r",
-            "filters":{"createdAt":{"from":"2026-10-01T00:00:00Z","to":"2026-10-03T23:59:59Z"}}}))
-        .expect("window dropped");
-        assert!(window.get("filters").is_none(), "{operation}: {window}");
-        assert!(window.get("filters").is_none(), "{operation}: {window}");
+    assert_eq!(window.len(), 1, "{window:?}");
+    assert!(window[0].get("filters").is_none(), "{window:?}");
+    assert_eq!(window[0]["path"], "src", "{window:?}");
+    // Nothing to drop without a filter: a path, a lone keyword or several
+    // keywords are never dropped.
+    for unfiltered in [
+        json_fixture(r#"{"operation": "commit", "owner": "o", "repo": "r"}"#),
+        json_fixture(r#"{"operation": "commit", "owner": "o", "repo": "r", "path": "src/a.rs"}"#),
+        json_fixture(
+            r#"{"operation": "pullRequest", "owner": "o", "repo": "r", "keywords": ["a"]}"#,
+        ),
+        json_fixture(
+            r#"{"operation": "pullRequest", "owner": "o", "repo": "r", "keywords": ["a", "b", "c"]}"#,
+        ),
+    ] {
+        assert_eq!(variants(unfiltered.clone()), None, "{unfiltered}");
     }
-    assert!(
-        broadened(json_fixture(
-            r#"{"operation": "commit", "owner": "o", "repo": "r"}"#
-        ))
-        .is_none()
-    );
 }
 
-/// An empty search with several keywords offers one drop-one variant
-/// per keyword (at most 5, the last keyword dropped first) instead of
-/// dropping them all; a lone keyword is never dropped.
+/// An empty search's hints change the next call and never contradict each
+/// other: dropped filters beside their related call, the ANDed terms only
+/// when no keyword spells a qualifier (whose own hint names the filter), and
+/// nothing about terms when the search has none.
 #[test]
-fn empty_multi_keyword_search_broadens_one_keyword_at_a_time() {
-    let variants = |keywords: Value| {
-        let query: GhSearchHistoryQuery = serde_json::from_value(json!({"operation":"pullRequest",
-            "owner":"o","repo":"r","keywords":keywords}))
-        .expect("query");
-        super::leads::broaden_search(&query).expect("lead")["input"]["queries"].clone()
-    };
-    let three = variants(json_fixture(r#"["a", "b", "c"]"#));
-    let kept = three
-        .as_array()
-        .expect("queries")
-        .iter()
-        .map(|row| row["keywords"].clone())
-        .collect::<Vec<_>>();
-    assert_eq!(
-        kept,
-        vec![
-            json_fixture(r#"["a", "b"]"#),
-            json_fixture(r#"["a", "c"]"#),
-            json_fixture(r#"["b", "c"]"#)
-        ]
-    );
-    // A variant is a fresh search from its first page.
-    assert!(
-        three
+fn an_empty_search_hints_only_what_its_premise_holds() {
+    let hints = |row: Value| {
+        let query =
+            HistorySearch::new(serde_json::from_value(row).expect("query")).expect("search");
+        let page = octocode_github::HistoryPage {
+            total_count: 0,
+            incomplete_results: false,
+            items: Vec::new(),
+            warnings: Vec::new(),
+            listed: false,
+            has_more: false,
+        };
+        let paging = super::shape::Paging::new(&page, 1, 10);
+        let value = super::shape::shape(&query, page, &paging, String::new());
+        assert_eq!(value["status"], "empty", "{value}");
+        let hints = value["hints"]
             .as_array()
-            .expect("queries")
-            .iter()
-            .all(|row| row.get("pageSize").is_none())
-    );
-    // The only keyword is never dropped: nothing broader is offered.
-    let one: GhSearchHistoryQuery = serde_json::from_value(json_fixture(
-        r#"{
-            "operation": "pullRequest",
-            "owner": "o",
-            "repo": "r",
-            "keywords": ["a"]
-        }"#,
-    ))
-    .expect("query");
-    assert!(super::leads::broaden_search(&one).is_none());
-    let seven = variants(json_fixture(r#"["a", "b", "c", "d", "e", "f", "g"]"#));
-    assert_eq!(seven.as_array().map(Vec::len), Some(5), "{seven}");
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        // One short sentence each, never explaining what related[] does.
+        for hint in &hints {
+            assert!(!hint.contains("related"), "{hint}");
+            assert!(hint.chars().count() <= 150, "{hint}");
+        }
+        hints
+    };
     assert_eq!(
-        seven[0]["keywords"],
-        json_fixture(r#"["a", "b", "c", "d", "e", "f"]"#)
+        hints(json!({"operation":"pullRequest","owner":"o","repo":"r","keywords":["zzqx"]})),
+        [super::leads::TERMS_ANDED]
+    );
+    let qualifier =
+        hints(json!({"operation":"pullRequest","owner":"o","repo":"r","keywords":["head:main"]}));
+    assert_eq!(qualifier.len(), 1, "{qualifier:?}");
+    assert!(qualifier[0].contains("filters.headRef"), "{qualifier:?}");
+    assert_eq!(
+        hints(json!({"operation":"issue","owner":"o","repo":"r","filters":{"labels":["bug"]}})),
+        [super::leads::DROP_ONE_FILTER]
     );
     assert_eq!(
-        seven[4]["keywords"],
-        json_fixture(r#"["a", "b", "d", "e", "f", "g"]"#)
+        hints(
+            json!({"operation":"issue","owner":"o","repo":"r","keywords":["zzqx"],
+            "filters":{"labels":["bug"]}})
+        ),
+        [super::leads::DROP_ONE_FILTER, super::leads::TERMS_ANDED]
     );
 }

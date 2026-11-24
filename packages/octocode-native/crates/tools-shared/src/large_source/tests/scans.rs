@@ -157,7 +157,7 @@ fn matches_across_scan_edges_are_found_exactly_once() {
 fn random_sources_match_the_whole_file_matcher() {
     let cases = [
         (vec!["a\nb"], serde_json::json!({})),
-        (vec!["ab", "ba"], json_fixture(r#"{"wholeWord": true}"#)),
+        (vec!["ab", "ba"], serde_json::json!({})),
         (
             vec!["(?s)a.{0,6}b"],
             json_fixture(r#"{"regexEngine": "rust"}"#),

@@ -121,17 +121,9 @@ async fn empty_code_search_hints_are_cause_specific() {
     )
     .await
     .expect("search");
-    // A miss leads to the root listing, never to an unscoped whole-repo clone.
-    assert_eq!(
-        octocode_runtime_base::test_support::checks::related_call(
-            &existing.data,
-            "ghStructure",
-            |input| { input["queries"][0]["operation"] == "tree" }
-        )["input"]["queries"][0],
-        json_fixture(r#"{"operation": "tree", "owner": "a", "repo": "b"}"#),
-        "{}",
-        existing.data
-    );
+    // A repo-wide miss lists nothing (the description routes unindexed
+    // files to ghStructure), and never leads to an unscoped whole-repo clone.
+    assert!(existing.data.get("related").is_none(), "{}", existing.data);
     assert!(
         octocode_runtime_base::test_support::checks::find_related_call(
             &existing.data,

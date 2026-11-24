@@ -10,15 +10,18 @@ import {
   removeLink,
   reviewLink,
 } from '../links-proposed.ts';
+import { graphCommand } from '../invocation.ts';
 
-const USAGE = `usage: octocode-graph link <result-dir> add '<json>' | add -      (the link as JSON, - reads stdin)
-       octocode-graph link <result-dir> remove <id>
-       octocode-graph link <result-dir> review <id> --by <reviewer>
-       octocode-graph link <result-dir> list
+const cli = graphCommand();
+
+const USAGE = `usage: ${cli} link <result-dir> add '<json>' | add -      (the link as JSON, - reads stdin)
+       ${cli} link <result-dir> remove <id>
+       ${cli} link <result-dir> review <id> --by <reviewer>
+       ${cli} link <result-dir> list
   A link: {"relation":"documents|configures|relates","source":"<file|file#symbol>","target":"<file|file#symbol>",
   "claim":"<what it says>","anchors":[{"path":"<file>","line":N,"endLine":N,"quote":"<text at those lines>"}],
   "proposedBy":"<agent>"}. Each endpoint's file needs an anchor; each quote must be at its lines and occur once in its
-  file. Find candidates with: octocode-graph query <result-dir> "links --unresolved". Prints one JSON line; exit 1
+  file. Find candidates with: ${cli} query <result-dir> "links --unresolved". Prints one JSON line; exit 1
   when the link is refused (the reason: citation-file, citation-line, quote-mismatch, quote-not-unique,
   unknown-endpoint, missing-anchor, invalid), 2 on a usage error.`;
 

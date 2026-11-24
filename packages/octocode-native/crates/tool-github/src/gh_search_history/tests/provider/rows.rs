@@ -253,9 +253,9 @@ async fn happy_path_rows_carry_the_next_hop_anchors() {
         }"#,
     ))
     .await;
-    assert_eq!(listed["commitSelection"], "revisionHistory");
-    assert_eq!(searched["commitSelection"], "messageSearch");
     for data in [&listed, &searched] {
+        // The request fixes how commits were picked: the reply does not restate it.
+        assert!(data.get("commitSelection").is_none(), "{data}");
         // One repository's page states it once; each commit with only a SHA,
         // date, author and headline is one line, as a comparison's are.
         assert_repository(data);

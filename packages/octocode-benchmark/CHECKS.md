@@ -205,8 +205,8 @@ Behavior, judged by reading, on both surfaces. The per-tool sections below list 
   out and `next.quiet` lists them. Answers are judgments, so judge the framing, not the number: is each question one standalone
   fact, does the judge see the hit line marked and its enclosing context, and does `next.read` lead to the
   deciding lines? A surprising answer is first a question about our wording or context.
-- [ ] At two refs and two history depths, compare `git rev-parse --git-common-dir`, verify ancestry against the origin and repeat the first request after the second. Check the remote tag and that a local tag survives.
-- [ ] ghCloneRepo: other `paths` or `historyDepth` give another checkout; a refresh over a local edit
+- [ ] At two refs, compare `git rev-parse --git-common-dir`, verify ancestry against the origin and repeat the first request after the second. Check the remote tag and that a local tag survives.
+- [ ] ghCloneRepo: other `paths` give another checkout; a refresh over a local edit
   refuses (`checkoutDirty`) and keeps the edit.
 - [ ] Every workflow below, in its number of calls.
 - [ ] The same calls on the published release (`npx -y octocode@latest`): any answer that got worse names

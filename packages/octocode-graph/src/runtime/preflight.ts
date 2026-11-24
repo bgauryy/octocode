@@ -2,6 +2,7 @@
 import { execFileSync } from 'node:child_process';
 import { cliOk, errorMessage, octocode } from './lib.ts';
 import type { ToolReply } from './tools.ts';
+import { graphCli } from './invocation.ts';
 
 const has = (cmd: string, args: string[]) => {
   try {
@@ -84,7 +85,7 @@ export async function preflight() {
 
 export async function main() {
   if (process.argv.includes('--help')) {
-    process.stdout.write('usage: octocode-graph preflight [--json]\n');
+    process.stdout.write(`usage: ${graphCli('preflight [--json]')}\n`);
     process.exit(0);
   }
   const r = await preflight();

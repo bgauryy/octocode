@@ -120,27 +120,164 @@ fn without_index<T: Clone>(items: &[T], dropped: usize) -> Vec<T> {
         .collect()
 }
 
-/// Add broader fresh requests and explain that their scope differs.
-pub fn set_broadened(value: &mut Value, _row: &Value, lead: Value) {
+/// Attach an empty search's broader requests (`lead`) to `value`, the row of
+/// `row`. When each request drops exactly one narrowing of `row` (a field, a
+/// filter, a keyword) and changes nothing else, the hint names what they
+/// drop: their rows answer a wider question than asked. A request that
+/// rewrites the search (globs rebased under `path`) or drops nothing is a
+/// repair its tool's own hint explains, and a hint already on the row is the
+/// more specific one: no generic hint beside either.
+pub fn set_broadened(value: &mut Value, row: &Value, lead: Value) {
+    let dropped = dropped_narrowings(row, &lead);
     octocode_runtime_base::response::result::attach_related(value, lead);
-    octocode_runtime_base::response::result::add_hints(
-        value,
-        [
-            "No match with these filters: each related[] request drops one; run it only if the wider scope still answers the question.",
-        ],
-    );
+    if let Some(dropped) = dropped.filter(|_| !has_hints(value)) {
+        octocode_runtime_base::response::result::add_hints(value, [broadened_hint(&dropped)]);
+    }
 }
 
-/// An empty search with nothing broader to offer (a lone keyword, no
-/// filter to drop): say how GitHub matched it, so the next query changes the
-/// words.
+/// An empty search with nothing broader to offer whose lone keyword is a
+/// phrase (several words matched exactly): the next query changes its
+/// words. A hint already on the row is the more specific one.
 pub fn set_no_broader(value: &mut Value) {
-    octocode_runtime_base::response::result::add_hints(
-        value,
-        [
-            "No match: search terms are ANDed, so every word must match; try one distinctive word, or a different spelling.",
-        ],
-    );
+    if !has_hints(value) {
+        octocode_runtime_base::response::result::add_hints(
+            value,
+            ["No match for the phrase: try fewer or other words."],
+        );
+    }
+}
+
+/// Whether the row already carries a hint.
+fn has_hints(value: &Value) -> bool {
+    value
+        .get("hints")
+        .and_then(Value::as_array)
+        .is_some_and(|hints| !hints.is_empty())
+}
+
+/// The hint beside broader requests that each drop one of `dropped`.
+fn broadened_hint(dropped: &[String]) -> String {
+    match dropped {
+        [one] => format!(
+            "No match: the related[] query drops {one}; run it only if that wider scope still answers."
+        ),
+        many => format!(
+            "No match: each related[] query drops one of {}; run one only if that wider scope still answers.",
+            many.join(", ")
+        ),
+    }
+}
+
+/// What each request of `lead` drops of `row`, one narrowing per request,
+/// in request order. `row` is compared as a related request copies it (no
+/// private progress, no defaults), and a field every one of several requests
+/// leaves out (one the tool never copies, like an index-only search's `ref`)
+/// tells none apart, so it is not counted. `None` when a request drops none
+/// or several, or adds or rewrites a field.
+fn dropped_narrowings(row: &Value, lead: &Value) -> Option<Vec<String>> {
+    use octocode_runtime_base::response::result::{canonical_row, fresh_query_row};
+    let tool = lead
+        .get("tool")
+        .and_then(Value::as_str)
+        .and_then(ToolId::from_name)?;
+    let mut asked = fresh_query_row(tool, row);
+    canonical_row(tool, &mut asked);
+    let per_request = lead
+        .pointer("/input/queries")?
+        .as_array()?
+        .iter()
+        .map(|request| narrowings_left_out(&asked, request))
+        .collect::<Option<Vec<_>>>()?;
+    let left_out_by_all: Vec<String> = match per_request.as_slice() {
+        [first, _, ..] => first
+            .iter()
+            .filter(|item| per_request.iter().all(|items| items.contains(item)))
+            .cloned()
+            .collect(),
+        _ => Vec::new(),
+    };
+    per_request
+        .into_iter()
+        .map(|items| {
+            let mut items = items
+                .into_iter()
+                .filter(|item| !left_out_by_all.contains(item));
+            match (items.next(), items.next()) {
+                (Some(one), None) => Some(one),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+/// The narrowings of `asked` that `request` leaves out: a field (`path`),
+/// an entry of an object field (`filters.language`), or a keyword
+/// (`` `cache` ``; keywords are ANDed, so each one narrows). `None` when
+/// `request` adds or changes anything.
+fn narrowings_left_out(asked: &Value, request: &Value) -> Option<Vec<String>> {
+    let (asked, request) = (asked.as_object()?, request.as_object()?);
+    if request.keys().any(|key| !asked.contains_key(key)) {
+        return None;
+    }
+    let mut dropped = Vec::new();
+    for (key, value) in asked {
+        match (value, request.get(key)) {
+            (_, None) => dropped.extend(whole_field(key, value)),
+            (value, Some(kept)) if value == kept => {}
+            (Value::Object(entries), Some(Value::Object(kept))) => {
+                if kept
+                    .iter()
+                    .any(|(entry, held)| entries.get(entry) != Some(held))
+                {
+                    return None;
+                }
+                dropped.extend(
+                    entries
+                        .keys()
+                        .filter(|entry| !kept.contains_key(*entry))
+                        .map(|entry| format!("{key}.{entry}")),
+                );
+            }
+            (Value::Array(words), Some(Value::Array(kept))) if key == "keywords" => {
+                dropped.extend(keywords_left_out(words, kept)?);
+            }
+            _ => return None,
+        }
+    }
+    Some(dropped)
+}
+
+/// A field `request` leaves out whole, named by what it held: its one entry
+/// (`filters.language`), its keywords, else the field.
+fn whole_field(key: &str, value: &Value) -> Vec<String> {
+    match value {
+        Value::Object(entries) if entries.len() == 1 => entries
+            .keys()
+            .map(|entry| format!("{key}.{entry}"))
+            .collect(),
+        Value::Array(words) if key == "keywords" => {
+            keywords_left_out(words, &[]).unwrap_or_default()
+        }
+        _ => vec![key.to_owned()],
+    }
+}
+
+/// The keywords of `words` that `kept` (the same keywords in order, some
+/// left out) does not hold; `None` when `kept` is not such a selection.
+fn keywords_left_out(words: &[Value], kept: &[Value]) -> Option<Vec<String>> {
+    let mut kept = kept.iter().peekable();
+    let mut dropped = Vec::new();
+    for word in words {
+        if kept.peek() == Some(&word) {
+            kept.next();
+        } else {
+            dropped.push(match word {
+                Value::String(word) => format!("`{word}`"),
+                other => format!("`{other}`"),
+            });
+        }
+    }
+    kept.next().is_none().then_some(dropped)
 }
 
 #[cfg(test)]

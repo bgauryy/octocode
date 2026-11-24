@@ -24,6 +24,7 @@ fn every_emitted_kind_is_classified_once() {
     assert_eq!(load(RUST_INCLUDE), Load::CompileTime);
     assert_eq!(load(RECOVERED_IMPORT), Load::Unknown);
     assert_eq!(load(TYPE_USE_IMPORT), Load::Unknown);
+    assert_eq!(load(ELIDED_IMPORT), Load::TypeOnly);
     assert!(mounts(RUST_MODULE) && mounts(RUST_INCLUDE) && !mounts("rust-use"));
     assert_eq!(load("unparsed-target"), Load::CompileTime);
 }

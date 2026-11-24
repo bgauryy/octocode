@@ -262,6 +262,20 @@ impl Query<'_> {
         }
         self.derivation(&mut row, rule, &version);
         argument_fields(self.g, witness.argument, &mut row, shown, self.cancel)?;
+        if witness.import_kind != NONE {
+            row["importKind"] = json!(text(witness.import_kind)?);
+        }
+        // An import states its load, from the kind it records: its own, or
+        // for a package the import's kind beside the declaration status.
+        if edge.kind == EdgeKind::Imports {
+            let kind = row
+                .get("importKind")
+                .and_then(Value::as_str)
+                .unwrap_or(&detail);
+            if let Some(load) = crate::ast_graph::edges::load(kind).name() {
+                row["load"] = json!(load);
+            }
+        }
         if edge.src == file_node {
             without_own_file(&mut row);
         }

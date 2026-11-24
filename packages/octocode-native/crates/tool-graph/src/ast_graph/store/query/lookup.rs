@@ -217,6 +217,12 @@ impl Graph {
                     if let Ok(assessment) = serde_json::from_str(self.t.str(decl.assessment)) {
                         out.insert("parseAssessment".into(), assessment);
                     }
+                    // The signature as written: what a search by type reads.
+                    for (field, text) in [("params", decl.params), ("returns", decl.returns)] {
+                        if text != NONE {
+                            out.insert(field.into(), json!(self.t.str(text)));
+                        }
+                    }
                 }
                 out.insert("symbolName".into(), json!(self.t.str(node.name)));
                 // A symbol's kind is its declaration's (function, class, …).

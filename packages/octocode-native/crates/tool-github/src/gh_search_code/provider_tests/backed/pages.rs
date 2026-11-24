@@ -7,7 +7,8 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer};
 
 /// A non-empty page GitHub marks incomplete says so in its data,
-/// without extras, separately from whether another page exists.
+/// without extras, separately from whether another page exists: the reason
+/// code and the `retry`, with no warning restating them.
 #[tokio::test]
 async fn a_non_empty_incomplete_page_reports_partial_coverage() {
     let server = MockServer::builder().start().await;
@@ -57,6 +58,7 @@ async fn a_non_empty_incomplete_page_reports_partial_coverage() {
         "{data}"
     );
     assert!(data.pointer("/pagination/hasMore").is_none(), "{data}");
+    assert!(data.get("warnings").is_none(), "{data}");
     assert_eq!(
         octocode_runtime_base::test_support::opened(
             octocode_runtime_base::id::ToolId::GhSearchCode,

@@ -41,7 +41,6 @@ export type TestCodeContinuationInput = ("include" | "exclude" | "only")
 export type StructureSearchView = ("paths" | "details")
 export type AstParser = ("typescript" | "tsx" | "javascript" | "python" | "go" | "rust" | "java" | "c" | "asm" | "scala" | "cpp" | "cuda" | "csharp")
 export type ARSyntax = string
-export type TestCode = ("include" | "exclude" | "only")
 export type SecurityCheckViewContinuationInput = ("summary" | "details")
 export type PartialReason = ("filesSkipped" | "filesUnevaluated" | "parseRecovered" | "fileTooLarge" | "deadline" | "scanBudget" | "walkWindow" | "walkDeadline" | "cancelled" | "binaryQuit" | "securitySelectedViewSizeLimit" | "regexMatchLimit" | "languageServerIndexing" | "diagnosticsNotPublished" | "serverUnanswered" | "serverUnhealthy" | "hierarchyCandidateLimit" | "hierarchyNodeLimit" | "hierarchyFanOutLimit" | "hierarchyParentUnanchored" | "callHierarchyExpansionFailed" | "typeHierarchyExpansionFailed" | "heritageUnread" | "scanOnlyImplementations" | "workspaceSymbolCoverageUnknown" | "workspaceSymbolOneProject" | "locationsWithheld" | "definitionHopFailed" | "documentAnalysisErrors" | "includeOutsidePackage" | "buildScriptsOff" | "cfgGatedFiles" | "cfgNegatedFeatures" | "sharedModuleFile" | "dynamicDispatch" | "importUnresolved" | "inferredProject" | "noCompileDatabase" | "noProject" | "importerScanCapped" | "importerScanFailed" | "importerRequestFailed" | "aliasRecoveryFailed" | "anchorLineError" | "declarationClipped" | "sourceFailed" | "providerResultCap" | "providerIncompleteResults" | "providerResultsShifted" | "providerContentsLimit" | "providerFileLimit" | "providerCommitListLimit" | "providerBatchLimit" | "partialTreeFailures" | "materializeDepth" | "materializeIncomplete" | "patchUnavailable" | "contextClipped" | "closingReferenceLimit" | "callSitesUnresolved" | "hitLinesNotListed")
 export type RowStatus = ("empty" | "error" | "outOfRange")
@@ -313,6 +312,8 @@ detail: string
 confidence: ("high" | "medium" | "low")
 test?: boolean
 edge: ("contains" | "imports" | "uses" | "calls" | "inherits")
+importKind?: string
+load?: ("eager" | "deferred" | "type" | "compile" | "data" | "unknown")
 } | {
 id?: string
 from?: string
@@ -331,6 +332,8 @@ detail: string
 confidence: ("high" | "medium" | "low")
 test?: boolean
 edge: ("contains" | "imports" | "uses" | "calls" | "inherits")
+importKind?: string
+load?: ("eager" | "deferred" | "type" | "compile" | "data" | "unknown")
 } | {
 id?: string
 from?: string
@@ -346,6 +349,8 @@ detail: string
 confidence: ("high" | "medium" | "low")
 test?: boolean
 edge: ("contains" | "imports" | "uses" | "calls" | "inherits")
+importKind?: string
+load?: ("eager" | "deferred" | "type" | "compile" | "data" | "unknown")
 sourceRange?: OutputSourceByteRange
 parseAssessment?: OutputParseAssessment
 }) | {
@@ -980,8 +985,6 @@ includeHidden?: boolean
 keep?: number
 refresh?: boolean
 parserGlobs?: AstParserGlobs
-mainGoal?: string
-reasoning?: string
 }
 export interface AstParserGlobs {
 /**
@@ -1153,8 +1156,6 @@ includeHidden?: boolean
 keep?: number
 refresh?: boolean
 parserGlobs?: AstParserGlobsContinuationInput
-mainGoal?: string
-reasoning?: string
 }[]
 responseChars?: number
 }
@@ -1180,8 +1181,6 @@ path?: GraphScopepathContinuationInput
 graph?: GraphScopegraphContinuationInput
 includeProvenance?: GraphScopeincludeProvenanceContinuationInput
 view?: GraphQueryStatsViewContinuationInput
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "find"
 path?: GraphScopepathContinuationInput
@@ -1190,8 +1189,6 @@ includeProvenance?: GraphScopeincludeProvenanceContinuationInput
 limit?: GraphPagelimitContinuationInput
 kind?: ("file" | "symbol" | "package")
 target?: string
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "candidates"
 path?: GraphScopepathContinuationInput
@@ -1200,8 +1197,6 @@ includeProvenance?: GraphScopeincludeProvenanceContinuationInput
 target: GraphReferencetarget
 kind?: GraphReferencekindContinuationInput
 limit?: GraphPagelimitContinuationInput
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "node"
 path?: GraphScopepathContinuationInput
@@ -1209,8 +1204,6 @@ graph?: GraphScopegraphContinuationInput
 includeProvenance?: GraphScopeincludeProvenanceContinuationInput
 target: GraphReferencetarget
 kind?: GraphReferencekindContinuationInput
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "symbols"
 path?: GraphScopepathContinuationInput
@@ -1219,8 +1212,6 @@ includeProvenance?: GraphScopeincludeProvenanceContinuationInput
 target?: (string | string[])
 kind?: ("file" | "symbol" | "package")
 limit?: GraphPagelimitContinuationInput
-mainGoal?: string
-reasoning?: string
 } | {
 operation: ("deps" | "dependents" | "callers" | "callees" | "walk")
 path?: GraphScopepathContinuationInput
@@ -1233,8 +1224,6 @@ confidence?: GraphEdgeconfidenceContinuationInput
 limit?: GraphPagelimitContinuationInput
 direction?: ("out" | "in" | "both")
 depth?: number
-mainGoal?: string
-reasoning?: string
 } | {
 operation: ("deps" | "dependents" | "callers")
 path?: GraphScopepathContinuationInput
@@ -1248,8 +1237,6 @@ limit?: GraphPagelimitContinuationInput
 direction?: ("out" | "in" | "both")
 depth?: number
 view: ("files" | "modules")
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "path"
 path?: GraphScopepathContinuationInput
@@ -1261,8 +1248,6 @@ edges?: GraphEdgeedgesContinuationInput
 confidence?: GraphEdgeconfidenceContinuationInput
 to: string
 direction?: ("out" | "in" | "both")
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "cycles"
 path?: GraphScopepathContinuationInput
@@ -1271,8 +1256,6 @@ includeProvenance?: GraphScopeincludeProvenanceContinuationInput
 edges?: GraphEdgeedgesContinuationInput
 confidence?: GraphEdgeconfidenceContinuationInput
 limit?: GraphPagelimitContinuationInput
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "hubs"
 path?: GraphScopepathContinuationInput
@@ -1284,8 +1267,6 @@ limit?: GraphPagelimitContinuationInput
 kind?: ("file" | "symbol" | "package")
 direction?: ("in" | "out")
 rankBy?: ("degree" | "pageRank")
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "cochange"
 path?: GraphScopepathContinuationInput
@@ -1293,8 +1274,6 @@ graph?: GraphScopegraphContinuationInput
 includeProvenance?: GraphScopeincludeProvenanceContinuationInput
 limit?: GraphPagelimitContinuationInput
 target: string
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "diagnostics"
 path?: GraphScopepathContinuationInput
@@ -1302,8 +1281,6 @@ graph?: GraphScopegraphContinuationInput
 includeProvenance?: GraphScopeincludeProvenanceContinuationInput
 limit?: GraphPagelimitContinuationInput
 target?: string
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "witnesses"
 path?: GraphScopepathContinuationInput
@@ -1315,8 +1292,6 @@ confidence?: GraphEdgeconfidenceContinuationInput
 target?: (string | string[])
 to?: string
 symbolName?: string
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "unresolved"
 path?: GraphScopepathContinuationInput
@@ -1331,16 +1306,12 @@ symbolName?: string
  * @maxItems 16
  */
 reasons?: ("external-package" | "not-declared-in-repo" | "type-qualified-unmatched" | "member-unknown-receiver-in-repo" | "ambiguous" | "other" | "local-binding" | "recovered-declaration" | "constructor-target-unavailable" | "constructor-binding-not-assessed" | "unsupported-constructor-form" | "recovered-occurrence" | "scope-not-assessed" | "binding-unrepresented" | "unsupported-argument-form" | "unsupported-argument-group")[]
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "stale"
 path?: GraphScopepathContinuationInput
 graph?: GraphScopegraphContinuationInput
 includeProvenance?: GraphScopeincludeProvenanceContinuationInput
 limit?: GraphPagelimitContinuationInput
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "issues"
 path?: GraphScopepathContinuationInput
@@ -1360,8 +1331,6 @@ entries?: string[]
 baseline?: string
 minScore?: number
 minTier?: (100 | 90 | 60)
-mainGoal?: string
-reasoning?: string
 } | ({
 operation: "impact"
 path?: GraphScopepathContinuationInput
@@ -1377,8 +1346,6 @@ target: string
 changed?: string[]
 since?: string
 depth?: number
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "impact"
 path?: GraphScopepathContinuationInput
@@ -1393,8 +1360,6 @@ kind?: ("file" | "symbol" | "package")
 changed: string[]
 since?: string
 depth?: number
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "impact"
 path?: GraphScopepathContinuationInput
@@ -1404,8 +1369,6 @@ limit?: GraphPagelimitContinuationInput
 kind?: ("file" | "symbol" | "package")
 since: string
 depth?: number
-mainGoal?: string
-reasoning?: string
 }) | {
 operation: "drift"
 path?: GraphScopepathContinuationInput
@@ -1413,8 +1376,6 @@ graph?: GraphScopegraphContinuationInput
 includeProvenance?: GraphScopeincludeProvenanceContinuationInput
 limit?: GraphPagelimitContinuationInput
 baseline: string
-mainGoal?: string
-reasoning?: string
 })[]
 responseChars?: number
 }
@@ -1737,8 +1698,6 @@ forks?: NumericRangeContinuationInput
 sizeKiB?: NumericRangeContinuationInput
 goodFirstIssueCount?: NumericRangeContinuationInput
 helpWantedIssueCount?: NumericRangeContinuationInput
-topicCount?: NumericRangeContinuationInput
-followerCount?: NumericRangeContinuationInput
 visibility?: ("public" | "private" | "internal")
 isSponsorable?: true
 }
@@ -1755,8 +1714,6 @@ order?: SortOrder
  */
 fields?: ("owner" | "repo" | "stars" | "forks" | "pushedAt" | "createdAt" | "updatedAt" | "homepage" | "openIssuesCount" | "sizeKiB" | "archived" | "fork" | "visibility" | "description" | "language" | "defaultBranch" | "license" | "topics")[]
 limit?: number
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "list"
 owner: string
@@ -1773,8 +1730,6 @@ order?: SortOrder
  */
 fields?: ("owner" | "repo" | "stars" | "forks" | "pushedAt" | "createdAt" | "updatedAt" | "homepage" | "openIssuesCount" | "sizeKiB" | "archived" | "fork" | "visibility" | "description" | "language" | "defaultBranch" | "license" | "topics")[]
 limit?: number
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "get"
 owner: string
@@ -1784,8 +1739,6 @@ repo: string
  * @maxItems 18
  */
 fields?: ("owner" | "repo" | "stars" | "forks" | "pushedAt" | "createdAt" | "updatedAt" | "homepage" | "openIssuesCount" | "sizeKiB" | "archived" | "fork" | "visibility" | "description" | "language" | "defaultBranch" | "license" | "topics")[]
-mainGoal?: string
-reasoning?: string
 })[]
 responseChars?: number
 }
@@ -1833,12 +1786,10 @@ after?: number
 }
 /**
  * @minItems 1
- * @maxItems 10
+ * @maxItems 3
  */
-fields?: ("owner" | "repo" | "path" | "alsoAt" | "commitSha" | "matches" | "matchedLines" | "matchCount" | "atRef" | "lineResolved")[]
+fields?: ("path" | "matches" | "matchedLines")[]
 limit?: number
-mainGoal?: string
-reasoning?: string
 }[]
 responseChars?: number
 }
@@ -1872,8 +1823,6 @@ by: "bytes"
 order?: SortOrder
 })
 limit?: number
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "refs"
 owner: string
@@ -1885,14 +1834,10 @@ ref?: string
  */
 refKinds?: ("tags" | "branches")[]
 limit?: number
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "languages"
 owner: string
 repo: string
-mainGoal?: string
-reasoning?: string
 })[]
 responseChars?: number
 }
@@ -1911,8 +1856,6 @@ repo: string
 ref?: string
 path: string
 view?: "content"
-mainGoal?: string
-reasoning?: string
 } | {
 owner: string
 repo: string
@@ -1925,8 +1868,6 @@ view?: "content"
  */
 ranges: SourceLineRangeContinuationInput[]
 block?: boolean
-mainGoal?: string
-reasoning?: string
 } | {
 owner: string
 repo: string
@@ -1936,7 +1877,6 @@ view?: "content"
 matchString: TextMatchTerms
 regexEngine?: RegexEngine
 caseMode?: CaseMode
-wholeWord?: boolean
 /**
  * @minItems 1
  * @maxItems 100
@@ -1947,16 +1887,12 @@ contextLines?: {
 before?: number
 after?: number
 }
-mainGoal?: string
-reasoning?: string
 } | {
 owner: string
 repo: string
 ref?: string
 path: string
 view: "compact"
-mainGoal?: string
-reasoning?: string
 } | {
 owner: string
 repo: string
@@ -1969,16 +1905,12 @@ view: "compact"
  */
 ranges: SourceLineRangeContinuationInput[]
 block?: boolean
-mainGoal?: string
-reasoning?: string
 } | {
 owner: string
 repo: string
 ref?: string
 path: string
 view: "symbols"
-mainGoal?: string
-reasoning?: string
 })[]
 responseChars?: number
 }
@@ -2022,20 +1954,15 @@ mentions?: string
 labels?: string[]
 commentsCount?: NumericRangeContinuationInput
 reactionCount?: NumericRangeContinuationInput
-archive?: GitHubArchive
+linked?: boolean
 /**
  * @minItems 1
  * @maxItems 3
  */
 matchIn?: ("title" | "body" | "comments")[]
-linked?: "issue"
-reviewRequested?: string
 reviewedBy?: string
-review?: ("none" | "required" | "approved" | "changesRequested")
-checkStatus?: ("pending" | "success" | "failure")
 mergedAt?: DateRangeContinuationInput
 isMerged?: boolean
-isDraft?: boolean
 headRef?: string
 baseRef?: string
 }
@@ -2046,8 +1973,6 @@ order?: "desc"
 by: ("createdAt" | "updatedAt")
 order?: SortOrder
 })
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "issue"
 /**
@@ -2079,13 +2004,12 @@ mentions?: string
 labels?: string[]
 commentsCount?: NumericRangeContinuationInput
 reactionCount?: NumericRangeContinuationInput
-archive?: GitHubArchive
+linked?: boolean
 /**
  * @minItems 1
  * @maxItems 3
  */
 matchIn?: ("title" | "body" | "comments")[]
-linked?: "pullRequest"
 }
 sort?: ({
 by: ("relevance" | "commentsCount" | "reactionCount")
@@ -2094,8 +2018,6 @@ order?: "desc"
 by: ("createdAt" | "updatedAt")
 order?: SortOrder
 })
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "commit"
 owner: string
@@ -2116,8 +2038,6 @@ author?: string
 committer?: string
 committedAt?: DateRangeContinuationInput
 }
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "commit"
 owner: string
@@ -2135,8 +2055,6 @@ author?: string
 committer?: string
 committedAt?: DateRangeContinuationInput
 }
-mainGoal?: string
-reasoning?: string
 })[]
 responseChars?: number
 }
@@ -2170,9 +2088,6 @@ include?: string[]
  * @maxItems 7
  */
 fileStatus?: ("added" | "removed" | "modified" | "renamed" | "copied" | "changed" | "unchanged")[]
-minChanges?: number
-mainGoal?: string
-reasoning?: string
 } | {
 owner: string
 repo: string
@@ -2194,17 +2109,12 @@ include?: string[]
  * @maxItems 7
  */
 fileStatus?: ("added" | "removed" | "modified" | "renamed" | "copied" | "changed" | "unchanged")[]
-minChanges?: number
 matchString: TextMatchTerms
-regexEngine?: RegexEngine
-caseMode?: CaseMode
-wholeWord?: boolean
 contextLines?: {
 before?: number
 after?: number
 }
-mainGoal?: string
-reasoning?: string
+regexEngine?: RegexEngine
 } | {
 owner: string
 repo: string
@@ -2216,8 +2126,6 @@ number: number
  */
 sections?: ("body" | "comments")[]
 bots?: boolean
-mainGoal?: string
-reasoning?: string
 } | {
 owner: string
 repo: string
@@ -2230,15 +2138,11 @@ number: number
 sections?: ("body" | "comments")[]
 bots?: boolean
 matchString: TextMatchTerms
-regexEngine?: RegexEngine
-caseMode?: CaseMode
-wholeWord?: boolean
 contextLines?: {
 before?: number
 after?: number
 }
-mainGoal?: string
-reasoning?: string
+regexEngine?: RegexEngine
 } | {
 owner: string
 repo: string
@@ -2259,9 +2163,6 @@ include?: string[]
  * @maxItems 7
  */
 fileStatus?: ("added" | "removed" | "modified" | "renamed" | "copied" | "changed" | "unchanged")[]
-minChanges?: number
-mainGoal?: string
-reasoning?: string
 } | {
 owner: string
 repo: string
@@ -2282,17 +2183,12 @@ include?: string[]
  * @maxItems 7
  */
 fileStatus?: ("added" | "removed" | "modified" | "renamed" | "copied" | "changed" | "unchanged")[]
-minChanges?: number
 matchString: TextMatchTerms
-regexEngine?: RegexEngine
-caseMode?: CaseMode
-wholeWord?: boolean
 contextLines?: {
 before?: number
 after?: number
 }
-mainGoal?: string
-reasoning?: string
+regexEngine?: RegexEngine
 } | {
 owner: string
 repo: string
@@ -2314,9 +2210,6 @@ include?: string[]
  * @maxItems 7
  */
 fileStatus?: ("added" | "removed" | "modified" | "renamed" | "copied" | "changed" | "unchanged")[]
-minChanges?: number
-mainGoal?: string
-reasoning?: string
 } | {
 owner: string
 repo: string
@@ -2338,17 +2231,12 @@ include?: string[]
  * @maxItems 7
  */
 fileStatus?: ("added" | "removed" | "modified" | "renamed" | "copied" | "changed" | "unchanged")[]
-minChanges?: number
 matchString: TextMatchTerms
-regexEngine?: RegexEngine
-caseMode?: CaseMode
-wholeWord?: boolean
 contextLines?: {
 before?: number
 after?: number
 }
-mainGoal?: string
-reasoning?: string
+regexEngine?: RegexEngine
 })[]
 responseChars?: number
 }
@@ -2369,8 +2257,6 @@ packageName: string
 version?: string
 registryUrl?: string
 view?: ArtifactSearchViewContinuationInput
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "search"
 preview?: boolean
@@ -2383,8 +2269,6 @@ limit?: number
 view?: ArtifactSearchViewContinuationInput
 ecosystem: "npm"
 registryUrl?: string
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "resolve"
 preview?: boolean
@@ -2392,8 +2276,6 @@ ecosystem: ("pypi" | "crates")
 packageName: string
 version?: string
 view?: ArtifactSearchViewContinuationInput
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "resolve"
 preview?: boolean
@@ -2401,8 +2283,6 @@ ecosystem: "maven"
 packageName: string
 version?: string
 view?: ArtifactSearchViewContinuationInput
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "resolve"
 preview?: boolean
@@ -2410,8 +2290,6 @@ ecosystem: ("nuget" | "go" | "packagist" | "rubygems")
 packageName: string
 version?: string
 view?: ArtifactSearchViewContinuationInput
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "search"
 preview?: boolean
@@ -2423,8 +2301,6 @@ keywords: string[]
 limit?: number
 view?: ArtifactSearchViewContinuationInput
 ecosystem: ("crates" | "maven" | "nuget" | "go" | "packagist" | "rubygems")
-mainGoal?: string
-reasoning?: string
 })[]
 responseChars?: number
 }
@@ -2446,9 +2322,6 @@ ref?: string
  * @maxItems 100
  */
 paths?: string[]
-historyDepth?: number
-mainGoal?: string
-reasoning?: string
 }[]
 responseChars?: number
 }
@@ -2514,8 +2387,6 @@ contextLines?: {
 before?: number
 after?: number
 }
-mainGoal?: string
-reasoning?: string
 } | {
 path?: string
 invertMatch?: boolean
@@ -2565,8 +2436,6 @@ fileLacks?: string[]
 keyPath?: string
 limit?: number
 view: ("files" | "filesWithout" | "countLines" | "countMatches")
-mainGoal?: string
-reasoning?: string
 } | {
 path?: string
 invertMatch?: boolean
@@ -2617,8 +2486,6 @@ keyPath?: string
 limit?: number
 view: "matchOnly"
 unique?: ("off" | "list" | "count")
-mainGoal?: string
-reasoning?: string
 })[]
 responseChars?: number
 }
@@ -2654,8 +2521,6 @@ defaultExcludes?: boolean
 limit?: number
 operation: "tree"
 maxDepth?: number
-mainGoal?: string
-reasoning?: string
 } | {
 path?: string
 view?: StructureSearchView
@@ -2698,8 +2563,6 @@ order?: SortOrder
 by: "traversal"
 order?: "asc"
 })
-mainGoal?: string
-reasoning?: string
 })[]
 responseChars?: number
 }
@@ -2756,8 +2619,6 @@ stopBy?: {
 view?: "content"
 includeCaptures?: boolean
 includeProvenance?: boolean
-mainGoal?: string
-reasoning?: string
 } | {
 content?: string
 path?: string
@@ -2796,8 +2657,6 @@ stopBy?: {
 [k: string]: unknown
 })
 view: ("files" | "countMatches")
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "syntaxTree"
 includeProvenance?: boolean
@@ -2805,8 +2664,6 @@ line?: number
 namedOnly?: boolean
 path: string
 parser?: AstParser
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "syntaxTree"
 includeProvenance?: boolean
@@ -2814,8 +2671,6 @@ line?: number
 namedOnly?: boolean
 content: string
 parser: AstParser
-mainGoal?: string
-reasoning?: string
 } | {
 path?: string
 /**
@@ -2841,8 +2696,6 @@ symbolFilter?: AstSymbolFilterContinuationInput
  */
 symbolKinds?: string[]
 includeProvenance?: boolean
-mainGoal?: string
-reasoning?: string
 })[]
 responseChars?: number
 }
@@ -3106,8 +2959,6 @@ queries: ({
 path: string
 limit?: number
 view?: "content"
-mainGoal?: string
-reasoning?: string
 } | {
 path: string
 limit?: number
@@ -3118,8 +2969,6 @@ view?: "content"
  */
 ranges: SourceLineRangeContinuationInput[]
 block?: boolean
-mainGoal?: string
-reasoning?: string
 } | {
 path: string
 limit?: number
@@ -3127,7 +2976,6 @@ view?: "content"
 matchString: TextMatchTerms
 regexEngine?: RegexEngine
 caseMode?: CaseMode
-wholeWord?: boolean
 /**
  * @minItems 1
  * @maxItems 100
@@ -3138,14 +2986,10 @@ contextLines?: {
 before?: number
 after?: number
 }
-mainGoal?: string
-reasoning?: string
 } | {
 path: string
 limit?: number
 view: "compact"
-mainGoal?: string
-reasoning?: string
 } | {
 path: string
 limit?: number
@@ -3156,14 +3000,10 @@ view: "compact"
  */
 ranges: SourceLineRangeContinuationInput[]
 block?: boolean
-mainGoal?: string
-reasoning?: string
 } | {
 path: string
 limit?: number
 view: "symbols"
-mainGoal?: string
-reasoning?: string
 })[]
 responseChars?: number
 }
@@ -3189,8 +3029,6 @@ contextLines?: {
 before?: number
 after?: number
 }
-mainGoal?: string
-reasoning?: string
 } | {
 workspaceRoot?: string
 limit?: number
@@ -3200,8 +3038,6 @@ line: number
 occurrence?: number
 operation?: ("definition" | "typeDefinition" | "implementation")
 view: "files"
-mainGoal?: string
-reasoning?: string
 } | {
 workspaceRoot?: string
 limit?: number
@@ -3216,9 +3052,7 @@ contextLines?: {
 before?: number
 after?: number
 }
-testCode?: TestCode
-mainGoal?: string
-reasoning?: string
+testCode?: TestCodeContinuationInput
 } | {
 workspaceRoot?: string
 limit?: number
@@ -3229,9 +3063,7 @@ occurrence?: number
 operation: "references"
 includeDeclaration?: boolean
 view: "files"
-testCode?: TestCode
-mainGoal?: string
-reasoning?: string
+testCode?: TestCodeContinuationInput
 } | {
 workspaceRoot?: string
 limit?: number
@@ -3241,9 +3073,7 @@ line: number
 occurrence?: number
 operation: "callers"
 depth?: number
-testCode?: TestCode
-mainGoal?: string
-reasoning?: string
+testCode?: TestCodeContinuationInput
 } | {
 workspaceRoot?: string
 limit?: number
@@ -3253,8 +3083,6 @@ line: number
 occurrence?: number
 operation: ("callees" | "supertypes")
 depth?: number
-mainGoal?: string
-reasoning?: string
 } | {
 workspaceRoot?: string
 limit?: number
@@ -3264,8 +3092,6 @@ line: number
 occurrence?: number
 operation: "subtypes"
 depth?: number
-mainGoal?: string
-reasoning?: string
 } | {
 workspaceRoot?: string
 limit?: number
@@ -3274,30 +3100,22 @@ symbolName: string
 line: number
 occurrence?: number
 operation: "hover"
-mainGoal?: string
-reasoning?: string
 } | {
 workspaceRoot?: string
 limit?: number
 path: string
 operation: ("documentSymbols" | "diagnostic")
-mainGoal?: string
-reasoning?: string
 } | {
 workspaceRoot?: string
 limit?: number
 operation: "workspaceSymbol"
 symbolFuzzy: string
 path: string
-mainGoal?: string
-reasoning?: string
 } | {
 workspaceRoot: string
 limit?: number
 operation: "workspaceSymbol"
 symbolFuzzy: string
-mainGoal?: string
-reasoning?: string
 })[]
 responseChars?: number
 }
@@ -3318,15 +3136,11 @@ packageName: string
 version?: string
 release?: string
 view?: SecurityCheckViewContinuationInput
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "url"
 preview?: boolean
 url: string
 view?: SecurityCheckViewContinuationInput
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "advisory"
 preview?: boolean
@@ -3334,8 +3148,6 @@ id: string
 owner?: string
 repo?: string
 view?: SecurityCheckViewContinuationInput
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "commit"
 preview?: boolean
@@ -3343,16 +3155,12 @@ ref: string
 owner?: string
 repo?: string
 view?: SecurityCheckViewContinuationInput
-mainGoal?: string
-reasoning?: string
 } | {
 operation: "repository"
 preview?: boolean
 owner: string
 repo: string
 view?: SecurityCheckViewContinuationInput
-mainGoal?: string
-reasoning?: string
 })[]
 responseChars?: number
 }
@@ -3534,8 +3342,6 @@ path?: GraphScopepath
 graph?: GraphScopegraph
 includeProvenance?: GraphScopeincludeProvenance
 view?: GraphQueryStatsView
-mainGoal?: string
-reasoning?: string
 }
 export interface GraphQueryFind {
 operation: "find"
@@ -3547,8 +3353,6 @@ offset?: GraphPageoffset
 page?: GraphPagepage
 kind?: ("file" | "symbol" | "package")
 target?: string
-mainGoal?: string
-reasoning?: string
 }
 export interface GraphQueryCandidates {
 operation: "candidates"
@@ -3560,8 +3364,6 @@ kind?: GraphReferencekind
 limit?: GraphPagelimit
 offset?: GraphPageoffset
 page?: GraphPagepage
-mainGoal?: string
-reasoning?: string
 }
 export interface GraphQueryNode {
 operation: "node"
@@ -3570,8 +3372,6 @@ graph?: GraphScopegraph
 includeProvenance?: GraphScopeincludeProvenance
 target: GraphReferencetarget
 kind?: GraphReferencekind
-mainGoal?: string
-reasoning?: string
 }
 export interface GraphQuerySymbols {
 operation: "symbols"
@@ -3583,8 +3383,6 @@ kind?: ("file" | "symbol" | "package")
 limit?: GraphPagelimit
 offset?: GraphPageoffset
 page?: GraphPagepage
-mainGoal?: string
-reasoning?: string
 }
 export interface GraphQueryTraversal {
 operation: ("deps" | "dependents" | "callers" | "callees" | "walk")
@@ -3601,8 +3399,6 @@ page?: GraphPagepage
 direction?: ("out" | "in" | "both")
 depth?: number
 list?: string
-mainGoal?: string
-reasoning?: string
 }
 export interface GraphQueryGroupedTraversal {
 operation: ("deps" | "dependents" | "callers")
@@ -3620,8 +3416,6 @@ direction?: ("out" | "in" | "both")
 depth?: number
 list?: string
 view: ("files" | "modules")
-mainGoal?: string
-reasoning?: string
 }
 export interface GraphQueryPath {
 operation: "path"
@@ -3634,8 +3428,6 @@ edges?: GraphEdgeedges
 confidence?: GraphEdgeconfidence
 to: string
 direction?: ("out" | "in" | "both")
-mainGoal?: string
-reasoning?: string
 }
 export interface GraphQueryCycles {
 operation: "cycles"
@@ -3649,8 +3441,6 @@ offset?: GraphPageoffset
 page?: GraphPagepage
 cycle?: string
 list?: string
-mainGoal?: string
-reasoning?: string
 }
 export interface GraphQueryHubs {
 operation: "hubs"
@@ -3665,8 +3455,6 @@ page?: GraphPagepage
 kind?: ("file" | "symbol" | "package")
 direction?: ("in" | "out")
 rankBy?: ("degree" | "pageRank")
-mainGoal?: string
-reasoning?: string
 }
 export interface GraphQueryCochange {
 operation: "cochange"
@@ -3677,8 +3465,6 @@ limit?: GraphPagelimit
 offset?: GraphPageoffset
 page?: GraphPagepage
 target: string
-mainGoal?: string
-reasoning?: string
 }
 export interface GraphQueryDiagnostics {
 operation: "diagnostics"
@@ -3689,8 +3475,6 @@ limit?: GraphPagelimit
 offset?: GraphPageoffset
 page?: GraphPagepage
 target?: string
-mainGoal?: string
-reasoning?: string
 }
 export interface GraphQueryWitnesses {
 operation: "witnesses"
@@ -3705,8 +3489,6 @@ confidence?: GraphEdgeconfidence
 target?: (string | string[])
 to?: string
 symbolName?: string
-mainGoal?: string
-reasoning?: string
 }
 export interface GraphQueryUnresolved {
 operation: "unresolved"
@@ -3724,8 +3506,6 @@ symbolName?: string
  * @maxItems 16
  */
 reasons?: ("external-package" | "not-declared-in-repo" | "type-qualified-unmatched" | "member-unknown-receiver-in-repo" | "ambiguous" | "other" | "local-binding" | "recovered-declaration" | "constructor-target-unavailable" | "constructor-binding-not-assessed" | "unsupported-constructor-form" | "recovered-occurrence" | "scope-not-assessed" | "binding-unrepresented" | "unsupported-argument-form" | "unsupported-argument-group")[]
-mainGoal?: string
-reasoning?: string
 }
 export interface GraphQueryStale {
 operation: "stale"
@@ -3735,8 +3515,6 @@ includeProvenance?: GraphScopeincludeProvenance
 limit?: GraphPagelimit
 offset?: GraphPageoffset
 page?: GraphPagepage
-mainGoal?: string
-reasoning?: string
 }
 export interface GraphQueryIssues {
 operation: "issues"
@@ -3760,8 +3538,6 @@ entries?: string[]
 baseline?: string
 minScore?: number
 minTier?: (100 | 90 | 60)
-mainGoal?: string
-reasoning?: string
 }
 export interface GraphQueryImpactTarget {
 operation: "impact"
@@ -3781,8 +3557,6 @@ target: string
 changed?: string[]
 since?: string
 depth?: number
-mainGoal?: string
-reasoning?: string
 }
 export interface GraphQueryImpactChanged {
 operation: "impact"
@@ -3804,8 +3578,6 @@ target?: {
 changed: string[]
 since?: string
 depth?: number
-mainGoal?: string
-reasoning?: string
 }
 export interface GraphQueryImpactSince {
 operation: "impact"
@@ -3825,8 +3597,6 @@ changed?: {
 }
 since: string
 depth?: number
-mainGoal?: string
-reasoning?: string
 }
 export interface GraphQueryDrift {
 operation: "drift"
@@ -3838,8 +3608,6 @@ offset?: GraphPageoffset
 page?: GraphPagepage
 list?: string
 baseline: string
-mainGoal?: string
-reasoning?: string
 }
 export interface GraphQueryInputCursor {
 cursor: string
@@ -4020,6 +3788,10 @@ textMentions?: {
 }
 [k: string]: unknown
 })
+params?: string
+returns?: string
+importKind?: string
+load?: ("eager" | "deferred" | "type" | "compile" | "data" | "unknown")
 [k: string]: unknown
 }
 export interface OutputSourceOrigin {
@@ -4062,6 +3834,8 @@ exported?: boolean
 test?: boolean
 ecosystem?: string
 parent?: string
+params?: string
+returns?: string
 in?: {
 [k: string]: number
 }

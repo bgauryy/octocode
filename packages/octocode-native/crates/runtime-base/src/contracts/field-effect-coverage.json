@@ -33,10 +33,7 @@
     }
   },
   "common": {
-    "fields": {
-      "mainGoal": [],
-      "reasoning": []
-    }
+    "fields": {}
   },
   "tools": {
     "clasify": {
@@ -80,6 +77,9 @@
         "longContext": [
           "selection"
         ],
+        "mainGoal": [
+          "selection"
+        ],
         "maxRequests": [
           "execution"
         ],
@@ -101,6 +101,7 @@
         "questions": [
           "selection"
         ],
+        "reasoning": [],
         "resources": [
           "source"
         ],
@@ -298,9 +299,6 @@
         "view": [
           "view"
         ],
-        "wholeWord": [
-          "matcher"
-        ],
         "readProgress": [
           "view"
         ]
@@ -359,9 +357,6 @@
         "bots": [
           "filter"
         ],
-        "caseMode": [
-          "matcher"
-        ],
         "contextLines": [
           "view"
         ],
@@ -376,9 +371,6 @@
         ],
         "matchString": [
           "matcher"
-        ],
-        "minChanges": [
-          "filter"
         ],
         "number": [
           "navigation"
@@ -400,9 +392,6 @@
         ],
         "sections": [
           "view"
-        ],
-        "wholeWord": [
-          "matcher"
         ]
       }
     },
@@ -510,9 +499,6 @@
         "tool-github/src/gh_clone_repo/storage/tests.rs"
       ],
       "fields": {
-        "historyDepth": [
-          "execution"
-        ],
         "owner": [
           "source"
         ],
@@ -839,9 +825,6 @@
         ],
         "view": [
           "view"
-        ],
-        "wholeWord": [
-          "matcher"
         ],
         "readProgress": [
           "view"

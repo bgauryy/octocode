@@ -115,15 +115,12 @@ pub(crate) fn char_offset(query: &Q) -> Option<usize> {
 pub(crate) fn has_file_filter(query: &Q) -> bool {
     file_operation!(
         query,
-        q => !q.include.is_empty() || !q.file_status.is_empty() || q.min_changes.is_some(),
+        q => !q.include.is_empty() || !q.file_status.is_empty(),
         else => false
     )
 }
 pub(crate) fn file_status(query: &Q) -> Vec<String> {
     file_operation!(query, q => q.file_status.iter().map(ToString::to_string).collect(), else => Vec::new())
-}
-pub(crate) fn min_changes(query: &Q) -> Option<usize> {
-    file_operation!(query, q => q.min_changes.map(|x| saturating_usize(x.get())), else => None)
 }
 pub(crate) fn match_strings(query: &Q) -> Option<&TextMatchTerms> {
     match_operation!(query, q => &q.match_string)
@@ -146,8 +143,8 @@ pub(crate) fn match_context(query: &Q) -> (usize, usize) {
         )
     }), else => DEFAULT)
 }
-pub(crate) fn match_options(query: &Q) -> Option<(CaseMode, RegexEngine, bool)> {
-    match_operation!(query, q => (q.case_mode, q.regex_engine, q.whole_word))
+pub(crate) fn match_options(query: &Q) -> Option<(CaseMode, RegexEngine)> {
+    match_operation!(query, q => (CaseMode::Smart, q.regex_engine))
 }
 pub(crate) fn section_names(query: &Q) -> Vec<String> {
     any_operation!(query, q => q.sections.iter().map(ToString::to_string).collect())

@@ -10,32 +10,21 @@ impl FileLink<'_, '_> {
             return;
         };
         let target = self.resolve(&spec, None, x.local_name.as_deref().unwrap_or(&x.name));
-        self.record(x.line, &spec, &target, self.lang == Linker::Unsupported);
+        let kind = self.reexport_kind(&x.name, &x.export_kind);
+        let external = self.record(
+            x.line,
+            &spec,
+            &target,
+            self.lang == Linker::Unsupported,
+            kind,
+        );
+        self.package_load(external, &spec, x.line, kind);
         if let Some(t) = &target {
             self.facts.reexport_lines.push((t.clone(), x.line));
+            self.edge(t, kind, x.line);
         }
         if x.name == "*" {
-            if let Some(t) = target {
-                let kind = if self.lang == Linker::Rust {
-                    "rust-use"
-                } else {
-                    match x.export_kind.as_str() {
-                        "type" => "type-star-reexport",
-                        UNKNOWN_LOAD => RECOVERED_STAR_REEXPORT,
-                        _ => "star-reexport",
-                    }
-                };
-                self.edge(&t, kind, x.line);
-            }
             return;
-        }
-        if let Some(t) = &target {
-            let kind = match x.export_kind.as_str() {
-                "type" => "type-named-reexport",
-                UNKNOWN_LOAD => RECOVERED_NAMED_REEXPORT,
-                _ => "named-reexport",
-            };
-            self.edge(t, kind, x.line);
         }
         self.facts.reexports.push(Reexport {
             local_name: x.name.clone(),
@@ -43,6 +32,38 @@ impl FileLink<'_, '_> {
             target,
             line: x.line,
         });
+    }
+
+    /// Records a load of `spec` that binds no import, when it names a
+    /// third-party package (`external`), so the package is a dependency
+    /// whatever form loads it.
+    fn package_load(&mut self, external: bool, spec: &str, line: u32, kind: &'static str) {
+        if external {
+            self.facts.package_loads.push(PackageLoad {
+                specifier: spec.to_owned(),
+                line,
+                kind,
+            });
+        }
+    }
+
+    /// The edge kind a re-export of `name` (`*` for all) links as.
+    fn reexport_kind(&self, name: &str, export_kind: &str) -> &'static str {
+        if name != "*" {
+            return match export_kind {
+                "type" => "type-named-reexport",
+                UNKNOWN_LOAD => RECOVERED_NAMED_REEXPORT,
+                _ => "named-reexport",
+            };
+        }
+        if self.lang == Linker::Rust {
+            return "rust-use";
+        }
+        match export_kind {
+            "type" => "type-star-reexport",
+            UNKNOWN_LOAD => RECOVERED_STAR_REEXPORT,
+            _ => "star-reexport",
+        }
     }
 
     /// `import { a } from './x'; export { a as b }`: an ES module binding is
@@ -76,7 +97,19 @@ impl FileLink<'_, '_> {
         }
         if c.kind == "dynamic-import" {
             let target = self.resolve(&c.callee, None, "*");
-            self.record(c.line, &c.callee, &target, false);
+            let external = self.record(
+                c.line,
+                &c.callee,
+                &target,
+                false,
+                super::super::edges::DYNAMIC_IMPORT,
+            );
+            self.package_load(
+                external,
+                &c.callee,
+                c.line,
+                super::super::edges::DYNAMIC_IMPORT,
+            );
             if let Some(t) = target {
                 self.edge(&t, super::super::edges::DYNAMIC_IMPORT, c.line);
                 self.node.dynamic_only.insert(t.clone());
@@ -160,6 +193,7 @@ impl FileLink<'_, '_> {
                         p.line,
                         &p.path,
                         true,
+                        super::super::edges::RUST_PATH,
                         self.inputs.security,
                     );
                     return;
@@ -170,15 +204,18 @@ impl FileLink<'_, '_> {
                     p.line,
                     &p.path,
                 );
-                self.b.diagnostics.push(Diagnostic::new(
-                    self.file.clone(),
-                    Some(p.line),
-                    DiagnosticCode::UnresolvedInternal,
-                    sanitize(
-                        self.inputs.security,
-                        &format!("Cannot link path {:?} (unresolvedInternal).", p.path),
-                    ),
-                ));
+                self.b.diagnostics.push(Diagnostic {
+                    import_kind: Some(super::super::edges::RUST_PATH),
+                    ..Diagnostic::new(
+                        self.file.clone(),
+                        Some(p.line),
+                        DiagnosticCode::UnresolvedInternal,
+                        sanitize(
+                            self.inputs.security,
+                            &format!("Cannot link path {:?} (unresolvedInternal).", p.path),
+                        ),
+                    )
+                });
             }
             None => {}
         }
@@ -268,13 +305,14 @@ impl FileLink<'_, '_> {
             return;
         };
         let target = self.resolve(&spec, None, "*");
-        let external = self.record(c.line, &spec, &target, false);
+        let kind = if c.binding == "create-require" {
+            "create-require"
+        } else {
+            "commonjs-require"
+        };
+        let external = self.record(c.line, &spec, &target, false, kind);
+        self.package_load(external, &spec, c.line, kind);
         if let Some(t) = &target {
-            let kind = if c.binding == "create-require" {
-                "create-require"
-            } else {
-                "commonjs-require"
-            };
             self.edge(t, kind, c.line);
             self.b.namespace_targets.insert(t.clone());
         }
@@ -292,6 +330,7 @@ impl FileLink<'_, '_> {
                     external,
                     scope_id: None,
                     inline: false,
+                    kind,
                 },
                 declaration_id: binding.declaration_id,
                 scope: binding.scope,

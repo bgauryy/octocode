@@ -13,7 +13,7 @@ The routes the server instructions serve, generated from core (`node skills/comm
 | keep only hits meaning X (cause, kind, intent) → clasify source:{tool, query} predicates | `clasify` |
 | offload reading: too many hits, unread files, threads, logs or PNG/JPEG images → clasify → next.read | `clasify` |
 | web page or URL → clasify source.url → next.read | `clasify` |
-| quick exact lookups (a known spelling, a line range, a count), running commands, git state → shell: rg, sed -n, wc, git; a write, or one small GitHub item you need whole → gh | always |
+| a known spelling, line range or count, commands, git state → shell (rg, sed -n, wc, git); a write or one small GitHub item → gh | always |
 | repo or library not in this checkout → ghSearchRepo → ghStructure (tree, refs) or ghSearchCode → ghGetFileContent | `ghSearchRepo`, `ghStructure`, `ghSearchCode`, `ghGetFileContent` |
 | why, when, who → ghSearchHistory → ghGetHistoryItem | `ghSearchHistory`, `ghGetHistoryItem` |
 | first release with a change → commit or PR, ghStructure refs, ghGetHistoryItem compare | `ghSearchHistory`, `ghStructure`, `ghGetHistoryItem` |

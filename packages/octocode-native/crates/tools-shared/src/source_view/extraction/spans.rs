@@ -45,10 +45,6 @@ pub(super) fn match_spans(
             }
         };
         found.truncated |= one.truncated;
-        if local_fetch_query::whole_word(q) {
-            one.spans
-                .retain(|&(start, end)| is_whole_word(content, start, end));
-        }
         if patterns.len() > 1 && one.spans.is_empty() && !one.truncated {
             found.missed.push(index);
         }
@@ -99,17 +95,6 @@ fn append_held(found: &mut RegexSpans, spans: &[(usize, usize)]) -> bool {
     }
     found.spans.extend_from_slice(spans);
     true
-}
-
-/// Whether the span `[start, end)` stands alone as a word: no word character
-/// (alphanumeric or `_`) touches either side, as in localSearch `wholeWord`.
-fn is_whole_word(content: &str, start: usize, end: usize) -> bool {
-    let word = |c: char| c.is_alphanumeric() || c == '_';
-    let before = content
-        .get(..start)
-        .and_then(|head| head.chars().next_back());
-    let after = content.get(end..).and_then(|tail| tail.chars().next());
-    !before.is_some_and(word) && !after.is_some_and(word)
 }
 
 /// A pattern that does not compile names its item, so the fix lands on the

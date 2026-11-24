@@ -4,7 +4,8 @@ use super::*;
 use octocode_test_support::json_fixture;
 
 /// An owner listing knows how many archived repositories it skipped: it
-/// says so and leads to them.
+/// says so. A page with repositories is the answer, with no lead; a page the
+/// archive filter left empty leads to the same listing including them.
 #[tokio::test]
 async fn owner_listing_counts_skipped_archived_repositories() {
     let server = MockServer::builder().start().await;
@@ -31,9 +32,26 @@ async fn owner_listing_counts_skipped_archived_repositories() {
         "{}",
         out.data
     );
+    assert!(out.data.get("related").is_none(), "{}", out.data);
+
+    let archived_only = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/orgs/o/repos"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!([repo_item("old", true), repo_item("older", true)])),
+        )
+        .mount(&archived_only)
+        .await;
+    let empty = run(
+        &archived_only,
+        json_fixture(r#"{"owner": "o", "operation": "list"}"#),
+    )
+    .await;
+    assert_eq!(empty.status, Some("empty"), "{}", empty.data);
     assert_eq!(
         octocode_runtime_base::test_support::checks::related_call(
-            &out.data,
+            &empty.data,
             "ghSearchRepo",
             |input| input["queries"][0]["filters"]["archive"] == "include"
         )["input"]["queries"][0],
@@ -45,7 +63,7 @@ async fn owner_listing_counts_skipped_archived_repositories() {
             }"#
         ),
         "{}",
-        out.data
+        empty.data
     );
     // The lead lists the same owner, archived rows included: no search
     // (which would drop forks) and nothing skipped.
@@ -62,7 +80,7 @@ async fn owner_listing_counts_skipped_archived_repositories() {
         .mount(&with_fork)
         .await;
     let lead = octocode_runtime_base::test_support::checks::related_call(
-        &out.data,
+        &empty.data,
         "ghSearchRepo",
         |input| input["queries"][0]["filters"]["archive"] == "include",
     )["input"]["queries"][0]

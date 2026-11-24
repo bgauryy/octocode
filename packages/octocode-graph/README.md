@@ -10,6 +10,8 @@ npx octocode-graph build . --out .octocode/first-run
 npx octocode-graph serve --replay .octocode/first-run
 ```
 
+Without installing, every command runs as `npx -y @octocodeai/octocode-graph <command>`; the CLI's hints name `octocode-graph` only when that command on your PATH runs this package.
+
 The default `--lsp smart` checks outgoing calls from declarations in hub files and callers linked across chunks, and every function holding a receiver call the syntax graph could not bind to a method declared here. Choose `--lsp all` for every indexed function, method and constructor with a declaration line, or `--lsp off` for a static export. The saved run records unanswered declarations and their reasons.
 
 The package exports two native tools, `graphBuild` to create a snapshot and `graphQuery` to query it. Run them through the graph CLI from your project directory.
@@ -38,12 +40,13 @@ This one server carries everything: `build_graph`, `query_graph`, `refresh_graph
 In JavaScript, the saved-graph API and the native tools come from `@octocodeai/octocode-graph`:
 
 ```js
-import { buildGraph, openGraph, refreshGraph } from '@octocodeai/octocode-graph';
+import { buildGraph, openFreshGraph, openGraph, refreshGraph } from '@octocodeai/octocode-graph';
 
 const { out } = await buildGraph('.', { lsp: 'smart' });
 const graph = openGraph(out);                    // or a project directory: its newest saved graph
 graph.query('about src/main.ts');               // the same result objects as the CLI's --json
 await refreshGraph(out);                        // after edits; keeps previous.json
+(await openFreshGraph('.')).query('search main'); // refreshes edited chunks first, then answers
 openGraph(out).diffFrom(`${out}/previous.json`); // review findings and every changed dependency
 ```
 
@@ -55,8 +58,8 @@ Each new build needs a fresh result directory. Omit `--out` to allocate one auto
 
 | Command | Result |
 | --- | --- |
-| `octocode-graph build <directory> [--out <result-dir>]` | Build a stitched graph, evidence and briefs. |
-| `octocode-graph query <result-dir> "deps src/main.ts"` | Query a saved graph or a live checkpoint. A project directory selects its newest saved graph. |
+| `octocode-graph build <directory> [--out <result-dir>]` | Build a stitched graph, evidence and briefs, and register the result for its root. A directory inside a workspace names the workspace packages it left as externals and the build of the workspace root that stitches them. |
+| `octocode-graph query <result-dir> "deps src/main.ts" [--refresh]` | Query a saved graph or a live checkpoint. A project directory selects its newest saved graph under `.octocode/octocode-graph`, else the newest one registered for it (built with `--out` elsewhere). `--refresh` refreshes edited chunks first. |
 | `octocode-graph refresh <result-dir>` | After edits, rebuild only the chunks holding a change, ask the language server again only about code an edit could change, and measure the whole graph again. The replaced graph stays as `previous.json`. |
 | `octocode-graph diff <result-dir>` or `diff <before> <after>` | Review a change by structure: new or grown cycles, new package dependencies (flagged against stability), files with more dependents, new hotspots, then every dependency added or removed. |
 | `octocode-graph html <result-dir> <new.html>` | Save a self-contained interactive HTML file with the full replay and queryable graph. Open it directly in a modern browser with WebGL. Saved queries run in a browser worker. |
@@ -76,7 +79,7 @@ npx octocode-graph query .octocode/first-run 'order src/main.ts --imports'
 npx octocode-graph query .octocode/first-run 'trace src/main.ts DEFINES CALLS+' --json
 ```
 
-`search` ranks files and symbols by how their name matches (exact ignoring case and separators, prefix, word initials, substring, every word, path, then letters in order) and then by call sites and PageRank. `about` answers everything adjacent to one file or symbol. A project directory selects its newest saved graph; stderr names the run and any graph file edited since it was written.
+`search` ranks files and symbols by how their name matches (exact ignoring case and separators and prefix always first, then word initials, substring, every word, path) fused with BM25F over each declaration's words, path, doc comment, the names it calls and its signature (from `search-index.json`, built beside `data.json` on the first search), then by call sites and PageRank; `--kind`, `--lang`, `--role`, `--path`, `--exported`, `--param` and `--returns` filter, `--provider` reranks the top 20 through the configured `clasify` provider. `context <files|symbols> --tokens N` maps what surrounds them by personalized PageRank under a token budget. `about` answers everything adjacent to one file or symbol. A project directory selects its newest saved graph, including one built with `--out` elsewhere (the per-user graph registry in `$OCTOCODE_HOME/graph-registry`, default `~/.octocode`); stderr names the run, and every answer warns of graph files edited since it was written. Add `--refresh` to rebuild the chunks holding them before answering.
 
 The first query lists prerequisite groups before their consumers, including the source evidence for each crossing. The second follows declarations and one or more calls, returning matching endpoints and the witnesses on accepting walks. Both commands also work in the viewer. [Saved query syntax](skills/octocode-graph/references/query.md)
 

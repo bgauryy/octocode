@@ -22,8 +22,9 @@ pub(crate) struct Linker<'r> {
     pub(crate) member_data: &'r dyn Fn(u32) -> bool,
     /// Enum members, which a written call constructs.
     pub(crate) enum_member: &'r dyn Fn(u32) -> bool,
-    /// Rust `macro_rules!` macros: the only targets of a macro invocation, and
-    /// never of a call.
+    /// Macros their grammar invokes with syntax of their own (Rust
+    /// `macro_rules!`): the only targets of a macro invocation, and never of a
+    /// call. A C-family `#define` is not one: a call reaches it.
     pub(crate) is_macro: &'r dyn Fn(u32) -> bool,
     /// Data members whose written type is a function type
     /// (`GraphFactDeclaration::function_typed`), by declaration node.

@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -33,6 +34,7 @@ function graph(dir) {
   const files = code(dir), W = [], S = [];
   for (const f of files) S.push({ id: f + '#' + f[0], path: f, symbolName: f[0], kind: 'function', line: 1, endLine: 1, exported: true });
   if (files.includes('a.ts') && files.includes('b.ts')) W.push({ edge: 'imports', from: 'a.ts', to: 'b.ts', path: 'a.ts', line: 1, confidence: 'high' }, { edge: 'calls', from: 'a.ts#a', to: 'b.ts#b', path: 'a.ts', line: 1, confidence: 'high' });
+  if (has(dir, 'a.ts', "from 'c'")) W.push({ edge: 'imports', from: 'a.ts', to: 'pkg:c', path: 'a.ts', line: 1, confidence: 'high' });
   if (has(dir, 'b.ts', 'function h')) { S.push({ id: 'b.ts#h', path: 'b.ts', symbolName: 'h', kind: 'function', line: 2, endLine: 2, exported: true }); W.push({ edge: 'calls', from: 'b.ts#h', to: 'a.ts#a', path: 'b.ts', line: 2, confidence: 'high' }); }
   return { files, W, S };
 }
@@ -58,26 +60,30 @@ else if (a[0] === 'graphBuild') {
   else out({ graph: { id: row.graph }, rows: [], summary: { health: {}, byDetector: {} } });
 }`;
 
-function fakeRepo() {
+const REPO = {
+  'pkg/a/package.json': '{"name":"a"}\n', 'pkg/a/a.ts': "import { b } from './b';\n", 'pkg/a/b.ts': 'export function b() {}\n',
+  'pkg/c/package.json': '{"name":"c"}\n', 'pkg/c/c.ts': 'export function c() {}\n',
+};
+
+// `src` written under <base>/repo and built from its `sub` directory, the build's root, into <base>/result.
+function fakeRepo({ src = REPO, sub = '.' } = {}) {
   const base = tempDir('graph-refresh-');
-  const root = join(base, 'repo');
-  const src = {
-    'pkg/a/package.json': '{"name":"a"}\n', 'pkg/a/a.ts': "import { b } from './b';\n", 'pkg/a/b.ts': 'export function b() {}\n',
-    'pkg/c/package.json': '{"name":"c"}\n', 'pkg/c/c.ts': 'export function c() {}\n',
-  };
+  const repo = join(base, 'repo');
+  const root = join(repo, sub);
   for (const [name, text] of Object.entries(src)) {
-    mkdirSync(dirname(join(root, name)), { recursive: true });
-    writeFileSync(join(root, name), text);
+    mkdirSync(dirname(join(repo, name)), { recursive: true });
+    writeFileSync(join(repo, name), text);
   }
   const cli = join(base, 'cli.cjs');
   writeFileSync(cli, FAKE, { mode: 0o755 });
-  // The repository is the workspace: the engine answers paths relative to it, as the fake does.
-  const env = { OCTOCODE_CLI: `${process.execPath} ${cli}`, FAKE_ROOT: root, FAKE_STATE: join(base, 'state.json'), WORKSPACE_ROOT: root };
+  // The build root is the workspace: the engine answers paths relative to it, as the fake does. The graph registry
+  // lives in this test's own Octocode home.
+  const env = { OCTOCODE_CLI: `${process.execPath} ${cli}`, FAKE_ROOT: root, FAKE_STATE: join(base, 'state.json'), WORKSPACE_ROOT: root, OCTOCODE_HOME: join(base, 'home') };
   Object.assign(process.env, env);
   const out = join(base, 'result');
   const r = spawnSync(process.execPath, [join(here, 'commands', 'build.ts'), root, '--out', out, '--lsp', 'off'], { encoding: 'utf8', cwd: root, env: { ...process.env, ...env } });
   assert.equal(r.status, 0, r.stderr);
-  return { root, out, builds: () => readFileSync(env.FAKE_STATE, 'utf8').trim().split('\n') };
+  return { base, repo, root, out, env: { ...process.env, ...env }, build: r, builds: () => readFileSync(env.FAKE_STATE, 'utf8').trim().split('\n') };
 }
 
 const collect = () => {
@@ -182,4 +188,98 @@ test('the refresh command hands a run a live viewer serves to that viewer and pr
   const summary = JSON.parse(stdout);
   assert.deepEqual([summary.out, summary.chunks, summary.changed, 'ok' in summary], [out, ['pkg-a'], ['pkg/a/a.ts'], false]);
   assert.equal(spawnSync(process.execPath, [join(here, 'commands', 'refresh.ts'), '--help'], { encoding: 'utf8' }).status, 0);
+});
+
+// Files edited after the graph was written: every file is dated two hours back and the graph one hour back, so only
+// what a test writes next is newer than the graph (dates set, not waited for).
+const ageGraph = (fake) => {
+  const at = (hours) => new Date(Date.now() - hours * 3600_000);
+  for (const p of readdirSync(fake.repo, { recursive: true }))
+    if (!String(p).includes('.octocode')) utimesSync(join(fake.repo, String(p)), at(2), at(2));
+  utimesSync(join(fake.out, 'data.json'), at(1), at(1));
+};
+const queryCli = (fake, ...args) => spawnSync(process.execPath, [join(here, 'commands', 'query.ts'), ...args], { encoding: 'utf8', cwd: fake.base, env: fake.env });
+
+test('a build and its refreshes register the result for its root: query <root> finds it from anywhere', () => {
+  const fake = fakeRepo();
+  const registry = join(fake.env.OCTOCODE_HOME, 'graph-registry');
+  assert.equal(readdirSync(registry, { recursive: true }).filter((p) => String(p).endsWith('.json')).length, 1);
+  const r = queryCli(fake, fake.root, 'search b', '--json');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, new RegExp(`answering from ${fake.out.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\(registered for`));
+  assert.ok(JSON.parse(r.stdout).rows.some((row) => row.id === 'pkg/a/b.ts'));
+});
+
+test('query --refresh refreshes the chunks holding edited files first and answers from the refreshed graph', () => {
+  const fake = fakeRepo();
+  ageGraph(fake);
+  writeFileSync(join(fake.root, 'pkg/a/b.ts'), 'export function b() {}\nexport function h() { a(); }\n');
+  // Without --refresh: the answer comes from the graph as written and names the option.
+  const stale = queryCli(fake, fake.out, 'search h', '--json');
+  const before = JSON.parse(stale.stdout);
+  assert.deepEqual(before.staleFiles, ['pkg/a/b.ts']);
+  assert.match(before.warnings[0], /--refresh/);
+  assert.deepEqual(fake.builds().slice(2), []);
+  const r = queryCli(fake, fake.out, 'search h', '--json', '--refresh');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /refreshed 1 changed file, 0 added files and 0 removed files \(rebuilt chunks: pkg-a\)/);
+  assert.deepEqual(fake.builds().slice(2), ['pkg/a'], 'only the edited chunk is built again');
+  const after = JSON.parse(r.stdout);
+  assert.equal(after.staleFiles, undefined);
+  assert.ok(after.rows.some((row) => row.symbol === 'pkg/a/b.ts#h'), 'the answer holds the edit');
+  // Unchanged since: --refresh answers directly.
+  const again = queryCli(fake, fake.out, 'search h', '--json', '--refresh');
+  assert.equal(again.status, 0, again.stderr);
+  assert.doesNotMatch(again.stderr, /refreshed/);
+  assert.deepEqual(fake.builds().slice(3), []);
+  // A file touched without a change: the refresh finds nothing to rebuild and marks the graph checked.
+  ageGraph(fake);
+  const now = new Date();
+  utimesSync(join(fake.root, 'pkg/c/c.ts'), now, now);
+  const touched = queryCli(fake, fake.out, 'search c', '--json', '--refresh');
+  assert.match(touched.stderr, /rebuilt chunks: none/);
+  assert.deepEqual(fake.builds().slice(3), []);
+  assert.equal(JSON.parse(touched.stdout).staleFiles, undefined);
+});
+
+test('MCP query_graph refresh: true refreshes edited chunks before answering', { timeout: 30000 }, async (t) => {
+  const fake = fakeRepo();
+  ageGraph(fake);
+  writeFileSync(join(fake.root, 'pkg/a/b.ts'), 'export function b() {}\nexport function h() { a(); }\n');
+  const child = spawn(process.execPath, [join(here, 'commands', 'mcp.ts')], { cwd: fake.base, env: fake.env, stdio: ['pipe', 'pipe', 'ignore'] });
+  t.after(() => child.kill());
+  const waiting = new Map();
+  createInterface({ input: child.stdout }).on('line', (line) => {
+    const m = JSON.parse(line);
+    waiting.get(m.id)?.(m);
+  });
+  const ask = (id, method, params) => new Promise((ok) => {
+    waiting.set(id, ok);
+    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+  });
+  await ask(1, 'initialize', { protocolVersion: '2025-06-18', capabilities: {} });
+  const q = await ask(2, 'tools/call', { name: 'query_graph', arguments: { result: fake.root, query: 'search h', refresh: true, format: 'json' } });
+  assert.notEqual(q.result.isError, true, q.result.content[0].text);
+  const r = JSON.parse(q.result.content[0].text);
+  assert.ok(r.rows.some((row) => row.symbol === 'pkg/a/b.ts#h'), q.result.content[0].text);
+  assert.equal(r.staleFiles, undefined);
+  assert.deepEqual(fake.builds().slice(2), ['pkg/a']);
+});
+
+test('a build rooted inside a workspace names the workspace packages it treated as externals and the build that stitches them', () => {
+  const fake = fakeRepo({
+    src: {
+      'package.json': '{"name":"mono","workspaces":["pkg/*"]}\n',
+      'pkg/a/package.json': '{"name":"a"}\n', 'pkg/a/a.ts': "import { c } from 'c';\n",
+      'pkg/c/package.json': '{"name":"c"}\n', 'pkg/c/c.ts': 'export function c() {}\n',
+    },
+    sub: 'pkg/a',
+  });
+  const note = `1 package of the npm workspace at ${fake.repo} was treated as an external, not stitched: c (1 import); their imports end at a package node. To follow them into those packages, build the workspace root (a larger build): `;
+  assert.ok(fake.build.stderr.includes(note), fake.build.stderr);
+  assert.match(fake.build.stderr, new RegExp(` build ${fake.repo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} --lsp off\\n`));
+  const D = JSON.parse(readFileSync(join(fake.out, 'data.json'), 'utf8'));
+  assert.deepEqual(D.coverage.workspaceExternals.map((w) => [w.root, w.packages.map((p) => [p.id, p.paths, p.imports])]), [[fake.repo, [['pkg:c', ['pkg/c'], 1]]]]);
+  assert.ok(readFileSync(join(fake.out, 'brief.txt'), 'utf8').includes(`SCOPE ${note}`));
+  assert.ok(existsSync(join(fake.out, 'brief.txt')));
 });

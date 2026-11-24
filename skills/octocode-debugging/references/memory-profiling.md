@@ -13,7 +13,7 @@ Load when memory grows, GC time or pauses dominate, RSS disagrees with heap numb
 | Mapped and shared | File mappings, shared memory, shared library pages | `smaps` per mapping; summing processes double-counts shared pages |
 | Allocator reserve and fragmentation | Freed memory the allocator keeps or cannot return | RSS minus live allocated bytes |
 
-When RSS grows and the managed heap after GC is flat, the growth is native memory, buffers, allocator retention, JIT code or mappings, not the managed objects.
+When RSS grows and the managed heap after GC is flat, the growth is garbage the runtime has not collected yet, native memory, buffers, allocator retention, JIT code or mappings, not live managed objects. Compare RSS with heap used (garbage included) at the same moment: if they rise together and a forced collection brings RSS back, it is uncollected garbage. On macOS, `vmmap --summary` lists V8's heap pages as `Memory Tag 255`.
 
 ## Churn, retention or peak
 
@@ -38,6 +38,7 @@ Cumulative allocation (`alloc_space`, an allocation timeline) answers churn; liv
 | Pattern | Meaning | Next step |
 |---|---|---|
 | High GC share, heap after GC flat | Churn | Cut allocations at the top allocation sites: reuse buffers, pre-size collections, avoid intermediate copies and string building in loops |
+| RSS climbs for many cycles, heap after a forced GC flat, old or large-object space used rising between collections | Churn on a host with spare RAM: the GC lets the heap grow before a full collection | Measure bytes allocated per operation, collected objects included ([Node](node-profiling.md#allocation-churn)), and cut the top sites; a lower heap limit only trades RSS for GC CPU |
 | Heap after GC rises every cycle | Retention | Snapshot diff and retainer path |
 | Heap near its limit, back-to-back full collections | GC thrash before an OOM | Find the retention; raising the limit only delays it if the growth is a leak |
 | Long pauses at moderate heap | Large old generation, many pointers to scan, finalizers | Compare collectors and pause logs; pointer-free data is cheaper to scan |

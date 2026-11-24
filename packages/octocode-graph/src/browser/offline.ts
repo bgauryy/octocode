@@ -31,8 +31,15 @@ const view = openSavedGraph(text => {
     });
     source.remove();
     const bytes = takeBytes('saved-data');
+    // An export written before the search sidecar has none: search then ranks without doc comments.
+    const search = document.getElementById('saved-search')
+      ? takeBytes('saved-search')
+      : undefined;
     const root: unknown = JSON.parse(byId('saved-root').textContent ?? '');
-    worker.postMessage({ bytes, root } satisfies WorkerRequest, [bytes.buffer]);
+    worker.postMessage({ bytes, root, search } satisfies WorkerRequest, [
+      bytes.buffer,
+      ...(search ? [search.buffer] : []),
+    ]);
     worker.addEventListener('message', ({ data }: MessageEvent<QueryAnswer>) =>
       view.answer(data)
     );

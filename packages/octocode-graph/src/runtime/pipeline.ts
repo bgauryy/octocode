@@ -14,19 +14,23 @@ import {
   rmSync,
 } from 'node:fs';
 import { availableParallelism } from 'node:os';
-import { join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import {
   errorMessage,
   withToolHook,
   prepareGraphRun,
   answerBase,
   nativeWorkspaceRoot,
+  engineRootFor,
+  withEngineRoot,
 } from './lib.ts';
 import type { GraphLimits } from './lib.ts';
 import { planChunks, refine, name } from './plan.ts';
 import { buildSection, CHUNK_DATA } from './section.ts';
 import type { SectionEmit, StreamedRows } from './section.ts';
 import { chunkDeclarations, chunkOf, packageKey, stitch } from './stitch.ts';
+import { graphBuild } from './graph-pages.ts';
+import { RunCache, type CacheSettings } from './graph-cache.ts';
 import { computeMetrics } from './metrics.ts';
 import { describeCall, pagedTool, responseShape, rowsOf } from './tools.ts';
 import { writeBrief } from './render.ts';
@@ -38,8 +42,15 @@ import {
   warmLanguageServers,
 } from './lsp.ts';
 import { readLinks } from './links.ts';
+import { recordRun } from './registry.ts';
+import {
+  workspaceExternals,
+  workspaceNote,
+  type OutsideImportRow,
+} from './workspace-scope.ts';
 import type { LspData, LspEvent } from './lsp.ts';
 import { verifyPhase } from './verify.ts';
+import { measurePackages } from './package-closure.ts';
 import { buildWiki } from './wiki.ts';
 import type {
   Chunk,
@@ -85,6 +96,8 @@ export interface RunContext {
   changed?: string[];
   /** The links of the graph a refresh replaces: a citation whose cited span changed since then is stale. */
   previousLinks?: Link[];
+  /** The shared graph cache (graph-cache.ts): chunk results and LSP answers other runs computed. */
+  cache?: RunCache;
 }
 
 /** Reports one phase's state (start, done, skipped) with its elapsed time. */
@@ -111,6 +124,8 @@ export interface RunHeaderEvent extends RunEvent {
   out: string;
   options: RunOptions;
   startedAt: string;
+  /** The engine's workspace root for this run: a refresh started elsewhere roots the engine there (lib.ts). */
+  workspace?: string;
 }
 
 /** The `plan` event: the chunk plan before any chunk is built. */
@@ -278,8 +293,60 @@ function rebase(kind: string, rows: unknown[], prefix: string) {
   }));
 }
 
+// The listed files a chunk owns, relative to its section (a file section: the file's name).
+function chunkFiles(c: Chunk, ctx: RunContext) {
+  if (ctx.opts.file) return [ctx.opts.file.split('/').pop()!];
+  const prefix = prefixOf(c.path);
+  return ctx.files
+    .filter(p => chunkOf(p, ctx.chunks)?.id === c.id)
+    .map(p => p.slice(prefix.length));
+}
+
+// A chunk answered from the graph cache: graphBuild publishes (or reuses) its snapshot, so the freshness checks and a
+// later refresh query a live one, and the rows stream once per kind as a replay reads them. Null when the engine's
+// snapshot disagrees with the cached one, or the tree changed during the build: the chunk then builds in full.
+async function fromCache(
+  c: Chunk,
+  ctx: RunContext,
+  probe: Awaited<ReturnType<RunCache['chunk']>>,
+  section: string,
+  exclude: string[],
+  onRows: SectionEmit
+) {
+  let snap;
+  try {
+    snap = await graphBuild(
+      { path: section, ...(exclude.length ? { exclude } : {}) },
+      { onProgress: line => onRows('build', [], { line }) }
+    );
+  } catch (error) {
+    if (/changed during graph analysis/.test(errorMessage(error))) return null;
+    throw error;
+  }
+  const d = await probe.restore(join(ctx.out, 'chunks', c.id), snap);
+  if (!d) return null;
+  onRows('snapshot', [], {
+    id: snap.graph,
+    counts: snap.counts,
+    linkage: snap.linkage?.ratio,
+  });
+  for (const kind of ['files', 'witnesses', 'symbols']) {
+    const rows = chunkRows(kind, d, prefixOf(c.path));
+    ctx.emit({
+      type: 'rows',
+      chunk: c.id,
+      kind,
+      rows,
+      page: 1,
+      total: rows.length,
+    });
+  }
+  return d;
+}
+
 // One chunk's snapshot and graph pages; `ctx.datas` receives its data. A chunk the graph refuses as too broad
-// is refined into parts that replace it in `ctx.chunks` and are returned for building.
+// is refined into parts that replace it in `ctx.chunks` and are returned for building. An unchanged chunk another
+// run built comes from the graph cache without paging.
 export async function buildChunk(c: Chunk, ctx: RunContext): Promise<Chunk[]> {
   const { root, out, opts, emit } = ctx;
   const t0 = Date.now();
@@ -304,14 +371,32 @@ export async function buildChunk(c: Chunk, ctx: RunContext): Promise<Chunk[]> {
     const crossPackages = others.length
       ? new Set(others.filter(x => x.package).map(x => packageKey(x.package)))
       : null;
-    const d = await buildSection(join(root, opts.file ?? c.path), {
-      out: join(out, 'chunks', c.id),
-      ...ctx.contract,
-      jobs: opts.jobs,
-      exclude: [...opts.exclude, ...(c.exclude ?? [])],
-      emit: onRows,
-      crossPackages,
+    const section = join(root, opts.file ?? c.path);
+    const exclude = [...opts.exclude, ...(c.exclude ?? [])];
+    const probe = await ctx.cache?.chunk({
+      id: c.id,
+      section,
+      sectionDir: opts.file ? dirname(section) : section,
+      files: chunkFiles(c, ctx),
+      exclude,
+      file: opts.file ?? null,
+      cross: crossPackages !== null,
+      extensions: ctx.contract.extensions,
     });
+    const cached = probe?.hit
+      ? await fromCache(c, ctx, probe, section, exclude, onRows)
+      : null;
+    const d =
+      cached ??
+      (await buildSection(section, {
+        out: join(out, 'chunks', c.id),
+        ...ctx.contract,
+        jobs: opts.jobs,
+        exclude,
+        emit: onRows,
+        crossPackages,
+      }));
+    if (!cached) await probe?.store(join(out, 'chunks', c.id), d);
     ctx.datas.set(c.id, d);
     emit({
       type: 'chunk',
@@ -319,6 +404,7 @@ export async function buildChunk(c: Chunk, ctx: RunContext): Promise<Chunk[]> {
       state: 'done',
       ms: Date.now() - t0,
       counts: d.coverage,
+      ...(probe && { cache: cached ? 'hit' : probe.key ? 'miss' : 'off' }),
     });
     return [];
   } catch (error) {
@@ -408,11 +494,34 @@ function packageManifests(
   }
 }
 
+// A root inside a workspace imports the workspace's other packages from outside (package nodes, or imports left
+// unresolved out of the root): the build says which, how many imports each had, and the build of the workspace root
+// that stitches them (workspace-scope.ts).
+function scopeNotes(
+  D: GraphData,
+  unresolved: OutsideImportRow[],
+  { root, opts, emit }: RunContext
+) {
+  const scoped = workspaceExternals(
+    root,
+    { externals: D.externals ?? [], unresolved },
+    {
+      ...(opts.lsp !== defaults().lsp && { lsp: opts.lsp }),
+      exclude: opts.exclude,
+    }
+  );
+  if (!scoped.length) return;
+  D.coverage.workspaceExternals = scoped;
+  for (const w of scoped)
+    emit({ type: 'note', level: 'warn', text: workspaceNote(w) });
+}
+
 export function stitchPhase(ctx: RunContext) {
   const { root, chunks, datas, files, emit } = ctx;
   const s = stitch({ root, chunks, datas, files });
   const D = s.whole;
   if (ctx.opts?.file) D.section = join(root, ctx.opts.file);
+  scopeNotes(D, s.unresolved, ctx);
   // One chunk: keep its section-wide health, which stitching cannot merge across chunks.
   if (datas.size === 1)
     D.insights.health = [...datas.values()][0].insights.health;
@@ -500,6 +609,7 @@ export async function finishRun(
         declarations: chunkDeclarations(ctx.chunks, ctx.datas),
         receiverSources: receiverSourcesOf(ctx),
         carried: lsp.carried,
+        cache: await ctx.cache?.probes(root),
         jobs: opts.jobs,
         batchSize: ctx.contract.lspBatch!,
         emit(event) {
@@ -515,16 +625,24 @@ export async function finishRun(
         },
       });
       current = null;
-      phase('lsp', D.callStats.probed ? 'done' : 'skipped', {
-        note: D.callStats.lsp,
-        lspState: D.callStats.lsp,
-      });
+      phase(
+        'lsp',
+        D.callStats.probed || cachedAnswers(D) ? 'done' : 'skipped',
+        {
+          note: D.callStats.lsp,
+          lspState: D.callStats.lsp,
+        }
+      );
     }
     return await finishVerified(D, ctx, phase);
   } finally {
     publish?.(null);
   }
 }
+
+// Declarations the LSP pass answered from the graph cache (lsp.ts `cached`).
+const cachedAnswers = (D: GraphData) =>
+  (D.callStats as { cached?: number } | undefined)?.cached ?? 0;
 
 const CALLABLE_OR_MEMBER = new Set([
   'function',
@@ -585,6 +703,13 @@ async function finishVerified(D: GraphData, ctx: RunContext, phase: Phase) {
   );
   D.links = linked.links;
   D.unresolvedLinks = linked.unresolved;
+  // Each external package's bytes: a found bundle's, else its installed closure (package-closure.ts).
+  D.externals = measurePackages(D, {
+    root,
+    bases: ctx.chunks.map(c => join(root, c.path)),
+    cache: ctx.cache?.settings.enabled ?? true,
+    ...(ctx.cache && { home: ctx.cache.home }),
+  });
   computeMetrics(D);
   // computeMetrics measured D.
   const M = D as MeasuredGraph;
@@ -622,10 +747,21 @@ export interface PipelineOptions {
   emit: Emit;
   signal?: AbortSignal;
   publish?: Publish;
+  /** The shared graph cache: on unless `enabled` is false (`--no-cache`). */
+  cache?: CacheSettings;
 }
 
-export function runPipeline(options: PipelineOptions) {
-  return reportTools(options.emit, () => buildPipeline(options));
+// The engine root is settled before any event: the `run` header must stay the log's first line, and the call that
+// reads the workspace setting would otherwise be logged ahead of it. A CLI that cannot answer it keeps the default
+// root: the run's own contract check (prepareGraphRun) then reports the real cause after the header.
+export async function runPipeline(options: PipelineOptions) {
+  const engineRoot = await engineRootFor(options.root).catch(() => null);
+  return withEngineRoot(engineRoot, async () => {
+    const workspace = await nativeWorkspaceRoot().catch(() => undefined);
+    return reportTools(options.emit, () =>
+      buildPipeline({ ...options, workspace })
+    );
+  });
 }
 
 async function buildPipeline({
@@ -635,7 +771,9 @@ async function buildPipeline({
   emit,
   signal,
   publish,
-}: PipelineOptions) {
+  workspace,
+  cache = { enabled: true },
+}: PipelineOptions & { workspace: string | undefined }) {
   const t0 = Date.now();
   const phase: Phase = (id, state, extra = {}) =>
     emit({ type: 'phase', id, state, ms: Date.now() - t0, ...extra });
@@ -647,7 +785,10 @@ async function buildPipeline({
     out,
     options: opts,
     startedAt: new Date().toISOString(),
+    workspace,
   });
+  // The per-user registry finds this result for `query <root>` wherever --out put it (registry.ts).
+  recordRun(root, out, text => emit({ type: 'note', level: 'warn', text }));
   const contract = await prepareGraphRun();
   phase('list', 'start');
   // --exclude prunes directory names everywhere, as ingest does, so excluded trees are never planned.
@@ -694,6 +835,7 @@ async function buildPipeline({
     contract,
     datas: new Map(),
     used: new Set(chunks.map(c => c.id)),
+    cache: new RunCache(cache, emit),
   };
   // The language servers start while the graph is read; the LSP phase then finds them ready.
   if (opts.lsp !== 'off' && contract.lspBatch !== null && !signal?.aborted)
@@ -725,6 +867,7 @@ async function buildPipeline({
     data: join(out, 'data.json'),
     brief: briefs.brief,
     coverage: D.coverage,
+    cache: ctx.cache!.summary(),
   });
   return D;
 }

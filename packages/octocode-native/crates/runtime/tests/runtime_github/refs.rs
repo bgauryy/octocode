@@ -85,7 +85,7 @@ async fn pinned_ref_code_search_warns_and_names_the_route_in_words() {
         data["warnings"],
         json_fixture(
             r#"[
-                "Candidate files come from the default-branch index at fedcba9, not dev: a file whose keywords match only at dev (it exists only there, or its text changed since) cannot appear, so absence proves nothing; list the files at dev and read them with `matchString`; `matches` read at dev."
+                "`matches` read at dev; candidates come from the default-branch index at fedcba9, so a file matching only at dev is missing: list dev with ghStructure, read with matchString."
             ]"#
         ),
         "{data}"

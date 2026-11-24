@@ -111,6 +111,20 @@ fn missing_error_hint(tool: &dyn ToolOutput, data: &Value, query: &Value) -> Opt
         return None;
     }
     let code = crate::id::error_code_of(data)?;
+    // A rate limit whose row states when it resets, or offers a next read
+    // that spends no quota, needs no sentence restating the wait.
+    if matches!(
+        code,
+        ErrorCode::RateLimited | ErrorCode::ClassificationRateLimited
+    ) && (data.pointer("/rateLimit/retryAfterSeconds").is_some()
+        || data.pointer("/rateLimit/resetEpochSeconds").is_some()
+        || data
+            .get("next")
+            .and_then(Value::as_object)
+            .is_some_and(|next| !next.is_empty()))
+    {
+        return None;
+    }
     error_code_hint(tool, code, query).filter(|hint| !hint.is_empty())
 }
 

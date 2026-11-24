@@ -79,7 +79,7 @@ fn a_valid_call_is_untouched() {
         let sent = request(&row);
         assert_eq!(refusal(tool, &sent), None, "{tool:?} {row}");
         assert_eq!(
-            normalized_input(tool.as_str(), sent.clone()),
+            normalized_readings(tool.as_str(), sent.clone()),
             (sent, Vec::new()),
             "{tool:?}"
         );
@@ -94,7 +94,7 @@ fn a_non_object_row_is_reported_as_sent() {
         json_fixture(r#"{"queries": ["a"]}"#),
     ] {
         assert_eq!(
-            normalized_input("localSearch", sent.clone()),
+            normalized_readings("localSearch", sent.clone()),
             (sent, Vec::new())
         );
     }
@@ -108,7 +108,7 @@ fn a_non_object_row_is_reported_as_sent() {
 fn a_page_size_beside_a_cursor_is_dropped_and_said() {
     for size in [json!(60_000), json!("60000"), json!(null)] {
         let sent = json!({"cursor":"issued","responseChars":size});
-        let (input, notes) = normalized_input("localSearch", sent.clone());
+        let (input, notes) = normalized_readings("localSearch", sent.clone());
         assert_eq!(input, json_fixture(r#"{"cursor": "issued"}"#), "{sent}");
         assert_eq!(notes.len(), 1, "{sent}: {notes:?}");
         assert!(
@@ -129,7 +129,7 @@ fn a_page_size_beside_a_cursor_is_dropped_and_said() {
             }"#,
         ),
     ] {
-        let (input, notes) = normalized_input("localSearch", sent.clone());
+        let (input, notes) = normalized_readings("localSearch", sent.clone());
         assert!(notes.is_empty(), "{sent}: {notes:?}");
         assert_eq!(input, sent);
         crate::contracts::validate("localSearch", input).expect_err("refused");

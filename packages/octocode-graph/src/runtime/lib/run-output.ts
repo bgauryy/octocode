@@ -1,6 +1,39 @@
 // The exclusive log creation is the claim shared by live and headless writers.
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readSync,
+  writeFileSync,
+} from 'node:fs';
 import { basename, join, resolve } from 'node:path';
+
+/**
+ * A saved run's header, the first line of its events.jsonl, read without the rest of the log; null for a directory that
+ * is no saved run or has no readable header.
+ */
+export function runHeader(
+  dir: string
+): { root?: unknown; workspace?: unknown } | null {
+  let fd: number | undefined;
+  try {
+    fd = openSync(join(dir, 'events.jsonl'), 'r');
+    const head = Buffer.alloc(64 * 1024);
+    const text = head.toString(
+      'utf8',
+      0,
+      readSync(fd, head, 0, head.length, 0)
+    );
+    const first: unknown = JSON.parse(text.slice(0, text.indexOf('\n')));
+    return first && typeof first === 'object' ? first : null;
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
 
 /** The fields of a logged event the header check reads: every event's sequence number, a `run` header's project. */
 export interface LoggedEvent {

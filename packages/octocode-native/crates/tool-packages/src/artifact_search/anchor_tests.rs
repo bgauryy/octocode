@@ -150,11 +150,12 @@ fn an_empty_discovery_broadens_by_dropping_each_keyword() {
     assert!(data.get("related").is_none(), "{data}");
 }
 
-/// An empty search says what it searched (the registry and every keyword)
-/// in one hint, whether or not a broader search exists, and carries at most
-/// one call.
+/// An empty search with terms to drop names the registry and every term no
+/// package holds together in one hint, beside its one broader call; the hint
+/// never explains that call. A lone term has nothing to drop: `status`
+/// says it all, and no hint restates it.
 #[test]
-fn an_empty_search_states_what_was_searched_in_one_hint() {
+fn an_empty_search_names_its_terms_only_when_it_broadens() {
     for keywords in [vec!["zzz"], vec!["zzz", "async"], vec!["zzz async"]] {
         let query = typed(&json!({
             "operation": "search",
@@ -163,17 +164,22 @@ fn an_empty_search_states_what_was_searched_in_one_hint() {
         }));
         let data = respond(&query, ArtifactProviderPage::empty(Some(0))).expect("empty");
         assert_eq!(data["status"], "empty", "{data}");
-        let hints = data["hints"].as_array().expect("hints");
-        assert_eq!(hints.len(), 1, "{data}");
-        let hint = hints[0].as_str().expect("text");
-        assert!(hint.contains("crates"), "{hint}");
-        for keyword in &keywords {
-            assert!(hint.contains(keyword), "{keyword}: {hint}");
-        }
         let calls = data["related"].as_array().map_or(0, Vec::len);
         assert!(calls <= 1, "{data}");
-        // The hint names a related call only when the row carries one.
-        assert_eq!(hint.contains("related"), calls == 1, "{data}");
+        let hints = data["hints"].as_array().map_or(&[][..], Vec::as_slice);
+        assert_eq!(
+            hints.len(),
+            calls,
+            "a hint only beside a broader call: {data}"
+        );
+        for hint in hints {
+            let hint = hint.as_str().expect("text");
+            assert!(hint.contains("crates"), "{hint}");
+            for keyword in &keywords {
+                assert!(hint.contains(keyword), "{keyword}: {hint}");
+            }
+            assert!(!hint.contains("related"), "{hint}");
+        }
     }
 }
 
@@ -242,7 +248,10 @@ fn failures_carry_one_repair_lead() {
     ));
     let mut missing = ArtifactError::version_not_found("no 3.22.9");
     missing.nearest = vec!["3.22.4".into(), "3.22.0".into()];
-    let next = leads::with_repair(missing, &pinned).calls.expect("lead");
+    let repaired = leads::with_repair(missing, &pinned);
+    // The repair reads the published versions: no hint says to discover them.
+    assert!(repaired.hints.is_empty(), "{:?}", repaired.hints);
+    let next = repaired.calls.expect("lead");
     let versions = next["repair"]["input"]["queries"]
         .as_array()
         .expect("batch")
@@ -251,6 +260,10 @@ fn failures_carry_one_repair_lead() {
         .collect::<Vec<_>>();
     assert_eq!(versions, [json!("3.22.4"), json!("3.22.0")], "{next}");
 
+    // No published version to suggest: the hint stays beside the latest read.
+    let unranked = leads::with_repair(ArtifactError::version_not_found("no 3.22.9"), &pinned);
+    assert_eq!(unranked.hints.len(), 1, "{:?}", unranked.hints);
+    assert!(unranked.calls.is_some(), "{unranked:?}");
     let latest = leads::with_repair(
         ArtifactError::new(ErrorCode::CapabilityUnavailable, "x"),
         &pinned,
@@ -310,9 +323,10 @@ fn failures_carry_one_repair_lead() {
 
 /// A missing version's repair reads as many nearest versions as one call
 /// carries (the contract's batch limit), newest first; when the registry has
-/// fewer, a hint says so, and a full call needs none.
+/// fewer, the call reads every one. Either way the call is the recovery, and
+/// no hint restates it.
 #[test]
-fn a_missing_version_repair_fills_one_call_or_says_why_not() {
+fn a_missing_version_repair_fills_one_call_or_reads_every_version() {
     let limit = octocode_runtime_base::contracts::batch_limit(
         octocode_runtime_base::id::ToolId::ArtifactSearch,
     )
@@ -344,18 +358,32 @@ fn a_missing_version_repair_fills_one_call_or_says_why_not() {
         .map(|patch| format!("8.3.{patch}"))
         .collect::<Vec<_>>();
     assert_eq!(versions(&error), newest);
-    assert_eq!(error.hints.len(), 1, "{:?}", error.hints);
+    assert!(error.hints.is_empty(), "{:?}", error.hints);
 
     let few =
         crate::artifact::version_not_found(ArtifactType::Npm, "vite", "99.0.0", &published[..2]);
     let error = leads::with_repair(few, &pinned);
     assert_eq!(versions(&error), ["8.3.1", "8.3.0"]);
-    assert!(
-        error
-            .hints
-            .iter()
-            .any(|hint| hint.starts_with("Only 2 published")),
-        "{:?}",
-        error.hints
+    assert!(error.hints.is_empty(), "{:?}", error.hints);
+}
+
+/// A package the registry does not know gets one short recovery, naming the
+/// field to correct; a related search beside it is its own (the hint never
+/// explains it), and a refused registry host gets no text beside the error,
+/// which names the one setting that permits it.
+#[test]
+fn the_recovery_hints_name_a_field_and_stay_short() {
+    use octocode_runtime_base::response::output::ToolOutput;
+    let hint = super::Output
+        .error_hint(ErrorCode::NotFound, &json!({}))
+        .expect("not-found hint");
+    assert!(hint.contains("packageName"), "{hint}");
+    assert!(!hint.contains("related"), "{hint}");
+    assert!(hint.len() <= 150, "{} chars: {hint}", hint.len());
+    let refused = octocode_runtime_base::response::rows::error_code_hint(
+        &super::Output,
+        ErrorCode::SecurityValidationFailed,
+        &json!({}),
     );
+    assert!(refused.is_none_or(str::is_empty), "{refused:?}");
 }

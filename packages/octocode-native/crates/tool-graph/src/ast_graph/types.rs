@@ -35,6 +35,10 @@ pub(crate) struct Declaration {
     /// A data member of a function type (see
     /// `GraphFactDeclaration::function_typed`).
     pub function_typed: bool,
+    /// The parameter list and return type as written
+    /// (`GraphFactDeclaration::params`, `returns`).
+    pub params: Option<String>,
+    pub returns: Option<String>,
 }
 
 impl Declaration {
@@ -65,6 +69,19 @@ pub(crate) struct Import {
     /// A Rust `use` written inside an inline module (`mod tests { use ..; }`):
     /// it binds names in that module, not at the file's top level.
     pub inline: bool,
+    /// The edge kind the import links as (`static-import`, `type-import`,
+    /// `rust-use`, ...), which an import of a package keeps on its witness.
+    pub kind: &'static str,
+}
+/// A load of a third-party package by a form that is not an import binding:
+/// `import('pkg')`, `require('pkg')`, `export … from 'pkg'`.
+#[derive(Clone, Debug)]
+pub(crate) struct PackageLoad {
+    pub specifier: String,
+    pub line: u32,
+    /// The edge kind of the load (`dynamic-import`, `commonjs-require`,
+    /// `named-reexport`, ...).
+    pub kind: &'static str,
 }
 /// A `require` binding the engine proved (`const x = require('./m')`): it
 /// links calls like an import, and the variable that holds it is never a
@@ -178,6 +195,10 @@ pub(crate) struct FileFacts {
     pub imports: Vec<Import>,
     /// Proven CommonJS bindings; their loads are file edges already.
     pub commonjs: Vec<CommonJsBinding>,
+    /// Loads of a third-party package that bind no import of their own (a
+    /// dynamic `import()`, a `require` call, a re-export): with
+    /// [`Self::imports`], every package the file loads.
+    pub package_loads: Vec<PackageLoad>,
     pub reexports: Vec<Reexport>,
     /// Line of each linked re-export statement (named or `*`), by target.
     pub reexport_lines: Vec<(String, u32)>,
@@ -230,6 +251,7 @@ impl FileFacts {
         self.declarations.shrink_to_fit();
         self.imports.shrink_to_fit();
         self.commonjs.shrink_to_fit();
+        self.package_loads.shrink_to_fit();
         self.reexports.shrink_to_fit();
         self.reexport_lines.shrink_to_fit();
         self.calls.shrink_to_fit();
@@ -310,6 +332,10 @@ pub(crate) struct Diagnostic {
     /// The scanned file the diagnostic is about, when that is not `file`
     /// (the file an unlinked path import names).
     pub target: Option<String>,
+    /// The edge kind the import would have linked as (`type-import`,
+    /// `dynamic-import`, ...), for an `outside-root` or
+    /// `unresolved-internal` diagnostic of an import; `None` otherwise.
+    pub import_kind: Option<&'static str>,
 }
 
 impl Diagnostic {
@@ -325,6 +351,7 @@ impl Diagnostic {
             code,
             message,
             target: None,
+            import_kind: None,
         }
     }
 }

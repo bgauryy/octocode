@@ -46,6 +46,7 @@ import {
   renderPage,
 } from './wiki-render.ts';
 import { lintWiki } from './wiki-lint.ts';
+import { graphCli, graphCommand } from './invocation.ts';
 import type { Community, GraphData } from './types.ts';
 
 export { lintWiki };
@@ -350,7 +351,7 @@ function pageEntry(out: string, slug: string) {
   const markdown = entry ? readText(pageFile(out, slug)) : null;
   if (!entry || markdown === null)
     throw new Error(
-      `no wiki page "${slug}" in ${wikiPaths(out).dir}: run octocode-graph wiki build first, or read index.md for the slugs`
+      `no wiki page "${slug}" in ${wikiPaths(out).dir}: run ${graphCli('wiki build')} first, or read index.md for the slugs`
     );
   return { map, entry, markdown };
 }
@@ -440,7 +441,7 @@ export function promote({
   return { slug, appended: true };
 }
 
-const USAGE = `usage: octocode-graph wiki <command> <out> ...
+const usage = () => `usage: ${graphCommand()} wiki <command> <out> ...
   build <out> [--changed a,b]       write <out>/wiki from <out>/data.json (--changed: refresh file ids)
   read <out> <slug|index|log>       print a page; read <out> --file <path> prints the page holding that file
   note <out> <slug> <text|->        replace the page's agent notes (- reads stdin; --from <file> reads a file)
@@ -530,7 +531,7 @@ function run(args: string[]) {
     ? COMMANDS[command]
     : undefined;
   if (!commandFn || !dir || args.includes('--help')) {
-    say(USAGE);
+    say(usage());
     return command === '--help' || args.includes('--help') ? 0 : 2;
   }
   return commandFn(resolve(dir), args) ?? 0;

@@ -269,11 +269,11 @@ async fn repositories_lead_nowhere_and_an_empty_search_broadens() {
     );
 }
 
-/// An empty search with nothing to drop (one keyword, no filter) still says
-/// how terms match, so the next query changes its words; an empty one that
-/// broadens carries the broadening instead.
+/// An empty search with nothing to drop (one keyword, no filter): a lone
+/// word gets no hint (ANDing cannot apply to one word; the empty status is
+/// the answer), and a lone phrase is told to change its words.
 #[tokio::test]
-async fn an_empty_keyword_only_search_says_terms_are_anded() {
+async fn an_empty_lone_keyword_search_hints_only_for_a_phrase() {
     let server = MockServer::builder().start().await;
     mount_json(
         &server,
@@ -282,20 +282,25 @@ async fn an_empty_keyword_only_search_says_terms_are_anded() {
         json_fixture(r#"{"total_count": 0, "incomplete_results": false, "items": []}"#),
     )
     .await;
-    let empty = run(
+    let word = run(
         &server,
         json_fixture(r#"{"operation": "search", "keywords": ["zzqq"]}"#),
     )
     .await
     .expect("search");
-    assert_eq!(empty.status, Some("empty"));
-    assert!(
-        empty.data["hints"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|hint| hint.as_str().is_some_and(|hint| hint.contains("ANDed"))),
+    assert_eq!(word.status, Some("empty"));
+    assert!(word.data.get("hints").is_none(), "{}", word.data);
+    let phrase = run(
+        &server,
+        json_fixture(r#"{"operation": "search", "keywords": ["zzqq yyrr"]}"#),
+    )
+    .await
+    .expect("search");
+    assert_eq!(phrase.status, Some("empty"));
+    assert_eq!(
+        phrase.data["hints"].as_array().map(Vec::len),
+        Some(1),
         "{}",
-        empty.data
+        phrase.data
     );
 }

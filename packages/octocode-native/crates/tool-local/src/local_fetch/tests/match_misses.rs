@@ -77,10 +77,11 @@ fn a_ranged_miss_with_hits_elsewhere_leads_to_the_unranged_read() {
 }
 
 /// The miss lead searches the directory for exactly what the read looked
-/// for: the regex dialect, the case rule and `wholeWord` carry over, so the
-/// lead never matches more than the read would have.
+/// for: the regex dialect and the case rule carry over, and a read matches
+/// any substring, so the lead searches substrings too: it never matches
+/// more, or less, than the read would have.
 #[test]
-fn a_match_miss_lead_keeps_the_reads_dialect_case_and_whole_word() {
+fn a_match_miss_lead_keeps_the_reads_dialect_and_case() {
     let t = Fixture::new();
     let p = t.0.join("a.txt");
     fs::write(&p, "plain notes\n").expect("fixture");
@@ -91,8 +92,7 @@ fn a_match_miss_lead_keeps_the_reads_dialect_case_and_whole_word() {
                 r#"{
                     "matchString": ["(?<=x)nowhere"],
                     "regexEngine": "pcre2",
-                    "caseMode": "insensitive",
-                    "wholeWord": true
+                    "caseMode": "insensitive"
                 }"#,
             ),
         ),
@@ -107,7 +107,11 @@ fn a_match_miss_lead_keeps_the_reads_dialect_case_and_whole_word() {
     );
     assert_eq!(row["regexEngine"], "pcre2", "{next}");
     assert_eq!(row["caseMode"], "insensitive", "{next}");
-    assert_eq!(row["wholeWord"], true, "{next}");
+    let row = octocode_runtime_base::test_support::opened(
+        octocode_runtime_base::id::ToolId::LocalSearch,
+        row,
+    );
+    assert_eq!(row["wholeWord"], false, "{next}");
 }
 
 /// Several literal patterns that all missed: the lead searches every one of
@@ -364,7 +368,6 @@ fn a_miss_reads_the_file_again_before_searching_its_folder() {
     let lead = &next["read"]["input"]["queries"][0];
     assert_eq!(next["read"]["tool"], "localFetch", "{next}");
     assert_eq!(lead["matchString"], serde_json::json!(["apply"]), "{next}");
-    assert_eq!(lead["wholeWord"], true, "{next}");
     assert_eq!(lead["block"], true, "{next}");
     assert_eq!(hints.len(), 1, "{hints:?}");
     assert!(hints[0].contains("2 lines match `apply`"), "{hints:?}");
@@ -398,6 +401,39 @@ fn a_declaration_whose_line_repeats_keeps_the_lead() {
         &Paths(t.0.clone()),
     );
     assert_eq!(row.status, ReadStatus::Empty, "{row:?}");
+}
+
+/// The read of a misremembered head's names is a plain read of them: it
+/// matches any line holding a name, inside a longer one too, and the lines
+/// its hint counts are the lines that read selects when run.
+#[test]
+fn a_names_lead_selects_the_lines_its_hint_counts() {
+    let t = Fixture::new();
+    let p = t.0.join("names.rs");
+    fs::write(
+        &p,
+        "impl A {\n    fn apply(&self) {}\n}\nimpl B {\n    fn apply(&self) {}\n}\nfn apply_all() {}\n",
+    )
+    .expect("fixture");
+    let paths = Paths(t.0.clone());
+    let row = fetch(
+        &qj(&p, serde_json::json!({"matchString": ["pub fn apply("]})),
+        &paths,
+    );
+    assert_eq!(row.status, ReadStatus::Empty, "{row:?}");
+    let next = serde_json::to_value(row.next.as_ref().expect("next")).expect("json");
+    let lead = &next["read"]["input"]["queries"][0];
+    assert_eq!(lead["matchString"], serde_json::json!(["apply"]), "{next}");
+    let lead: LocalFetchQuery = serde_json::from_value(lead.clone()).expect("a reader form");
+    let read = fetch(&lead, &paths);
+    assert_eq!(read.matched_lines, vec![2, 5, 7], "{read:?}");
+    let [hint] = row.hints.as_slice() else {
+        panic!("one hint: {row:?}")
+    };
+    assert!(
+        hint.contains(&format!("{} lines match `apply`", read.matched_lines.len())),
+        "{hint}"
+    );
 }
 
 /// A file without a declaration outline has no outline to lead to: the

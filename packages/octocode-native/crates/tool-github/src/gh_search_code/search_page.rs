@@ -254,33 +254,27 @@ impl SearchPage {
     }
 
     /// What a walk's page says when GitHub's results moved since the
-    /// previous page (`before`, the match count it stated): a file listed
-    /// again (dropped here) or a changed match count (named with both counts: the
-    /// walk keeps no ranks, so it cannot tell whether a file moved past it).
-    /// `None` when neither was seen.
+    /// previous page (`before`, the match count it stated): `None` when
+    /// nothing moved; else the warnings beside the `providerResultsShifted`
+    /// reason. A file listed again (dropped here) loses no evidence and the
+    /// reason states the shift, so only a changed match count is worded, with
+    /// both counts: the walk keeps no ranks, so it cannot tell whether a file
+    /// moved past it.
     pub(super) fn shift_warnings(&self, before: Option<usize>) -> Option<Vec<String>> {
         let changed = before.filter(|&before| before != self.matched);
         if self.dropped == 0 && changed.is_none() {
             return None;
         }
-        let mut warnings = Vec::new();
-        if self.dropped > 0 {
-            let files = if self.dropped == 1 { "file" } else { "files" };
-            warnings.push(format!(
-                "Dropped {} {files} GitHub listed again (already on an earlier page of this walk or this one).",
-                self.dropped,
-            ));
-        }
-        match changed {
-            Some(before) => warnings.push(format!(
-                "GitHub's match count changed from {before} to {} between pages; with no ranks, the walk cannot tell whether a file moved past it; re-walk to confirm.",
-                self.matched,
-            )),
-            None => warnings.push(
-                "GitHub's results moved between page reads, so a file may have moved past this walk unseen."
-                    .to_owned(),
-            ),
-        }
-        Some(warnings)
+        Some(
+            changed
+                .map(|before| {
+                    format!(
+                        "GitHub's match count changed from {before} to {} between pages; with no ranks, the walk cannot tell whether a file moved past it; re-walk to confirm.",
+                        self.matched,
+                    )
+                })
+                .into_iter()
+                .collect(),
+        )
     }
 }

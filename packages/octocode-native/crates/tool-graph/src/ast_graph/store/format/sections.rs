@@ -184,11 +184,13 @@ pub(super) fn read_file_tables(
             code: diags.var_u32()?,
             message: diags.var_u32()?,
             target: diags.var_opt()?,
+            import_kind: diags.var_opt()?,
         };
         if !string_ok(diag.file)
             || !string_ok(diag.code)
             || !string_ok(diag.message)
             || diag.target != NONE && !node_ok(diag.target)
+            || diag.import_kind != NONE && !string_ok(diag.import_kind)
         {
             return Err("graph diagnostic references are out of range".into());
         }

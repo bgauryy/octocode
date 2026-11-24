@@ -391,12 +391,15 @@ fn shown_faults(schema: &Value, defs: &Value, own: &Value, faults: &[&[String]])
     let mut candidates: Vec<Value> = Vec::new();
     for form in 0..forms {
         let mut value = own.clone();
+        let mut shown = Vec::new();
         for (fault, samples) in faults.iter().zip(&samples) {
             let sample = samples.get(form).or(samples.first());
             if !show_fault(&mut value, &fault[1..], sample) {
                 break;
             }
+            shown.push(&fault[1..]);
         }
+        drop_repeated_entries(&mut value, &shown);
         for fault in faults {
             if schemas_of_own(schema, defs, fault, own).is_empty() {
                 fill_emptied_parent(schema, defs, &mut value, fault);
@@ -407,6 +410,49 @@ fn shown_faults(schema: &Value, defs: &Value, own: &Value, faults: &[&[String]])
         }
     }
     candidates
+}
+
+/// A list entry shown as a value its list already holds repeats it
+/// (`commitSha` shown as `title` beside `title`): the entry is left out
+/// instead, the first of equal shown entries too, so one stays.
+fn drop_repeated_entries(value: &mut Value, shown: &[&[String]]) {
+    let mut lists: Vec<(String, Vec<usize>)> = Vec::new();
+    for path in shown {
+        let Some((leaf, parent)) = path.split_last() else {
+            continue;
+        };
+        let Ok(index) = leaf.parse::<usize>() else {
+            continue;
+        };
+        let pointer = crate::json_pointer::of(parent);
+        match lists.iter_mut().find(|(at, _)| *at == pointer) {
+            Some((_, indexes)) => indexes.push(index),
+            None => lists.push((pointer, vec![index])),
+        }
+    }
+    for (pointer, mut indexes) in lists {
+        let Some(items) = value.pointer_mut(&pointer).and_then(Value::as_array_mut) else {
+            continue;
+        };
+        indexes.sort_unstable();
+        indexes.dedup();
+        let mut repeats: Vec<usize> = Vec::new();
+        for index in indexes {
+            let Some(item) = items.get(index) else {
+                continue;
+            };
+            if items
+                .iter()
+                .enumerate()
+                .any(|(other, held)| other != index && !repeats.contains(&other) && held == item)
+            {
+                repeats.push(index);
+            }
+        }
+        for index in repeats.into_iter().rev() {
+            items.remove(index);
+        }
+    }
 }
 
 /// The member of the enum `schema` declares that `sent` is nearest to by

@@ -333,7 +333,6 @@ pub(crate) fn version_not_found(
             versions.iter().map(String::as_str),
             &order_of(ecosystem),
         ),
-        nearest_ranked: true,
         ..ArtifactError::version_not_found(format!(
             "{name} has no published version matching \"{requested}\""
         ))
@@ -365,13 +364,9 @@ fn ranked_as(requested: &str) -> &str {
 }
 
 /// The versions a repair call reads of `error`'s nearest ones: the first
-/// `limit` (one call's batch), newest first on `ecosystem`'s order, and, when
-/// the registry has fewer to suggest, the hint that says so.
-pub fn suggested(
-    ecosystem: ArtifactType,
-    error: &ArtifactError,
-    limit: usize,
-) -> (Vec<String>, Option<String>) {
+/// `limit` (one call's batch), newest first on `ecosystem`'s order. Fewer
+/// than `limit` are all the registry has to suggest; the call shows them.
+pub fn suggested(ecosystem: ArtifactType, error: &ArtifactError, limit: usize) -> Vec<String> {
     let order = order_of(ecosystem);
     let mut picked = error
         .nearest
@@ -380,13 +375,7 @@ pub fn suggested(
         .cloned()
         .collect::<Vec<_>>();
     picked.sort_by(|left, right| (order.cmp)(right, left).unwrap_or(std::cmp::Ordering::Equal));
-    let hint = (error.nearest_ranked && !picked.is_empty() && picked.len() < limit).then(|| {
-        format!(
-            "Only {} published version(s) to suggest; the lead reads every one.",
-            picked.len()
-        )
-    });
-    (picked, hint)
+    picked
 }
 
 /// The published versions `order` reads, nearest a missing `requested` one

@@ -33,8 +33,9 @@ fn calls_the_contract_rejects_fail_at_their_building_site() {
 }
 
 /// A related call is fresh work: its row repeats the search, and the brief
-/// (`mainGoal`, `reasoning`) is the caller's to state for it, on every tool
-/// and however the row was built.
+/// (`mainGoal`, `reasoning`) is the caller's to state for it, however the
+/// row was built: clasify's generated row (the one tool that declares the
+/// brief) and a plain row of any tool alike.
 #[test]
 fn a_related_call_never_repeats_the_callers_brief() {
     let brief = json_fixture(r#"{"mainGoal": "the task", "reasoning": "why this query"}"#);
@@ -44,18 +45,19 @@ fn a_related_call_never_repeats_the_callers_brief() {
             .extend(brief.as_object().cloned().expect("brief"));
         row
     };
-    let lsp: octocode_contract_types::LspSearchQuery =
-        serde_json::from_value(with_brief(json_fixture(
-            r#"{
-                "operation": "references",
-                "path": "a.rs",
-                "symbolName": "run",
-                "line": 1
-            }"#,
-        )))
-        .expect("an lspSearch row");
+    let clasify: octocode_contract_types::ClasifyQuery =
+        serde_json::from_value(with_brief(json_fixture(r#"{"operation": "models"}"#)))
+            .expect("a clasify row");
+    let typed = serde_json::to_value(&clasify).expect("a typed row serializes");
+    assert_eq!(typed["mainGoal"], brief["mainGoal"], "{typed}");
+    assert_eq!(typed["reasoning"], brief["reasoning"], "{typed}");
     let calls = [
-        Continuation::related_query(lsp).build(),
+        Continuation::related_query(clasify).build(),
+        Continuation::related(
+            ToolId::Clasify,
+            with_brief(json_fixture(r#"{"operation": "models"}"#)),
+        )
+        .build(),
         Continuation::related(
             ToolId::LocalSearch,
             with_brief(json_fixture(

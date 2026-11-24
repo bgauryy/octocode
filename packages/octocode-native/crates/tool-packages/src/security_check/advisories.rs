@@ -213,16 +213,15 @@ fn osv_shape(advisory: &RepositoryAdvisory, contract: &SecurityContract) -> Valu
 }
 
 /// What GitHub states of a record beyond its row: its class in the global
-/// database when not `reviewed`. `unreviewed`: GitHub has not checked it.
-/// `malware` is the row's `githubType` and, on a package row, the contract's
-/// `malware` caution, so it takes no note here. Another class is named as
-/// GitHub writes it when it is a plain word.
+/// database when the row's `githubType` cannot state it. `reviewed`,
+/// `unreviewed` and `malware` are `githubType` values (and `malware`, on a
+/// package row, the contract's `malware` caution), so they take no note
+/// here; a record the row does not list gets [`unreviewed_note`] from its
+/// caller. Another class is named as GitHub writes it when it is a plain word.
 pub(super) fn github_notes(advisory: &RepositoryAdvisory) -> Vec<String> {
     let id = super::answer::stated_id(&advisory.ghsa_id);
     match advisory.kind.as_deref() {
-        None | Some("reviewed") => Vec::new(),
-        Some("unreviewed") => vec![unreviewed_note(&id)],
-        Some("malware") => Vec::new(),
+        None | Some("reviewed" | "unreviewed" | "malware") => Vec::new(),
         Some(other) if other.chars().all(|c| c.is_ascii_alphabetic()) => {
             vec![format!("GitHub's database classes {id} as {other}.")]
         }
@@ -232,7 +231,8 @@ pub(super) fn github_notes(advisory: &RepositoryAdvisory) -> Vec<String> {
     }
 }
 
-/// What GitHub's `unreviewed` class says of a record, by its stated id.
+/// What GitHub's `unreviewed` class says of a record the row does not list,
+/// by its stated id.
 pub(super) fn unreviewed_note(id: &str) -> String {
     format!("GitHub has not reviewed {id}: its database marks it unreviewed.")
 }

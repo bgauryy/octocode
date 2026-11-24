@@ -118,10 +118,8 @@ pub(super) fn disclose_limits(traversal: &Traversal, page: &ListingPage<'_>, val
             octocode_runtime_base::response::paging::PartialReason::ProviderContentsLimit,
             &[],
         );
-        value["providerLimit"] = json!({
-            "reason": "providerContentsLimit",
-            "maxEntriesPerDirectory": CONTENTS_LIMIT
-        });
+        // The limit's value: `partialReasons` already names the reason.
+        value["providerLimit"] = json!({"maxEntriesPerDirectory": CONTENTS_LIMIT});
     }
     if !traversal.omitted.is_empty() && page.current == 1 {
         // A submodule has no listable content: name it instead of silently
@@ -135,17 +133,21 @@ pub(super) fn disclose_limits(traversal: &Traversal, page: &ListingPage<'_>, val
             &[],
         );
     }
+    // What stays unread, counted: the retry is the row's `next`, unrepeated.
     if traversal.failed_subtrees > 0 {
         octocode_runtime_base::response::paging::push_warnings(
             value,
-            ["One or more repository subdirectories could not be read; retry the same page or narrow the path/depth.".to_owned()],
+            [format!(
+                "{} folder(s) could not be read: their entries are missing.",
+                traversal.failed_subtrees
+            )],
         );
     }
     if traversal.unchecked > 0 {
         octocode_runtime_base::response::paging::push_warnings(
             value,
             [format!(
-                "{} file(s) were left out: no git tree of their folder answered, so a symlink among them could not be told from a file; retry the same page.",
+                "{} file(s) left out: their folder's git tree did not answer.",
                 traversal.unchecked
             )],
         );

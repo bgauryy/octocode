@@ -68,7 +68,7 @@ fn suggest(
         .map(|version| (*version).to_owned())
         .collect::<Vec<_>>();
     let error = version_not_found(ecosystem, "pkg", requested, &published);
-    suggested(ecosystem, &error, limit).0
+    suggested(ecosystem, &error, limit)
 }
 
 #[test]
@@ -154,12 +154,12 @@ fn deprecated_and_yanked_versions_are_suggested_last() {
         |version| version == "4.18.0",
     );
     assert_eq!(
-        suggested(ArtifactType::Npm, &error, 3).0,
+        suggested(ArtifactType::Npm, &error, 3),
         ["4.18.1", "4.17.23", "4.17.21"]
     );
     // Only a deprecated one is left to fill the call: it is still published.
     assert_eq!(
-        suggested(ArtifactType::Npm, &error, 5).0,
+        suggested(ArtifactType::Npm, &error, 5),
         ["4.18.1", "4.18.0", "4.17.23", "4.17.21", "4.17.20"]
     );
     let error = discouraged_last(
@@ -167,20 +167,22 @@ fn deprecated_and_yanked_versions_are_suggested_last() {
         |version| version == "4.18.1",
     );
     assert_eq!(
-        suggested(ArtifactType::Crates, &error, 2).0,
+        suggested(ArtifactType::Crates, &error, 2),
         ["4.18.0", "4.17.23"]
     );
 }
 
+/// Fewer published versions than one call reads are every one the registry
+/// has: the call reads them all, newest first.
 #[test]
-fn fewer_versions_than_one_call_say_so() {
+fn fewer_versions_than_one_call_are_all_suggested() {
     let published = vec!["1.0.0".to_owned(), "1.1.0".to_owned()];
     let error = version_not_found(ArtifactType::Crates, "pkg", "9.0.0", &published);
-    let (picked, fewer) = suggested(ArtifactType::Crates, &error, 5);
-    assert_eq!(picked, ["1.1.0", "1.0.0"]);
-    assert!(fewer.is_some_and(|hint| hint.contains('2')));
-    let (_, full) = suggested(ArtifactType::Crates, &error, 2);
-    assert_eq!(full, None);
+    assert_eq!(
+        suggested(ArtifactType::Crates, &error, 5),
+        ["1.1.0", "1.0.0"]
+    );
+    assert_eq!(suggested(ArtifactType::Crates, &error, 2), ["1.1.0", "1.0.0"]);
 }
 
 #[test]

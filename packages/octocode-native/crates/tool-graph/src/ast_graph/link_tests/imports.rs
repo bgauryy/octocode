@@ -424,3 +424,427 @@ fn rooted_paths_name_extern_crates_not_unresolved_internal() {
     let imports = &ask(root, "stats", None)["imports"];
     assert_eq!(imports["unresolvedInternal"], 0, "{imports}");
 }
+
+/// `(line, message, importKind)` of the `code` diagnostics of the snapshot
+/// at `scope` (the workspace's when `None`), in line order.
+fn import_kinds(root: &Path, scope: Option<&str>, code: &str) -> Vec<(u64, String, Value)> {
+    let out = ask_with(root, "diagnostics", Some(code), |o| {
+        o.path = scope.map(str::to_owned);
+    });
+    let mut rows = out["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|row| {
+            (
+                row["line"].as_u64().unwrap_or_default(),
+                row["message"].as_str().unwrap_or_default().to_owned(),
+                row.get("importKind").cloned().unwrap_or(Value::Null),
+            )
+        })
+        .collect::<Vec<_>>();
+    rows.sort_by_key(|row| row.0);
+    rows
+}
+
+/// An import that leaves the snapshot root keeps its edge kind: each
+/// `outside-root` row names it as `importKind`, the same string the edge of
+/// that import carries in a snapshot that holds its target, so stitching
+/// chunks keeps an `import type` apart from a load. A statement mixing kinds
+/// (`import { type W, w }`) is one row with its strongest kind, as its file
+/// edge is.
+#[test]
+fn outside_root_diagnostics_carry_the_import_kind_of_their_edge() {
+    let temp = fixture(&[
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        ("outside/a.ts", "export interface X { x: number }\n"),
+        ("outside/b.ts", "export const y = 1;\n"),
+        ("outside/c.ts", "export const z = 1;\n"),
+        (
+            "outside/d.ts",
+            "export interface W { w: number }\nexport const w = 1;\n",
+        ),
+        (
+            "app/main.ts",
+            "import type { X } from '../outside/a';\nimport { y } from '../outside/b';\nimport { type W, w } from '../outside/d';\nexport async function run(x: X, v: W) {\n  const m = await import('../outside/c');\n  return [x, y, m, v, w];\n}\n",
+        ),
+    ]);
+    let root = temp.0.as_path();
+    // The whole tree holds every target: each import is a linked edge.
+    let whole = ingest(root, root);
+    assert_eq!(whole.value.get("error"), None, "{}", whole.value);
+    let deps = ask(root, "deps", Some("app/main.ts"));
+    let mut linked = deps["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|row| {
+            let text = |key: &str| row[key].as_str().unwrap_or_default().to_owned();
+            (text("id"), text("via"))
+        })
+        .collect::<Vec<_>>();
+    linked.sort();
+    // The chunk `app` holds none of them.
+    let chunk = ingest(root, &root.join("app"));
+    assert_eq!(chunk.value.get("error"), None, "{}", chunk.value);
+    let rows = import_kinds(root, Some("app"), "outside-root");
+    let kinds = rows
+        .iter()
+        .map(|(line, _, kind)| (*line, kind.as_str().unwrap_or_default()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        kinds,
+        [
+            (1, "type-import"),
+            (2, "static-import"),
+            (3, "static-import"),
+            (5, "dynamic-import"),
+        ],
+        "{rows:?}"
+    );
+    // Each row's kind is one the linked import's edge carries.
+    for (_, message, kind) in &rows {
+        let target = format!("{}.ts", message.trim_matches('"').trim_start_matches("../"));
+        let kind = kind.as_str().unwrap_or_default();
+        assert!(
+            linked.contains(&(target.clone(), kind.to_owned())),
+            "{target} {kind}: {linked:?}"
+        );
+    }
+}
+
+/// A broken import, Python or Rust, names its edge kind too: a Python
+/// import inside a function is lazy, a Rust `use` and a qualified path keep
+/// their own kinds. A diagnostic about no import names none.
+#[test]
+fn unresolved_internal_diagnostics_carry_the_import_kind() {
+    let temp = fixture(&[
+        ("py/__init__.py", ""),
+        (
+            "py/main.py",
+            "from .missing import a\n\n\ndef f():\n    from .gone import b\n    return b\n",
+        ),
+        (
+            "src/user.rs",
+            "use crate::gone::Thing;\npub fn run() -> u8 { let _ = crate::missing::LIMIT; 1 }\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    // `(line, from the Python file, importKind)`.
+    let kinds = import_kinds(root, None, "unresolved-internal")
+        .into_iter()
+        .map(|(line, message, kind)| {
+            let python = message.contains("\".missing\"") || message.contains("\".gone\"");
+            (line, python, kind)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        kinds,
+        [
+            (1, true, json!("python-import")),
+            (1, false, json!("rust-use")),
+            (2, false, json!("rust-path")),
+            (5, true, json!("python-lazy-import")),
+        ],
+        "{kinds:?}"
+    );
+    let all = ask(root, "diagnostics", None);
+    for row in all["rows"].as_array().into_iter().flatten() {
+        let import = matches!(
+            row["code"].as_str(),
+            Some("outside-root" | "unresolved-internal")
+        );
+        assert_eq!(row.get("importKind").is_some(), import, "{row}");
+    }
+}
+
+/// `(to, line, detail, importKind)` of the `imports` witnesses out of `file`
+/// whose target is a package, sorted.
+fn package_witnesses(root: &Path, file: &str) -> Vec<(String, u64, String, Value)> {
+    let out = ask_with(root, "witnesses", Some(file), |o| {
+        o.edges = vec!["imports".into()];
+    });
+    assert_eq!(out.get("error"), None, "{out}");
+    let mut rows = out["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|row| row["to"].as_str().is_some_and(|to| to.starts_with("pkg:")))
+        .map(|row| {
+            let text = |key: &str| row[key].as_str().unwrap_or_default().to_owned();
+            (
+                text("to"),
+                row["line"].as_u64().unwrap_or_default(),
+                text("detail"),
+                row.get("importKind").cloned().unwrap_or(Value::Null),
+            )
+        })
+        .collect::<Vec<_>>();
+    rows.sort_by(|a, b| (&a.0, a.1).cmp(&(&b.0, b.1)));
+    rows
+}
+
+/// An import of a package states its own kind on its witness
+/// (`importKind`, the string a file import of the same form carries) while
+/// `detail` keeps how the package is declared: an `import type` of a
+/// package loads nothing, and a file that both type-imports and
+/// value-imports one yields a witness of each kind.
+#[test]
+fn package_import_witnesses_carry_the_import_kind() {
+    let temp = fixture(&[
+        (
+            "package.json",
+            r#"{"name":"app","dependencies":{"big-lib":"1.0.0","@scope/ai":"1.0.0"}}"#,
+        ),
+        (
+            "src/main.ts",
+            "import type { X } from '@scope/ai';\nimport { y } from '@scope/ai';\nimport big from 'big-lib';\nexport function run(x: X) { return [x, y, big]; }\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    let row =
+        |to: &str, line: u64, kind: &str| (to.to_owned(), line, "external".to_owned(), json!(kind));
+    assert_eq!(
+        package_witnesses(root, "src/main.ts"),
+        [
+            row("pkg:@scope/ai", 1, "type-import"),
+            row("pkg:@scope/ai", 2, "static-import"),
+            row("pkg:big-lib", 3, "static-import"),
+        ]
+    );
+}
+
+/// Every form that loads a package is an import of it: a dynamic
+/// `import()`, a `require` with or without a binding, a `createRequire`
+/// loader and a re-export (`export { a } from`, `export * from`,
+/// `export type { T } from`) each give the file a `pkg:` edge whose witness
+/// names its kind, so a package loaded only lazily or only through a
+/// re-export is still a dependency.
+#[test]
+fn every_import_form_of_a_package_is_a_package_edge_with_its_kind() {
+    let temp = fixture(&[
+        (
+            "package.json",
+            r#"{"name":"app","dependencies":{"lazy-lib":"1","re-lib":"1","star-lib":"1","types-lib":"1","cjs-lib":"1","made-lib":"1"}}"#,
+        ),
+        (
+            "src/main.ts",
+            "export { a } from 're-lib';\nexport * from 'star-lib';\nexport type { T } from 'types-lib';\nexport async function run() {\n  const lazy = await import('lazy-lib');\n  return lazy;\n}\n",
+        ),
+        ("src/cjs.js", "require('cjs-lib');\n"),
+        (
+            "src/esm.mjs",
+            "import { createRequire } from 'node:module';\nconst load = createRequire(import.meta.url);\nexport const made = load('made-lib');\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    let row =
+        |to: &str, line: u64, kind: &str| (to.to_owned(), line, "external".to_owned(), json!(kind));
+    assert_eq!(
+        package_witnesses(root, "src/main.ts"),
+        [
+            row("pkg:lazy-lib", 5, "dynamic-import"),
+            row("pkg:re-lib", 1, "named-reexport"),
+            row("pkg:star-lib", 2, "star-reexport"),
+            row("pkg:types-lib", 3, "type-named-reexport"),
+        ]
+    );
+    assert_eq!(
+        package_witnesses(root, "src/cjs.js"),
+        [row("pkg:cjs-lib", 1, "commonjs-require")]
+    );
+    let made = package_witnesses(root, "src/esm.mjs");
+    assert!(
+        made.contains(&row("pkg:made-lib", 3, "create-require")),
+        "{made:?}"
+    );
+    // A traversal reaches the package loaded only lazily.
+    let deps = ask(root, "deps", Some("src/main.ts"));
+    assert!(files(&deps).is_empty(), "{deps}");
+    assert!(result_ids(&deps).contains(&"pkg:lazy-lib"), "{deps}");
+}
+
+/// An undeclared package is an undeclared dependency whatever form loads
+/// it, a dynamic `import()` or a re-export included; a type-only re-export
+/// counts exactly as a type-only import does.
+#[test]
+fn a_lazily_loaded_or_re_exported_undeclared_package_is_an_undeclared_dependency() {
+    let temp = fixture(&[
+        ("package.json", r#"{"name":"app","dependencies":{}}"#),
+        (
+            "src/main.ts",
+            "import type { H } from 'ghost-type-import';\nexport type { G } from 'ghost-type-reexport';\nexport * from 'ghost-star';\nexport async function run(h: H) {\n  return [h, await import('ghost-lazy')];\n}\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    let issues = ask_with(root, "issues", None, |o| {
+        o.detectors = vec!["undeclared-dependency".into()];
+        o.min_tier = Some(0);
+    });
+    let flagged = crate::ast_graph::test_support::issue_rows(&issues)
+        .iter()
+        .filter_map(|row| row["evidence"]["package"].as_str().map(str::to_owned))
+        .collect::<std::collections::BTreeSet<_>>();
+    for package in ["ghost-lazy", "ghost-star"] {
+        assert!(flagged.contains(package), "{package}: {issues}");
+    }
+    assert_eq!(
+        flagged.contains("ghost-type-reexport"),
+        flagged.contains("ghost-type-import"),
+        "{issues}"
+    );
+}
+
+/// Every import witness and every import diagnostic states when the import
+/// takes effect (`load`), read from the engine's one kind table: a value
+/// import loads eagerly, `import type` never, `import()` later, whether the
+/// target is a file, a package or outside the snapshot.
+#[test]
+fn import_witnesses_and_diagnostics_state_their_load() {
+    let temp = fixture(&[
+        (".git/HEAD", "ref: refs/heads/main\n"),
+        (
+            "package.json",
+            r#"{"name":"app","dependencies":{"big-lib":"1"}}"#,
+        ),
+        ("outside/o.ts", "export type O = 1;\n"),
+        ("app/b.ts", "export type B = 1;\nexport const v = 1;\n"),
+        (
+            "app/a.ts",
+            "import type { B } from './b';\nimport { v } from './b';\nimport type { O } from '../outside/o';\nexport async function run(b: B, o: O) {\n  return [b, o, v, await import('big-lib')];\n}\n",
+        ),
+    ]);
+    let root = temp.0.as_path();
+    let out = ingest(root, &root.join("app"));
+    assert_eq!(out.value.get("error"), None, "{}", out.value);
+    let witnesses = ask_with(root, "witnesses", Some("app/a.ts"), |o| {
+        o.path = Some("app".into());
+        o.edges = vec!["imports".into()];
+    });
+    let mut loads = witnesses["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|row| {
+            let text = |key: &str| row[key].as_str().unwrap_or_default().to_owned();
+            (
+                row["line"].as_u64().unwrap_or_default(),
+                text("to"),
+                text("load"),
+            )
+        })
+        .collect::<Vec<_>>();
+    loads.sort();
+    let row = |line: u64, to: &str, load: &str| (line, to.to_owned(), load.to_owned());
+    assert_eq!(
+        loads,
+        [
+            row(1, "app/b.ts", "type"),
+            row(2, "app/b.ts", "eager"),
+            row(5, "pkg:big-lib", "deferred"),
+        ],
+        "{witnesses}"
+    );
+    let diagnostics = ask_with(root, "diagnostics", Some("outside-root"), |o| {
+        o.path = Some("app".into());
+    });
+    let rows = diagnostics["rows"].as_array().cloned().unwrap_or_default();
+    assert_eq!(rows.len(), 1, "{diagnostics}");
+    assert_eq!(rows[0]["importKind"], "type-import", "{diagnostics}");
+    assert_eq!(rows[0]["load"], "type", "{diagnostics}");
+}
+
+/// `(target, via, edgeLine)` of every file `file` imports.
+fn file_deps(root: &Path, file: &str) -> Vec<(String, String, u64)> {
+    let deps = ask(root, "deps", Some(file));
+    let mut rows = deps["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|row| row["kind"] == "file")
+        .map(|row| {
+            let text = |key: &str| row[key].as_str().unwrap_or_default().to_owned();
+            (
+                text("id"),
+                text("via"),
+                row["edgeLine"].as_u64().unwrap_or_default(),
+            )
+        })
+        .collect::<Vec<_>>();
+    rows.sort();
+    rows
+}
+
+/// A C# `using N;` of a namespace the repository declares depends on the
+/// files declaring the types of `N` the file uses (a call, a receiver type,
+/// a base type), citing the `using` line, as a Java file depends on a class
+/// of its package; a type of `N` the file never names adds no edge, nor does
+/// a namespace outside the repository.
+#[test]
+fn a_csharp_using_of_a_repo_namespace_depends_on_the_types_it_uses() {
+    let temp = fixture(&[
+        (
+            "src/Serialization/JsonContract.cs",
+            "namespace Newtonsoft.Json.Serialization\n{\n    public class JsonContract { public static JsonContract Create() { return null; } }\n}\n",
+        ),
+        (
+            "src/Serialization/Unused.cs",
+            "namespace Newtonsoft.Json.Serialization\n{\n    public class Unused { }\n}\n",
+        ),
+        (
+            "src/Linq/JToken.cs",
+            "namespace Newtonsoft.Json.Linq;\npublic class JToken { }\n",
+        ),
+        (
+            "src/JsonConvert.cs",
+            "using System;\nusing Newtonsoft.Json.Serialization;\nusing Newtonsoft.Json.Linq;\nnamespace Newtonsoft.Json\n{\n    public class JsonConvert : JToken\n    {\n        public void Run() { JsonContract.Create(); }\n    }\n}\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    assert_eq!(
+        file_deps(root, "src/JsonConvert.cs"),
+        [
+            (
+                "src/Linq/JToken.cs".to_owned(),
+                "namespace-use".to_owned(),
+                3
+            ),
+            (
+                "src/Serialization/JsonContract.cs".to_owned(),
+                "namespace-use".to_owned(),
+                2
+            ),
+        ]
+    );
+}
+
+/// A Scala wildcard import of a repository package (`import cats.data._`)
+/// depends on the files of that package declaring what the file uses,
+/// citing the import line; the package is the declaring file's directory, as
+/// Scala call linking reads it.
+#[test]
+fn a_scala_wildcard_import_of_a_repo_package_depends_on_what_it_uses() {
+    let temp = fixture(&[
+        (
+            "core/src/main/scala/cats/data/Chain.scala",
+            "package cats\npackage data\n\nobject Chain { def one(): Int = 1 }\n",
+        ),
+        (
+            "core/src/main/scala/cats/data/Other.scala",
+            "package cats.data\n\nclass Other\n",
+        ),
+        (
+            "core/src/main/scala/cats/Use.scala",
+            "package cats\n\nimport cats.data._\n\nobject Use { def run(): Int = Chain.one() }\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    assert_eq!(
+        file_deps(root, "core/src/main/scala/cats/Use.scala"),
+        [(
+            "core/src/main/scala/cats/data/Chain.scala".to_owned(),
+            "namespace-use".to_owned(),
+            3
+        )]
+    );
+}

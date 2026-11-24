@@ -1,0 +1,409 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "CodeQL",
+          "organization": "GitHub",
+          "semanticVersion": "2.19.3",
+          "notifications": [],
+          "rules": [
+            {
+              "id": "js/sql-injection",
+              "name": "js/sql-injection",
+              "shortDescription": {
+                "text": "Database query built from user-controlled sources"
+              },
+              "fullDescription": {
+                "text": "Building a database query from user-controlled sources is vulnerable to insertion of malicious code by the user."
+              },
+              "defaultConfiguration": {
+                "enabled": true,
+                "level": "error"
+              },
+              "properties": {
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-089",
+                  "external/cwe/cwe-090",
+                  "external/cwe/cwe-943"
+                ],
+                "description": "Building a database query from user-controlled sources is vulnerable to insertion of malicious code by the user.",
+                "id": "js/sql-injection",
+                "kind": "path-problem",
+                "name": "Database query built from user-controlled sources",
+                "precision": "high",
+                "problem.severity": "error",
+                "security-severity": "8.8"
+              }
+            },
+            {
+              "id": "js/unused-local-variable",
+              "name": "js/unused-local-variable",
+              "shortDescription": {
+                "text": "Unused variable, import, function or class"
+              },
+              "defaultConfiguration": {
+                "enabled": true,
+                "level": "note"
+              },
+              "properties": {
+                "kind": "problem",
+                "precision": "very-high",
+                "problem.severity": "recommendation",
+                "id": "js/unused-local-variable"
+              }
+            }
+          ]
+        },
+        "extensions": [
+          {
+            "name": "codeql/javascript-queries",
+            "semanticVersion": "1.2.3",
+            "locations": [
+              {
+                "uri": "file:///home/runner/work/_temp/codeql_databases/javascript/qlpacks/",
+                "description": {
+                  "text": "The QL pack root directory."
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "invocations": [
+        {
+          "toolExecutionNotifications": [],
+          "executionSuccessful": true
+        }
+      ],
+      "versionControlProvenance": [
+        {
+          "repositoryUri": "https://github.com/example/users-api",
+          "revisionId": "3f2a9c1e5b7d4a6f8e0c2b4d6f8a0c2e4b6d8f0a",
+          "branch": "refs/heads/main"
+        }
+      ],
+      "originalUriBaseIds": {
+        "%SRCROOT%": {
+          "uri": "file:///home/runner/work/users-api/users-api/"
+        }
+      },
+      "artifacts": [
+        {
+          "location": {
+            "uri": "src/api.js",
+            "uriBaseId": "%SRCROOT%",
+            "index": 0
+          }
+        },
+        {
+          "location": {
+            "uri": "src/service.js",
+            "uriBaseId": "%SRCROOT%",
+            "index": 1
+          }
+        },
+        {
+          "location": {
+            "uri": "src/db.js",
+            "uriBaseId": "%SRCROOT%",
+            "index": 2
+          }
+        }
+      ],
+      "results": [
+        {
+          "ruleId": "js/sql-injection",
+          "ruleIndex": 0,
+          "rule": {
+            "id": "js/sql-injection",
+            "index": 0
+          },
+          "message": {
+            "text": "This query string depends on a [user-provided value](1)."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/db.js",
+                  "uriBaseId": "%SRCROOT%",
+                  "index": 2
+                },
+                "region": {
+                  "startLine": 8,
+                  "startColumn": 16,
+                  "endColumn": 19
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "primaryLocationLineHash": "8d2f1c7a9b3e5d40:1",
+            "primaryLocationStartColumnFingerprint": "11"
+          },
+          "codeFlows": [
+            {
+              "threadFlows": [
+                {
+                  "locations": [
+                    {
+                      "location": {
+                        "physicalLocation": {
+                          "artifactLocation": {
+                            "uri": "src/api.js",
+                            "uriBaseId": "%SRCROOT%",
+                            "index": 0
+                          },
+                          "region": {
+                            "startLine": 7,
+                            "startColumn": 14,
+                            "endColumn": 26
+                          }
+                        },
+                        "message": {
+                          "text": "req.query.id"
+                        }
+                      }
+                    },
+                    {
+                      "location": {
+                        "physicalLocation": {
+                          "artifactLocation": {
+                            "uri": "src/api.js",
+                            "uriBaseId": "%SRCROOT%",
+                            "index": 0
+                          },
+                          "region": {
+                            "startLine": 7,
+                            "startColumn": 9,
+                            "endColumn": 11
+                          }
+                        },
+                        "message": {
+                          "text": "id"
+                        }
+                      }
+                    },
+                    {
+                      "location": {
+                        "physicalLocation": {
+                          "artifactLocation": {
+                            "uri": "src/api.js",
+                            "uriBaseId": "%SRCROOT%",
+                            "index": 0
+                          },
+                          "region": {
+                            "startLine": 8,
+                            "startColumn": 12,
+                            "endColumn": 14
+                          }
+                        },
+                        "message": {
+                          "text": "id"
+                        }
+                      }
+                    },
+                    {
+                      "location": {
+                        "physicalLocation": {
+                          "artifactLocation": {
+                            "uri": "src/service.js",
+                            "uriBaseId": "%SRCROOT%",
+                            "index": 1
+                          },
+                          "region": {
+                            "startLine": 3,
+                            "startColumn": 19,
+                            "endColumn": 25
+                          }
+                        },
+                        "message": {
+                          "text": "userId"
+                        }
+                      }
+                    },
+                    {
+                      "location": {
+                        "physicalLocation": {
+                          "artifactLocation": {
+                            "uri": "src/service.js",
+                            "uriBaseId": "%SRCROOT%",
+                            "index": 1
+                          },
+                          "region": {
+                            "startLine": 4,
+                            "startColumn": 20,
+                            "endColumn": 26
+                          }
+                        },
+                        "message": {
+                          "text": "userId"
+                        }
+                      }
+                    },
+                    {
+                      "location": {
+                        "physicalLocation": {
+                          "artifactLocation": {
+                            "uri": "src/db.js",
+                            "uriBaseId": "%SRCROOT%",
+                            "index": 2
+                          },
+                          "region": {
+                            "startLine": 5,
+                            "startColumn": 17,
+                            "endColumn": 19
+                          }
+                        },
+                        "message": {
+                          "text": "id"
+                        }
+                      }
+                    },
+                    {
+                      "location": {
+                        "physicalLocation": {
+                          "artifactLocation": {
+                            "uri": "src/db.js",
+                            "uriBaseId": "%SRCROOT%",
+                            "index": 2
+                          },
+                          "region": {
+                            "startLine": 6,
+                            "startColumn": 51,
+                            "endColumn": 53
+                          }
+                        },
+                        "message": {
+                          "text": "id"
+                        }
+                      }
+                    },
+                    {
+                      "location": {
+                        "physicalLocation": {
+                          "artifactLocation": {
+                            "uri": "src/db.js",
+                            "uriBaseId": "%SRCROOT%",
+                            "index": 2
+                          },
+                          "region": {
+                            "startLine": 6,
+                            "startColumn": 15,
+                            "endColumn": 53
+                          }
+                        },
+                        "message": {
+                          "text": "'SELECT * FROM users WHERE id = ' + id"
+                        }
+                      }
+                    },
+                    {
+                      "location": {
+                        "physicalLocation": {
+                          "artifactLocation": {
+                            "uri": "src/db.js",
+                            "uriBaseId": "%SRCROOT%",
+                            "index": 2
+                          },
+                          "region": {
+                            "startLine": 6,
+                            "startColumn": 9,
+                            "endColumn": 12
+                          }
+                        },
+                        "message": {
+                          "text": "sql"
+                        }
+                      }
+                    },
+                    {
+                      "location": {
+                        "physicalLocation": {
+                          "artifactLocation": {
+                            "uri": "src/db.js",
+                            "uriBaseId": "%SRCROOT%",
+                            "index": 2
+                          },
+                          "region": {
+                            "startLine": 8,
+                            "startColumn": 16,
+                            "endColumn": 19
+                          }
+                        },
+                        "message": {
+                          "text": "sql"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "relatedLocations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/api.js",
+                  "uriBaseId": "%SRCROOT%",
+                  "index": 0
+                },
+                "region": {
+                  "startLine": 7,
+                  "startColumn": 14,
+                  "endColumn": 26
+                }
+              },
+              "id": 1,
+              "message": {
+                "text": "user-provided value"
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "js/unused-local-variable",
+          "ruleIndex": 1,
+          "rule": {
+            "id": "js/unused-local-variable",
+            "index": 1
+          },
+          "message": {
+            "text": "Unused variable rows."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "src/api.js",
+                  "uriBaseId": "%SRCROOT%",
+                  "index": 0
+                },
+                "region": {
+                  "startLine": 8,
+                  "startColumn": 21,
+                  "endColumn": 25
+                }
+              }
+            }
+          ],
+          "partialFingerprints": {
+            "primaryLocationLineHash": "51c0b6e2d1a4f7a3:1"
+          }
+        }
+      ],
+      "automationDetails": {
+        "id": ".github/workflows/codeql.yml:analyze/language:javascript/"
+      },
+      "columnKind": "utf16CodeUnits",
+      "properties": {
+        "semmle.formatSpecifier": "sarif-latest"
+      }
+    }
+  ]
+}

@@ -106,6 +106,12 @@ pub(super) fn discovery_page(
             octocode_runtime_base::response::paging::PartialReason::ProviderResultCap,
             &[],
         );
+        // The reach is stated once, on the walk's first page; every page
+        // keeps the partial marker, and the last reachable one the terminal
+        // warning.
+        if current > 1 {
+            return;
+        }
         paging::push_notice(
             data,
             format!(

@@ -182,9 +182,8 @@ fn history_rows_carry_no_emails_or_empty_fields() {
         }"#,
     );
     assert_eq!(map_commit_list(other)["committer"], "b");
-    let issue = map_issue(
-        json_fixture(
-            r#"{
+    let issue = map_issue(json_fixture(
+        r#"{
                 "number": 1,
                 "title": "t",
                 "state": "open",
@@ -193,23 +192,16 @@ fn history_rows_carry_no_emails_or_empty_fields() {
                 "created_at": "c",
                 "updated_at": "u"
             }"#,
-        ),
-        false,
-    );
-    assert!(
-        issue.get("updatedAt").is_none() && issue.get("labels").is_none(),
-        "{issue}"
-    );
-    let by_update = map_issue(
-        json_fixture(
-            r#"{
+    ));
+    // No labels is no field; `updatedAt` is the page's to keep or drop.
+    assert!(issue.get("labels").is_none(), "{issue}");
+    let by_update = map_issue(json_fixture(
+        r#"{
                 "number": 1,
                 "updated_at": "u",
                 "labels": [{"name": "bug"}]
             }"#,
-        ),
-        true,
-    );
+    ));
     assert_eq!(by_update["updatedAt"], "u");
     assert_eq!(by_update["labels"], json_fixture(r#"["bug"]"#));
     let pr = map_pr(json_fixture(
@@ -275,16 +267,13 @@ fn row_dates_are_utc() {
     ));
     assert_eq!(pr["createdAt"], "2024-01-01T11:00:00Z", "{pr}");
     assert_eq!(pr["mergedAt"], "2024-01-01T23:30:00Z", "{pr}");
-    let issue = map_issue(
-        json_fixture(
-            r#"{
+    let issue = map_issue(json_fixture(
+        r#"{
                 "number": 1,
                 "created_at": "2024-01-01T10:00:00Z",
                 "updated_at": "2024-01-01T10:00:00+01:00"
             }"#,
-        ),
-        true,
-    );
+    ));
     assert_eq!(issue["createdAt"], "2024-01-01T10:00:00Z", "{issue}");
     assert_eq!(issue["updatedAt"], "2024-01-01T09:00:00Z", "{issue}");
 }
@@ -324,17 +313,13 @@ fn a_squash_headline_names_its_pull_request_once() {
 #[test]
 fn issue_rows_carry_the_stated_comment_count() {
     let issue = |comments: u64| {
-        map_issue(
-            json!({"number":1,"title":"t","state":"open","comments":comments}),
-            false,
-        )
+        map_issue(json!({"number":1,"title":"t","state":"open","comments":comments}))
     };
     assert_eq!(issue(105)["commentsCount"], 105);
     assert_eq!(issue(0)["commentsCount"], 0);
-    let unstated = map_issue(
-        json_fixture(r#"{"number": 1, "title": "t", "state": "open"}"#),
-        false,
-    );
+    let unstated = map_issue(json_fixture(
+        r#"{"number": 1, "title": "t", "state": "open"}"#,
+    ));
     assert!(unstated.get("commentsCount").is_none(), "{unstated}");
 }
 
@@ -532,4 +517,92 @@ fn rows_leave_out_the_labels_the_filter_requires() {
             ]"#
         )
     );
+}
+
+/// One shaped page of `items` for the query `row`, its provider total being
+/// the items listed (a search, not a REST list).
+fn shaped_page(row: Value, items: Vec<Value>) -> Value {
+    let query = HistorySearch::new(serde_json::from_value(row).expect("query")).expect("search");
+    let page = octocode_github::HistoryPage {
+        total_count: items.len(),
+        incomplete_results: false,
+        items,
+        warnings: Vec::new(),
+        listed: false,
+        has_more: false,
+    };
+    let paging = super::shape::Paging::new(&page, 1, 10);
+    super::shape::shape(&query, page, &paging, String::new())
+}
+
+/// A keyword search's commit rows state what a listing's rows state: a
+/// committer other than the author when `fields` picks it, and the merge
+/// mark. GitHub's commit search items carry both the committer and parents.
+#[test]
+fn keyword_commit_rows_carry_the_committer_and_the_merge_mark() {
+    let item = json_fixture(
+        r#"{
+            "sha": "abc",
+            "commit": {
+                "message": "Fix netrc",
+                "author": {"name": "A", "date": "2026-01-01T00:00:00Z"},
+                "committer": {"name": "B", "date": "2026-01-02T00:00:00Z"}
+            },
+            "author": {"login": "a"},
+            "committer": {"login": "b"},
+            "parents": [{"sha": "p1"}, {"sha": "p2"}]
+        }"#,
+    );
+    let search = json!({"operation":"commit","owner":"o","repo":"r","keywords":["netrc"]});
+    let mut picked = search.clone();
+    picked["fields"] = json!(["commitSha", "committer", "author"]);
+    let value = shaped_page(picked, vec![item.clone()]);
+    assert_eq!(value["commits"][0]["committer"], "b", "{value}");
+    assert_eq!(value["commits"][0]["author"], "a", "{value}");
+    let value = shaped_page(search, vec![item]);
+    assert_eq!(value["commits"][0]["merge"], true, "{value}");
+    assert!(value["commits"][0].get("committer").is_none(), "{value}");
+}
+
+/// `updatedAt` is offered by `fields` on pull requests and issues: a pick
+/// returns it whatever the sort. A default row states it only when the page
+/// is sorted by it.
+#[test]
+fn a_picked_updated_at_is_returned_and_a_default_row_keeps_it_only_when_sorted_by_it() {
+    let item = json_fixture(
+        r#"{
+            "number": 1,
+            "title": "t",
+            "state": "open",
+            "user": {"login": "u"},
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-02-01T00:00:00Z"
+        }"#,
+    );
+    for (operation, collection) in [("pullRequest", "pullRequests"), ("issue", "issues")] {
+        let updated = |selection: Value| {
+            let mut row = json!({"operation":operation,"owner":"o","repo":"r"});
+            row.as_object_mut()
+                .expect("row")
+                .extend(selection.as_object().expect("selection").clone());
+            let value = shaped_page(row, vec![item.clone()]);
+            value[collection][0].get("updatedAt").cloned()
+        };
+        assert_eq!(
+            updated(json!({"fields": ["title", "updatedAt"]})),
+            Some(json!("2026-02-01T00:00:00Z")),
+            "{operation}: a pick returns it"
+        );
+        assert_eq!(
+            updated(json!({"sort": {"by": "updatedAt", "order": "desc"}})),
+            Some(json!("2026-02-01T00:00:00Z")),
+            "{operation}: the sort value stays"
+        );
+        assert_eq!(updated(json!({})), None, "{operation}: a default row");
+        assert_eq!(
+            updated(json!({"fields": ["title"]})),
+            None,
+            "{operation}: a pick without it"
+        );
+    }
 }

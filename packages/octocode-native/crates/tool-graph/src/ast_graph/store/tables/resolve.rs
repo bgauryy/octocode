@@ -341,9 +341,11 @@ fn resolve_call(
                         })
                     })
         };
-        // Macros and functions are separate namespaces: `format!` expands a
-        // macro and never calls a `fn format`, and `twice()` never expands
-        // `macro_rules! twice`.
+        // Where the grammar invokes macros with syntax of their own, macros
+        // and functions are separate namespaces: `format!` expands a macro and
+        // never calls a `fn format`, and `twice()` never expands
+        // `macro_rules! twice`. A C-family function-like macro is no such
+        // target (`is_macro` is false): `listLength(l)` calls it.
         let expands = call.kind == "expands";
         let accept = |id| {
             (linker.is_macro)(id) == expands

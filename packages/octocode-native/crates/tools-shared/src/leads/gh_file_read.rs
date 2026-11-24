@@ -50,18 +50,15 @@ pub fn match_read(
             block: block.then_some(true),
             case_mode: terms.case_mode,
             context_lines: context.map(|(before, after)| ContextLines { after, before }),
-            main_goal: None,
             match_string: terms_list.into(),
             owner: target.owner.try_into().ok()?,
             path: target.path.try_into().ok()?,
             ranges: Vec::new(),
             read_progress: None,
-            reasoning: None,
             ref_: target.reference.map(TryInto::try_into).transpose().ok()?,
             regex_engine: terms.regex_engine,
             repo: target.repo.try_into().ok()?,
             view: ContentView::Content,
-            whole_word: false,
         }
         .into(),
     )
@@ -71,11 +68,9 @@ pub fn match_read(
 pub fn plain_read(target: &Target<'_>) -> Option<GhGetFileContentQuery> {
     Some(
         GhGetFileContentQueryContent0 {
-            main_goal: None,
             owner: target.owner.try_into().ok()?,
             path: target.path.try_into().ok()?,
             read_progress: None,
-            reasoning: None,
             ref_: target.reference.map(TryInto::try_into).transpose().ok()?,
             repo: target.repo.try_into().ok()?,
             view: ContentView::Content,

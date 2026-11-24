@@ -17,8 +17,10 @@ import type {
   SectionData,
   SymbolNode,
   UnresolvedCall,
+  UseEdge,
 } from './types.ts';
 import { fileOf, prefixOf } from '../ids.ts';
+import type { Load } from '../loads.ts';
 
 /** A chunk as stitching reads it: its id, path, workspace package and the directory names it excludes. */
 export type StitchChunk = Pick<Chunk, 'id' | 'path' | 'package' | 'exclude'>;
@@ -37,6 +39,10 @@ export interface CrossImport {
   line?: number;
   test?: boolean;
   via: 'relative' | 'crate-path' | 'package';
+  /** The import's kinds as the importing chunk recorded them (static-import, type-import, …); absent when unknown. */
+  kinds?: string[];
+  /** The load the importing chunk's engine stated per kind, when it did. */
+  loads?: Record<string, Load>;
   crate?: string;
   package?: string;
   count?: number;
@@ -395,7 +401,7 @@ export function stitch({ root, chunks, datas, files }: StitchInput) {
 // One out-of-root import of chunk `c`: an edge to the chunk that holds its target, or an unresolved row with the reason.
 // A Rust path into another workspace crate (`octocode_io::memo::Memo`) is a `crate-path` edge naming that crate.
 function stitchRelative(
-  { chunks, datas, has, cratePrefix, crates }: StitchContext,
+  { chunks, datas, has, cratePrefix, crates, byPackage }: StitchContext,
   c: StitchChunk,
   o: OutsideImport,
   {
@@ -417,14 +423,36 @@ function stitchRelative(
   const via: Pick<CrossImport, 'via' | 'crate'> = crate
     ? { via: 'crate-path', crate }
     : { via: 'relative' };
+  // A bare specifier naming another chunk's workspace package (the engine saw its directory outside the chunk root,
+  // so it reported a scope gap rather than a package): the same package edge stitchPackage makes.
+  const bare =
+    o.specifier && !/^[./]/.test(o.specifier) && !o.specifier.includes('::');
+  const pkgOwner =
+    !target && bare ? byPackage.get(packageKey(o.specifier!)) : undefined;
   // Inside its own chunk the engine already decided; an import it left unlinked stays unlinked.
   if (owner === c) gap('unlinked inside its own chunk');
+  else if (pkgOwner && pkgOwner !== c)
+    cross.push({
+      source,
+      target: `pkg:${pkgOwner.package}`,
+      package: `pkg:${o.specifier}`,
+      line: o.line,
+      ...(o.test && { test: true }),
+      ...(o.importKind && { kinds: [o.importKind] }),
+      ...(o.importKind && o.load && { loads: { [o.importKind]: o.load } }),
+      via: 'package',
+      sourceChunk: c.id,
+      targetChunk: pkgOwner.id,
+      targetBuilt: datas.has(pkgOwner.id),
+    });
   else if (owner)
     cross.push({
       source,
       target,
       line: o.line,
       ...(o.test && { test: true }),
+      ...(o.importKind && { kinds: [o.importKind] }),
+      ...(o.importKind && o.load && { loads: { [o.importKind]: o.load } }),
       ...via,
       sourceChunk: c.id,
       targetChunk: owner.id,
@@ -474,6 +502,8 @@ function stitchPackage(
       ...row,
       source: prefixOf(c.path) + file,
       ...(testFiles.has(file) && { test: true }),
+      ...(x.kinds?.[file] && { kinds: x.kinds[file] }),
+      ...(x.loads && { loads: x.loads }),
     });
 }
 
@@ -914,6 +944,7 @@ interface Merged {
   externals: Map<string, ExternalPackage>;
   findings: Record<string, number>;
   callsOutside: number;
+  uses: UseEdge[];
 }
 
 // Every built chunk's rows with root-relative ids.
@@ -932,6 +963,7 @@ function mergeChunks(
     externals: new Map(),
     findings: {},
     callsOutside: 0,
+    uses: [],
   };
   // `built` holds only chunks with data.
   for (const c of built) addChunk(m, c, datas.get(c.id)!);
@@ -966,11 +998,31 @@ function addChunk(m: Merged, c: StitchChunk, D: SectionData) {
   m.fnFiles.push(...(D.fnFiles ?? []).map(p));
   m.callsOutside += D.coverage?.callsOutside ?? 0;
   for (const x of D.externals ?? []) {
-    const e = m.externals.get(x.id) ?? { id: x.id, count: 0, files: [] };
+    const e = m.externals.get(x.id) ?? {
+      id: x.id,
+      count: 0,
+      files: [],
+      testFiles: [],
+      kinds: {},
+      lines: {},
+    };
     e.count += x.count;
     e.files.push(...(x.files ?? []).map(p));
+    e.testFiles?.push(...(x.testFiles ?? []).map(p));
+    for (const [file, kinds] of Object.entries(x.kinds ?? {}))
+      if (e.kinds) e.kinds[p(file)] = kinds;
+    for (const [file, lines] of Object.entries(x.lines ?? {}))
+      if (e.lines) e.lines[p(file)] = lines;
+    if (x.loads) e.loads = { ...e.loads, ...x.loads };
     m.externals.set(x.id, e);
   }
+  m.uses.push(
+    ...(D.uses ?? []).map(u => ({
+      ...u,
+      source: p(u.source),
+      target: p(u.target),
+    }))
+  );
   const insights: Partial<Insights> = D.insights ?? {};
   for (const [k, v] of Object.entries(insights.findings ?? {}))
     m.findings[k] = (m.findings[k] ?? 0) + v;
@@ -1033,7 +1085,15 @@ function addCrossImports(
     };
     edge.test = Boolean(edge.test && e.test);
     edge.count += 1;
-    if (!edge.resolution.includes(e.via)) edge.resolution.push(e.via);
+    if (e.loads) edge.loads = { ...edge.loads, ...e.loads };
+    for (const kind of [e.via, ...(e.kinds ?? [])]) {
+      if (!edge.resolution.includes(kind)) edge.resolution.push(kind);
+      if (kind !== e.via && isInteger(e.line)) {
+        edge.kindLines ??= {};
+        const at = (edge.kindLines[kind] ??= []);
+        if (!at.includes(e.line)) at.push(e.line);
+      }
+    }
     if (isInteger(e.line) && !edge.lines.includes(e.line)) {
       edge.lines.push(e.line);
       edge.line = Math.min(edge.line ?? e.line, e.line);
@@ -1195,6 +1255,7 @@ function whole({
     imports: m.imports,
     symbols: m.symbols,
     calls: m.calls,
+    uses: m.uses,
     fnFiles: fnSet,
     legends: {
       files: [

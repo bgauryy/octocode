@@ -21,5 +21,7 @@ fn a_missing_item_is_recovered_by_its_number_or_ref_not_a_path_listing() {
         for field in ["owner", "repo", "number", "ref"] {
             assert!(hint.contains(field), "{field} missing from {hint:?}");
         }
+        // The hint shows only on a row without related[]: it never names it.
+        assert!(!hint.contains("related"), "{hint:?}");
     }
 }

@@ -17,8 +17,8 @@ async fn mount_no_history(server: &MockServer) {
 
 /// A matchString with no hit in an existing file is `matchNotFound` with
 /// an empty `content` (the contract requires it, as in localFetch) and
-/// its leads, with one hint saying which to run first; it carries no zero
-/// counters and no echo of the request.
+/// its leads; it carries no zero counters, no echo of the request and no
+/// hint restating the absence `status` and `matchNotFound` state.
 #[tokio::test]
 async fn no_match_read_keeps_its_leads_without_empty_echo() {
     let server = MockServer::builder().start().await;
@@ -54,115 +54,10 @@ async fn no_match_read_keeps_its_leads_without_empty_echo() {
     ] {
         assert!(data.get(junk).is_none(), "{junk}: {data}");
     }
-    // One hint ranks the leads in the order they are offered.
-    let hints = data["hints"].as_array().expect("the leads' order");
-    assert_eq!(hints.len(), 1, "{data}");
-    let hint = hints[0].as_str().expect("hint");
-    let order = ["repository's code", "commits", "pull requests"]
-        .map(|step| hint.find(step).unwrap_or_else(|| panic!("{step}: {hint}")));
-    assert!(order.is_sorted(), "{hint}");
-    let lead =
-        octocode_runtime_base::test_support::checks::related_call(data, "ghSearchCode", |_| true);
-    assert_eq!(lead["tool"], "ghSearchCode", "{data}");
-    assert_eq!(
-        lead["input"]["queries"][0]["keywords"],
-        json_fixture(r#"["absent"]"#),
-        "{data}"
-    );
-    // Code search explores the default index; the separate history lead is pinned.
-    assert!(lead["input"]["queries"][0].get("ref").is_none(), "{data}");
-    // The text may live only on a branch or pull request: the file's
-    // commits at the read's ref, and pull requests whose text names it
-    // (approximate: their discussion, not their diffs).
-    let commits = octocode_runtime_base::test_support::checks::related_call(
-        data,
-        "ghSearchHistory",
-        |input| input["queries"][0]["operation"] == "commit",
-    );
-    assert_eq!(commits["tool"], "ghSearchHistory", "{data}");
-    assert_eq!(
-        commits["input"]["queries"][0],
-        serde_json::json!({"operation":"commit","owner":"a","repo":"b","path":"a.txt","ref":sha}),
-        "{data}"
-    );
-    let pulls = octocode_runtime_base::test_support::checks::related_call(
-        data,
-        "ghSearchHistory",
-        |input| input["queries"][0]["operation"] == "pullRequest",
-    );
-    assert_eq!(
-        pulls["input"]["queries"][0],
-        json_fixture(
-            r#"{
-                "operation": "pullRequest",
-                "owner": "a",
-                "repo": "b",
-                "keywords": ["absent"]
-            }"#
-        ),
-        "{data}"
-    );
-    assert_eq!(pulls["kind"], "related", "{data}");
-    // A miss that no case-insensitive read would select has no
-    // ignoreCase lead.
-    assert!(data["next"].get("ignoreCase").is_none(), "{data}");
-    // The shared localFetch miss offers a localSearch of the file's
-    // directory; it has no GitHub equivalent, so it must not be rewritten
-    // into a ghGetFileContent read of that directory (an invalidInput
-    // "is a directory" row when run verbatim).
-    assert!(data["next"].get("findText").is_none(), "{data}");
-    for (name, lead) in data["next"].as_object().into_iter().flatten() {
-        if lead["tool"] == "ghGetFileContent" {
-            assert_eq!(
-                lead["input"]["queries"][0]["path"], "a.txt",
-                "{name} reads another path: {data}"
-            );
-        }
-    }
-
-    // A case-sensitive miss that a case-insensitive read selects runs
-    // the same read, ignoring case, at the read's commit; the count of
-    // lines it selects is the fact beside the lead.
-    let sensitive = run_default(
-        &provider,
-        serde_json::json!({"owner":"a","repo":"b","path":"a.txt","ref":sha,"matchString":["Two"]}),
-    )
-    .await
-    .expect("read");
-    let data = &sensitive.data;
-    // The miss the file itself answers states its one hint, a counted fact.
-    assert!(data.get("warnings").is_none(), "{data}");
-    let hints = data["hints"]
-        .as_array()
-        .unwrap_or_else(|| panic!("one hint: {data}"));
-    assert_eq!(hints.len(), 1, "{data}");
-    assert!(
-        hints[0]
-            .as_str()
-            .is_some_and(|hint| hint.contains("1 line matches ignoring case")),
-        "{data}"
-    );
-    let row = &octocode_runtime_base::test_support::checks::related_call(
-        data,
-        "ghGetFileContent",
-        |input| input["queries"][0]["caseMode"] == "insensitive",
-    )["input"]["queries"][0];
-    assert_eq!(
-        octocode_runtime_base::test_support::checks::related_call(
-            data,
-            "ghGetFileContent",
-            |input| input["queries"][0]["caseMode"] == "insensitive"
-        )["tool"],
-        "ghGetFileContent"
-    );
-    assert_eq!(row["caseMode"], "insensitive", "{data}");
-    assert_eq!(row["matchString"], json_fixture(r#"["Two"]"#), "{data}");
-    assert_eq!(row["ref"], sha, "{data}");
-    octocode_runtime_base::test_support::validate_sealed(
-        "ghGetFileContent",
-        &serde_json::json!({"results":[{"index":0,"status":"empty","data":data}]}),
-    )
-    .expect("an ignoreCase lead satisfies the output contract");
+    // A miss at a pinned ref offers no code search (its index is the
+    // default branch's) and no history leads; the row states the absence.
+    assert!(data.get("hints").is_none(), "{data}");
+    assert!(data.get("related").is_none(), "{data}");
 }
 
 /// A miss offers only reads that differ from the request and that select
@@ -195,7 +90,13 @@ async fn a_miss_leads_only_to_reads_that_select_visible_lines() {
         let data = &read.data;
         assert_eq!(data["matchNotFound"], true, "{fields}: {data}");
         assert!(data["next"].get("ignoreCase").is_none(), "{fields}: {data}");
-        assert!(data.get("warnings").is_none(), "{fields}: {data}");
+        // The hit hidden behind a redaction bounds the absence: the one
+        // warning says the masked value was never searched.
+        assert_eq!(
+            data["warnings"],
+            serde_json::json!([super::super::shape::masked_coverage(Some(1))]),
+            "{fields}: {data}"
+        );
     }
     let ranged = run_default(
         &provider,
@@ -238,9 +139,8 @@ async fn a_miss_leads_only_to_reads_that_select_visible_lines() {
 /// code search for it (it may live in another file), never to a
 /// semantic locate of the same file.
 #[tokio::test]
-async fn no_match_in_a_large_file_leads_to_a_repository_search() {
+async fn a_pinned_miss_in_a_large_file_offers_no_code_search() {
     let server = MockServer::builder().start().await;
-    let sha = "0123456789abcdef0123456789abcdef01234567";
     let text = (0..1200).map(|n| format!("line {n}\n")).collect::<String>();
     mount_json(
         &server,
@@ -252,38 +152,58 @@ async fn no_match_in_a_large_file_leads_to_a_repository_search() {
     let provider = mock_provider(&server, RetryPolicy::default());
     let read = run_default(
         &provider,
-        serde_json::json!({"owner":"a","repo":"b","path":"big.txt","ref":sha,"matchString":["absent"]}),
+        serde_json::json!({"owner":"a","repo":"b","ref":"0123456789abcdef0123456789abcdef01234567","path":"big.txt","matchString":["absent"]}),
     )
     .await
     .expect("read");
     let data = &read.data;
     assert!(data["next"].get("clasify").is_none(), "{data}");
-    let lead =
-        octocode_runtime_base::test_support::checks::related_call(data, "ghSearchCode", |_| true);
-    assert_eq!(lead["tool"], "ghSearchCode", "{data}");
-    assert_eq!(
-        lead["input"]["queries"][0]["keywords"],
-        json_fixture(r#"["absent"]"#),
+    // A pinned read gets no code search: its index is the default branch's.
+    assert!(
+        data["related"]
+            .as_array()
+            .is_none_or(|calls| calls.iter().all(|call| call["tool"] != "ghSearchCode")),
         "{data}"
     );
 }
 
 /// A miss over a file holding masked secret values claims no absence inside
-/// them: the row's one hint says masked values are never searched, in the
-/// wording localFetch and localSearch use; a file with none keeps the plain
-/// claim.
-#[test]
-fn a_miss_over_masked_values_claims_no_absence_inside_them() {
-    let leads = [("findCode", serde_json::json!({}))];
-    for masked in [Some(1), Some(3), None] {
-        let hint = super::super::shape::miss_order(false, &leads, masked);
-        let whole_file = hint.contains("No line of this file holds it");
-        assert_eq!(whole_file, masked.is_none(), "{hint}");
-        if let Some(count) = masked {
-            let clause = octocode_tools_shared::source_view::masked_unsearched(count);
-            assert!(hint.contains(&clause), "{hint}");
-        }
-        assert!(hint.contains("related[] in order"), "{hint}");
+/// them: one warning says masked values are never searched, in the wording
+/// localFetch and localSearch use, and no hint; a file with none has
+/// neither.
+#[tokio::test]
+async fn a_miss_over_masked_values_warns_they_were_never_searched() {
+    let server = MockServer::builder().start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    mount_json(&server, "/api/v3/repos/a/b/contents/a.txt", 200, serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("one\nkey TOKEN\nthree\n")}),).await;
+    let provider = mock_provider(&server, RetryPolicy::default());
+    let read = run_default(
+        &provider,
+        serde_json::json!({"owner":"a","repo":"b","path":"a.txt","ref":sha,"matchString":["absent"]}),
+    )
+    .await
+    .expect("read");
+    let data = &read.data;
+    assert_eq!(data["matchNotFound"], true, "{data}");
+    assert!(data.get("hints").is_none(), "{data}");
+    let masked = data["maskedSpans"]
+        .as_u64()
+        .and_then(|count| usize::try_from(count).ok())
+        .expect("masked spans");
+    assert_eq!(
+        data["warnings"],
+        serde_json::json!([super::super::shape::masked_coverage(Some(masked))]),
+        "{data}"
+    );
+    let clause = octocode_tools_shared::source_view::masked_unsearched(masked);
+    assert!(
+        data["warnings"][0]
+            .as_str()
+            .is_some_and(|warning| warning.contains(&clause)),
+        "{data}"
+    );
+    for none in [None, Some(0)] {
+        assert_eq!(super::super::shape::masked_coverage(none), None);
     }
 }
 
@@ -337,9 +257,8 @@ fn an_unsupported_language_failure_gets_no_local_tool_hint() {
 /// repository's code and the path's history: the outline answers nothing
 /// by itself, so the repository's leads stay. The hint names that order.
 #[tokio::test]
-async fn a_miss_in_an_outlined_file_leads_to_its_outline_then_the_repository() {
+async fn a_pinned_miss_in_an_outlined_file_leads_to_its_outline() {
     let server = MockServer::builder().start().await;
-    let sha = "0123456789abcdef0123456789abcdef01234567";
     mount_json(
         &server,
         "/api/v3/repos/a/b/contents/a.rs",
@@ -351,7 +270,7 @@ async fn a_miss_in_an_outlined_file_leads_to_its_outline_then_the_repository() {
     let provider = mock_provider(&server, RetryPolicy::default());
     let read = run_default(
         &provider,
-        serde_json::json!({"owner":"a","repo":"b","path":"a.rs","ref":sha,"matchString":["absent"]}),
+        serde_json::json!({"owner":"a","repo":"b","ref":"0123456789abcdef0123456789abcdef01234567","path":"a.rs","matchString":["absent"]}),
     )
     .await
     .expect("read");
@@ -371,16 +290,11 @@ async fn a_miss_in_an_outlined_file_leads_to_its_outline_then_the_repository() {
         .filter(|lead| lead["input"]["queries"][0]["view"] == "symbols")
         .count();
     assert_eq!(outlines, 1, "one outline lead: {data}");
+    at("ghGetFileContent", Some("symbols"));
     assert!(
-        at("ghGetFileContent", Some("symbols")) < at("ghSearchCode", None),
-        "{data}"
+        leads.iter().all(|lead| lead["tool"] != "ghSearchCode"),
+        "a pinned read gets no code search: {data}"
     );
-    assert!(
-        at("ghSearchCode", None) < at("ghSearchHistory", None),
-        "{data}"
-    );
-    let hint = data["hints"][0].as_str().expect("the leads' order");
-    let order = ["declarations", "repository's code", "commits"]
-        .map(|step| hint.find(step).unwrap_or_else(|| panic!("{step}: {hint}")));
-    assert!(order.is_sorted(), "{hint}");
+    // The leads' order is `related[]`'s own: no hint restates it.
+    assert!(data.get("hints").is_none(), "{data}");
 }

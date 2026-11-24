@@ -67,6 +67,7 @@ pub(super) fn map_pr(v: Value) -> Value {
         row["labels"] = json!(labels);
     }
     state_counts(&mut row, &v);
+    state_updated(&mut row, &v);
     remove_null_fields(&mut row);
     row
 }
@@ -119,8 +120,9 @@ pub(super) fn drop_filtered_labels(value: &mut Value, rows: &str, filtered: &[St
     }
 }
 
-/// States `updatedAt` on a pull-request row: the value its page is sorted by.
-pub(super) fn state_updated(row: &mut Value, item: &Value) {
+/// States `updatedAt` on a row: a default page keeps it only when sorted by
+/// it ([`super::shape`]'s detail), a `fields` pick whenever named.
+fn state_updated(row: &mut Value, item: &Value) {
     let updated = utc_value(item.get("updated_at"));
     if !updated.is_null() {
         row["updatedAt"] = updated;
@@ -145,17 +147,14 @@ fn state_counts(row: &mut Value, item: &Value) {
     }
 }
 
-/// An issue row: `updatedAt` only when the rows are sorted by it; labels
-/// only when present.
-pub(super) fn map_issue(v: Value, by_update: bool) -> Value {
+/// An issue row: labels only when present.
+pub(super) fn map_issue(v: Value) -> Value {
     let mut row = json!({"number":v["number"],"title":v.get("title"),"state":v.get("state"),"author":v.pointer("/user/login"),"createdAt":utc_value(v.get("created_at"))});
     let labels = labels(&v);
     if !labels.is_empty() {
         row["labels"] = json!(labels);
     }
-    if by_update {
-        row["updatedAt"] = utc_value(v.get("updated_at"));
-    }
+    state_updated(&mut row, &v);
     state_counts(&mut row, &v);
     remove_null_fields(&mut row);
     row

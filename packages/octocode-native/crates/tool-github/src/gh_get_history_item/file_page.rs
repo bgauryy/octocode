@@ -11,7 +11,7 @@ use super::util::str_at;
 use crate::gh_get_history_item::gh_get_history_item_query;
 use octocode_contract_types::GhGetHistoryItemQuery;
 use octocode_runtime_base::response::pages::SpanFacts;
-use octocode_runtime_base::response::paging::{push_notice, push_warnings};
+use octocode_runtime_base::response::paging::push_warnings;
 use octocode_runtime_base::response::result::Continuation;
 use octocode_runtime_base::response::result::wire_query;
 use octocode_tools_shared::gh_shared::ensure_calls;
@@ -21,7 +21,8 @@ use serde_json::{Value, json};
 /// and leads.
 pub(super) struct FilePage {
     pub(super) cursors: DiffCursors,
-    /// The reads of the page's top file at both sides of the numbered diff.
+    /// The whole-source reads, at both sides of the diff, of the page's
+    /// files GitHub sent without a patch.
     pub(super) side_reads: Vec<Lead>,
     /// `withoutMatchString`: the same read without the literal, when a
     /// `matchString` hit none of the listed files it could search.
@@ -61,10 +62,10 @@ pub(super) fn shape_file_page(
         loaded,
     } = filtered;
     let patches = query.include_diff();
-    // A file page's first patch window reads its top file at both sides of
-    // the numbered diff: a file the window shows (the filter keeps more files
-    // than one window packs); the filter's facts are stated once, on the
-    // first page.
+    // A file page's first patch window reads the source of each file it
+    // shows without a patch at both sides of the diff (the filter keeps more
+    // files than one window packs); the filter's facts are stated once, on
+    // the first page.
     let first_window =
         gh_get_history_item_query::char_offset(query).is_none_or(|offset| offset == 0);
     let side_files = (patches && first_window).then(|| files.clone());
@@ -84,7 +85,6 @@ pub(super) fn shape_file_page(
             &ChangeSides {
                 new_ref: sides.new,
                 old_ref: sides.old,
-                needle: super::text::needle(query).as_deref(),
             },
             shown,
         )
@@ -97,9 +97,6 @@ pub(super) fn shape_file_page(
     out["files"] = rows;
     if let Some(window) = patch_window {
         out["sectionPagination"][Axis::Patches.key()] = window.to_value();
-    }
-    if patches {
-        notice_patch_total_scope(out, &page, query);
     }
     super::window::lift_page_limits(out, &mut page);
     out["sectionPagination"][Axis::Files.key()] = page;
@@ -139,31 +136,6 @@ pub(super) fn shape_file_page(
         side_reads,
         without_match,
     }
-}
-
-/// A patch total counts the chars of one file page's patch stream, not of the
-/// whole change: when more files lie before or after the page, say so once,
-/// on the page's first patch window.
-pub(super) fn notice_patch_total_scope(row: &mut Value, page: &Value, query: &HistoryItemRequest) {
-    if gh_get_history_item_query::char_offset(query).is_some_and(|offset| offset > 0) {
-        return;
-    }
-    let count = |key: &str| page.get(key).and_then(Value::as_u64);
-    let (Some(offset), Some(length)) = (count("offset"), count("length")) else {
-        return;
-    };
-    let more = page.get("hasMore").and_then(Value::as_bool) == Some(true);
-    if length == 0 || (offset == 0 && !more) {
-        return;
-    }
-    push_notice(
-        row,
-        format!(
-            "patches counts the chars of files {}-{} only; each file page has its own patch stream.",
-            offset + 1,
-            offset + length
-        ),
-    );
 }
 
 /// The rows of a filtered file page and their complete patch-stream facts:

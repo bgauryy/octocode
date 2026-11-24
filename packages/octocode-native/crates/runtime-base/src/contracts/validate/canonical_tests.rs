@@ -187,36 +187,71 @@ fn admission_preserves_content_and_does_not_rewrite_legacy_inputs() {
     }
 }
 
+/// The brief (`mainGoal`, `reasoning`) is clasify's alone: only its rows
+/// declare it, take it as sent, keep it beside a saved request's private
+/// progress and bound it. Another tool's schema names it as undeclared; its
+/// lenient reading drops it with a stated warning (`normalize`).
 #[test]
-fn every_tool_row_accepts_the_brief_and_bounds_it() {
+fn only_clasify_rows_take_the_brief_and_bound_it() {
+    use crate::{contracts::BRIEF_FIELDS, id::ToolId};
+    for id in ToolId::ALL {
+        let schema = &crate::contracts::tool_contract(id).expect("contract")["querySchema"];
+        let declared = crate::contracts::schema_facts::property_names(schema, &schema["$defs"]);
+        for field in BRIEF_FIELDS {
+            assert_eq!(
+                declared.contains(field),
+                id == ToolId::Clasify,
+                "{id} {field}"
+            );
+        }
+    }
     let row = json_fixture(
         r#"{
-            "path": "/tmp/source.rs",
+            "operation": "models",
             "mainGoal": "Find the retry policy",
             "reasoning": "The reader owns it"
         }"#,
     );
-    let parsed = validate("localFetch", json!({"queries":[row.clone()]})).expect("brief accepted");
-    assert_eq!(parsed["queries"][0]["mainGoal"], row["mainGoal"]);
+    let parsed = validate("clasify", json!({"queries":[row.clone()]})).expect("brief accepted");
+    for field in BRIEF_FIELDS {
+        assert_eq!(parsed["queries"][0][field], row[field], "{field}");
+    }
     // A saved request keeps the brief beside its private progress.
     let saved = json_fixture(
         r#"{
             "queries": [
                 {
-                    "path": "/tmp/source.rs",
+                    "operation": "evaluate",
+                    "source": {"tool": "ghSearchCode", "query": {"keywords": ["useState"], "owner": "vercel", "repo": "next.js"}},
+                    "sourceProgress": {"page": 2, "listed": "0123456789abcdef"},
+                    "questions": {"hook": {"type": "noul", "instructions": "Calls a React hook."}},
                     "mainGoal": "Find the retry policy",
-                    "reasoning": "The reader owns it",
-                    "readProgress": {"unit": "lines", "offset": 3}
+                    "reasoning": "The reader owns it"
                 }
             ]
         }"#,
     );
-    let rows = prepare_saved_rows("localFetch", saved).expect("saved brief accepted");
+    let rows = prepare_saved_rows("clasify", saved).expect("saved brief accepted");
     let row = rows[0].as_ref().expect("row");
     assert_eq!(row["mainGoal"], "Find the retry policy");
     assert_eq!(row["reasoning"], "The reader owns it");
-    let long = json!({"path":"/tmp/source.rs","reasoning":"x".repeat(501)});
-    assert!(validate("localFetch", json!({"queries":[long]})).is_err());
+    assert_eq!(row["sourceProgress"]["page"], 2);
+    let long = json!({"operation":"models","reasoning":"x".repeat(501)});
+    assert!(validate("clasify", json!({"queries":[long]})).is_err());
+    let elsewhere = json_fixture(
+        r#"{"path": "/tmp/source.rs", "mainGoal": "Find the retry policy", "reasoning": "The reader owns it"}"#,
+    );
+    let refused =
+        validate("localFetch", json!({"queries":[elsewhere]})).expect_err("an undeclared brief");
+    for field in BRIEF_FIELDS {
+        assert!(
+            refused
+                .issues
+                .iter()
+                .any(|issue| issue.path == ["queries", "0", field]),
+            "{field}: {refused:?}"
+        );
+    }
 }
 
 #[test]

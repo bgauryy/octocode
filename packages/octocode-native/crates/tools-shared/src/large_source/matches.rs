@@ -178,7 +178,7 @@ pub(super) fn fetch_matches<S: ContentScan>(
             None => {
                 let page = local_fetch_query::updated(
                     q,
-                    serde_json::json!({"matchString":null,"regexEngine":null,"caseMode":null,"wholeWord":null,"contextLines":null,"block":null,"readProgress":null}),
+                    serde_json::json!({"matchString":null,"regexEngine":null,"caseMode":null,"contextLines":null,"block":null,"readProgress":null}),
                 )
                 .and_then(|mut page| {
                     local_fetch_query::set_line_spans(&mut page, &lines).map(|()| page)

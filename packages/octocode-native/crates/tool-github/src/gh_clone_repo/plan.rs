@@ -3,7 +3,7 @@ use super::checkout::{fresh_clone, reuse_checkout};
 use super::validate::validate_query;
 use super::{
     CloneLocation, CloneResult, GhCloneRepoQuery, GitContext, GitError, Sparse, check_control,
-    control, history_depth, policy_denied, storage,
+    control, policy_denied, storage,
 };
 use octocode_contract_types::ErrorCode;
 use octocode_runtime_base::policy::PolicyErrorCode;
@@ -22,7 +22,6 @@ pub(super) struct Plan<'a> {
     host: String,
     pub(super) sparse: Option<Sparse>,
     sparse_key: Option<String>,
-    pub(super) depth: u64,
     /// Requested sparse paths the commit lacks, found by the tree listing
     /// that narrowed `sparse` to the paths it has ([`execute_prepared`]).
     absent: Vec<String>,
@@ -37,7 +36,6 @@ impl Plan<'_> {
             &self.query.repo,
             commit,
             self.sparse_key.as_deref(),
-            self.depth,
             &self.host,
         );
         self.context
@@ -60,7 +58,8 @@ impl Plan<'_> {
     /// The served row of the checkout at `clone_dir`: where it is and what it
     /// holds. Requested sparse paths the commit lacks are named in a warning
     /// with their recovery lead; the checkout holds the others. A sparse
-    /// checkout's row states its coverage: local tools see only its scope.
+    /// scope is stated by `location.paths`: the row searches nothing, so the
+    /// local tools that search the checkout state its coverage, not this row.
     pub(super) fn result(&self, commit: &str, clone_dir: &Path, checkout: Checkout) -> CloneResult {
         let bytes = checkout.size;
         let on_disk = self.missing_paths(clone_dir, &checkout.withheld);
@@ -74,23 +73,16 @@ impl Plan<'_> {
         let path = clone_dir.to_string_lossy().into_owned();
         let mut calls = Map::new();
         let mut warnings = Vec::new();
-        if let Some(scope) = octocode_tools_shared::gh_git::clone_scope::CloneScope::of(
-            clone_dir.to_path_buf(),
-            self.record(&checkout.commit_sha, paths.clone(), checkout.root_files),
-        ) {
-            warnings.push(scope.coverage_warning());
-        }
         if !missing.is_empty() {
+            // `location.commitSha` names the commit and the request the
+            // repository: the warning names only the paths.
             warnings.push(format!(
-                "Path does not exist: {} in {}/{}@{}; the checkout holds the other paths.",
+                "Path does not exist at this commit: {}; the checkout holds the other paths.",
                 missing
                     .iter()
                     .map(|path| format!("\"{path}\""))
                     .collect::<Vec<_>>()
                     .join(", "),
-                self.query.owner,
-                self.query.repo,
-                checkout.commit_sha
             ));
             if let Some(Value::Object(recovery)) = super::recovery::sparse_next(
                 self.context,
@@ -120,8 +112,6 @@ impl Plan<'_> {
                 paths,
                 symlinks: (!checkout.symlinks.is_empty()).then_some(checkout.symlinks),
                 skipped: (!checkout.withheld.is_empty()).then_some(checkout.withheld),
-                history_depth: (self.depth > 1).then_some(self.depth),
-                full_history: true,
                 cloned_at: None,
                 reused: false,
                 lsp_trust_fetched_code: false,
@@ -144,7 +134,6 @@ impl Plan<'_> {
             commit_sha: commit.to_ascii_lowercase(),
             paths,
             root_files,
-            history_depth: self.depth,
         }
     }
 
@@ -233,7 +222,6 @@ pub(super) fn execute_prepared(
         host: root.into(),
         sparse_key: sparse.as_ref().map(Sparse::key),
         sparse,
-        depth: history_depth(query),
         absent: Vec::new(),
     };
     // `run` pins every row to a commit before it gets here.

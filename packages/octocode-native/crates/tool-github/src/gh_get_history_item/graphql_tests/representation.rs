@@ -89,6 +89,8 @@ async fn graphql_files_missing_rename_metadata_use_rest_without_rereading_other_
     }
 }
 
+/// A renamed file GitHub sent without a patch reads its parent side under
+/// the path it had there.
 #[tokio::test]
 async fn renamed_patch_parent_read_uses_the_old_path() {
     let server = MockServer::builder().start().await;
@@ -101,10 +103,10 @@ async fn renamed_patch_parent_read_uses_the_old_path() {
                     "filename": "src/new.rs",
                     "previous_filename": "src/old.rs",
                     "status": "renamed",
-                    "additions": 1,
+                    "additions": 9000,
                     "deletions": 1,
-                    "changes": 2,
-                    "patch": "@@ -1 +1 @@\n-old\n+new"
+                    "changes": 9001,
+                    "sha": "4444444444444444444444444444444444444444"
                 }
             ]"#,
         )))
@@ -123,15 +125,8 @@ async fn renamed_patch_parent_read_uses_the_old_path() {
         ),
     )
     .await;
-    let read = octocode_runtime_base::test_support::checks::related_call(
-        &out.data,
-        "ghGetFileContent",
-        |input| {
-            input["queries"]
-                .as_array()
-                .is_some_and(|rows| rows.iter().any(|row| row["ref"] == BASE))
-        },
-    );
+    let read = &out.data["next"]["readParent"];
+    assert_eq!(read["tool"], "ghGetFileContent", "{}", out.data);
     let parent = read["input"]["queries"]
         .as_array()
         .into_iter()

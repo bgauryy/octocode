@@ -79,6 +79,7 @@ fn occurrence_counts_are_checked_without_truncation() {
     t.witnesses = vec![
         WitnessRec {
             argument: NONE,
+            import_kind: NONE,
             edge,
             occurrence: 0,
             provenance

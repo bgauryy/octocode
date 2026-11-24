@@ -167,7 +167,17 @@ fn dirty_checkout_preserves_tracked_untracked_ignored_and_user_metadata_names() 
         fs::write(&file, "user evidence\n").expect("edit owned fixture");
         let error = clone_pinned(&fixture, &query(), &context).expect_err("preserve user file");
         assert_eq!(error.code, ErrorCode::CheckoutDirty, "{name}");
-        assert!(!error.hints.is_empty());
+        // The message says the checkout was preserved; the hint says only
+        // how to recover, never that cloning discards nothing.
+        assert!(error.message.contains("preserved"), "{error:?}");
+        assert_eq!(
+            error.hints,
+            [crate::gh_clone_repo::checkout::DIRTY_CHECKOUT_HINT]
+        );
+        assert!(
+            error.hints.iter().all(|hint| !hint.contains("discard")),
+            "{error:?}"
+        );
         assert_eq!(fs::read_to_string(&file).unwrap(), "user evidence\n");
         assert_eq!(
             git_output(checkout, &["rev-parse", "HEAD"]).trim(),

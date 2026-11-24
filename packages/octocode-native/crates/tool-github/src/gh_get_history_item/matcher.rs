@@ -14,13 +14,13 @@ impl Matcher {
         let Some(terms) = super::gh_get_history_item_query::match_strings(query) else {
             return Ok(None);
         };
-        let Some((case_mode, regex_engine, whole_word)) =
+        let Some((case_mode, regex_engine)) =
             super::gh_get_history_item_query::match_options(query)
         else {
             return Ok(None);
         };
         let local = serde_json::from_value(
-            serde_json::json!({"path":"history.patch","matchString":terms,"caseMode":case_mode,"regexEngine":regex_engine,"wholeWord":whole_word}),
+            serde_json::json!({"path":"history.patch","matchString":terms,"caseMode":case_mode,"regexEngine":regex_engine}),
         )?;
         // A pattern the engine rejects is the row's validation error, named
         // with the field and the engine's reason ([`Self::result`]).

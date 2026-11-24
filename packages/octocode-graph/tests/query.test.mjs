@@ -36,7 +36,7 @@ const ids = (r) => r.rows.map((x) => x.id);
 
 test('tokens, depth and --tests parse anywhere after the op', () => {
   assert.deepEqual(tokenize('find "two words" x'), ['find', 'two words', 'x']);
-  assert.deepEqual(parseArgs(['a', 'depth', '2', '--tests']), { args: ['a'], tests: true, imports: false, weak: false, depth: 2 });
+  assert.deepEqual(parseArgs(['a', 'depth', '2', '--tests']), { args: ['a'], tests: true, imports: false, weak: false, load: null, depth: 2 });
   assert.equal(parseArgs(['a', '--weak']).weak, true);
   assert.equal(parseArgs(['--depth=all']).depth, Infinity);
   assert.equal(runQuery(D, 'impact b/util.mjs depth 0').ok, false);
@@ -106,6 +106,7 @@ test('path: the heavier route wins, with hop weights and evidence; no path repor
   assert.equal(back.found, false);
   assert.equal(back.stats.direction, 'reverse');
   assert.match(back.summary, /no path b\/util\.mjs → a\/x\.mjs; the reverse/);
+  assert.match(back.summary, /the rows show that reverse route .*not a route from b\/util\.mjs/);
   assert.equal(ids(back)[0], 'a/x.mjs');
   const none = runQuery(D, 'path c/util.mjs a/x.mjs');
   assert.deepEqual([none.ok, none.found, none.rows.length], [true, false, 0]);
@@ -158,12 +159,14 @@ test('top ranks completely; find reads as search', () => {
   assert.equal(runQuery(D, 'top inweight all').rows.length, D.files.length);
   assert.equal(runQuery(D, 'top depth').rows[0].id, 'a/x.mjs');
   assert.equal(runQuery(D, 'top nothing').ok, false);
-  // `find` is read as `search`, the one text query: every substring match is in its ranked rows.
+  // `find` is read as `search`, the one text query: every name match leads its ranked rows, then what holds the word.
   const f = runQuery(D, 'find util');
   assert.equal(f.readAs.query, 'search util');
-  assert.deepEqual(ids(f).toSorted(), ['b/util.mjs', 'c/util.mjs']);
+  assert.deepEqual(f.rows.filter((x) => x.match !== 'text').map((x) => x.id).toSorted(), ['b/util.mjs', 'c/util.mjs']);
+  assert.deepEqual(f.rows.slice(0, 2).map((x) => x.match), ['exact', 'exact']);
   const s = runQuery(D, 'search start --symbols');
-  assert.deepEqual(s.rows.map((x) => [x.id, x.symbol, x.loc.line]), [['b/p.mjs', 'b/p.mjs#start', 40], ['c/util.mjs', 'c/util.mjs#start', 50]]);
+  assert.deepEqual(s.rows.slice(0, 2).map((x) => [x.id, x.symbol, x.loc.line]), [['b/p.mjs', 'b/p.mjs#start', 40], ['c/util.mjs', 'c/util.mjs#start', 50]]);
+  assert.equal(s.rows.every((x) => x.symbol), true);
 });
 
 test('formatResult lists every row with its location, and candidates to re-run', () => {
@@ -352,14 +355,19 @@ test('search ranks names by how they match, then by call sites received; every m
   // Separators and case do not matter; initials and word prefixes match a camelCase name.
   const named = { ...D, symbols: [...D.symbols, sym('a/y.mjs#parseArgs', 25), sym('a/z.mjs#getUserName', 35)] };
   for (const text of ['parse_args', 'PARSEARGS', 'parse-args']) assert.equal(runQuery(named, `search ${text}`).rows[0].match, 'exact', text);
-  assert.deepEqual(runQuery(named, 'search p args').rows.map((x) => [x.name, x.match]), [['parseArgs', 'words']]);
+  // A name match ranks before every row that only holds a query word (in its path, or a name it calls).
+  const words = runQuery(named, 'search p args');
+  assert.deepEqual([words.rows[0].name, words.rows[0].match], ['parseArgs', 'words']);
+  assert.equal(words.rows.slice(1).every((x) => x.match === 'text'), true);
   assert.deepEqual(runQuery(named, 'search gun').rows.map((x) => [x.name, x.match]), [['getUserName', 'words']]);
   assert.deepEqual(runQuery(named, 'search args parse').rows.map((x) => x.match), ['terms']);
-  // Letters in order only when nothing holds the text.
-  const fuzzy = runQuery(named, 'search prsArgs');
+  // Letters in order only when nothing holds the text or any of its words.
+  const fuzzy = runQuery(named, 'search prsrgs');
   assert.deepEqual([fuzzy.rows[0].name, fuzzy.rows[0].match, fuzzy.stats.fuzzy], ['parseArgs', 'fuzzy', true]);
+  assert.equal(runQuery(named, 'search prsArgs').stats.fuzzy, false, 'a query word a name holds is a text match');
   assert.equal(runQuery(D, 'search util --files').rows.every((x) => x.kind === 'file'), true);
-  assert.equal(runQuery(D, 'search util --symbols').rows.length, 0);
+  // No symbol is named util; one is found by its file's path, as a text match.
+  assert.deepEqual(runQuery(D, 'search util --symbols').rows.map((x) => [x.symbol, x.match]), [['c/util.mjs#start', 'text']]);
   assert.equal(runQuery(D, 'search start --bogus').ok, false);
   assert.match(runQuery(D, 'search zzzz').summary, /nothing matches/);
 });

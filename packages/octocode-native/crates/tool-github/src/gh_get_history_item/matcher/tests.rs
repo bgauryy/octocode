@@ -21,14 +21,14 @@ fn history_uses_the_shared_matcher_for_every_match_variant() {
                 "token",
             ),
             (
-                json_fixture(r#"{"matchString": ["Token"], "caseMode": "insensitive"}"#),
-                "token",
+                json_fixture(r#"{"matchString": ["token"]}"#),
+                "TOKEN",
                 "toke",
             ),
             (
-                json_fixture(r#"{"matchString": ["token"], "wholeWord": true}"#),
-                "a token b",
+                json_fixture(r#"{"matchString": ["token"]}"#),
                 "tokenized",
+                "to ken",
             ),
             (
                 json_fixture(r#"{"matchString": ["tok.n"], "regexEngine": "literal"}"#),

@@ -38,8 +38,8 @@ pub(super) struct ListedCommits {
 
 /// The commit page: each commit by its SHA and headline (any row's
 /// `commitSha` reads its whole message). A scoped comparison lists every
-/// commit of the range, not only the scope's: the `narrowScope` lead lists
-/// the scope's own commits.
+/// commit of the range, not only the scope's: past GitHub's file cap the
+/// `narrowScope` lead lists the scope's own commits.
 pub(super) fn attach_commit_page(
     out: &mut Value,
     raw: &Value,

@@ -294,3 +294,48 @@ fn an_undecided_if_keeps_both_branches() {
     let root = ingested(&temp);
     assert_eq!(files(&ask(root, "deps", Some("a.c"))), ["x.h", "y.h"]);
 }
+
+// ── Macro invocations ───────────────────────────────────────────────────────
+
+/// C has no macro invocation syntax: `listLength(l)` invokes the
+/// function-like `#define listLength(l)` with call syntax, so the call links
+/// to the macro of the header the file includes, as it would to a function
+/// (redis `adlist.h`). An object-like macro read as a value (`N + 1`) is no
+/// call.
+#[test]
+fn a_function_like_macro_called_through_an_include_links_like_a_function() {
+    let temp = fixture(&[
+        (
+            "src/adlist.h",
+            "#define listLength(l) ((l)->len)\n#define N 3\nstruct list { int len; };\n",
+        ),
+        (
+            "src/acl.c",
+            "#include \"adlist.h\"\nint count(struct list *l) { return listLength(l); }\nint next(void) { return N + 1; }\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    assert_eq!(
+        callers(root, "src/adlist.h#listLength"),
+        ["src/acl.c#count"]
+    );
+    assert_eq!(callers(root, "src/adlist.h#N"), Vec::<String>::new());
+}
+
+/// Rust gives macros their own invocation syntax, so the namespaces stay
+/// apart beside C: `format!` expands only a macro, never `fn format`, and
+/// `twice()` calls only a function, never `macro_rules! twice`.
+#[test]
+fn rust_macro_invocations_stay_apart_from_functions_beside_c_macros() {
+    let temp = fixture(&[
+        ("src/adlist.h", "#define twice(x) ((x) * 2)\n"),
+        (
+            "src/lib.rs",
+            "macro_rules! twice { ($x:expr) => { $x * 2 }; }\npub fn format() -> u8 { 1 }\npub fn twice_fn() -> u8 { twice!(1) }\npub fn run() -> String { format!(\"{}\", 1) }\npub fn call() -> u8 { twice(2) }\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    assert_eq!(callers(root, "src/lib.rs#format"), Vec::<String>::new());
+    assert_eq!(callers(root, "src/lib.rs#twice"), ["src/lib.rs#twice_fn"]);
+    assert_eq!(callers(root, "src/adlist.h#twice"), Vec::<String>::new());
+}

@@ -1,8 +1,8 @@
-//! Changed-file selection: the `include`/`status`/`minChanges` scope every
+//! Changed-file selection: the `include`/`status` scope every
 //! operation shares, and the `matchString` file filter.
 use super::HistoryItemRequest;
 use super::inventory::*;
-use super::util::{str_at, usize_at};
+use super::util::str_at;
 use crate::gh_get_history_item::gh_get_history_item_query;
 use serde_json::Value;
 
@@ -144,18 +144,17 @@ pub(super) fn match_dropped_warning(
 /// not echoed: a term can be part of a value the read redacted.
 pub(super) fn match_removed_all_warning(listed: usize) -> String {
     format!(
-        "matchString matched 0 of {listed} changed files (each file's diff text was searched, hunk-header context included); drop matchString to list the files."
+        "matchString matched 0 of {listed} changed files (each file's diff text was searched, hunk-header context included)."
     )
 }
 
 /// A read's changed-file scope: the `include` globs (any-of) of a pull
 /// request, a commit or a comparison, read from the repository root in the
 /// local walks' dialect ([`crate::include_globs`]), and a pull request's
-/// `status`/`minChanges`. Pages and counts then cover matching files only.
+/// `status`. Pages and counts then cover matching files only.
 pub(super) struct FileScope {
     pub(super) paths: Option<crate::include_globs::IncludeGlobs>,
     pub(super) status: Vec<String>,
-    pub(super) min_changes: Option<usize>,
 }
 
 impl FileScope {
@@ -168,33 +167,21 @@ impl FileScope {
             Some(crate::include_globs::IncludeGlobs::new(include)?)
         };
         let status = gh_get_history_item_query::file_status(query);
-        let min_changes = gh_get_history_item_query::min_changes(query);
-        if paths.is_none() && status.is_empty() && min_changes.is_none() {
+        if paths.is_none() && status.is_empty() {
             return Ok(None);
         }
-        Ok(Some(Self {
-            paths,
-            status,
-            min_changes,
-        }))
+        Ok(Some(Self { paths, status }))
     }
 
-    /// A rename matches by its new or previous path. Files GitHub sent
-    /// without line counts (no patch, 0/0) pass `minChanges`: their size is
-    /// unknown, not zero.
+    /// A rename matches by its new or previous path.
     pub(super) fn matches(&self, file: &Value) -> bool {
         let status = str_at(file, "/status").unwrap_or("");
         let path = str_at(file, "/filename").unwrap_or("");
         let previous = str_at(file, "/previous_filename");
-        let changes = usize_at(file, "/additions") + usize_at(file, "/deletions");
-        let countless = changes == 0 && file.get("patch").is_none();
         (self.status.is_empty() || self.status.iter().any(|s| s == status))
             && self.paths.as_ref().is_none_or(|globs| {
                 globs.matches(path, false) || previous.is_some_and(|p| globs.matches(p, false))
             })
-            && self
-                .min_changes
-                .is_none_or(|min| countless || changes >= min)
     }
 }
 

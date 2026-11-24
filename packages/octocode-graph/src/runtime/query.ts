@@ -1,19 +1,15 @@
 // `octocode-graph query`: saved-graph questions from the shell. The first argument is a result directory, its
 // data.json, or a project directory: then the newest saved graph of exactly that root under .octocode/octocode-graph
-// (of the current directory or the project) answers, and stderr names it. A run its live viewer serves answers
+// (of the current directory or the project) answers, else the newest one the per-user graph registry lists for that
+// root (registry.ts: a graph built with --out elsewhere), and stderr names it. A run its live viewer serves answers
 // through that server, from the graph it already holds; otherwise the graph is read here. Files edited since the
-// graph was written are a warning in every answer (withStaleness), so a stale answer is never silent.
-import {
-  closeSync,
-  openSync,
-  readFileSync,
-  readSync,
-  readdirSync,
-  statSync,
-} from 'node:fs';
+// graph was written are a warning in every answer (withStaleness), so a stale answer is never silent; with
+// --refresh they are refreshed first (api.ts openFreshGraph) and the answer comes from the refreshed graph.
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { once } from 'node:events';
+import { runHeader } from './lib/run-output.ts';
 import { absOf, rootOf } from '../ids.ts';
 import {
   formatResult,
@@ -24,6 +20,11 @@ import {
 } from './query-api.ts';
 import { plural } from './query-ops.ts';
 import { postServer, serverOf, ServedError } from './lib/served.ts';
+import { graphCli, graphCommand, shellArg } from './invocation.ts';
+import { canonicalDir, registeredRuns, registryHome } from './registry.ts';
+import { withSearchIndex } from './search-sidecar.ts';
+import { withProvider } from './search-provider.ts';
+import type { SavedGraph } from './api.ts';
 export * from './query-api.ts';
 
 /** Where builds put their results by default (lib/run-output.ts `freshOut`), relative to the workspace. */
@@ -42,62 +43,76 @@ function resultGraph(dir: string) {
 
 /** The project root a saved run was built from: its events.jsonl header, the first line. */
 function runRoot(dir: string) {
-  let fd: number | undefined;
-  try {
-    fd = openSync(join(dir, 'events.jsonl'), 'r');
-    const head = Buffer.alloc(64 * 1024);
-    const text = head.toString(
-      'utf8',
-      0,
-      readSync(fd, head, 0, head.length, 0)
-    );
-    const first: unknown = JSON.parse(text.slice(0, text.indexOf('\n')));
-    return first &&
-      typeof first === 'object' &&
-      'root' in first &&
-      typeof first.root === 'string'
-      ? first.root
-      : null;
-  } catch {
-    return null; // Not a saved run, or one without a readable header.
-  } finally {
-    if (fd !== undefined) closeSync(fd);
-  }
+  const root = runHeader(dir)?.root;
+  return typeof root === 'string' ? root : null;
 }
 
-/** The newest saved graph of exactly `root`, or why there is none. */
-function newestRun(root: string) {
-  const places = [...new Set([resolve(RUNS), join(root, RUNS)])];
-  const runs = places.flatMap(place => {
-    let names: string[];
-    try {
-      names = readdirSync(place);
-    } catch {
-      return [];
-    }
-    return names.flatMap(name => {
-      const dir = join(place, name);
-      const graph = resultGraph(dir);
-      if (!graph || runRoot(dir) !== root) return [];
-      return [{ dir, graph, mtime: statSync(graph).mtimeMs }];
-    });
+const subdirs = (place: string) => {
+  try {
+    return readdirSync(place).map(name => join(place, name));
+  } catch {
+    return [];
+  }
+};
+
+// The newest of these result directories holding a graph whose run was built from `root` (its events header names
+// it, under any spelling of the same directory): a registry entry never answers for another root.
+function newestOf(dirs: string[], root: string) {
+  const want = canonicalDir(root);
+  const runs = dirs.flatMap(dir => {
+    const graph = resultGraph(dir);
+    const from = graph && runRoot(dir);
+    if (!from || canonicalDir(from) !== want) return [];
+    return [{ dir, graph, mtime: statSync(graph).mtimeMs }];
   });
-  const best = runs.toSorted((a, b) => b.mtime - a.mtime)[0];
-  if (best) return best;
+  return runs.toSorted((a, b) => b.mtime - a.mtime)[0];
+}
+
+/** The newest saved graph of exactly `root`: the default places first, then the graph registry; or why there is none. */
+function newestRun(root: string, home: string) {
+  const places = [...new Set([resolve(RUNS), join(root, RUNS)])];
+  const local = newestOf(places.flatMap(subdirs), root);
+  if (local) return { ...local, registered: false };
+  const registered = newestOf(registeredRuns(root, home), root);
+  if (registered) return { ...registered, registered: true };
   throw new Error(
-    `no saved graph of ${root} in ${places.join(' or ')}: build one with octocode-graph build ${root}`
+    `no saved graph of ${root} in ${places.join(' or ')} or the graph registry (${home}): build one with ${graphCli(`build ${shellArg(root)}`)}`
   );
 }
 
-/** The graph file to load for the first argument, and the run it came from when one was chosen. */
-export function graphPath(arg: string) {
+/** The graph a path names: its file, the run it came from when one was chosen, and whether the registry named it. */
+export interface FoundGraph {
+  path: string;
+  chosen: string | null;
+  registered?: boolean;
+}
+
+/**
+ * The graph file to load for the first argument, and the run it came from when one was chosen. `home`: the graph
+ * registry consulted for a project directory (registry.ts registryHome).
+ */
+export function graphPath(arg: string, home = registryHome()): FoundGraph {
   const p = resolve(arg);
   if (!statSync(p, { throwIfNoEntry: false })?.isDirectory())
     return { path: p, chosen: null };
   const own = resultGraph(p);
   if (own) return { path: own, chosen: null };
-  const run = newestRun(p);
-  return { path: run.graph, chosen: run.dir };
+  const run = newestRun(p, home);
+  return { path: run.graph, chosen: run.dir, registered: run.registered };
+}
+
+// What only a result directory holds: its event log, graph, checkpoint or the record of the viewer serving it.
+const RUN_FILES = ['events.jsonl', 'data.json', 'stitched.json', 'server.json'];
+
+/**
+ * The result directory a path names: a result directory itself (any run file, even before its graph is written),
+ * the directory of a graph file, or the newest saved graph of a project directory (graphPath).
+ */
+export function resultDir(arg: string, home = registryHome()) {
+  const p = resolve(arg);
+  if (RUN_FILES.some(name => isFile(join(p, name)))) return p;
+  const found = graphPath(p, home);
+  return found.chosen ?? dirname(found.path);
 }
 
 /** Graph files whose content may have changed since `graph` was written (a later modification time). */
@@ -117,30 +132,40 @@ export function editedSince(D: QueryData, graph: string) {
  */
 export function withStaleness(r: QueryResult, edited: string[]): QueryResult {
   if (!edited.length) return r;
-  const warning = `${plural(edited.length, 'graph file')} changed or missing since this graph was written (first: ${edited[0]}); rebuild or refresh for current edges`;
+  const warning = `${plural(edited.length, 'graph file')} changed or missing since this graph was written (first: ${edited[0]}); ask again with --refresh (query_graph refresh: true) to refresh the changed chunks first`;
   const warnings = Array.isArray(r.warnings) ? (r.warnings as string[]) : [];
   return { ...r, staleFiles: edited, warnings: [warning, ...warnings] };
 }
 
-const USAGE = `usage: octocode-graph query <result-dir|data.json|project-dir> ("<query>" | --stdin) [--json]
+const usage = (
+  cli = graphCommand()
+) => `usage: ${cli} query <result-dir|data.json|project-dir> ("<query>" | --stdin) [--json] [--refresh]
   Start with search <name> and about <file|symbol>; then callers, impact, path, cycle, critical or top.
   Natural phrasing is read as one exact query and shown as "read as:" (callers of x, a typo, top pr).
-  A project directory selects its newest saved graph under .octocode/octocode-graph; stderr names it. A run
-  its viewer serves (octocode-graph serve) is answered by that server. Every answer warns of graph files
-  changed since it was written. --stdin answers one query per line from one load; --json writes one result
-  per line.
+  A project directory selects its newest saved graph under .octocode/octocode-graph, else the newest the
+  per-user graph registry lists for it (a build with --out elsewhere); stderr names it. A run its viewer
+  serves (${cli} serve) is answered by that server. Every answer warns of graph files changed since it was
+  written; --refresh refreshes the chunks holding them first and answers from the refreshed graph (unchanged:
+  no refresh). --stdin answers one query per line from one load; --json writes one result per line.
   ${HINT}
 `;
 
 // How this process answers: through the live viewer that serves the run (it holds the graph loaded), else from the
-// graph read once here. A viewer that cannot be reached, or refuses, falls back to the local read.
+// graph read once here (or already opened by --refresh). A viewer that cannot be reached, or refuses, falls back to
+// the local read.
 async function answerer(
-  path: string
+  path: string,
+  opened: SavedGraph | null
 ): Promise<(q: string) => Promise<QueryResult>> {
-  let local: ((q: string) => QueryResult) | null = null;
+  let local: ((q: string) => QueryResult) | null = opened
+    ? q => withStaleness(opened.query(q), opened.edited)
+    : null;
   const read = () => {
     // data.json is this package's own output: the query engine tolerates any missing field.
-    const D = JSON.parse(readFileSync(path, 'utf8')) as QueryData;
+    const D = withSearchIndex(
+      JSON.parse(readFileSync(path, 'utf8')) as QueryData,
+      path
+    );
     const edited = editedSince(D, path);
     return (q: string) => withStaleness(runQuery(D, q), edited);
   };
@@ -159,21 +184,45 @@ async function answerer(
         server = null;
       }
     local ??= read();
-    return local(q);
+    // search --provider: the configured classification provider reranks the best rows (search-provider.ts).
+    return withProvider(local(q));
   };
 }
+
+// Before answering with --refresh: graph files edited since the graph was written are refreshed first (only the
+// chunks holding them rebuild); a refresh that fails leaves the graph as written, and every answer still warns.
+async function freshened(graph: FoundGraph) {
+  const { openFreshGraph } = await import('./api.ts');
+  try {
+    const opened = await openFreshGraph(graph.path);
+    const r = opened.refreshed;
+    if (r)
+      process.stderr.write(
+        `octocode-graph query: refreshed ${plural(r.changed?.length ?? 0, 'changed file')}, ${plural(r.added?.length ?? 0, 'added file')} and ${plural(r.removed?.length ?? 0, 'removed file')} (rebuilt chunks: ${(r.chunks ?? []).join(', ') || 'none'}) in ${(r.ms / 1000).toFixed(1)} s before answering\n`
+      );
+    return opened;
+  } catch (error) {
+    process.stderr.write(
+      `octocode-graph query: --refresh failed: ${error instanceof Error ? error.message : String(error)}; answering from the graph as written\n`
+    );
+    return null;
+  }
+}
+
+const FLAGS = new Set(['--json', '--stdin', '--refresh']);
 
 export async function main(argv: string[]) {
   const json = argv.includes('--json');
   const stdin = argv.includes('--stdin');
-  const rest = argv.filter(a => a !== '--json' && a !== '--stdin');
+  const refresh = argv.includes('--refresh');
+  const rest = argv.filter(a => !FLAGS.has(a));
   const help = argv.includes('--help') || argv.includes('-h');
   if ((stdin ? rest.length !== 1 : rest.length < 2) || help) {
-    (help ? process.stdout : process.stderr).write(USAGE);
+    (help ? process.stdout : process.stderr).write(usage());
     process.exitCode = help ? 0 : 2;
     return;
   }
-  let graph: ReturnType<typeof graphPath>;
+  let graph: FoundGraph;
   try {
     graph = graphPath(rest[0]);
   } catch (error) {
@@ -185,9 +234,12 @@ export async function main(argv: string[]) {
   }
   if (graph.chosen)
     process.stderr.write(
-      `octocode-graph query: answering from ${graph.chosen} (written ${statSync(graph.path).mtime.toISOString()})\n`
+      `octocode-graph query: answering from ${graph.chosen} (${graph.registered ? `registered for ${resolve(rest[0])}, ` : ''}written ${statSync(graph.path).mtime.toISOString()})\n`
     );
-  const ask = await answerer(graph.path);
+  const ask = await answerer(
+    graph.path,
+    refresh ? await freshened(graph) : null
+  );
   const queries = stdin
     ? createInterface({ input: process.stdin, crlfDelay: Infinity })
     : [rest.slice(1).join(' ')];
@@ -198,6 +250,7 @@ export async function main(argv: string[]) {
       !process.stdout.write(`${json ? JSON.stringify(r) : formatResult(r)}\n`)
     )
       await once(process.stdout, 'drain');
-    if (!r.ok) process.exitCode = 1;
+    // A query error, or a rule the query states was broken (reach --forbid): CI fails on either.
+    if (!r.ok || r.failed) process.exitCode = 1;
   }
 }

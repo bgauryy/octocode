@@ -5,6 +5,8 @@ import { dirname, join, resolve } from 'node:path';
 import { flags } from './lib.ts';
 import { computeMetrics } from './metrics.ts';
 import { resolveModel } from './model.ts';
+import { graphCli, graphCommand, shellArg } from './invocation.ts';
+import { workspaceNote } from './workspace-scope.ts';
 import type { ResolvedModel } from './model.ts';
 import type {
   CallStats,
@@ -14,7 +16,8 @@ import type {
   MeasuredGraph,
 } from './types.ts';
 
-const USAGE = `usage: octocode-graph render --data <data.json> [--model <model.json>]
+const usage =
+  () => `usage: ${graphCommand()} render --data <data.json> [--model <model.json>]
   Writes brief.txt beside data.json (computing graph metrics when data.json has none);
   --model (default: model.json beside it) adds the overlay and prints each problem to stderr.`;
 
@@ -125,6 +128,8 @@ function factLines(D: MeasuredGraph, n: number) {
     cs = D.callStats;
   return [
     `SECTION ${D.section}: ${C.files} files, ${C.imports} imports, ${D.symbols.length} symbols in the call graph, ${C.calls} calls${(C.chunks ?? 0) > 1 ? `, ${C.built}/${C.chunks} chunks (${C.crossChunkImports} imports and ${C.crossChunkCalls} calls between chunks)` : ''}. Paths are relative to the section.`,
+    // A root inside a workspace: its imported sibling packages are externals until the workspace root is built.
+    ...(C.workspaceExternals ?? []).map(w => `SCOPE ${workspaceNote(w)}`),
     ...partialLines(D),
     `GRAPH ${s.nodes} nodes, ${s.edges} weighted production edges, total weight ${s.weight}; depth 0-${s.maxDepth}; max k-core ${s.maxCore}; modularity ${s.modularity} over ${s.communities} communities (+${s.isolated} isolated files)`,
     `COMMUNITIES by summed PageRank: ${rankedCommunities(D).slice(0, n).map(communityLine).join('; ')}`,
@@ -163,8 +168,8 @@ function modelLines(m: ResolvedModel) {
   ];
 }
 
-const where =
-  'Every row: octocode-graph query <this directory> "top pagerank all" (or betweenness, inweight, depth, core); data.json holds files[].metrics and .check, metrics.cycles/communities/packages and the weighted fileEdges.';
+const where = (out: string) =>
+  `Every row: ${graphCli(`query ${shellArg(out)} "top pagerank all"`)} (or betweenness, inweight, depth, core); data.json holds files[].metrics and .check, metrics.cycles/communities/packages and the weighted fileEdges.`;
 
 // Writes brief.txt beside data.json, the measured facts an agent reads first; returns its path.
 export function writeBrief(
@@ -193,7 +198,7 @@ export function writeBrief(
         `CHUNK ${c.path} files=${c.files} ${c.built ? 'built' : `not built${c.error ? `: ${c.error}` : ''}`}`
     ),
     ...(model ? modelLines(model) : []),
-    where,
+    where(out),
   ];
   const brief = join(out, 'brief.txt');
   writeFileSync(brief, `${full.join('\n')}\n`);
@@ -202,12 +207,12 @@ export function writeBrief(
 
 export async function main() {
   if (process.argv.includes('--help')) {
-    process.stdout.write(`${USAGE}\n`);
+    process.stdout.write(`${usage()}\n`);
     process.exit(0);
   }
   const f = flags(process.argv.slice(2), { data: '', model: '' });
   if (!f.data) {
-    process.stderr.write(`${USAGE}\n`);
+    process.stderr.write(`${usage()}\n`);
     process.exit(2);
   }
   const dataPath = resolve(f.data);

@@ -51,7 +51,9 @@ pub(super) async fn ignored_language(
     if probe.total_count != matched {
         return None;
     }
+    // Fact first, then the fix: an alias may still explain it, so the
+    // warning says "may".
     Some(format!(
-        "GitHub returned repository language values different from `{wanted}`, with the same count as the unfiltered search; a language alias or other languages in these repositories may explain this, so filter validity is unverified."
+        "filters.language `{wanted}` may be unknown to GitHub: no row has it and the count equals the unfiltered search's; check the language name."
     ))
 }

@@ -47,12 +47,13 @@ pub(super) fn label_release_source(artifact: &mut ArtifactItem, exact: bool) {
 }
 
 /// The warning a row's release source needs, one per row: a repository
-/// GitHub lacks or redirects, a registry release commit GitHub does not
-/// have, a release tag naming another commit than the registry's, and any
-/// row whose source reads the default branch (`verification:"defaultBranch"`)
-/// rather than a ref of the resolved version: that branch may hold another
-/// version, as a monorepo's often does. A redirect is said beside the ref's
-/// own reason, never instead of it.
+/// GitHub lacks or redirects (the new name is what a citation needs), a
+/// registry release commit GitHub does not have, a release tag naming
+/// another commit than the registry's, and a default-branch row
+/// (`verification:"defaultBranch"`) whose tag lookup was cut short or found
+/// only other packages' tags. A plain default-branch row says nothing: its
+/// `verification` already states that the branch may hold another version.
+/// A redirect is said beside the ref's own reason, never instead of it.
 pub(super) fn source_warning(artifact: &ArtifactItem) -> Option<String> {
     let default_branch = artifact.verification == Some("defaultBranch");
     let repository = artifact
@@ -75,7 +76,7 @@ pub(super) fn source_warning(artifact: &ArtifactItem) -> Option<String> {
             ));
         }
         Some(RepositoryStatus::Moved) => Some(format!(
-            "GitHub redirects {repository} to {} (renamed or transferred), so the registry's link is stale; GitHub tools follow the redirect",
+            "GitHub redirects {repository} to {}",
             artifact
                 .successor_repository
                 .as_deref()
@@ -87,10 +88,8 @@ pub(super) fn source_warning(artifact: &ArtifactItem) -> Option<String> {
         Some(reference) => Some(format!(
             "release commit {reference} is not in {repository} (unpushed or rewritten)"
         )),
-        None if default_branch => Some(tag_absence(artifact).map_or_else(
-            || "the registry names no release ref".to_owned(),
-            |absence| format!("the registry names no release ref, and {absence}"),
-        )),
+        None if default_branch => tag_absence(artifact)
+            .map(|absence| format!("the registry names no release ref, and {absence}")),
         None if artifact.declared_ref => {
             let reference = artifact.source_ref.as_deref().unwrap_or_default();
             let absence =
@@ -150,27 +149,21 @@ fn tag_absence(artifact: &ArtifactItem) -> Option<String> {
     })
 }
 
-/// A registry can supply a release ref even when there is no GitHub handoff.
+/// An exact row whose registry names no source repository at all: no field
+/// shows the absence, so this says it. A repository on another host is the
+/// row's `repository`, beside its ref, and needs no word.
 pub(super) fn unknown_source_warning(artifact: &ArtifactItem) -> Option<String> {
-    if artifact
-        .repository
-        .as_deref()
-        .and_then(github_slug)
-        .is_some()
-    {
+    if artifact.repository.is_some() {
         return None;
     }
-    let package = package_label(artifact);
     let handoff = match artifact.source_ref {
         Some(_) => "the release ref is given without a GitHub lead",
         None => "no release ref or GitHub lead is given",
     };
-    Some(match artifact.repository.as_deref() {
-        Some(repository) => {
-            format!("{package}: its source repository {repository} is not on GitHub, so {handoff}.")
-        }
-        None => format!("{package}: the registry names no source repository, so {handoff}."),
-    })
+    Some(format!(
+        "{}: the registry names no source repository, so {handoff}.",
+        package_label(artifact)
+    ))
 }
 
 /// The warning of a row whose dependency versions name properties its
@@ -352,12 +345,14 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
         _ if error.missing_version && !error.nearest.is_empty() => {
             let limit =
                 octocode_runtime_base::contracts::batch_limit(ToolId::ArtifactSearch).unwrap_or(1);
-            let (versions, fewer) = crate::artifact::suggested(
+            let versions = crate::artifact::suggested(
                 artifact_search_query::artifact_type(query),
                 &error,
                 limit,
             );
-            error.hints.extend(fewer);
+            // The repair reads the nearest published versions: no hint
+            // tells the caller to discover them.
+            error.drop_version_hint();
             let queries = versions
                 .iter()
                 .map(|version| {
@@ -410,8 +405,8 @@ fn counted(names: &[(String, u64)], measure: &str) -> String {
 
 /// An exact row whose name has a far more downloaded name one edit away
 /// (the policy's `lookalikeDownloadsRatio`) warns that it may be a
-/// typosquat or a misspelling, and leads to that name; a count that could
-/// not be read says no lookalike was checked.
+/// typosquat or a misspelling of that name, which the warning names; a
+/// count that could not be read says no lookalike was checked.
 pub(super) fn lookalike(
     data: &mut Value,
     query: &ArtifactSearchQuery,
@@ -447,21 +442,16 @@ pub(super) fn lookalike(
             near.own.unwrap_or(0)
         )],
     );
-    let mut row = copied(query);
-    row.insert("packageName".into(), json!(other));
-    row.remove("version");
-    data["calls"]["resolveLookalike"] =
-        Continuation::related(ToolId::ArtifactSearch, Value::Object(row)).build();
-    octocode_runtime_base::response::result::finish_calls(data);
 }
 
-/// An empty keyword discovery says what it searched in one hint: the
-/// registry and every keyword, which the registry ANDs. A first page with
-/// something to drop also carries the one broader call ([`broaden`]): one
-/// variant per dropped keyword (a lone multi-word keyword: per dropped
-/// word), run as one batch, so the variant that returns rows names what
-/// emptied the search. A later page ends a walk whose earlier pages hold
-/// the matches: it claims no absence and offers nothing broader.
+/// An empty first page of a keyword discovery with something to drop
+/// carries the one broader call ([`broaden`]): one variant per dropped
+/// keyword (a lone multi-word keyword: per dropped word), run as one batch,
+/// so the variant that returns rows names what emptied the search; its hint
+/// names the registry and the terms no package holds together. A lone term
+/// has nothing to drop, and `status:"empty"` says all there is. A later page
+/// ends a walk whose earlier pages hold the matches: it claims no absence
+/// and offers nothing broader.
 pub(super) fn broaden_empty(data: &mut Value, query: &ArtifactSearchQuery) {
     let searched = copied(query);
     let kind = artifact_search_query::artifact_type(query);
@@ -490,28 +480,19 @@ pub(super) fn broaden_empty(data: &mut Value, query: &ArtifactSearchQuery) {
         split_lone_keyword: true,
     };
     let rows = octocode_runtime_base::response::result::rows_per_call(ToolId::ArtifactSearch);
-    let none = format!("No {kind} package matches every term of {keywords}");
-    match broaden(
+    if let Some(lead) = broaden(
         ToolId::ArtifactSearch,
         &Value::Object(searched),
         &drop,
         rows,
     ) {
-        Some(lead) => {
-            octocode_runtime_base::response::result::attach_related(data, lead);
-            add_hint(
-                data,
-                [format!(
-                    "{none}: the related[] request drops one term per row, so the row that answers names the term that emptied the search."
-                )],
-            );
-        }
-        None => add_hint(
+        octocode_runtime_base::response::result::attach_related(data, lead);
+        add_hint(
             data,
             [format!(
-                "{none}: try another spelling or a more general word; a known name resolves with operation:\"resolve\"."
+                "No {kind} package matches every term of {keywords}."
             )],
-        ),
+        );
     }
 }
 

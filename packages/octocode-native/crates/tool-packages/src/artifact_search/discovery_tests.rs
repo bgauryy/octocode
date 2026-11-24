@@ -162,6 +162,15 @@ fn maven_discovery_pages_through_its_one_window() {
         ),
         "{first}"
     );
+    // A later page keeps the partial marker and states no reach again.
+    let second = page(2, 500);
+    assert_eq!(second["isPartial"], true, "{second}");
+    assert!(
+        second
+            .get(octocode_runtime_base::contracts::envelope::NOTICES)
+            .is_none(),
+        "{second}"
+    );
     let last = page(5, 500);
     assert_eq!(last["pagination"]["hasMore"], json!(false), "{last}");
     assert!(last["next"].get("nextPage").is_none(), "{last}");
@@ -242,6 +251,13 @@ fn bounded_discovery_ends_at_its_reach() {
         );
         let before = page(last_page - 1);
         assert!(before["next"].get("nextPage").is_some(), "{before}");
+        assert_eq!(before["isPartial"], true, "{before}");
+        assert!(
+            before
+                .get(octocode_runtime_base::contracts::envelope::NOTICES)
+                .is_none(),
+            "the reach is stated on page 1 only: {before}"
+        );
         let last = page(last_page);
         assert_eq!(last["pagination"]["hasMore"], json!(false), "{last}");
         assert!(last["next"].get("nextPage").is_none(), "{last}");

@@ -16,9 +16,10 @@
 //! - a page size beside a cursor, or a cursor as the one row of `queries`:
 //!   the cursor alone.
 //!
-//! A call says every reading in one warning that names each field and how
-//! it was read, on a row that then runs; a row that still fails is refused
-//! as read, for what is still wrong with it. None is applied to a call that bills. No field is
+//! A call says, in one warning, each reading that changed what a value means
+//! (a regex bracket read as text, a page size not applied); the other
+//! readings change no value or meaning and are made silently. A row that
+//! still fails is refused as read, for what is still wrong with it. None is applied to a call that bills. No field is
 //! read under another name, moved into another object or inferred: an
 //! undeclared field is refused, and the refusal names the declared one.
 
@@ -36,32 +37,87 @@ pub use beside_cursor::{BesideCursor, read_beside_cursor};
 /// request): the field and how it was read ([`notes::per_call`] joins them).
 type Note = (Option<usize>, String);
 
-/// `input` as the contract takes it, with one warning naming the lenient
-/// readings made (the module's list); otherwise unchanged, so validation
-/// names what is wrong with what was sent.
+/// `input` as the contract takes it, with one warning naming the readings
+/// that changed what a value means (a regex bracket read as text, a page size
+/// not applied); a reading that changes no value or meaning (the envelope, JSON
+/// text, a one-item list, an integral float, a letter case, a default, an
+/// ordered pair, a cursor in its row) is made silently. Otherwise unchanged,
+/// so validation names what is wrong with what was sent.
 pub fn normalized_input(tool_name: &str, input: Value) -> (Value, Vec<String>) {
+    let (input, said, _quiet) = normalize(tool_name, input);
+    (input, notes::per_call(said))
+}
+
+/// Every reading [`normalized_input`] makes, the silent ones included: what
+/// tests of a reading's form check.
+#[cfg(test)]
+pub(crate) fn normalized_readings(tool_name: &str, input: Value) -> (Value, Vec<String>) {
+    let (input, mut said, quiet) = normalize(tool_name, input);
+    said.extend(quiet);
+    (input, notes::per_call(said))
+}
+
+/// The request as read, the readings it states, and the ones it makes silently.
+fn normalize(tool_name: &str, input: Value) -> (Value, Vec<Note>, Vec<Note>) {
     let Some(id) = ToolId::from_name(tool_name) else {
-        return (input, Vec::new());
+        return (input, Vec::new(), Vec::new());
     };
     let (input, resumed) = cursor_alone(input);
-    if let Some(note) = resumed {
-        return (input, vec![note]);
+    if let Some((note, said)) = resumed {
+        let note = vec![(None, note)];
+        return if said {
+            (input, note, Vec::new())
+        } else {
+            (input, Vec::new(), note)
+        };
     }
-    let mut notes = Vec::new();
-    let request = shaped(id, input.clone(), &mut notes);
+    let (mut said, mut quiet) = (Vec::new(), Vec::new());
+    let mut input = input;
+    if id != ToolId::Clasify {
+        drop_brief(&mut input, &mut said);
+    }
+    let request = shaped(id, input.clone(), &mut quiet);
     // Nothing turns an invalid request into a billed one: a request that
     // bills in the shape it means runs only as sent.
     if bills(id) {
-        return (input, Vec::new());
+        return (input, Vec::new(), Vec::new());
     }
     let mut request = if request.get("queries").is_some_and(Value::is_array) {
-        read_values(tool_name, id, request, &mut notes)
+        read_values(tool_name, id, request, &mut quiet)
     } else {
         request
     };
-    read_integral_floats(id, &mut request, &mut notes);
-    read_unpaired_brackets(&mut request, &mut notes);
-    (request, notes::per_call(notes))
+    read_integral_floats(id, &mut request, &mut quiet);
+    read_unpaired_brackets(&mut request, &mut said);
+    (request, said, quiet)
+}
+
+/// The brief fields ([`BRIEF_FIELDS`](super::BRIEF_FIELDS)) a tool other
+/// than clasify does not declare, sent beside the request or in a row:
+/// dropped, since no form or result depends on them, and said, so a caller
+/// that still sends them stops.
+fn drop_brief(request: &mut Value, said: &mut Vec<Note>) {
+    let mut drop_from = |row: &mut Value, at: Option<usize>| {
+        let Some(fields) = row.as_object_mut() else {
+            return;
+        };
+        let gone: Vec<&str> = super::BRIEF_FIELDS
+            .into_iter()
+            .filter(|field| fields.shift_remove(*field).is_some())
+            .collect();
+        if !gone.is_empty() {
+            said.push((
+                at,
+                format!("{} dropped: only clasify takes it", gone.join(", ")),
+            ));
+        }
+    };
+    drop_from(request, None);
+    if let Some(rows) = request.get_mut("queries").and_then(Value::as_array_mut) {
+        for (index, row) in rows.iter_mut().enumerate() {
+            drop_from(row, Some(index));
+        }
+    }
 }
 
 /// Each regex row's `matchString` item that does not compile, but does with
@@ -339,7 +395,7 @@ const PAGE_SIZE: &str = "responseChars";
 /// A query field beside a cursor is read against the query the cursor
 /// restores, once it is opened ([`read_beside_cursor`]); validation refuses
 /// any other.
-fn cursor_alone(input: Value) -> (Value, Option<String>) {
+fn cursor_alone(input: Value) -> (Value, Option<(String, bool)>) {
     let mut request = match input {
         Value::Object(request) => request,
         other => return (other, None),
@@ -349,8 +405,8 @@ fn cursor_alone(input: Value) -> (Value, Option<String>) {
     // beside it, read against the query the cursor restores
     // ([`read_beside_cursor`]).
     if let Some(lifted) = row_cursor(&request) {
-        let note = "read queries[0].cursor as {\"cursor\":\"…\"} alone".to_owned();
-        return (Value::Object(lifted), Some(note));
+        let note = "queries[0].cursor as {\"cursor\":\"…\"} alone".to_owned();
+        return (Value::Object(lifted), Some((note, false)));
     }
     let only_size_beside =
         request.contains_key("cursor") && request.len() == 2 && request.contains_key(PAGE_SIZE);
@@ -361,7 +417,7 @@ fn cursor_alone(input: Value) -> (Value, Option<String>) {
     let note = format!(
         "`{PAGE_SIZE}` beside `cursor` was not applied: a cursor keeps the page size it was issued with; send {{\"cursor\":\"…\"}} alone, and `{PAGE_SIZE}` with queries in a new request."
     );
-    (Value::Object(request), Some(note))
+    (Value::Object(request), Some((note, true)))
 }
 
 /// A request whose only field is `queries` holding one row with a text

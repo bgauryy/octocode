@@ -112,6 +112,7 @@ pub(super) fn evidence_fixture() -> GraphTables {
     };
     t.witnesses.push(WitnessRec {
         argument: NONE,
+        import_kind: NONE,
         provenance: ProvenanceRec {
             source_digest: 11,
             source_start: 0,
@@ -153,6 +154,8 @@ pub(super) fn evidence_fixture() -> GraphTables {
         selection_origin: 2,
         assessment: 10,
         test_identity: 9,
+        params: NONE,
+        returns: NONE,
     });
     t.index();
     t

@@ -394,7 +394,7 @@ async fn compare_unpatched_file_read_survives_the_comparison_pages() {
     .await;
     for sections in [None, Some(json_fixture(r#"["commits", "patches"]"#))] {
         let mut row = json!({"operation":"compare","owner":"o","repo":"r","baseRef":BASE,"headRef":HEAD,
-            "include":["crates/flags/*.rs"],"matchString":["smart_case"],"caseMode":"smart","regexEngine":"literal","wholeWord":false});
+            "include":["crates/flags/*.rs"],"matchString":["smart_case"],"regexEngine":"literal"});
         if let Some(sections) = &sections {
             row["sections"] = sections.clone();
         }
@@ -465,4 +465,97 @@ async fn a_reversed_compare_says_how_to_compare_the_other_way() {
     assert!(!warning.contains("related"), "{out}");
     assert!(out.get("related").is_none(), "{out}");
     assert_eq!(out["behindBy"], 45, "{out}");
+}
+
+/// A scoped path's own history is the lead only while GitHub's compare file
+/// cap stands (the trees could not extend it): a whole file list already
+/// answers the scope. Each `include` literal prefix gets its own row, once,
+/// and a prefix inside another's directory adds none.
+#[tokio::test]
+async fn a_scope_history_lead_only_beside_the_compare_file_cap() {
+    let scoped = json!({"operation":"compare","owner":"o","repo":"r","baseRef":BASE,
+        "headRef":HEAD,"include":["src/**","lib/b.rs","src/x/**","src/**"]});
+    let whole = MockServer::builder().start().await;
+    mount_long_compare(
+        &whole,
+        json!([changed_file("src/a.rs"), changed_file("lib/b.rs")]),
+    )
+    .await;
+    let out = read(&whole, scoped.clone()).await;
+    assert!(
+        checks::find_related_call(&out, "ghSearchHistory", |_| true).is_none(),
+        "{out}"
+    );
+    let capped = MockServer::builder().start().await;
+    let cap = crate::gh_get_history_item::window::COMPARE_FILE_LIMIT;
+    let files = (0..cap)
+        .map(|n| changed_file(&format!("src/f{n}.rs")))
+        .collect::<Vec<_>>();
+    mount_long_compare(&capped, json!(files)).await;
+    let out = read(&capped, scoped).await;
+    let lead = checks::related_call(&out, "ghSearchHistory", |_| true);
+    let rows = lead["input"]["queries"].as_array().expect("rows");
+    let paths = rows
+        .iter()
+        .map(|row| row["path"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(paths, [json!("src/"), json!("lib/b.rs")], "{out}");
+    for row in rows {
+        assert_eq!(row["ref"], HEAD, "{row}");
+        assert_eq!(row["operation"], "commit", "{row}");
+    }
+}
+
+/// Past GitHub's compare cap the trees name the other changed paths, rows
+/// without line counts or patches. The source is said once, when the read's
+/// scope keeps such a row: a scope of listed files only gets no word of it.
+#[tokio::test]
+async fn the_tree_source_is_said_only_when_the_scope_keeps_a_tree_row() {
+    let server = MockServer::builder().start().await;
+    let cap = crate::gh_get_history_item::window::COMPARE_FILE_LIMIT;
+    let files = (0..cap)
+        .map(|n| changed_file(&format!("src/f{n}.rs")))
+        .collect::<Vec<_>>();
+    mount_long_compare(&server, json!(files)).await;
+    let entry =
+        |path: &str, sha: &str| json!({"path":path,"type":"blob","mode":"100644","sha":sha});
+    let tree = |sha: &str, extra: &str| {
+        let mut entries = (0..cap)
+            .map(|n| entry(&format!("src/f{n}.rs"), sha))
+            .collect::<Vec<_>>();
+        entries.push(entry(extra, &"5".repeat(40)));
+        json!({"sha":sha,"truncated":false,"tree":entries})
+    };
+    for (sha, extra) in [(MERGE_BASE, "lib/old.rs"), (HEAD, "lib/new.rs")] {
+        mount_json(
+            &server,
+            format!("/api/v3/repos/o/r/git/trees/{sha}"),
+            200,
+            tree(sha, extra),
+        )
+        .await;
+    }
+    let says = |out: &Value| out["warnings"].to_string().contains("commits' trees");
+    let read_scope = |include: Value| {
+        let server = &server;
+        async move {
+            read(
+                server,
+                json!({"operation":"compare","owner":"o","repo":"r","baseRef":BASE,
+                    "headRef":HEAD,"include":include}),
+            )
+            .await
+        }
+    };
+    let listed = read_scope(json!(["src/f1.rs"])).await;
+    assert!(!says(&listed), "{listed}");
+    let tree_rows = read_scope(json!(["lib/**"])).await;
+    assert!(says(&tree_rows), "{tree_rows}");
+    let all = read(
+        &server,
+        json!({"operation":"compare","owner":"o","repo":"r","baseRef":BASE,"headRef":HEAD,
+            "sections":["files"]}),
+    )
+    .await;
+    assert!(says(&all), "{all}");
 }

@@ -16,7 +16,7 @@ use octocode_github::{
     GitHubProvider, ProviderError, RepositorySearchPage, RepositorySearchRequest, RequestContext,
 };
 use octocode_runtime_base::id::ToolId;
-use octocode_runtime_base::response::result::{Continuation, ToolData};
+use octocode_runtime_base::response::result::ToolData;
 use octocode_tools_shared::gh_shared::{
     GhFailure, Rerun, SearchWindow, add_next, lean_rows, pick_rows, rerun_renamed, search_failure,
     search_may_be_renamed, with_search_repair,
@@ -86,6 +86,7 @@ pub(crate) async fn execute(
         return exact_repository(provider, query, &q.owner, &q.repo, context).await;
     }
     octocode_tools_shared::gh_shared::reject_boolean_keywords(&access::keywords(query))?;
+    leads::reject_qualifier_keywords(&access::keywords(query))?;
     let current = access::page(query);
     let per = access::limit(query);
     let fetched = fetch_page(provider, query, current, per, context).await;
@@ -108,15 +109,13 @@ pub(crate) async fn execute(
     }
     let (data, listing) = fetched?;
     let page = RepoPage::of(&data, listing.as_ref(), current, per);
-    let mut leads: Vec<(&'static str, serde_json::Value)> = Vec::new();
-    // With archive exclusion, a listing that left out archived repositories
-    // offers a fresh search whose typed archive filter includes them.
-    if access::archive(query) == GitHubArchive::Exclude && page.archive_filtered > 0 {
-        leads.insert(
-            leads.len().min(1),
-            ("includeArchived", include_archived(query)),
-        );
-    }
+    // With archive exclusion, a listing page left empty by the archived
+    // repositories it left out offers the same listing including them: the
+    // recovery of an empty row (a row with repositories is the answer).
+    let archived_lead = (access::archive(query) == GitHubArchive::Exclude
+        && page.archive_filtered > 0
+        && data.items.is_empty())
+    .then(|| include_archived(query));
     let wanted = wanted_topics(query);
     let fields = access::fields(query);
     let repositories = data
@@ -137,8 +136,8 @@ pub(crate) async fn execute(
         page.next_from,
         page.more,
     );
-    for (name, lead) in leads {
-        value["calls"][name] = lead;
+    if let Some(lead) = archived_lead {
+        value["calls"]["includeArchived"] = lead;
     }
     page.disclose(&mut value, query, ignored_language);
     // A page ordered by a row field (an owner listing by push time, a search
@@ -239,26 +238,13 @@ async fn exact_repository(
     let mut value = json!({ "repositories": [row] });
     lean_rows(&mut value, "repositories", EXACT_DETAIL, &fields);
     pick_rows(&mut value, "repositories", REPO_ID, &fields);
-    // The repository's natural next reads, on its default branch, under
-    // the name it has now: its root tree and its refs.
-    let (at_owner, at_repo) = renamed
-        .as_ref()
-        .map_or((owner, repo), |(to_owner, to_repo)| {
-            (to_owner.as_str(), to_repo.as_str())
-        });
-    let root = octocode_tools_shared::gh_shared::RepoPath::root(at_owner, at_repo);
-    let mut refs = root.row();
-    refs["operation"] = json!("refs");
-    value["calls"] = json!({
-        "viewTree": root.lead(ToolId::GhStructure).build(),
-        "viewRefs": Continuation::related(ToolId::GhStructure, refs).build(),
-    });
+    // The row is the answer: no lead (the tool description routes to
+    // ghStructure), and a renamed repository's warning names it as it is now.
     if let Some(to) = renamed {
         value["warnings"] = json!([octocode_tools_shared::gh_shared::renamed_warning(
             owner, repo, &to
         )]);
     }
-    octocode_runtime_base::response::result::finish_calls(&mut value);
     Ok(ToolData::from(value))
 }
 

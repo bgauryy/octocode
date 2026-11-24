@@ -135,7 +135,7 @@ fn line_chunk_query(
 ) -> Result<LocalFetchQuery, serde_json::Error> {
     local_fetch_query::updated(
         q,
-        serde_json::json!({"view":"content","matchString":null,"regexEngine":null,"caseMode":null,"wholeWord":null,"contextLines":null,"block":null,"ranges":null,"snapshot":null,"readProgress":{"unit":"lines","offset":offset}}),
+        serde_json::json!({"view":"content","matchString":null,"regexEngine":null,"caseMode":null,"contextLines":null,"block":null,"ranges":null,"snapshot":null,"readProgress":{"unit":"lines","offset":offset}}),
     )
 }
 

@@ -7,7 +7,7 @@ use serde_json::json;
 use wiremock::MockServer;
 
 #[tokio::test]
-async fn materialize_skips_binary_files_with_a_warning() {
+async fn materialize_skips_binary_files_and_stays_complete() {
     let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     mount_json(
@@ -82,13 +82,69 @@ async fn materialize_skips_binary_files_with_a_warning() {
     );
     assert!(out.data.get("isPartial").is_none(), "{}", out.data);
     assert!(out.data.get("hints").is_none(), "{}", out.data);
-    assert!(
-        out.data["warnings"][0]
-            .as_str()
-            .is_some_and(|hint| hint.contains("1 binary file")),
+    // The `location.coverage` reference says a complete checkout's skipped
+    // holds only binary and credential-named files: no warning restates it.
+    assert!(out.data.get("warnings").is_none(), "{}", out.data);
+}
+
+/// A materialize bounded by `maxDepth` lists folders it does not write:
+/// `location.skipped` names each (`<path>/`), the row is partial
+/// (`materializeDepth`) and `expandDepth` writes them; no count-only warning
+/// restates it.
+#[tokio::test]
+async fn a_depth_bounded_materialize_names_its_unwritten_folders() {
+    let server = MockServer::builder().start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    mount_json(
+        &server,
+        format!("/api/v3/repos/a/b/commits/{sha}"),
+        200,
+        json!({"sha":sha}),
+    )
+    .await;
+    // The commit's tree: `ok.rs` at the root (its read mounts it there), and
+    // two folders with a file each, below the listing's depth.
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b/contents/ok.rs",
+        200,
+        json!({
+            "type":"file","encoding":"base64","content":STANDARD.encode("fn x(){}")
+        }),
+    )
+    .await;
+    for below in ["router/inside.rs", "docs/guide.md"] {
+        octocode_test_support::mock_http::list_in_trees(&server, "a", "b", below).await;
+    }
+    let home = octocode_runtime_base::test_support::Fixture::new();
+    let out = run_at(
+        &server,
+        json!({"operation":"tree", "owner":"a","repo":"b","ref":sha,
+               "materialize":true,"maxDepth":1}),
+        &home.0,
+    )
+    .await
+    .expect("depth-bounded materialize");
+    let mut skipped = out.data["location"]["skipped"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    skipped.sort_by_key(ToString::to_string);
+    assert_eq!(skipped, [json!("docs/"), json!("router/")], "{}", out.data);
+    assert_eq!(
+        out.data["location"]["coverage"]["state"], "partial",
         "{}",
         out.data
     );
+    assert!(
+        out.data["partialReasons"]
+            .as_array()
+            .is_some_and(|reasons| reasons.contains(&json!("materializeDepth"))),
+        "{}",
+        out.data
+    );
+    assert!(out.data["next"]["expandDepth"].is_object(), "{}", out.data);
+    assert!(out.data.get("warnings").is_none(), "{}", out.data);
 }
 
 /// One call writes the whole selection: every level, every listing page, past

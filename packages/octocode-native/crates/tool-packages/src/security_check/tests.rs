@@ -317,10 +317,11 @@ async fn a_record_naming_no_package_is_followed_to_its_alias() {
 }
 
 /// The summary of a CVE that names no package: the answer names the
-/// repositories its commit ranges are in, the warning says where the alias's
-/// packages and fixes are (the summary groups its record into the CVE's
-/// row) and that the details view lists it; an alias OSV could not answer
-/// is one call away in the summary too (CVE-2022-24999).
+/// repositories its commit ranges are in and the alias's packages and fixes
+/// (the summary groups its record into the CVE's row), so no warning
+/// restates them; the details view, which lists the alias's record after
+/// the CVE's, says why it follows. An alias OSV could not answer is one call
+/// away in the summary too (CVE-2022-24999).
 #[tokio::test]
 async fn a_cve_summary_names_its_repositories_and_leads_to_its_records() {
     let (cve, ghsa) = ("CVE-2022-24999", "GHSA-hrpp-h998-j3pp");
@@ -347,16 +348,20 @@ async fn a_cve_summary_names_its_repositories_and_leads_to_its_records() {
         sentence.contains("qs") && sentence.contains("6.2.4"),
         "{sentence}"
     );
-    let rows = data["advisories"].as_array().expect("advisories");
-    let shown = |id: &str| rows.iter().any(|row| row["id"] == id);
-    let warnings = data["warnings"].to_string();
-    assert!(warnings.contains(ghsa), "{data}");
-    // The warning never points to a row the view does not show.
-    if !shown(ghsa) {
-        assert!(!warnings.contains("listed after it"), "{data}");
-    }
-    assert!(warnings.contains("view details"), "{data}");
+    assert!(
+        !data["warnings"].to_string().contains("names no package"),
+        "{data}"
+    );
     octocode_runtime_base::test_support::assert_row_contract(ToolId::SecurityCheck, &data);
+    let details = answer(&http, json!({"operation": "advisory", "id": cve}))
+        .await
+        .expect("row");
+    assert!(
+        details["warnings"]
+            .to_string()
+            .contains(&format!("{ghsa}, its alias, is listed after it")),
+        "{details}"
+    );
     // An alias OSV cannot answer is one call away in the summary as well:
     // a record the row does not list keeps the call that reads it.
     let unread = RouteHttp::new().json(
@@ -1517,8 +1522,10 @@ async fn a_github_actions_version_is_compared_with_the_records_ranges() {
     );
     let said = data["answer"].as_str().expect("answer");
     assert!(said.contains("compared with the version here"), "{said}");
+    // Found advisories: a misspelt name could not fake them, so
+    // `registryConfirmed:false` alone says the name went unconfirmed.
     assert!(
-        data["warnings"]
+        !data["warnings"]
             .to_string()
             .contains("Not registry-confirmed"),
         "{data}"
@@ -1532,6 +1539,12 @@ async fn a_github_actions_version_is_compared_with_the_records_ranges() {
     let (data, _) = actions("46.0.1", records()).await;
     assert_eq!(data["affected"], false, "{data}");
     assert!(data.get("status").is_none(), "{data}");
+    assert!(
+        data["warnings"]
+            .to_string()
+            .contains("Not registry-confirmed"),
+        "{data}"
+    );
 }
 
 /// A record whose range cannot be compared is listed and says so: neither
@@ -1553,12 +1566,17 @@ async fn a_record_that_cannot_be_compared_is_listed_not_claimed() {
     assert!(data.get("cves").is_none(), "{data}");
 }
 
-/// No registry reads this ecosystem: a warning says the name was not
-/// confirmed, whether or not anything was found. It names no package, so a
-/// batch of such rows states it once; the answer leaves it to the warning.
+/// No registry reads this ecosystem: a none-known verdict gets a warning
+/// that the name was not confirmed, as a misspelt name reads the same; a
+/// row with advisories claims nothing a misspelling could fake, and its
+/// `registryConfirmed:false` says the rest. The warning names no package, so
+/// a batch of such rows states it once; the answer leaves it to the warning.
 #[tokio::test]
-async fn an_unconfirmed_name_is_said_in_a_warning() {
-    for vulns in [json!([]), json_fixture(r#"[{"id": "GHSA-1"}]"#)] {
+async fn an_unconfirmed_none_known_is_said_in_a_warning() {
+    for (vulns, warns) in [
+        (json!([]), true),
+        (json_fixture(r#"[{"id": "GHSA-1"}]"#), false),
+    ] {
         let http = RouteHttp::new().osv_pages(vec![(200, json!({ "vulns": vulns }))]);
         let data = answer(
             &http,
@@ -1583,8 +1601,11 @@ async fn an_unconfirmed_name_is_said_in_a_warning() {
             .filter_map(Value::as_str)
             .filter(|warning| warning.starts_with("Not registry-confirmed"))
             .collect::<Vec<_>>();
-        assert_eq!(warned.len(), 1, "{data}");
-        assert!(!warned[0].contains("phoenix"), "{data}");
+        assert_eq!(warned.len(), usize::from(warns), "{data}");
+        assert!(
+            warned.iter().all(|text| !text.contains("phoenix")),
+            "{data}"
+        );
     }
 }
 
@@ -1984,6 +2005,51 @@ async fn an_anonymous_github_read_is_marked_on_its_github_source() {
             "{advisory}"
         );
     }
+}
+
+/// Records of one advisory under its aliases (GitHub's and PyPI's of
+/// CVE-2024-47081) that state the same ranges are one clause naming each;
+/// records whose ranges differ, or that are not each other's aliases, keep a
+/// clause each.
+#[test]
+fn alias_records_stating_one_range_share_one_clause() {
+    let record = |id: &str, aliases: &[&str], fixed: &str| {
+        json!({"id": id, "aliases": aliases,
+            "affected": [{"packageName": "requests", "versions": ["2.31.0", "2.32.3"],
+                "ranges": [{"type": "ECOSYSTEM",
+                    "events": [{"introduced": "0"}, {"fixed": fixed}]}]}]})
+    };
+    let (ghsa, pysec, cve) = ("GHSA-9hjg-9r4m-mvj7", "PYSEC-2026-1872", "CVE-2024-47081");
+    let lead = |records: Vec<Value>| {
+        super::answer::advisory_lead(&json!({ "advisories": records }))["answer"]
+            .as_str()
+            .expect("answer")
+            .to_owned()
+    };
+    let joined = lead(vec![
+        record(ghsa, &[cve, pysec], "2.32.4"),
+        record(pysec, &[cve, ghsa], "2.32.4"),
+    ]);
+    assert_eq!(
+        joined,
+        format!(
+            "{ghsa} and {pysec} (aliases {cve}) affect requests <2.32.4 (fixed 2.32.4) (each record lists 2 affected versions)."
+        )
+    );
+    let apart = lead(vec![
+        record(ghsa, &[cve, pysec], "2.32.4"),
+        record(pysec, &[cve, ghsa], "2.32.5"),
+    ]);
+    assert_eq!(apart.matches(" affects requests").count(), 2, "{apart}");
+    let unrelated = lead(vec![
+        record(ghsa, &[cve], "2.32.4"),
+        record("GHSA-aaaa-bbbb-cccc", &[], "2.32.4"),
+    ]);
+    assert_eq!(
+        unrelated.matches(" affects requests").count(),
+        2,
+        "{unrelated}"
+    );
 }
 
 /// A withdrawn record's answer joins the withdrawal to what it states, with

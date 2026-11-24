@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { writeNewFile } from './output.ts';
-import { adapters, list, record, string } from './providers.ts';
+import { list, record, string } from './json-fields.ts';
+import { adapters } from './providers.ts';
 import type { Observation } from './providers.ts';
 
 const hash = (bytes: Buffer) =>
@@ -37,12 +38,13 @@ export async function enrichExport(
     const input = await readFile(resolve(dirname(manifestFile), file));
     if (hash(input) !== p.sha256)
       throw new Error(`Provider digest mismatch: ${file}`);
-    const adapter = adapters[format as keyof typeof adapters];
+    const adapter = adapters[format];
     const sourceRoot = string(p.sourceRoot ?? data.section, 'sourceRoot');
-    const workload =
-      p.workload === undefined ? undefined : string(p.workload, 'workload');
-    const testId =
-      p.testId === undefined ? undefined : string(p.testId, 'testId');
+    const optional = (field: string) =>
+      p[field] === undefined ? undefined : string(p[field], field);
+    const workload = optional('workload');
+    const testId = optional('testId');
+    const workingDirectory = optional('workingDirectory');
     let moduleSha256: string | undefined;
     if (format === 'llvm-graphviz') {
       const moduleFile = string(p.moduleFile, 'moduleFile');
@@ -52,17 +54,23 @@ export async function enrichExport(
       if (moduleSha256 !== p.moduleSha256)
         throw new Error(`LLVM module digest mismatch: ${moduleFile}`);
     }
-    const document = record(JSON.parse(input.toString('utf8')));
+    const document: unknown = JSON.parse(input.toString('utf8'));
     const parsed = adapter.read(document, {
       artifact: file,
       sourceRoot,
       workload,
       testId,
       moduleSha256,
+      workingDirectory,
+      graph: data,
+      localRoot: typeof data.section === 'string' ? data.section : sourceRoot,
+      revision,
     });
-    for (const edge of parsed) edges.push(edge);
-    const supported =
-      'kindsFor' in adapter ? adapter.kindsFor(document) : adapter.kinds;
+    const { relations, record: extra } = Array.isArray(parsed)
+      ? { relations: parsed, record: {} }
+      : parsed;
+    for (const edge of relations) edges.push(edge);
+    const supported = adapter.kindsFor?.(document) ?? adapter.kinds ?? [];
     for (const kind of supported) kinds.add(kind);
     providers.push({
       format,
@@ -73,8 +81,10 @@ export async function enrichExport(
       sourceRoot,
       workload,
       testId,
+      ...(workingDirectory && { workingDirectory }),
       ...(moduleSha256 && { moduleSha256, moduleFile: p.moduleFile }),
-      relations: parsed.length,
+      relations: relations.length,
+      ...extra,
     });
   }
   data.enrichment = {

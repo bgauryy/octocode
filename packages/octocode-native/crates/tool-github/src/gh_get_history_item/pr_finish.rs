@@ -2,7 +2,6 @@
 //! literal, attaches the continuations and context reads, trims pagination,
 //! and builds the metadata row.
 use super::patch::hunks::match_context;
-use super::patch_hop::attach_full_patch_continuation;
 use super::pr_menu::{fresh_pr_query, remove_key, without_match_string};
 use super::promotion::promote_pr_continuations;
 use super::pull_request::{FileOutcome, PrPlan, ShapedPr};
@@ -67,16 +66,20 @@ fn without_match_lead(query: &HistoryItemRequest) -> Value {
 
 /// The reads that recover a pull-request read whose literal or file scope
 /// matched no changed file, in rank order: the same read without the
-/// `matchString` (when the literal missed), then the whole file inventory
-/// (`include`/`fileStatus`/`minChanges` dropped) to copy a path from.
+/// `matchString` (when the literal missed), then, when an `include` or
+/// `fileStatus` scope narrowed the files, the whole file inventory (the scope
+/// dropped) to copy a path from. Without a scope that inventory is the first
+/// read less its patches.
 fn unmatched_leads(query: &HistoryItemRequest, literal_missed: bool) -> Map<String, Value> {
-    let target = fresh_pr_query(query);
     let mut leads = Map::new();
     if literal_missed {
         leads.insert("withoutMatchString".into(), without_match_lead(query));
     }
-    let mut inventory = target;
-    for key in ["include", "fileStatus", "minChanges", "contextLines"] {
+    if !gh_get_history_item_query::has_file_filter(query) {
+        return leads;
+    }
+    let mut inventory = fresh_pr_query(query);
+    for key in ["include", "fileStatus", "contextLines"] {
         remove_key(&mut inventory, key);
     }
     Sections::of([Section::Files]).set_on(&mut inventory);
@@ -134,14 +137,9 @@ pub(super) fn finish_pr(
         );
     }
     push_warnings(&mut out, notes);
-    if !body_drops.is_empty() {
-        push_warnings(&mut out, body_drops);
-        ensure_calls(&mut out);
-        if let Some(next) = out["calls"].as_object_mut() {
-            next.entry("withoutMatchString")
-                .or_insert_with(|| without_match_lead(query));
-        }
-    }
+    // What the literal dropped from the body and discussion is counted; the
+    // row is evidence, so it offers no read without the literal.
+    push_warnings(&mut out, body_drops);
     promote_pr_continuations(&mut out, query);
     if !commit_file_pages.is_empty() {
         octocode_runtime_base::response::paging::set_partial(&mut out, true);
@@ -157,7 +155,6 @@ pub(super) fn finish_pr(
             "GitHub ended this PR's commit list before commitCount; inspect a local checkout with sufficient history.".to_owned()
         ]);
     }
-    attach_full_patch_continuation(&mut out, query);
     if !files.leads_unsearched.is_empty() {
         attach_unsearched_reads(&mut out, query, &files.leads_unsearched);
     }
@@ -237,9 +234,7 @@ pub(super) fn attach_unsearched_reads(
                 "path": path,
                 "ref": sha,
                 "matchString": needle,
-                "caseMode":gh_get_history_item_query::match_options(query).map(|o|o.0),
-                "regexEngine":gh_get_history_item_query::match_options(query).map(|o|o.1),
-                "wholeWord":gh_get_history_item_query::match_options(query).map(|o|o.2)}))
+                "regexEngine":gh_get_history_item_query::match_options(query).map(|o|o.1)}))
         })
         .collect::<Vec<_>>();
     if reads.is_empty() {

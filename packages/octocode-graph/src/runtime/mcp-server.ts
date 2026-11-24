@@ -1,6 +1,6 @@
 // The package's MCP server over stdio, in two modes from one implementation:
 // - `mcp` (octocode-graph mcp): the saved-graph tools (build_graph, query_graph, refresh_graph, diff_graph,
-//   link_graph) and the engine's own graphBuild and graphQuery, passed through unchanged from a child
+//   check_graph, link_graph) and the engine's own graphBuild and graphQuery, passed through unchanged from a child
 //   `octocode __graph mcp` (its tools/list entries and tools/call results, cursors and errors included);
 // - `channel` (octocode-graph channel): the same, plus the live viewer as a Claude Code channel (research preview):
 //   open_graph, reply and the wiki tools, each viewer chat message pushed as a `notifications/claude/channel` event.
@@ -10,7 +10,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { resolveNativeBin } from 'octocode/native';
 import { statSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { defaults } from './pipeline.ts';
 import { lspMode, lspModes } from './lib/run-options.ts';
 import {
@@ -42,14 +42,20 @@ import {
 } from './api.ts';
 import { formatDiff } from './diff.ts';
 import {
+  FORMATS as CHECK_FORMATS,
+  runCheck,
+  type CheckFormat,
+} from './check.ts';
+import {
   LinkRefused,
   proposeLink,
   readProposed,
   removeLink,
   reviewLink,
 } from './links-proposed.ts';
-import { editedSince, graphPath, withStaleness } from './query.ts';
+import { editedSince, resultDir as savedDir, withStaleness } from './query.ts';
 import { nearest } from './query-forgiving.ts';
+import { withProvider } from './search-provider.ts';
 
 /** A JSON-RPC 2.0 request: a method and an id (echoed back as the client sent it). */
 interface JsonRpcRequest {
@@ -120,7 +126,7 @@ const PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const SOURCE = 'graph-view';
 
 const SAVED_INSTRUCTIONS =
-  "Build a graph once with build_graph, then ask query_graph with its result directory: start with search <name> and about <file|symbol>; every row cites path:line and the answer names the next Octocode call. After edits, refresh_graph, then diff_graph for what changed. link_graph records a link the graph cannot find, with quoted evidence. graphBuild and graphQuery are the engine's single-scope tools.";
+  "Build a graph once with build_graph, then ask query_graph with its result directory: start with search <name> and about <file|symbol>; every row cites path:line and the answer names the next Octocode call. After edits, query_graph with refresh: true answers from a refreshed graph; refresh_graph, then diff_graph, shows what changed. link_graph records a link the graph cannot find, with quoted evidence. graphBuild and graphQuery are the engine's single-scope tools.";
 const INSTRUCTIONS = [
   `Viewer messages arrive as <channel source="${SOURCE}" chat_id="...">text</channel>. A selection can include a repository-relative file, line and metrics.`,
   'Send the answer with reply using that chat_id. Include nodes to highlight relevant files, or use path:line for a source link.',
@@ -148,7 +154,7 @@ const FIELD = {
   result: {
     type: 'string',
     description:
-      'A saved result directory, or a project directory (its newest saved graph under .octocode/octocode-graph).',
+      'A saved result directory, or a project directory: its newest saved graph under .octocode/octocode-graph, else the newest the per-user graph registry lists for it (a build with an output directory elsewhere).',
   },
   viewer: {
     type: 'string',
@@ -200,6 +206,11 @@ const TOOLS_ALL: ToolDefinition[] = [
         result: FIELD.result,
         path: FIELD.viewer,
         format: FIELD.format,
+        refresh: {
+          type: 'boolean',
+          description:
+            'true: when graph files changed since the graph was written, refresh the chunks holding them first (as refresh_graph) and answer from the refreshed graph; unchanged, answer directly.',
+        },
       },
       ['query']
     ),
@@ -225,6 +236,40 @@ const TOOLS_ALL: ToolDefinition[] = [
         description: 'The newer saved graph; default: result.',
       },
       format: FIELD.format,
+    }),
+  },
+  {
+    name: 'check_graph',
+    description:
+      "Check dependency rules over a saved graph, as CI does: forbidden, allowed and required rules in dependency-cruiser's vocabulary (paths as regular expressions over file ids and pkg:<name>; reachable, circular with via and viaOnly, dependencyTypes, $1 captures, a load per rule) from .octocode/graph-rules.json at the graph root. Returns each violation with its chain of imports, each hop with its line and kinds. A baseline marks known violations, which never fail; since reports only what a change since that git revision introduced, after refreshing the changed chunks. An error violation the baseline does not list makes the result an error.",
+    inputSchema: object({
+      result: FIELD.result,
+      rules: {
+        type: 'string',
+        description:
+          'The rules file; default: .octocode/graph-rules.json at the graph root.',
+      },
+      baseline: {
+        type: 'string',
+        description:
+          'Known violations; default: graph-rules.baseline.json beside the rules file, when it exists.',
+      },
+      write_baseline: {
+        type: 'boolean',
+        description:
+          'true: record every current violation as known in the baseline file.',
+      },
+      since: {
+        type: 'string',
+        description:
+          'A git revision: refresh the changed chunks, then report only the violations the change introduced (git is only read).',
+      },
+      format: {
+        type: 'string',
+        enum: [...CHECK_FORMATS],
+        description:
+          'text (default); json: every field; sarif: SARIF 2.1.0 with each chain as codeFlows.',
+      },
     }),
   },
   {
@@ -514,14 +559,30 @@ let saved: { out: string; read: () => Promise<QueryData> } | undefined;
 function answer(r: QueryResult, format: unknown): ToolResult {
   return {
     ...text(format === 'json' ? r : formatResult(r)),
-    ...(r.ok ? {} : { isError: true }),
+    // A broken rule (reach --forbid: `failed`) is an error result like a failed query; the text and json keep it.
+    ...(r.ok && !r.failed ? {} : { isError: true }),
   };
 }
 
-// A saved graph's result directory: the directory itself, or the newest saved graph of a project directory.
-function resultDir(arg: unknown) {
-  const found = graphPath(pathArg(arg, 'result'));
-  return found.chosen ?? dirname(found.path);
+// A saved graph's result directory: the directory itself, or the newest saved graph of a project directory (the
+// default places, then the graph registry).
+const resultDir = (arg: unknown) => savedDir(pathArg(arg, 'result'));
+
+// A saved result refreshes through this channel's viewer when one serves it, so its page follows; any other here
+// (refreshGraph refuses a run another process's viewer serves).
+async function refreshOut(out: string) {
+  const mine = [...viewers.values()].find(v => v.server.out === out);
+  return mine
+    ? { ...(await mine.server.refresh()), viewer: true }
+    : await refreshSaved(out);
+}
+
+// query_graph refresh: true — graph files edited since the graph at `out` was written are refreshed first.
+async function refreshEdited(out: string) {
+  const graph = join(out, 'data.json');
+  const D = await dataLoader({ out })();
+  if (!editedSince(D, graph).length) return;
+  await refreshOut(out);
 }
 
 async function queryGraph(args: ToolArgs): Promise<ToolResult> {
@@ -529,20 +590,22 @@ async function queryGraph(args: ToolArgs): Promise<ToolResult> {
     if (args.path !== undefined)
       throw new Error('query_graph takes result or path');
     const out = resultDir(args.result);
+    if (args.refresh === true) await refreshEdited(out);
     if (saved?.out !== out) saved = { out, read: dataLoader({ out }) };
     const D = await saved.read();
     return answer(
-      withStaleness(
-        runQuery(D, args.query),
-        editedSince(D, join(out, 'data.json'))
+      await withProvider(
+        withStaleness(
+          runQuery(D, args.query),
+          editedSince(D, join(out, 'data.json'))
+        )
       ),
       args.format
     );
   }
-  return answer(
-    await viewerFor(args.path).server.query(args.query),
-    args.format
-  );
+  const viewer = viewerFor(args.path);
+  if (args.refresh === true) await refreshEdited(viewer.server.out);
+  return answer(await viewer.server.query(args.query), args.format);
 }
 
 // A wiki chat_id is the channel's; the server knows the viewer's own message id.
@@ -592,15 +655,10 @@ const wikiCall =
 async function refreshGraph(args: ToolArgs) {
   if (args.result !== undefined) {
     const out = resultDir(args.result);
-    // A run this channel's viewer serves refreshes through it, so the page follows; any other refreshes here
-    // (refreshGraph refuses a run another process's viewer serves).
-    const mine = [...viewers.values()].find(v => v.server.out === out);
-    if (!mine) {
-      const r = await refreshSaved(out);
-      return `graph refreshed in ${(r.ms / 1000).toFixed(1)} s; rebuilt chunks: ${JSON.stringify(r.chunks ?? [])}; diff_graph({"result":${JSON.stringify(out)}}) shows what changed`;
-    }
-    const r = await mine.server.refresh();
-    return `graph refreshed in ${(r.ms / 1000).toFixed(1)} s`;
+    const r = await refreshOut(out);
+    if ('viewer' in r)
+      return `graph refreshed in ${(r.ms / 1000).toFixed(1)} s`;
+    return `graph refreshed in ${(r.ms / 1000).toFixed(1)} s; rebuilt chunks: ${JSON.stringify(r.chunks ?? [])}; diff_graph({"result":${JSON.stringify(out)}}) shows what changed`;
   }
   const r = await viewerFor(args.path).server.refresh();
   return `graph refreshed in ${(r.ms / 1000).toFixed(1)} s`;
@@ -649,6 +707,21 @@ async function diffGraph(args: ToolArgs) {
   return args.format === 'json' ? JSON.stringify(d) : formatDiff(d);
 }
 
+// check_graph: the CLI's `check`; a check that cannot run is an error result, a failing one too (isError).
+async function checkGraph(args: ToolArgs): Promise<ToolResult> {
+  const r = await runCheck({
+    graph: args.result === undefined ? '.' : pathArg(args.result, 'result'),
+    ...(args.rules !== undefined && { rules: pathArg(args.rules, 'rules') }),
+    ...(args.baseline !== undefined && {
+      baseline: pathArg(args.baseline, 'baseline'),
+    }),
+    ...(args.since !== undefined && { since: pathArg(args.since, 'since') }),
+    writeBaseline: args.write_baseline === true,
+    format: (args.format ?? 'text') as CheckFormat,
+  });
+  return { ...text(r.output), ...(r.exitCode ? { isError: true } : {}) };
+}
+
 const CALLS: Partial<Record<string, ToolCall>> = {
   open_graph: openGraph,
   build_graph: buildSaved,
@@ -656,6 +729,7 @@ const CALLS: Partial<Record<string, ToolCall>> = {
   refresh_graph: refreshGraph,
   query_graph: queryGraph,
   diff_graph: diffGraph,
+  check_graph: checkGraph,
   link_graph: linkGraph,
   ...Object.fromEntries(
     Object.entries(WIKI).map(([name, call]) => [name, wikiCall(call)])

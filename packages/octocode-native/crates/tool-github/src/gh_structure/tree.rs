@@ -148,21 +148,21 @@ pub(super) async fn execute_tree(
     }
     if !resumed && structure_is_empty(&value) && value.get("isPartial").is_none() {
         output.status = Some("empty");
-        if let Some((broader, rebased_under)) = broaden_listing(&pinned) {
-            octocode_tools_shared::leads::broaden::set_broadened(
-                &mut value,
-                &query_row(&pinned, &[]),
-                broader,
-            );
-            // Said only with the request it explains.
-            if let Some(root) = rebased_under {
-                octocode_runtime_base::response::result::add_hints(
+        match broaden_listing(&pinned) {
+            // The globs are only mis-written: the one repaired listing and
+            // the hint that names the fix.
+            Some(Broadened::Repaired { lead, hint }) => {
+                octocode_runtime_base::response::result::attach_related(&mut value, lead);
+                octocode_runtime_base::response::result::add_hints(&mut value, [hint]);
+            }
+            Some(Broadened::Dropped(lead)) => {
+                octocode_tools_shared::leads::broaden::set_broadened(
                     &mut value,
-                    [format!(
-                        "include globs are relative to path: the related[] ghStructure request's first query asks them without the leading {root}/."
-                    )],
+                    &query_row(&pinned, &[]),
+                    lead,
                 );
             }
+            None => {}
         }
     }
     octocode_runtime_base::response::result::finish_calls(&mut value);
@@ -189,7 +189,7 @@ pub(super) fn paused_listing(
         &mut value,
         octocode_runtime_base::response::paging::PartialReason::WalkDeadline,
         &[format!(
-            "The walk paused at this call's time budget after {reads} folder reads; it lists its entries once the walk ends: the reply's next resumes it there."
+            "Walk paused at its time budget after {reads} folder reads: nothing is listed until next ends the walk."
         )],
     );
     if let Some(call) = octocode_runtime_base::response::collection::continued_page(
@@ -209,13 +209,23 @@ pub(super) fn paused_listing(
     value
 }
 
-/// An empty filtered listing, broadened ([`octocode_tools_shared::leads::broaden::broaden`]):
-/// the same commit's listing without its `include` globs, so what the tree
-/// holds names why they matched nothing; first, when a glob is written
-/// from the repository root though `path` is set ([`under_path`]), the same
-/// globs asked relative to it, and the listed path it names. Never a
-/// materialization.
-fn broaden_listing(pinned: &GhStructureQueryTree) -> Option<(Value, Option<String>)> {
+/// How an empty filtered listing recovers ([`broaden_listing`]).
+enum Broadened {
+    /// The same listing with its globs repaired, alone: they restate `path`
+    /// ([`under_path`]), or name a bare word that matches only an exact name
+    /// ([`as_substrings`]). `hint` names the fix.
+    Repaired { lead: Value, hint: String },
+    /// The same commit's listing without its `include` globs, so what the
+    /// tree holds names why they matched nothing.
+    Dropped(Value),
+}
+
+/// An empty filtered listing's recovery, never a materialization: when a
+/// glob is written from the repository root though `path` is set, the same
+/// globs asked relative to it; else, when an entry is a bare word, the same
+/// globs with each such word as a substring; else the listing without its
+/// `include` globs ([`octocode_tools_shared::leads::broaden::broaden`]).
+fn broaden_listing(pinned: &GhStructureQueryTree) -> Option<Broadened> {
     let mut lead = octocode_tools_shared::leads::broaden::broaden(
         ToolId::GhStructure,
         &query_row(pinned, &[]),
@@ -226,18 +236,114 @@ fn broaden_listing(pinned: &GhStructureQueryTree) -> Option<(Value, Option<Strin
         },
         1,
     )?;
-    let mut rebased_under = None;
-    if let Some((root, rebased_globs)) = under_path(pinned)
-        && let Some(queries) = lead
-            .pointer_mut("/input/queries")
-            .and_then(Value::as_array_mut)
+    let repair = under_path(pinned)
+        .map(|(root, rebased)| {
+            let hint = if rebased.restated.len() == 1 {
+                format!(
+                    "include globs are relative to path `{root}`: {} restates it, so it matches nothing below it.",
+                    quoted(&rebased.restated)
+                )
+            } else {
+                format!(
+                    "include globs are relative to path `{root}`: {} restate it, so they match nothing below it.",
+                    quoted(&rebased.restated)
+                )
+            };
+            (rebased.globs, hint)
+        })
+        .or_else(|| {
+            as_substrings(pinned).map(|(bare, globs)| {
+                let wrapped = bare
+                    .iter()
+                    .map(|word| format!("*{word}*"))
+                    .collect::<Vec<_>>();
+                let hint = if bare.len() == 1 {
+                    format!(
+                        "include {} matches only that exact name; {} matches a substring.",
+                        quoted(&bare),
+                        quoted(&wrapped)
+                    )
+                } else {
+                    format!(
+                        "include {} match only those exact names; {} match substrings.",
+                        quoted(&bare),
+                        quoted(&wrapped)
+                    )
+                };
+                (globs, hint)
+            })
+        });
+    let Some((globs, hint)) = repair else {
+        return Some(Broadened::Dropped(lead));
+    };
+    let queries = lead
+        .pointer_mut("/input/queries")
+        .and_then(Value::as_array_mut)?;
+    let mut repaired = queries.first()?.clone();
+    repaired["include"] = globs.into();
+    // A repaired glob the contract refuses (one grown past its length)
+    // falls back to dropping the globs.
+    if octocode_runtime_base::contracts::validate(
+        ToolId::GhStructure.as_str(),
+        json!({ "queries": [&repaired] }),
+    )
+    .is_err()
     {
-        let mut rebased = queries[0].clone();
-        rebased["include"] = rebased_globs.into();
-        queries.insert(0, rebased);
-        rebased_under = Some(root);
+        return Some(Broadened::Dropped(lead));
     }
-    Some((lead, rebased_under))
+    *queries = vec![repaired];
+    Some(Broadened::Repaired { lead, hint })
+}
+
+/// `"a"`, `"b"`: the globs a hint names, as written.
+fn quoted(globs: &[String]) -> String {
+    globs
+        .iter()
+        .map(|glob| format!("{glob:?}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The `include` entries that are bare words (no glob character, no `/`,
+/// no negation), and the globs with each such word as a substring
+/// (`index` → `*index*`): a bare word matches only an entry of exactly that
+/// name. `None` when no entry is one.
+fn as_substrings(pinned: &GhStructureQueryTree) -> Option<(Vec<String>, Vec<String>)> {
+    let bare_word = |glob: &str| {
+        !glob.is_empty()
+            && !glob.starts_with(['!', '#'])
+            && !glob.contains(['*', '?', '[', '{', '/'])
+    };
+    let bare = pinned
+        .include
+        .iter()
+        .map(|glob| glob.as_str().to_owned())
+        .filter(|glob| bare_word(glob))
+        .collect::<Vec<_>>();
+    if bare.is_empty() {
+        return None;
+    }
+    let globs = pinned
+        .include
+        .iter()
+        .map(|glob| {
+            let glob = glob.as_str();
+            if bare_word(glob) {
+                format!("*{glob}*")
+            } else {
+                glob.to_owned()
+            }
+        })
+        .collect();
+    Some((bare, globs))
+}
+
+/// `include` globs asked relative to the listed path ([`under_path`]).
+struct Rebased {
+    /// Every glob, those that restated `path` without that prefix.
+    globs: Vec<String>,
+    /// The globs as written that restated `path`.
+    restated: Vec<String>,
 }
 
 /// The listed `path` and the `include` globs asked relative to it, when a
@@ -245,7 +351,7 @@ fn broaden_listing(pinned: &GhStructureQueryTree) -> Option<(Value, Option<Strin
 /// the local tools, so a glob that starts with `path` itself matches nothing
 /// there. Such a glob loses that prefix (and one leading `/`); the others
 /// stay as written.
-fn under_path(pinned: &GhStructureQueryTree) -> Option<(String, Vec<String>)> {
+fn under_path(pinned: &GhStructureQueryTree) -> Option<(String, Rebased)> {
     let root = pinned
         .path
         .as_deref()
@@ -271,5 +377,11 @@ fn under_path(pinned: &GhStructureQueryTree) -> Option<(String, Vec<String>)> {
         .iter()
         .map(|glob| rebased(glob.as_str()).unwrap_or_else(|| glob.as_str().to_owned()))
         .collect();
-    Some((root, globs))
+    let restated = pinned
+        .include
+        .iter()
+        .map(|glob| glob.as_str().to_owned())
+        .filter(|glob| rebased(glob.as_str()).is_some())
+        .collect();
+    Some((root, Rebased { globs, restated }))
 }

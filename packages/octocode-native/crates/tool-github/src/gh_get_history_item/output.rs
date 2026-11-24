@@ -14,9 +14,9 @@ impl ToolOutput for Output {
 
 /// A history item is named by its repository and its number or ref, never
 /// by a path: the shared hint's parent-directory listing does not apply.
-/// The row's related[] listing (the repository's recent items, its refs,
-/// or a repository search) names the ones that exist.
-const NOT_FOUND_HINT: &str = "Check owner, repo and the number or ref as GitHub writes them; the related[] listing, when given, names the ones that exist: retry with one it lists.";
+/// A row with a related[] listing (the repository's recent items, its refs,
+/// or a repository search) carries no hint, so the hint never names it.
+const NOT_FOUND_HINT: &str = "Check owner, repo and the number or ref as GitHub writes them.";
 
 #[cfg(test)]
 mod tests;

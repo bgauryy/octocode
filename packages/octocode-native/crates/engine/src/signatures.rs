@@ -97,7 +97,9 @@ pub(crate) mod receiver_fields;
 /// v41: an `async fn` records its return types (`asynchronous`), a tuple
 /// return its elements, and a receiver call whether it is awaited and which
 /// tuple element a destructuring `let` takes.
-pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 41;
+/// v42: a callable declaration records its parameter list and return type as
+/// written (`params`, `returns`).
+pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 42;
 
 /// The declaration kinds an `extends`/`implements` clause can name or
 /// declare: the nodes of a type hierarchy. One list for the graph's linking

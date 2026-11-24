@@ -92,13 +92,13 @@ async fn a_non_default_ref_discloses_the_index_commit_and_leads_to_the_ref() {
     .await
     .expect("search");
     let data = &out.data;
-    // Facts only: the static "files only at the ref are missing"
-    // advice is the description's; `viewRepo` lists them.
+    // What the lines show first, then the index scope that bounds an
+    // absence, in one sentence that names the route in words.
     assert_eq!(
         data["warnings"],
         json_fixture(
             r#"[
-                "Candidate files come from the default-branch index at fedcba9, not dev: a file whose keywords match only at dev (it exists only there, or its text changed since) cannot appear, so absence proves nothing; list the files at dev and read them with `matchString`; `matches` read at dev."
+                "`matches` read at dev; candidates come from the default-branch index at fedcba9, so a file matching only at dev is missing: list dev with ghStructure, read with matchString."
             ]"#
         ),
         "{data}"

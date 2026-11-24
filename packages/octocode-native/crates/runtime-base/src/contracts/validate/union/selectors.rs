@@ -17,6 +17,47 @@ pub(super) fn sibling_selector_values(
     value: &Value,
     field: &str,
 ) -> Option<Vec<Value>> {
+    merge_alternatives(selector_changes(root, declaring, value, field))
+        .map(|text| vec![Value::String(text)])
+}
+
+/// The one selector value that admits `field` in every form needing a
+/// change (`{"operation":"search"}`): the switch an example of the field
+/// applies. `None` when the forms need several selectors, or values that
+/// differ (`operation` one of four).
+pub(super) fn sibling_switch(
+    root: &Value,
+    declaring: &[&Value],
+    value: &Value,
+    field: &str,
+) -> Option<Value> {
+    let mut switch: Option<(&str, &Value)> = None;
+    for change in unabsorbed(selector_changes(root, declaring, value, field)) {
+        let [(name, literals)] = change.as_slice() else {
+            return None;
+        };
+        let [literal] = literals.as_slice() else {
+            return None;
+        };
+        match switch {
+            Some((known, held)) if known != *name || !equivalent(held, literal) => return None,
+            _ => switch = Some((*name, *literal)),
+        }
+    }
+    let (name, literal) = switch?;
+    let mut set = serde_json::Map::new();
+    set.insert(name.to_owned(), literal.clone());
+    Some(Value::Object(set))
+}
+
+/// Per declaring form, the selectors whose literals the value's own does
+/// not meet, each with the literals that would.
+fn selector_changes<'a>(
+    root: &'a Value,
+    declaring: &[&'a Value],
+    value: &Value,
+    field: &str,
+) -> Vec<Vec<(&'a str, Vec<&'a Value>)>> {
     let mut alternatives = Vec::new();
     for branch in declaring {
         let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
@@ -34,7 +75,7 @@ pub(super) fn sibling_selector_values(
             .collect::<Vec<_>>();
         alternatives.push(selectors);
     }
-    merge_alternatives(alternatives).map(|text| vec![Value::String(text)])
+    alternatives
 }
 
 /// Alternatives, each the selectors one form needs: a form needing one

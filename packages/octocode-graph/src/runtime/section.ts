@@ -9,6 +9,7 @@ import { gzip } from 'node:zlib';
 import { basename, dirname, join, resolve } from 'node:path';
 import { graphBuild, graphCall, readGraphs, totalOf } from './graph-pages.ts';
 import type { BuiltGraph, GraphAnswer } from './graph-pages.ts';
+import type { Load } from '../loads.ts';
 import {
   SKIPPED_DIRS,
   degrees,
@@ -37,6 +38,7 @@ import type {
   Snapshot,
   SymbolNode,
   UnresolvedCall,
+  UseEdge,
 } from './types.ts';
 import { fileOf } from '../ids.ts';
 
@@ -52,11 +54,14 @@ export type SymbolRow = OutputGraphNodeEvidence &
 export type WitnessRow = NonNullable<
   Extract<GraphQueryData, { operation: 'witnesses' }>['rows']
 >[number] & { from: string };
-/** The witness fields foldEdges reads: an engine row, or one rebased for the viewer stream. */
+/**
+ * The witness fields foldEdges reads: an engine row, or one rebased for the viewer stream. `importKind` is the kind of
+ * an import of a package, whose `detail` holds how the package is declared (engines before it omit it).
+ */
 export type Witness = Pick<
   WitnessRow,
   'edge' | 'from' | 'to' | 'line' | 'confidence' | 'detail' | 'test'
->;
+> & { importKind?: string; load?: Load };
 /** The fields read of a `diagnostics` row (the contract leaves this operation's rows open). */
 interface DiagnosticRow {
   code: string;
@@ -64,6 +69,10 @@ interface DiagnosticRow {
   line?: number;
   test?: boolean;
   message: string;
+  /** The kind of the import an `outside-root` or `unresolved-internal` row is about (engines before it omit it). */
+  importKind?: string;
+  /** When that import takes effect (engines before it omit it). */
+  load?: Load;
 }
 /** The fields read of an `unresolved` row (the contract leaves `test` out; the row is read as the engine prints it). */
 // graphQuery `unresolved` rows carry no test flag: stitched calls take it from their file's role (stitch.ts).
@@ -164,7 +173,7 @@ export const CHUNK_DATA = 'data.json.gz';
 
 // Evidence files, one gzip member per page. Pages compress on the thread pool while the walk continues (a
 // synchronous gzip of every 8 MB page would stall all the section's other tool calls) and append in page order.
-function evidenceWriter() {
+export function evidenceWriter() {
   const chains = new Map<string, Promise<void>>();
   const queue = (file: string, text: string, fresh: boolean) => {
     const compressed = gzipAsync(text);
@@ -180,8 +189,10 @@ function evidenceWriter() {
   return {
     /** Replace the file with this one member. */
     write: (file: string, text: string) => queue(file, text, true),
-    /** Add a member after the ones already written. */
-    append: (file: string, text: string) => queue(file, text, false),
+    /** Add a member after the ones this writer wrote; its first member replaces the file, so a rebuild over a
+     * reused snapshot (same queries, same file name) never keeps the previous build's pages. */
+    append: (file: string, text: string) =>
+      queue(file, text, !chains.has(file)),
     async flush() {
       await Promise.all(chains.values());
     },
@@ -211,12 +222,39 @@ export function foldEdges(witnesses: readonly Witness[], kind: string) {
     if (Number(w.line) < Number(e.line)) e.line = w.line;
     if ((RANK[w.confidence] ?? 0) > (RANK[e.confidence] ?? 0))
       e.confidence = w.confidence;
-    if (w.detail && !e.resolution.includes(w.detail))
-      e.resolution.push(w.detail);
+    for (const recorded of [w.detail, w.importKind]) {
+      if (!recorded) continue;
+      if (!e.resolution.includes(recorded)) e.resolution.push(recorded);
+      if (kind === 'imports' && isInteger(w.line)) {
+        e.kindLines ??= {};
+        const at = (e.kindLines[recorded] ??= []);
+        if (!at.includes(w.line)) at.push(w.line);
+      }
+    }
+    // The engine's load belongs to the import's kind: a package import's, not its declaration status (`detail`).
+    if (kind === 'imports' && w.load)
+      (e.loads ??= {})[w.importKind ?? w.detail] = w.load;
     by.set(k, e);
   }
   for (const e of by.values()) e.lines.sort((a, b) => a - b);
   return [...by.values()];
+}
+
+// What each file takes from the files it imports, one row per name: the declaration it resolves to and how
+// (`import`: declared in the imported file; `reexport`: reached through a re-export of it; `namespace`: the whole
+// file; `reexported-name`: a name this file re-exports). Hubs read it to say which importers could skip a re-export.
+function useEdges(witnesses: readonly WitnessRow[], fileIds: Set<string>) {
+  return witnesses
+    .filter(
+      w => w.edge === 'uses' && fileIds.has(w.from) && fileIds.has(fileOf(w.to))
+    )
+    .map((w): UseEdge => ({
+      source: w.from,
+      target: w.to,
+      line: w.line,
+      detail: w.detail,
+      ...(w.test && { test: true }),
+    }));
 }
 
 const label = (id: string, dup: Map<string, number>) =>
@@ -244,25 +282,40 @@ function fileNodes(found: FileRow[], imports: ImportEdge[]): FileNode[] {
     .toSorted((a, b) => a.id.localeCompare(b.id));
 }
 
-function externalsOf(importEdges: GraphEdge[]) {
-  const externals = new Map<string, Required<ExternalPackage>>();
+export function externalsOf(importEdges: GraphEdge[]) {
+  // What a section states of each package; a build adds the package's bytes later (package-bytes.ts).
+  type Imported = Required<
+    Pick<
+      ExternalPackage,
+      'id' | 'count' | 'files' | 'testFiles' | 'kinds' | 'lines' | 'loads'
+    >
+  >;
+  const externals = new Map<string, Imported>();
   for (const e of importEdges.filter(x => x.target.startsWith('pkg:'))) {
     const x = externals.get(e.target) ?? {
       id: e.target,
       count: 0,
       files: [],
       testFiles: [],
+      kinds: {},
+      lines: {},
+      loads: {},
     };
     if (e.test) x.testFiles.push(e.source);
     x.count++;
     x.files.push(e.source);
+    // The import kinds and declaration status of this file's imports: a walk asks whether the package loads.
+    x.kinds[e.source] = e.resolution;
+    // Where it imports the package, so a chain cites the line.
+    x.lines[e.source] = e.lines;
+    Object.assign(x.loads, e.loads);
     externals.set(e.target, x);
   }
   return [...externals.values()].toSorted((a, b) => b.count - a.count);
 }
 
 // Declarations of every file (stitching binds calls between chunks to them); symbols are those in a call.
-function symbolRows(
+export function symbolRows(
   symbolNodes: SymbolRow[],
   fileIds: Set<string>,
   calls: CallEdge[]
@@ -282,6 +335,9 @@ function symbolRows(
       line: x.line,
       endLine: x.endLine,
       exported: !!x.exported,
+      // The signature as written, for a search by parameter or return type.
+      ...(x.params !== undefined && { params: x.params }),
+      ...(x.returns !== undefined && { returns: x.returns }),
     };
     declarations.push(d);
     if (inCalls.has(x.id)) symbols.set(x.id, { ...d, calls: 0 });
@@ -457,7 +513,7 @@ export async function readSectionRows({
       { operation: 'issues' },
       {
         operation: 'witnesses',
-        edges: ['imports', 'calls'],
+        edges: ['imports', 'calls', 'uses'],
         confidence: 'low',
       },
       { operation: 'symbols' },
@@ -628,8 +684,11 @@ export async function buildSection(
       ...(d.test && { test: true }),
       specifier: d.message.match(/"(.*)"/)?.[1] ?? null,
       message: d.message,
+      ...(d.importKind && { importKind: d.importKind }),
+      ...(d.load && { load: d.load }),
     }));
   const callEdges = foldEdges(rel.rows, 'calls');
+  const uses = useEdges(rel.rows, fileIds);
   const calls = callEdges
     .filter(e => fileIds.has(fileOf(e.source)) && fileIds.has(fileOf(e.target)))
     .map((e): CallEdge => ({ ...e, via: 'graph' }));
@@ -701,6 +760,7 @@ export async function buildSection(
     outsideRoot,
     declarations,
     unresolvedCalls,
+    uses,
   };
   // A chunk is done only with its evidence on disk. Its section result is internal state that stitching and refresh
   // read back: gzipped (lossless, `gzip -dc data.json.gz`), renamed into place complete.

@@ -46,10 +46,7 @@ fn reads_lines(query: &GhSearchCodeQuery) -> bool {
     query
         .match_in
         .contains(&GhSearchCodeQueryMatchInItem::Content)
-        && (query.fields.is_empty()
-            || picks(query, "matches")
-            || picks(query, "matchCount")
-            || picks(query, "matchedLines"))
+        && (query.fields.is_empty() || picks(query, "matches") || picks(query, "matchedLines"))
 }
 
 /// Whether this row's file stays unread, its lines and fragments unshown:
@@ -137,16 +134,15 @@ pub(super) fn shape_files(
                     redacted += shown_redacted;
                     row.insert("matches".into(), Value::Array(numbered_matches(lines)));
                     // Only a listing with context needs to say which lines are
-                    // hits; a `matchedLines` pick states them anyway, as a
-                    // `matchCount` pick states the count.
+                    // hits; a `matchedLines` pick states them anyway.
                     if lines.len() > matched.len() || picks(query, "matchedLines") {
                         row.insert("matchedLines".into(), json!(matched));
                     }
                     // A cut row states how many hits its file holds, and its
                     // read lists the rest; complete lines already carry the
-                    // count unless explicitly selected.
+                    // count.
                     let unlisted = resolution.unlisted.get(at).copied().flatten();
-                    if unlisted.is_some() || picks(query, "matchCount") {
+                    if unlisted.is_some() {
                         row.insert("matchCount".into(), json!(total));
                     }
                     if let Some(read) = unlisted

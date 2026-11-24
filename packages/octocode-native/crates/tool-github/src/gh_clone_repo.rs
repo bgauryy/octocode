@@ -66,11 +66,6 @@ impl Sparse {
     }
 }
 
-/// Requested history depth, retained in the checkout identity.
-fn history_depth(query: &GhCloneRepoQuery) -> u64 {
-    query.history_depth.get()
-}
-
 /// Where the checkout lives and what it holds; owner/repo are the caller's
 /// own input.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -94,12 +89,6 @@ pub struct CloneLocation {
     /// leaves out, as ghStructure materialize does; absent when there are none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skipped: Option<Vec<String>>,
-    /// Requested minimum depth when greater than the default.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub history_depth: Option<u64>,
-    /// The verified checkout holds the pinned commit’s complete ancestry.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub full_history: bool,
     /// When the checkout of this commit was cloned.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cloned_at: Option<String>,

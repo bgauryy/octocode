@@ -402,7 +402,8 @@ async fn execute_within(
 /// What a `fields` pick always keeps of a code row: its identity (path, and
 /// repository) and the facts that qualify its lines
 /// (where else the same evidence sits, how many hits exist, whether the
-/// lines were read at the ref, and the commit they were read at).
+/// lines were read at the ref, and the commit they were read at). No `fields`
+/// value names one but `path`: naming it would change nothing.
 const CODE_ROW_ID: &[&str] = &[
     "owner",
     "repo",

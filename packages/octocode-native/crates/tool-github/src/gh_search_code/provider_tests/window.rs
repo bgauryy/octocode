@@ -214,57 +214,88 @@ async fn a_multi_extension_window_is_each_searchs_own() {
     );
 }
 
-/// `fields:["path","matchCount"]` states each file's hit count without
-/// listing its lines, and no warning says the count is missing.
-#[tokio::test]
-async fn a_match_count_pick_counts_every_file_without_lines() {
-    let server = MockServer::builder().start().await;
-    mount_counted_search(&server, 2).await;
+/// A two-file search for `wrap_app` on the default branch: `src/busy.rs`
+/// holds `busy` hit lines (no context between them), `src/calm.rs` one.
+async fn mount_hit_files(server: &MockServer, busy: usize) {
+    mount_counted_search(server, 2).await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits/HEAD"))
         .respond_with(ResponseTemplate::new(200).set_body_string(SHA))
-        .mount(&server)
+        .mount(server)
         .await;
     for (name, body) in [
-        ("busy.rs", "wrap_app();\n".repeat(8)),
+        ("busy.rs", "wrap_app();\n".repeat(busy)),
         ("calm.rs", "fn wrap_app() {}\n".to_owned()),
     ] {
-        octocode_test_support::mock_http::list_in_trees(&server, "a", "b", &format!("src/{name}"))
+        octocode_test_support::mock_http::list_in_trees(server, "a", "b", &format!("src/{name}"))
             .await;
         Mock::given(method("GET"))
             .and(path(format!("/api/v3/repos/a/b/contents/src%2F{name}")))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "type":"file","encoding":"base64","content":STANDARD.encode(body)
             })))
-            .mount(&server)
+            .mount(server)
             .await;
     }
-    let provider = one_shot_provider(&server);
-    let query: GhSearchCodeQuery = serde_json::from_value(json_fixture(
-        r#"{
-            "owner": "a",
-            "repo": "b",
-            "keywords": ["wrap_app"],
-            "fields": ["path", "matchCount"]
-        }"#,
-    ))
-    .expect("query");
-    let context = default_context();
+}
+
+/// The `files` of a `wrap_app` search of `a/b`, picking `fields` when given.
+async fn hit_files(server: &MockServer, fields: Option<serde_json::Value>) -> serde_json::Value {
+    let mut row = json!({"owner": "a", "repo": "b", "keywords": ["wrap_app"]});
+    if let Some(fields) = fields {
+        row["fields"] = fields;
+    }
+    let query: GhSearchCodeQuery = serde_json::from_value(row).expect("query");
     let out = execute(
-        &provider,
+        &one_shot_provider(server),
         &query,
-        &context,
+        &default_context(),
         &Passthrough,
         &octocode_runtime_base::policy::discovery::is_sensitive_repository_file,
     )
     .await
     .expect("search");
-    let files = &out.data["files"];
-    assert_eq!(files[0]["path"], "src/busy.rs", "{}", out.data);
-    assert_eq!(files[0]["matchCount"], 8, "{}", out.data);
-    assert_eq!(files[1]["matchCount"], 1, "{}", out.data);
-    assert!(files[0].get("matches").is_none(), "{}", out.data);
     assert!(out.data.get("warnings").is_none(), "{}", out.data);
+    out.data["files"].clone()
+}
+
+/// A code row's keys split in two: the identity and the facts that qualify
+/// its lines, which every pick keeps (`CODE_ROW_ID`) and so no pick names
+/// (naming one would change nothing; `path` names the identity alone), and
+/// the lines, which a pick names.
+#[tokio::test]
+async fn every_code_row_key_is_kept_by_every_pick_or_named_by_one() {
+    let named = |key: &str| {
+        octocode_runtime_base::contracts::validate(
+            "ghSearchCode",
+            json!({"queries": [{"owner": "a", "repo": "b", "keywords": ["x"], "fields": [key]}]}),
+        )
+        .is_ok()
+    };
+    let kept = crate::gh_search_code::CODE_ROW_ID;
+    assert!(named("path"));
+    for key in kept {
+        assert!(*key == "path" || !named(key), "{key} rides every pick");
+    }
+    let server = MockServer::builder().start().await;
+    mount_hit_files(&server, 3).await;
+    let mut keys = std::collections::BTreeSet::new();
+    for fields in [None, Some(json!(["path", "matches", "matchedLines"]))] {
+        let files = hit_files(&server, fields).await;
+        for row in files.as_array().expect("files") {
+            keys.extend(row.as_object().expect("row").keys().cloned());
+        }
+    }
+    for key in &keys {
+        assert!(
+            kept.contains(&key.as_str()) || named(key),
+            "{key}: neither kept by every pick nor named by one"
+        );
+    }
+    assert!(
+        keys.iter().any(|key| !kept.contains(&key.as_str())),
+        "the rows list lines a pick names: {keys:?}"
+    );
 }
 
 /// A `matchedLines` pick states each file's hit line numbers even where every
@@ -273,56 +304,20 @@ async fn a_match_count_pick_counts_every_file_without_lines() {
 #[tokio::test]
 async fn a_matched_lines_pick_states_the_hit_lines_without_context() {
     let server = MockServer::builder().start().await;
-    mount_counted_search(&server, 2).await;
-    Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b/commits/HEAD"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(SHA))
-        .mount(&server)
-        .await;
-    for (name, body) in [
-        ("busy.rs", "wrap_app();\n".repeat(3)),
-        ("calm.rs", "fn wrap_app() {}\n".to_owned()),
-    ] {
-        octocode_test_support::mock_http::list_in_trees(&server, "a", "b", &format!("src/{name}"))
-            .await;
-        Mock::given(method("GET"))
-            .and(path(format!("/api/v3/repos/a/b/contents/src%2F{name}")))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "type":"file","encoding":"base64","content":STANDARD.encode(body)
-            })))
-            .mount(&server)
-            .await;
-    }
-    let provider = one_shot_provider(&server);
-    let context = default_context();
+    mount_hit_files(&server, 3).await;
     for fields in [
         json!(["path", "matchedLines"]),
         json!(["path", "matches", "matchedLines"]),
     ] {
-        let query: GhSearchCodeQuery = serde_json::from_value(json!({
-            "owner": "a", "repo": "b", "keywords": ["wrap_app"], "fields": fields
-        }))
-        .expect("query");
-        let out = execute(
-            &provider,
-            &query,
-            &context,
-            &Passthrough,
-            &octocode_runtime_base::policy::discovery::is_sensitive_repository_file,
-        )
-        .await
-        .expect("search");
-        let files = &out.data["files"];
-        assert_eq!(files[0]["path"], "src/busy.rs", "{}", out.data);
-        assert_eq!(files[0]["matchedLines"], json!([1, 2, 3]), "{}", out.data);
-        assert_eq!(files[1]["matchedLines"], json!([1]), "{}", out.data);
+        let files = hit_files(&server, Some(fields.clone())).await;
+        assert_eq!(files[0]["path"], "src/busy.rs", "{files}");
+        assert_eq!(files[0]["matchedLines"], json!([1, 2, 3]), "{files}");
+        assert_eq!(files[1]["matchedLines"], json!([1]), "{files}");
         assert_eq!(
             files[0].get("matches").is_some(),
             fields.to_string().contains("\"matches\""),
-            "{}",
-            out.data
+            "{files}"
         );
-        assert!(out.data.get("warnings").is_none(), "{}", out.data);
     }
 }
 

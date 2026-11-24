@@ -191,7 +191,7 @@ fn line_page(
 ) -> Result<LocalFetchQuery, serde_json::Error> {
     let mut page = local_fetch_query::updated(
         q,
-        serde_json::json!({"matchString":null,"regexEngine":null,"caseMode":null,"wholeWord":null,"contextLines":null,"block":null,"readProgress":null}),
+        serde_json::json!({"matchString":null,"regexEngine":null,"caseMode":null,"contextLines":null,"block":null,"readProgress":null}),
     )?;
     local_fetch_query::set_line_span(&mut page, line, line)?;
     local_fetch_query::set_progress(

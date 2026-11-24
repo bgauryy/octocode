@@ -36,14 +36,10 @@ fn source_recovery_is_required_only_when_requested_patch_is_missing() {
     let sides = ChangeSides {
         new_ref: Some("head"),
         old_ref: Some("parent"),
-        needle: None,
     };
-    // Missing source is two continuations, one per side; delivered
-    // source is optional, one related call reading both sides.
-    for (patch, expected, calls) in [
-        (Some("@@ -1 +1 @@\n-old\n+new"), "related", 1),
-        (None, "continue", 2),
-    ] {
+    // Missing source is two continuations, one per side; a delivered patch
+    // is the evidence itself and leads to no source read.
+    for (patch, calls, rows) in [(Some("@@ -1 +1 @@\n-old\n+new"), 0, 0), (None, 2, 2)] {
         let mut file = json_fixture(
             r#"{
                 "filename": "src/a.rs",
@@ -57,14 +53,14 @@ fn source_recovery_is_required_only_when_requested_patch_is_missing() {
             file["patch"] = json!(patch);
         }
         let reads = change_reads("o", "r", &[file], &sides, |_| true);
-        assert_eq!(reads.len(), calls);
-        let rows = reads
+        assert_eq!(reads.len(), calls, "{reads:?}");
+        let read_rows = reads
             .iter()
             .map(|(_, read)| read["input"]["queries"].as_array().map_or(0, Vec::len))
             .sum::<usize>();
-        assert_eq!(rows, 2, "both sides: {reads:?}");
+        assert_eq!(read_rows, rows, "both sides: {reads:?}");
         for (_, read) in reads {
-            assert_eq!(read["kind"], expected, "{read}");
+            assert_eq!(read["kind"], "continue", "{read}");
         }
     }
 }

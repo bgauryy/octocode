@@ -265,7 +265,9 @@ fn partial_success_preserves_coverage_and_required_reads() {
 }
 
 /// Each promised cross-tool link is promised by the producing tool's served
-/// description: it names the target tool and says `related`.
+/// MCP text (its description and input schema): it names the target tool.
+/// `related` is named there or in the instructions served with both tools,
+/// which say once what `related` holds.
 #[test]
 fn every_promised_link_is_named_by_the_producing_description() {
     let presentation = crate::contracts::cli_presentation().expect("presentation");
@@ -273,24 +275,36 @@ fn every_promised_link_is_named_by_the_producing_description() {
         .iter()
         .flat_map(|from| from.promised_links().iter().map(move |to| (*from, *to)))
     {
-        let description = presentation["tools"]
+        let mcp = presentation["tools"]
             .as_array()
             .and_then(|tools| tools.iter().find(|tool| tool["name"] == from.as_str()))
-            .and_then(|tool| tool["mcp"]["description"].as_str())
-            .expect("served description");
+            .map(|tool| &tool["mcp"])
+            .expect("served tool");
+        let served = format!(
+            "{}\n{}",
+            mcp["description"].as_str().expect("served description"),
+            mcp["inputSchema"]
+        );
+        let instructions = crate::contracts::compose_instructions(presentation, |tool| {
+            tool == from.as_str() || tool == to.as_str()
+        });
         assert!(
-            names_word(description, to.as_str()) && names_word(description, "related"),
-            "{from}'s description must name {to} and `related`"
+            names_word(&served, to.as_str()),
+            "{from}'s served text must name {to}"
+        );
+        assert!(
+            names_word(&served, "related") || names_word(&instructions, "related"),
+            "{from}'s served text or instructions must name `related`"
         );
         if from == to {
             // A self-link is the tool's own operation leads (a node's
-            // callers and callees): its description must name that operation
+            // callers and callees): its served text must name that operation
             // and those leads, so no other tool gains one silently.
             assert_eq!(from, ToolId::GraphQuery, "only graphQuery promises itself");
             for word in ["node", "callers", "callees"] {
                 assert!(
-                    names_word(description, word),
-                    "{from}'s description must name its own lead `{word}`"
+                    names_word(&served, word),
+                    "{from}'s served text must name its own lead `{word}`"
                 );
             }
         }

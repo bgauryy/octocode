@@ -47,11 +47,10 @@ fn shaped_files(
     (out, page)
 }
 
-/// The read lead names a file the patch window shows, bounded to the
-/// hunk's lines: the filter keeps more files than one window packs, and the
-/// most-changed file past the window is no lead of this page.
+/// A file page whose files all carry their patch leads to no source read:
+/// the patch is the evidence itself, whichever files the window shows.
 #[test]
-fn side_read_leads_name_a_shown_file_over_its_hunk_window() {
+fn a_delivered_patch_leads_to_no_source_read() {
     let mut files = source_files();
     let lines = (1..=60)
         .map(|line| format!("+gamma {line}: unseen on page one\n"))
@@ -72,27 +71,13 @@ fn side_read_leads_name_a_shown_file_over_its_hunk_window() {
     let mut query = HistoryItemRequest::from_row(input).expect("query");
     query.auto_page_chars = Some(300);
     let (out, page) = shaped_files(&query, files, Some("head"));
-    let shown = out["files"]
-        .as_array()
-        .expect("files")
-        .iter()
-        .filter_map(|file| file["path"].as_str())
-        .collect::<Vec<_>>();
-    assert!(!shown.contains(&"src/gamma.ts"), "window cuts gamma: {out}");
-    let [(name, read)] = page.side_reads.as_slice() else {
-        panic!("one lead: {:?}", page.side_reads);
-    };
-    assert_eq!(*name, "readAtCommit");
-    let row = &read["input"]["queries"][0];
     assert!(
-        shown.contains(&row["path"].as_str().expect("path")),
-        "{read}"
+        out["files"]
+            .as_array()
+            .is_some_and(|files| !files.is_empty()),
+        "{out}"
     );
-    assert_eq!(
-        row["ranges"],
-        json_fixture(r#"[{"startLine": 1, "endLine": 20}]"#),
-        "{read}"
-    );
+    assert!(page.side_reads.is_empty(), "{:?}", page.side_reads);
 }
 
 #[test]
@@ -158,11 +143,11 @@ fn commit_and_compare_patch_windows_keep_complete_stream_facts() {
     }
 }
 
-/// A patch total counts one file page's stream: with more files before or
-/// after the page, its first patch window says so once; a lone file page
-/// and later windows of a page say nothing.
+/// A patch total counts one file page's stream, as the output reference of
+/// `sectionPagination.patches` states once: no page restates it in a
+/// notice, whether file pages split or not, on any window.
 #[test]
-fn patch_total_scope_is_noticed_only_when_file_pages_split() {
+fn a_file_page_restates_no_patch_total_scope() {
     let input = json_fixture(
         r#"{"operation": "compare", "owner": "o", "repo": "r", "baseRef": "a",
             "headRef": "b", "sections": ["patches"]}"#,
@@ -194,12 +179,9 @@ fn patch_total_scope_is_noticed_only_when_file_pages_split() {
         );
         out["notices"].as_array().cloned().unwrap_or_default()
     };
-    let first = notices(&query, 0, 270);
-    assert_eq!(first.len(), 1, "{first:?}");
-    let text = first[0].as_str().expect("text");
-    assert!(text.contains("1-2") && text.contains("patches"), "{text}");
-    assert_eq!(notices(&query, 4, 6).len(), 1, "last file page");
-    assert!(notices(&query, 0, 2).is_empty(), "one file page holds all");
+    for (start, total) in [(0, 270), (4, 6), (0, 2)] {
+        assert!(notices(&query, start, total).is_empty(), "{start}/{total}");
+    }
     let later = HistoryItemRequest::from_row(json_fixture(
         r#"{"operation": "compare", "owner": "o", "repo": "r", "baseRef": "a",
             "headRef": "b", "sections": ["patches"], "offset": 5}"#,

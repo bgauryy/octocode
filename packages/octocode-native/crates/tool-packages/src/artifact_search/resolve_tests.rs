@@ -397,8 +397,9 @@ fn npm_counts_path(name: &str) -> String {
 }
 
 /// A found name with a far more downloaded name one edit away (the
-/// contract's ratio) warns that it may be a typosquat and leads to that
-/// name; one that is not far more downloaded does neither.
+/// contract's ratio) warns that it may be a typosquat of that name, which
+/// the warning names: the row is evidence, so it carries no lead to it. One
+/// that is not far more downloaded is not flagged.
 #[tokio::test]
 async fn a_far_more_downloaded_name_one_edit_away_is_flagged() {
     let ratio = octocode_runtime_base::contracts::security::security_contract()
@@ -429,16 +430,7 @@ async fn a_far_more_downloaded_name_one_edit_away_is_flagged() {
         warned.contains("express, one edit away") && warned.contains("lookalikeDownloadsRatio"),
         "{flagged}"
     );
-    assert_eq!(
-        flagged["related"]
-            .as_array()
-            .expect("related")
-            .iter()
-            .find(|call| call["tool"] == "artifactSearch")
-            .map(|call| call["input"]["queries"][0]["packageName"].clone()),
-        Some(json!("express")),
-        "{flagged}"
-    );
+    assert!(flagged.get("related").is_none(), "{flagged}");
     let near = served(row("expresss"), &registry(743 * ratio - 1), None)
         .await
         .expect("row");

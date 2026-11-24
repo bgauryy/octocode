@@ -56,8 +56,8 @@ fn reasons(out: &octocode_runtime_base::response::result::ToolData) -> Vec<Strin
 
 /// GitHub sends `b.rs` again on page 3 after its page 1 left every cache:
 /// the walk's continuation still knows it was listed, so page 3 drops it
-/// and says GitHub's results moved (a file may also have moved past the
-/// walk unseen).
+/// and states the shift by its reason (a file may also have moved past the
+/// walk unseen), with no warning restating it.
 #[tokio::test]
 async fn a_walk_drops_a_file_an_uncached_earlier_page_listed_and_discloses_the_shift() {
     let server = MockServer::builder().start().await;
@@ -73,9 +73,7 @@ async fn a_walk_drops_a_file_an_uncached_earlier_page_listed_and_discloses_the_s
         "{third}"
     );
     assert_eq!(third["isPartial"], true, "{third}");
-    let warnings = third["warnings"].to_string();
-    assert!(warnings.contains("Dropped 1 file"), "{third}");
-    assert!(!warnings.contains("Repeat check read"), "{third}");
+    assert!(third.get("warnings").is_none(), "{third}");
     for clean in &outs[..2] {
         assert!(clean.data.get("partialReasons").is_none(), "{}", clean.data);
     }

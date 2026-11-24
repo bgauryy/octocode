@@ -79,7 +79,8 @@ struct OuterBase {
     root_below: Option<String>,
 }
 
-/// Effective aliasing of one tsconfig/jsconfig after `extends`.
+/// Effective aliasing of one tsconfig/jsconfig after `extends`, and what
+/// its emit does with an import read only as a type.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct TsPaths {
     /// Scan-root-relative `baseUrl`; `None` when unset or outside the root.
@@ -87,6 +88,24 @@ pub(crate) struct TsPaths {
     /// The `baseUrl` when it lies outside the root.
     outer_base: Option<OuterBase>,
     patterns: Vec<PathPattern>,
+    type_use_imports: TypeUseImports,
+}
+
+/// What a project's emit does with a TypeScript value import whose bindings
+/// the file reads only as types, as the tsconfig governing the file says.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TypeUseImports {
+    /// Not settled: no tsconfig governs the file, decorator metadata
+    /// (`emitDecoratorMetadata`) may keep it, or a solution's references
+    /// disagree.
+    #[default]
+    Unknown,
+    /// Kept: the project keeps value imports (`verbatimModuleSyntax`,
+    /// `preserveValueImports`, `importsNotUsedAsValues` `preserve` or
+    /// `error`), so the import loads with the file.
+    Kept,
+    /// Elided by TypeScript's and esbuild's emit: the import loads nothing.
+    Elided,
 }
 
 impl TsPaths {
@@ -262,6 +281,14 @@ impl ResolveContext {
                 top.next().is_none().then(|| (*first).clone())
             }
         }
+    }
+
+    /// What emit does with a value import of `importer` read only as a
+    /// type, by the tsconfig that governs it (the nearest one, or the one
+    /// above a subtree scan).
+    pub fn type_use_imports(&self, importer: &str) -> TypeUseImports {
+        self.ts_config_for(importer)
+            .map_or(TypeUseImports::Unknown, |config| config.type_use_imports)
     }
 
     fn ts_config_for(&self, importer: &str) -> Option<&TsPaths> {

@@ -125,10 +125,12 @@ pub(super) async fn refs(
             Ok(None)
         }
     };
-    // The default branch's commit travels with an unfiltered listing: the
-    // branch page may not hold it, and every default-branch read lands there.
+    // The default branch's commit travels with an unfiltered listing that
+    // reads branches: the branch page may not hold it, and every
+    // default-branch read lands there. A tags-only listing spends no request
+    // on it.
     let default_sha = async {
-        if pattern.is_some() {
+        if pattern.is_some() || !wanted.branches {
             return Ok(None);
         }
         // An empty repository has no commit: the listing stays whole.
@@ -249,14 +251,11 @@ pub(super) async fn refs(
         // The last page of a paged listing says it is the last.
         value["pagination"] = pages.to_value();
     }
+    // A glob reads every ref, so an empty first page is the answer: the
+    // empty status and the lists state it, and the listing without the glob
+    // is the recovery. No warning restates them.
     let unmatched = pattern.is_some() && page == 1 && listed_tags == 0 && listed_branches == 0;
-    if unmatched && let Some(glob) = query.ref_.as_deref() {
-        push_warning_front(
-            &mut value,
-            format!(
-                "No branch or tag of {owner}/{repo} matches the glob {glob:?}; the `related` ghStructure call lists the refs without it."
-            ),
-        );
+    if unmatched {
         let mut unfiltered = query_row(query, &["page"]);
         if let Some(row) = unfiltered.as_object_mut() {
             row.remove("ref");

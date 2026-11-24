@@ -406,6 +406,7 @@ fn glob_binding<'b>(
                     external: false,
                     scope_id: None,
                     inline: false,
+                    kind: "rust-use",
                 },
                 declared: true,
             });

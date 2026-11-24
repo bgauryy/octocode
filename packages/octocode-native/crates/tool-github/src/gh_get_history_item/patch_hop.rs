@@ -1,4 +1,4 @@
-//! Optional whole-patch reads and required commit/comparison page cursors.
+//! Selected-patch reads and required commit/comparison page cursors.
 use super::pr_menu::*;
 use super::{HistoryItemRequest, ItemOperation, Sections};
 use crate::gh_get_history_item::gh_get_history_item_query;
@@ -6,7 +6,6 @@ use crate::gh_get_history_item::sections::Section;
 use octocode_contract_types::GhGetHistoryItemQuery;
 use octocode_runtime_base::id::ToolId;
 use octocode_runtime_base::response::result::Continuation;
-use octocode_tools_shared::gh_shared::ensure_calls;
 use serde_json::{Value, json};
 
 /// The `include` globs that name exactly each of `paths` in a
@@ -27,76 +26,6 @@ pub(super) fn includable(target: &Value, paths: &[String]) -> Vec<String> {
             serde_json::from_value::<GhGetHistoryItemQuery>(probe).is_ok()
         })
         .collect()
-}
-
-/// Offer unfiltered patches as related work when a matching view selected
-/// only hit runs (`fullPatchChars`). Batch selected files within the contract limit.
-pub(super) fn attach_full_patch_continuation(out: &mut Value, q: &HistoryItemRequest) {
-    let narrowed = reshaped_paths(out.pointer("/pullRequests/0/files"));
-    if narrowed.is_empty() {
-        return;
-    }
-    let mut nq = base_public_query(q, ItemOperation::PullRequest);
-    for key in ["offset", "page"] {
-        remove_key(&mut nq, key);
-    }
-    let narrowed = includable(&nq, &narrowed);
-    if narrowed.is_empty() {
-        return;
-    }
-    ensure_calls(out);
-    for key in [
-        "matchString",
-        "contextLines",
-        "regexEngine",
-        "caseMode",
-        "wholeWord",
-    ] {
-        remove_key(&mut nq, key);
-    }
-    // Each read names its files in the public `include` beside `patches`.
-    for (index, files) in narrowed.chunks(selected_patch_files()).enumerate() {
-        let read = super::util::merge(
-            nq.clone(),
-            json!({"include": files, "sections": ["patches"]}),
-        );
-        let lead =
-            octocode_runtime_base::response::result::restart_query(ToolId::GhGetHistoryItem, &read);
-        out["calls"][octocode_runtime_base::id::numbered("readFullPatches", index)] = lead;
-    }
-}
-
-/// Paths of the rows marked `fullPatchChars` (a view that is not the raw
-/// patch). The marker stays on rows only with `debug`.
-fn reshaped_paths(rows: Option<&Value>) -> Vec<String> {
-    let mut paths = Vec::new();
-    for file in rows.and_then(Value::as_array).into_iter().flatten() {
-        let Some(fields) = file.as_object() else {
-            continue;
-        };
-        let marked = fields.contains_key("fullPatchChars");
-        if marked && let Some(path) = fields.get("path").and_then(Value::as_str) {
-            paths.push(path.to_owned());
-        }
-    }
-    paths
-}
-
-/// Paths one selected-patch read names: the contract's pull-request
-/// `include` `maxItems`.
-#[expect(
-    clippy::panic,
-    reason = "a missing bound is a contract defect caught by the contract tests, never a request-time failure"
-)]
-pub(super) fn selected_patch_files() -> usize {
-    octocode_runtime_base::contracts::query_schema_number(
-        ToolId::GhGetHistoryItem,
-        Some("pullRequest"),
-        "include",
-        "maxItems",
-    )
-    .and_then(|maximum| usize::try_from(maximum).ok())
-    .unwrap_or_else(|| panic!("contract declares no maxItems for ghGetHistoryItem include"))
 }
 
 /// The patch continuation of a pull-request page: the same query (file
@@ -208,14 +137,7 @@ pub(super) fn attach_diff_continuations(
         // A commit page carries commits only; patch cursors would be inert.
         nq["sections"] = json!(["commits"]);
         super::sections::drop_idle_file_filters(&mut nq);
-        for key in [
-            "offset",
-            "matchString",
-            "contextLines",
-            "regexEngine",
-            "caseMode",
-            "wholeWord",
-        ] {
+        for key in ["offset", "matchString", "contextLines", "regexEngine"] {
             remove_key(&mut nq, key);
         }
         if let Some(call) = continuation(nq) {

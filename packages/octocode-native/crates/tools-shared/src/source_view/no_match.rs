@@ -167,7 +167,8 @@ pub(super) fn no_match(q: &LocalFetchQuery, source: &Source<'_>) -> LocalFetchRe
 /// patterns are declaration heads misremembered (`fn add_hints(` where the
 /// file declares `pub fn add_hints<I>(`) and the file holds exactly one line
 /// declaring a name they declare: the same read of that line's own text,
-/// with the warning that says so, when that read selects that line alone.
+/// with the warning that says it was served and names only the names that
+/// line declares, when that read selects that line alone.
 /// `None` when a case-insensitive or
 /// unranged read would select lines (its own lead says so), no pattern is a
 /// head, or no line, or several, declare the names: the empty row's leads
@@ -193,12 +194,16 @@ pub(super) fn declared_read(
     if declaring.next().is_some() {
         return None;
     }
+    // A pattern that is no head stands for itself among `names`: only the
+    // names this line declares are what was served.
+    let declared = names
+        .iter()
+        .filter(|name| octocode_engine::search::declares_name(line, name))
+        .map(|name| format!("`{name}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
     let line = line.trim();
-    let query = local_fetch_query::updated(
-        q,
-        serde_json::json!({ "matchString": [line], "wholeWord": false }),
-    )
-    .ok()?;
+    let query = local_fetch_query::updated(q, serde_json::json!({ "matchString": [line] })).ok()?;
     // The read selects that one line, or the lead stands: the same text on
     // another line would make it a read of more than the declaration.
     super::extraction::extract(&query, text, written)
@@ -211,8 +216,7 @@ pub(super) fn declared_read(
         .collect::<Vec<_>>()
         .join(", ");
     let warning = format!(
-        "No line holds {patterns}: read the one declaration of `{}` instead, line {}.",
-        names.join("`, `"),
+        "No line holds {patterns}: served the declaration of {declared} at line {} instead.",
         index + 1
     );
     Some((query, warning))
@@ -241,11 +245,7 @@ fn named_read(
     if names.iter().all(|name| patterns.contains(name)) {
         return None;
     }
-    let query = local_fetch_query::updated(
-        q,
-        serde_json::json!({ "matchString": names, "wholeWord": true }),
-    )
-    .ok()?;
+    let query = local_fetch_query::updated(q, serde_json::json!({ "matchString": names })).ok()?;
     let count = super::extraction::extract(&query, text, written)
         .ok()
         .and_then(|extraction| extraction.count)

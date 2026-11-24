@@ -47,14 +47,19 @@ pub(super) fn class_members(class: &Class, li: &SpanPositions) -> Vec<DocumentSy
                     _ => symbol_kind::METHOD,
                 };
                 if let Some((name, name_span)) = property_key_name(&m.key) {
-                    children.push(container(
-                        &name,
-                        symbol_kind,
-                        m.span,
-                        name_span,
-                        nested_in_function(&m.value, li),
-                        li,
-                    ));
+                    children.push(
+                        container(
+                            &name,
+                            symbol_kind,
+                            m.span,
+                            name_span,
+                            nested_in_function(&m.value, li),
+                            li,
+                        )
+                        .with_signature(
+                            li.signature(m.value.params.span, m.value.return_type.as_deref()),
+                        ),
+                    );
                 }
             }
             ClassElement::PropertyDefinition(p) => {
@@ -72,7 +77,13 @@ pub(super) fn class_members(class: &Class, li: &SpanPositions) -> Vec<DocumentSy
                         ) => symbol_kind::METHOD,
                         _ => symbol_kind::PROPERTY,
                     };
-                    children.push(container(&name, member_kind, p.span, name_span, nested, li));
+                    let member = container(&name, member_kind, p.span, name_span, nested, li);
+                    children.push(
+                        match p.value.as_ref().and_then(|v| function_signature(v, li)) {
+                            Some(signature) => member.with_signature(signature),
+                            None => member,
+                        },
+                    );
                 }
             }
             ClassElement::AccessorProperty(a) => {
@@ -100,7 +111,10 @@ pub(super) fn interface_symbol(
             }
             TSSignature::TSMethodSignature(m) => {
                 if let Some((name, name_span)) = property_key_name(&m.key) {
-                    children.push(leaf(&name, symbol_kind::METHOD, m.span, name_span, li));
+                    children.push(
+                        leaf(&name, symbol_kind::METHOD, m.span, name_span, li)
+                            .with_signature(li.signature(m.params.span, m.return_type.as_deref())),
+                    );
                 }
             }
             _ => {}
@@ -249,6 +263,23 @@ fn push_pattern_leaves(
     }
 }
 
+/// The signature a function value writes (`(a: A): R => ..`,
+/// `function (a) {}`), through the wrappers [`bound_value`] reads through.
+fn function_signature(
+    value: &Expression,
+    li: &SpanPositions,
+) -> Option<(Option<String>, Option<String>)> {
+    match bound_value(value) {
+        Expression::ArrowFunctionExpression(f) => {
+            Some(li.signature(f.params.span, f.return_type.as_deref()))
+        }
+        Expression::FunctionExpression(f) => {
+            Some(li.signature(f.params.span, f.return_type.as_deref()))
+        }
+        _ => None,
+    }
+}
+
 /// The value a binding holds, through parentheses and type-only wrappers
 /// (`as`, `satisfies`, `!`, `<T>x`), which change no runtime value.
 fn bound_value<'a>(expression: &'a Expression<'a>) -> &'a Expression<'a> {
@@ -289,14 +320,24 @@ pub(super) fn collect_variable(
                         function_value_children(init, li).or_else(|| object_methods(init, li))
                     })
                     .unwrap_or_default();
-                out.push(container(
+                let symbol = container(
                     id.name.as_str(),
                     symbol_kind,
                     declarator.span,
                     id.span,
                     nested,
                     li,
-                ));
+                );
+                out.push(
+                    match declarator
+                        .init
+                        .as_ref()
+                        .and_then(|v| function_signature(v, li))
+                    {
+                        Some(signature) => symbol.with_signature(signature),
+                        None => symbol,
+                    },
+                );
             }
             // Destructuring binds several names; emit each as its own symbol
             // instead of dropping the whole declarator.
@@ -370,5 +411,7 @@ pub(super) fn container(
         range: li.range(full),
         selection_range: li.range(selection),
         children,
+        params: None,
+        returns: None,
     }
 }

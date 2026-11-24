@@ -10,7 +10,12 @@ const USAGE = `Usage: node profile-top.mjs <file.cpuprofile | file.heapprofile |
   --top <n>               Rows to print (default 20); the header states how many functions matched.
   --sort <self|total>     self: cost inside the function; total: including what it calls (default self).
   --filter <text>         Only functions whose name or location contains the text.
-CPU rows are milliseconds; heap rows are bytes still allocated when the profile was written.
+  --from <s>, --to <s>    CPU only: keep samples in this window, seconds from the profile's start (one phase of a run).
+  --owner <text>          Charge each cost to the nearest frame whose location contains the text (your code), so time or
+                          bytes inside libraries and runtime internals land on the call site that caused them.
+  --callers <text>        Instead of the table: the call chains (up to 6 callers) that reach functions whose name or
+                          location contains the text, by the cost under them.
+CPU rows are milliseconds; heap rows are bytes the profile sampled (from --heap-prof: still allocated when it was written).
 Total counts a function once per stack, so recursion is not double counted.`;
 
 const HIDDEN = new Set(["(root)", "(idle)"]);
@@ -21,7 +26,7 @@ function fail(message) {
 }
 
 function parseArgs(argv) {
-	const options = { target: undefined, top: 20, sort: "self", filter: "" };
+	const options = { target: undefined, top: 20, sort: "self", filter: "", from: 0, to: Infinity, owner: "", callers: "" };
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i];
 		if (arg === "--help") {
@@ -37,6 +42,12 @@ function parseArgs(argv) {
 		if (arg === "--top") options.top = Number(value);
 		else if (arg === "--sort" && (value === "self" || value === "total")) options.sort = value;
 		else if (arg === "--filter") options.filter = value.toLowerCase();
+		else if (arg === "--from" || arg === "--to") {
+			const seconds = Number(value);
+			if (!Number.isFinite(seconds) || seconds < 0) fail(`${arg}: seconds from the profile's start`);
+			options[arg.slice(2)] = seconds;
+		} else if (arg === "--owner") options.owner = value;
+		else if (arg === "--callers") options.callers = value.toLowerCase();
 		else fail(`bad option ${arg} ${value}\n${USAGE}`);
 	}
 	if (!options.target) fail(USAGE);
@@ -69,9 +80,14 @@ function location({ url, lineNumber }) {
 	return `${shown}:${lineNumber + 1}`;
 }
 
-/** Adds each node's own cost to its function and, once per stack, to every function on the path from the root. */
-function aggregate(root, children, selfCost) {
+/**
+ * Adds each node's own cost to its function (or, with `owner`, to the nearest frame on its stack whose location contains
+ * `owner`) and, once per stack, to every function on the path from the root. With `callers`, also adds the cost under
+ * the outermost frame matching it to that frame's chain of callers.
+ */
+function aggregate(root, children, selfCost, { owner = "", callers = "" } = {}) {
 	const rows = new Map();
+	const chains = new Map();
 	const row = (frame) => {
 		const name = frame.functionName || "(anonymous)";
 		const where = location(frame);
@@ -79,25 +95,42 @@ function aggregate(root, children, selfCost) {
 		if (!rows.has(key)) rows.set(key, { name, where, self: 0, total: 0 });
 		return rows.get(key);
 	};
+	const outside = owner ? row({ functionName: `(outside ${owner})`, url: "" }) : undefined;
 	let all = 0;
-	const walk = (node, onStack) => {
+	const walk = (node, onStack, ancestors, charged, chain) => {
 		const entry = row(node.callFrame);
 		const cost = selfCost(node);
-		entry.self += cost;
+		const mine = owner && location(node.callFrame).includes(owner) ? entry : charged;
+		(owner && !HIDDEN.has(entry.name) ? (mine ?? outside) : entry).self += cost;
 		all += HIDDEN.has(entry.name) ? 0 : cost;
 		const stack = new Set(onStack).add(entry);
 		for (const each of stack) each.total += cost;
-		for (const child of children(node)) walk(child, stack);
+		const here = [...ancestors, entry];
+		let key = chain;
+		if (!key && callers && `${entry.name} ${entry.where}`.toLowerCase().includes(callers))
+			key = here
+				.slice(-7)
+				.reverse()
+				.filter((frame) => !HIDDEN.has(frame.name))
+				.map((frame) => `${frame.name} ${frame.where}`.trim())
+				.join(" < ");
+		if (key) chains.set(key, (chains.get(key) ?? 0) + cost);
+		for (const child of children(node)) walk(child, stack, here, mine, key);
 	};
-	walk(root, new Set());
-	return { rows: [...rows.values()].filter((entry) => !HIDDEN.has(entry.name)), all };
+	walk(root, new Set(), [], undefined, undefined);
+	return { rows: [...rows.values()].filter((entry) => !HIDDEN.has(entry.name)), all, chains };
 }
 
-function cpu(profile) {
+function cpu(profile, options) {
 	const byId = new Map(profile.nodes.map((node) => [node.id, node]));
 	const time = new Map();
-	// Each sample stands for the time until the next one.
+	// Each sample stands for the time until the next one; its timestamp places it in the window.
+	let at = profile.startTime;
+	const from = profile.startTime + options.from * 1_000_000;
+	const to = profile.startTime + options.to * 1_000_000;
 	profile.samples.forEach((id, i) => {
+		at += profile.timeDeltas[i] ?? 0;
+		if (at < from || at > to) return;
 		const delta = profile.timeDeltas[i + 1] ?? 0;
 		time.set(id, (time.get(id) ?? 0) + Math.max(0, delta));
 	});
@@ -106,25 +139,30 @@ function cpu(profile) {
 		root,
 		(node) => (node.children ?? []).map((id) => byId.get(id)).filter(Boolean),
 		(node) => (time.get(node.id) ?? 0) / 1_000,
+		options,
 	);
 	const idle = [...byId.values()]
 		.filter((node) => node.callFrame.functionName === "(idle)")
 		.reduce((sum, node) => sum + (time.get(node.id) ?? 0) / 1_000, 0);
 	const wall = (profile.endTime - profile.startTime) / 1_000;
+	const window =
+		options.from > 0 || options.to < Infinity ? `, window ${options.from}-${options.to === Infinity ? "end" : options.to} s` : "";
 	return {
 		...result,
 		unit: "ms",
-		header: `CPU profile: ${wall.toFixed(0)} ms wall, ${result.all.toFixed(0)} ms sampled busy, ${idle.toFixed(0)} ms idle, ${profile.samples.length} samples`,
+		header: `CPU profile: ${wall.toFixed(0)} ms wall${window}, ${result.all.toFixed(0)} ms sampled busy, ${idle.toFixed(0)} ms idle, ${profile.samples.length} samples`,
 	};
 }
 
-function heap(profile) {
+function heap(profile, options) {
+	if (options.from > 0 || options.to < Infinity) fail("--from and --to need a CPU profile");
 	const result = aggregate(
 		profile.head,
 		(node) => node.children ?? [],
 		(node) => node.selfSize ?? 0,
+		options,
 	);
-	return { ...result, unit: "bytes", header: `Heap profile: ${result.all} bytes sampled live` };
+	return { ...result, unit: "bytes", header: `Heap profile: ${result.all} bytes sampled` };
 }
 
 const options = parseArgs(process.argv.slice(2));
@@ -135,7 +173,11 @@ try {
 } catch (error) {
 	fail(`${file}: ${error.message}`);
 }
-const summary = profile?.head ? heap(profile) : profile?.nodes ? cpu(profile) : fail(`${file}: not a V8 profile`);
+const summary = profile?.head
+	? heap(profile, options)
+	: profile?.nodes
+		? cpu(profile, options)
+		: fail(`${file}: not a V8 profile`);
 const number = (value) => (summary.unit === "ms" ? value.toFixed(1) : String(Math.round(value)));
 const percent = (value) => `${summary.all > 0 ? ((100 * value) / summary.all).toFixed(1) : "0.0"}%`;
 const matched = summary.rows
@@ -144,7 +186,17 @@ const matched = summary.rows
 const rows = matched.slice(0, options.top);
 
 const newest = candidates > 1 ? ` (newest of ${candidates} profiles; pass a file for another isolate)` : "";
-console.log(`${file}${newest}\n${summary.header}; sorted by ${options.sort}; ${rows.length} of ${matched.length} functions`);
+if (options.callers) {
+	const chains = [...summary.chains].sort((a, b) => b[1] - a[1]);
+	console.log(`${file}${newest}\n${summary.header}; ${Math.min(options.top, chains.length)} of ${chains.length} caller chains`);
+	for (const [chain, cost] of chains.slice(0, options.top))
+		console.log(`${number(cost).padStart(10)}  ${percent(cost).padStart(6)}  ${chain}`);
+	process.exit(0);
+}
+const charged = options.owner ? `; costs charged to the nearest frame in "${options.owner}"` : "";
+console.log(
+	`${file}${newest}\n${summary.header}${charged}; sorted by ${options.sort}; ${rows.length} of ${matched.length} functions`,
+);
 const table = [[`self ${summary.unit}`, "self%", `total ${summary.unit}`, "total%", "function", "location"]].concat(
 	rows.map((row) => [number(row.self), percent(row.self), number(row.total), percent(row.total), row.name, row.where]),
 );

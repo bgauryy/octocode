@@ -56,6 +56,20 @@ struct DocumentSymbol {
     selection_range: GraphRange,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     children: Vec<Self>,
+    /// A callable's parameter list and return type as written (graph facts
+    /// only: the outline does not show them).
+    #[serde(skip)]
+    params: Option<String>,
+    #[serde(skip)]
+    returns: Option<String>,
+}
+
+impl DocumentSymbol {
+    /// This symbol with the signature `function` writes.
+    fn with_signature(mut self, signature: (Option<String>, Option<String>)) -> Self {
+        (self.params, self.returns) = signature;
+        self
+    }
 }
 
 /// Module exports indexed by local binding, with sorted distinct public names.

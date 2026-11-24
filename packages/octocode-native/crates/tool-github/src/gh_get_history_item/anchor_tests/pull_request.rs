@@ -235,13 +235,7 @@ async fn pr_match_string_miss_offers_the_unfiltered_read() {
     assert_eq!(lead["tool"], "ghGetHistoryItem", "{out}");
     assert!(lead.get("confidence").is_none(), "{out}");
     let unfiltered = &lead["input"]["queries"][0];
-    for absent in [
-        "matchString",
-        "contextLines",
-        "regexEngine",
-        "caseMode",
-        "wholeWord",
-    ] {
+    for absent in ["matchString", "contextLines", "regexEngine", "caseMode"] {
         assert!(unfiltered.get(absent).is_none(), "{absent}: {unfiltered}");
     }
     assert_eq!(unfiltered["number"], 1, "{unfiltered}");
@@ -442,11 +436,11 @@ async fn pr_commit_rows_are_the_shared_commit_row_with_their_body() {
     );
 }
 
-/// A pull-request page whose patch window shows a prefix of the files: the
-/// diff's side reads name only files it shows, using their numbered bounds.
-/// No optional merge-code pick reaches past the requested patch window.
+/// A pull-request page whose patch window shows a prefix of the files, each
+/// with its patch: the patches are the evidence, so no source read of any
+/// file (shown or past the window) and no merge-code pick is offered.
 #[tokio::test]
-async fn pr_side_reads_stay_on_the_shown_page_without_a_merge_code_pick() {
+async fn pr_delivered_patches_lead_to_no_source_read() {
     let server = MockServer::builder().start().await;
     let added = |name: &str, count: usize| {
         let lines = (1..=count)
@@ -489,24 +483,11 @@ async fn pr_side_reads_stay_on_the_shown_page_without_a_merge_code_pick() {
         .collect::<Vec<_>>();
     assert!(!shown.is_empty(), "{out}");
     assert!(!shown.contains(&"src/gamma.ts"), "window cuts gamma: {out}");
-    let mut side_reads = 0;
-    let mut merge_paths = Vec::new();
-    for lead in checks::leads(&out)
-        .into_iter()
-        .filter(|lead| lead.tool == "ghGetFileContent")
-    {
-        let path = lead.query["queries"][0]["path"].as_str().expect("path");
-        if lead.query["queries"][0]["ref"] == MERGE_BASE {
-            merge_paths.push(path.to_owned());
-        } else {
-            side_reads += 1;
-            assert!(shown.contains(&path), "side read of unshown {path}: {out}");
-        }
-    }
-    assert!(side_reads > 0, "a shown file has a side read: {out}");
     assert!(
-        merge_paths.is_empty(),
-        "no unrequested merge code pick: {out}"
+        checks::leads(&out)
+            .into_iter()
+            .all(|lead| lead.tool != "ghGetFileContent"),
+        "{out}"
     );
 }
 
@@ -720,4 +701,30 @@ async fn a_later_page_reads_its_withheld_patches_and_claims_no_terminal_limit() 
             );
         }
     }
+}
+
+/// A `matchString` view narrowed to its hit hunks states the whole patch's
+/// size (`fullPatchChars`) on the row: that row is evidence, so it offers no
+/// read of the whole patches beside it.
+#[tokio::test]
+async fn a_narrowed_patch_states_its_whole_size_and_offers_no_full_patch_read() {
+    let server = MockServer::builder().start().await;
+    mount_pr(
+        &server,
+        json!([{"filename":"src/a.rs","status":"modified","additions":2,"deletions":2,"sha":"1",
+            "patch":"@@ -1,3 +1,3 @@\n a\n-old\n+new needle\n b\n@@ -50,3 +50,3 @@\n c\n-x\n+y\n d"}]),
+    )
+    .await;
+    let out = read(
+        &server,
+        json!({"operation":"pullRequest","owner":"o","repo":"r","number":1,
+            "sections":["patches"],"matchString":["needle"]}),
+    )
+    .await;
+    let file = &out["pullRequests"][0]["files"][0];
+    assert!(file["fullPatchChars"].as_u64().is_some(), "{out}");
+    assert!(
+        checks::find_related_call(&out, "ghGetHistoryItem", |_| true).is_none(),
+        "{out}"
+    );
 }

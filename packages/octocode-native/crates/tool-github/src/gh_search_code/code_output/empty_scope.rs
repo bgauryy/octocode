@@ -8,7 +8,7 @@ use octocode_github::{
 };
 use octocode_runtime_base::id::ToolId;
 use octocode_runtime_base::response::result::Continuation;
-use octocode_tools_shared::gh_shared::{RepoPath, ensure_calls};
+use octocode_tools_shared::gh_shared::ensure_calls;
 use serde_json::{Value, json};
 
 /// GitHub answers a code search of a login that does not exist with an empty,
@@ -31,23 +31,32 @@ pub(in crate::gh_search_code) async fn owner_exists(
     }
 }
 
+/// What an empty search's scope check found ([`empty_scope`]).
+#[derive(Default)]
+pub(in crate::gh_search_code) struct EmptyScope {
+    /// The repository's default branch when its metadata was read: the
+    /// branch the code-search index covers.
+    pub(in crate::gh_search_code) default_branch: Option<String>,
+    /// The repository is archived, which the index does not cover at all:
+    /// `coverage` says so and the listing is the row's recovery.
+    pub(in crate::gh_search_code) archived: bool,
+}
+
 /// The scope check of an empty search: a missing repository fails, an
-/// archived one is named, and an existing one leads to what verifies the
-/// absence; an owner-wide search leads to the owner's repositories.
-/// `broadened`: the search offers `broadenSearch`, which takes the root
-/// listing's place. `checked`: the metadata this request's rename check
-/// already read, so it is not read again. Returns the repository's default
-/// branch when its metadata was read: the branch the code-search index
-/// covers.
+/// archived one is named in `coverage`, and a scoped one leads to what
+/// verifies the absence (the folder, or a file's read and its parent); an
+/// owner-wide search leads to the owner's repositories. A repo-wide miss
+/// gets no listing: the tool description routes unindexed files to
+/// ghStructure. `checked`: the metadata this request's rename check already
+/// read, so it is not read again.
 pub(in crate::gh_search_code) async fn empty_scope(
     value: &mut Value,
     diagnostics: &mut octocode_runtime_base::response::result::ToolDiagnostics,
     query: &GhSearchCodeQuery,
-    broadened: bool,
     transport: &GitHubTransport,
     checked: Option<RepositoryMetadata>,
     context: &RequestContext,
-) -> Result<Option<String>, ProviderError> {
+) -> Result<EmptyScope, ProviderError> {
     let GhSearchCodeQuery {
         owner,
         repo: Some(repo),
@@ -55,7 +64,7 @@ pub(in crate::gh_search_code) async fn empty_scope(
     } = query
     else {
         add_owner_lead(value, diagnostics, query.owner.as_str());
-        return Ok(None);
+        return Ok(EmptyScope::default());
     };
     let metadata = match checked {
         Some(metadata) => Ok(metadata),
@@ -66,7 +75,7 @@ pub(in crate::gh_search_code) async fn empty_scope(
         .ok()
         .map(|metadata| metadata.default_branch.clone())
         .filter(|branch| !branch.is_empty());
-    let (name, tool, mut next_query, code) = match metadata {
+    let (mut next_query, archived) = match metadata {
         Err(error) if error.is_cancelled_or_timed_out() => {
             return Err(error);
         }
@@ -76,24 +85,19 @@ pub(in crate::gh_search_code) async fn empty_scope(
             return Err(error.with_reason(ProviderErrorReason::RepositoryNotFound));
         }
         Ok(metadata) if metadata.archived => (
-            "viewTree",
-            ToolId::GhStructure,
             json!({"operation":"tree","owner":owner,"repo":repo,"path":""}),
-            "ghRepoArchived",
+            true,
         ),
-        // The repository exists: a scoped path is listed; a repo-wide search
-        // gets the root layout to verify against.
+        // The repository exists: a scoped path is listed. No hint: the tool
+        // description says an empty search never rules out an unindexed
+        // file and names the next steps (browse ghStructure, read with
+        // matchString); the leads are the row's.
         _ => {
-            // No hint: the tool description says an empty search never
-            // rules out an unindexed file and names the next steps (browse
-            // ghStructure, read with matchString); the leads are the row's.
             let Some(scope) = query.path.as_deref().map(std::string::String::as_str) else {
-                // A path search of code leads to the same search of file
-                // contents (`findCode`): that targeted lead keeps the slots.
-                if !path_mode_given_code(query) && !broadened {
-                    add_root_lead(value, query, owner.as_str(), repo.as_str());
-                }
-                return Ok(default_branch);
+                return Ok(EmptyScope {
+                    default_branch,
+                    archived: false,
+                });
             };
             // List the directory, or for a file's path its parent, and read
             // the file for the keywords: the index may not hold it.
@@ -110,42 +114,31 @@ pub(in crate::gh_search_code) async fn empty_scope(
                 None => scope.trim_matches('/'),
             };
             (
-                "viewTree",
-                ToolId::GhStructure,
                 json!({"operation":"tree","owner":owner,"repo":repo,"path":listed}),
-                "ghScopedZeroUnproven",
+                false,
             )
         }
     };
-    let hint = match code {
-        "ghRepoArchived" => {
-            Some("Repository is archived, and GitHub's code search does not index archived repositories: list its files with the related[] ghStructure request.".to_owned())
-        }
-        _ => None,
-    };
     // Structure checks inspect the ref the caller asked about, not the
     // default branch the code-search index covers.
-    if tool == ToolId::GhStructure
-        && let Some(reference) = requested_ref(query)
-    {
+    if let Some(reference) = requested_ref(query) {
         next_query["ref"] = json!(reference);
     }
-    // A missing, renamed, or archived repository is the answer: say so
-    // instead of the generic default-branch note.
-    if let Some(hint) = hint {
-        diagnostics.hint(&hint);
-        octocode_runtime_base::response::result::add_hints(value, [hint]);
-    }
     // The index holds nothing of an archived repository: its empty answer
-    // proves no absence, whatever the search itself completed.
-    if code == "ghRepoArchived" {
+    // proves no absence, whatever the search itself completed. The reason
+    // names the cause and the listing is the recovery: no hint restates them.
+    if archived {
         value["coverage"] = json!({
             "state": "partial",
-            "reason": "GitHub's code search does not index archived repositories"
+            "reason": "archived: GitHub's code search does not index archived repositories"
         });
     }
-    value["calls"][name] = Continuation::related(tool, next_query).build();
-    Ok(default_branch)
+    ensure_calls(value);
+    value["calls"]["viewTree"] = Continuation::related(ToolId::GhStructure, next_query).build();
+    Ok(EmptyScope {
+        default_branch,
+        archived,
+    })
 }
 
 /// An owner-wide search has no one repository to list or clone: the
@@ -160,18 +153,6 @@ fn add_owner_lead(
     );
     ensure_calls(value);
     value["calls"]["ownerRepositories"] = octocode_tools_shared::gh_shared::owner_listing(owner);
-}
-
-/// An empty repo-wide search with nothing to broaden gets the root listing at
-/// the searched ref: the scoped next step. A whole-repository clone is never
-/// offered for a miss; narrow with the listing first.
-fn add_root_lead(value: &mut Value, query: &GhSearchCodeQuery, owner: &str, repo: &str) {
-    let at = RepoPath {
-        reference: requested_ref(query),
-        ..RepoPath::root(owner, repo)
-    };
-    ensure_calls(value);
-    value["calls"]["viewTree"] = at.lead(ToolId::GhStructure).build();
 }
 
 /// A `match:"path"` search whose keywords read as code (spaces or syntax

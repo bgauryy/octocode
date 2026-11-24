@@ -209,6 +209,17 @@ fn multiple_sparse_paths_check_out_every_path() {
             .count()
     };
     assert_eq!((named("nope"), named("src")), (1, 0), "{row}");
+    // The row names the commit and the request the repository: the warning
+    // names only the missing path.
+    for warning in &partial.warnings {
+        for restated in [
+            partial.location.commit_sha.clone(),
+            query().owner.to_string(),
+            query().repo.to_string(),
+        ] {
+            assert!(!warning.contains(&restated), "{restated} in {warning}");
+        }
+    }
     assert!(
         test_support::checks::find_related_call(&row, "ghStructure", |_| true).is_some(),
         "{row}"
@@ -527,9 +538,11 @@ fn a_missing_sparse_path_shares_the_checkout_of_the_paths_that_exist() {
     }
 }
 
-/// A sparse checkout records its scope for the local tools and its row
-/// states the coverage: a missing path outside the scope is named as such,
-/// with the clone that checks it out; a full checkout records no scope.
+/// A sparse checkout records its scope for the local tools, which state
+/// its coverage where they search: a missing path outside the scope is
+/// named as such, with the clone that checks it out. The clone row searches
+/// nothing, so it carries no coverage warning (`location.paths` states the
+/// scope); a full checkout records no scope.
 #[test]
 fn a_sparse_checkout_records_its_scope_for_the_local_tools() {
     use octocode_tools_shared::gh_git::clone_scope::clone_scope;
@@ -560,11 +573,7 @@ fn a_sparse_checkout_records_its_scope_for_the_local_tools() {
             json_fixture(r#"["src", "other/skip.txt"]"#),
             "{reclone}"
         );
-        assert!(
-            sparse.warnings.contains(&scope.coverage_warning()),
-            "{:?}",
-            sparse.warnings
-        );
+        assert!(sparse.warnings.is_empty(), "{:?}", sparse.warnings);
         // The record lives beside git's own, never in the work tree.
         assert!(
             git_output(root, &["status", "--porcelain"])
@@ -575,4 +584,26 @@ fn a_sparse_checkout_records_its_scope_for_the_local_tools() {
     let full = clone_pinned(&bench.fixture, &query(), &context).expect("full clone");
     assert_eq!(clone_scope(&Path::new(&full.location.path).join("x")), None);
     assert!(full.warnings.is_empty(), "{:?}", full.warnings);
+}
+
+/// The hint of a sparse clone whose missing paths no tree of the commit
+/// could name names the request's own field (`paths`), never one the
+/// schema lacks.
+#[test]
+fn the_unverified_paths_hint_names_the_request_field() {
+    let row = serde_json::to_value(GhCloneRepoQuery {
+        paths: one("src"),
+        ..query()
+    })
+    .expect("query");
+    let fields = row.as_object().expect("query fields");
+    let hint = crate::gh_clone_repo::checkout::UNVERIFIED_PATHS_HINT;
+    let named = hint
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|word| word.starts_with("path"))
+        .collect::<Vec<_>>();
+    assert!(!named.is_empty(), "{hint}");
+    for word in named {
+        assert!(fields.contains_key(word), "{word} in {hint}: {row}");
+    }
 }

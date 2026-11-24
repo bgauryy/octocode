@@ -208,3 +208,50 @@ fn a_repeat_row_reuses_its_worktree_without_touching_the_store() {
         );
     }
 }
+
+/// A checkout an earlier build keyed by a requested depth (`__d<n>` before
+/// `__host_`) is no row's destination: a row of its commit checks out at the
+/// depth-free entry from the store, without a fetch, and the earlier
+/// checkout stays a clean worktree of that store at its commit.
+#[test]
+fn a_depth_keyed_checkout_of_an_earlier_build_stays_a_usable_worktree() {
+    let fixture = Fixture::shared();
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = fixture_runner(&fixture);
+    let config = GitConfig::persistent(&home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+
+    let first = clone_pinned(&fixture, &query(), &context).expect("first clone");
+    let entry = PathBuf::from(&first.location.path);
+    let name = entry
+        .file_name()
+        .expect("entry name")
+        .to_string_lossy()
+        .replacen("__host_", "__d5__host_", 1);
+    let earlier = entry.with_file_name(&name);
+    let store = common_dir(&first.location.path);
+    let path = |path: &Path| path.to_str().expect("UTF-8 path").to_owned();
+    git(
+        &store,
+        &["worktree", "move", &path(&entry), &path(&earlier)],
+    );
+
+    let again = clone_pinned(&fixture, &query(), &context).expect("depth-free row");
+    assert_eq!(again.location.path, first.location.path);
+    assert!(!again.location.reused, "{again:?}");
+    assert_eq!(fetches(&runner), 1, "the store already holds the commit");
+
+    let head = git_output(&earlier, &["rev-parse", "HEAD"]);
+    assert_eq!(head.trim(), first.location.commit_sha);
+    assert!(git_output(&earlier, &["status", "--porcelain"]).is_empty());
+    assert_eq!(common_dir(&path(&earlier)), store);
+    let listed = git_output(&store, &["worktree", "list", "--porcelain"]);
+    assert!(
+        listed
+            .lines()
+            .any(|line| line.starts_with("worktree ") && line.ends_with(name.as_str())),
+        "{listed}"
+    );
+}

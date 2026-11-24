@@ -1,7 +1,7 @@
 //! A ref that does not exist, named against the repository's default
 //! branch. GitHub tools never fall back to it silently: the failure says
-//! which branch the repository actually has and offers the same call at that
-//! ref as a runnable lead.
+//! which branch the repository actually has and, for a call that reads at
+//! the ref, offers the same call at that branch as a runnable lead.
 use super::GhFailure;
 use octocode_github::{GitHubProvider, ProviderError, RequestContext};
 use octocode_runtime_base::id::ToolId;
@@ -131,7 +131,9 @@ pub async fn unresolved_refs<'a>(
     missing
 }
 
-/// [`default_branch_retry`] for a typed query's failed ref.
+/// [`default_branch_retry`] for a typed query's failed ref. A refs lookup
+/// ([`looks_up_the_ref`]) keeps only the message: the same lookup of the
+/// default branch would restate it and the refs listing beside it.
 pub async fn with_default_branch(
     provider: &GitHubProvider,
     mut failure: GhFailure,
@@ -146,10 +148,20 @@ pub async fn with_default_branch(
     if let Some(spelling) = tag_spelling_retry(provider, tool, &row, context).await {
         spelling.apply(&mut failure);
     }
-    if let Some(retry) = default_branch_retry(provider, tool, row, &["ref"], context).await {
-        retry.apply(&mut failure);
+    let lookup = looks_up_the_ref(tool, &row);
+    match default_branch_retry(provider, tool, row, &["ref"], context).await {
+        Some(retry) if lookup => failure.message = retry.message(&failure.message),
+        Some(retry) => retry.apply(&mut failure),
+        None => {}
     }
     failure
+}
+
+/// Whether a call's `ref` is what it asks about (ghStructure
+/// `operation:"refs"`: the ref's commit), not the revision it reads at: the
+/// same call at the default branch answers another question.
+fn looks_up_the_ref(tool: ToolId, row: &Value) -> bool {
+    tool == ToolId::GhStructure && row.get("operation").and_then(Value::as_str) == Some("refs")
 }
 
 /// A `ref` that exists under the other spelling of a version tag: with or
@@ -211,6 +223,9 @@ pub async fn tag_spelling_retry(
         reference: other,
     })
 }
+
+#[cfg(test)]
+mod tests;
 
 #[cfg(test)]
 mod spelling_tests {

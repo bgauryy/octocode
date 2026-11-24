@@ -103,7 +103,8 @@ pub(super) fn is_non_code_specifier(spec: &str) -> bool {
 /// an external package (as opposed to an unresolved or unsupported one).
 /// `bare` says what a bare specifier names: project code (alias or workspace
 /// package), so an unlinked one is an internal gap, and whether that code lies
-/// beyond the snapshot root, like a relative path climbing out of it.
+/// beyond the snapshot root, like a relative path climbing out of it. `kind`
+/// is the edge kind the import links as; an unlinked one's diagnostic keeps it.
 pub(super) fn record_resolution(
     b: &mut BuiltGraph,
     file: &str,
@@ -113,6 +114,7 @@ pub(super) fn record_resolution(
     target: &Option<String>,
     unsupported: bool,
     bare: BareTarget,
+    kind: &'static str,
     security: &ContentSecurity,
 ) -> bool {
     if target.is_some() {
@@ -143,7 +145,7 @@ pub(super) fn record_resolution(
         let outside = bare == BareTarget::OutsideRoot
             || escapes_root(file, spec)
             || (lang == Linker::Rust && rust_super_escapes_root(file, spec));
-        record_unresolved_internal(b, file, line, spec, outside, security);
+        record_unresolved_internal(b, file, line, spec, outside, kind, security);
     } else {
         b.count_import(ImportOutcome::External, file, line, spec);
         return true;
@@ -156,13 +158,16 @@ pub(super) fn record_resolution(
 /// ([`DiagnosticCode::OutsideRoot`]) and the specifier alone as its message,
 /// since the code says the rest once; else a broken import. Every
 /// language's unlinked project import goes through here, so the two kinds
-/// read alike whatever the resolver.
+/// read alike whatever the resolver. The diagnostic keeps `kind`, the edge
+/// kind the import would have linked as, so a caller joining snapshots
+/// knows how the import loads.
 pub(super) fn record_unresolved_internal(
     b: &mut BuiltGraph,
     file: &str,
     line: u32,
     spec: &str,
     outside: bool,
+    kind: &'static str,
     security: &ContentSecurity,
 ) {
     b.count_import(ImportOutcome::UnresolvedInternal, file, line, spec);
@@ -174,12 +179,10 @@ pub(super) fn record_unresolved_internal(
             format!("Cannot link import {spec:?} (unresolvedInternal)."),
         )
     };
-    b.diagnostics.push(Diagnostic::new(
-        file,
-        Some(line),
-        code,
-        sanitize(security, &message),
-    ));
+    b.diagnostics.push(Diagnostic {
+        import_kind: Some(kind),
+        ..Diagnostic::new(file, Some(line), code, sanitize(security, &message))
+    });
 }
 
 /// Whether relative `spec` from `file` names a file that exists on disk

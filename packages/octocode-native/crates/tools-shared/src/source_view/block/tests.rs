@@ -278,8 +278,11 @@ fn matches_widen_to_their_declaration() {
     assert!(wire.get("docStartLine").is_none(), "{wire}");
 }
 
+/// A match outside every declaration of a clean parse keeps its window
+/// silently: `blocks` against `matchedLines` shows it was not widened, and
+/// nothing bounds a claim about it.
 #[test]
-fn a_match_outside_every_declaration_says_block_did_not_apply() {
+fn a_match_outside_every_declaration_of_a_clean_parse_adds_no_warning() {
     let mut warnings = vec![];
     let windows = widen_matches(
         PY,
@@ -300,17 +303,52 @@ fn a_match_outside_every_declaration_says_block_did_not_apply() {
             LineRange { start: 8, end: 11 }
         ]
     );
-    assert_eq!(warnings.len(), 1, "{warnings:?}");
-    assert!(
-        warnings[0].starts_with("block: 1 match(es) sit outside any declaration;"),
-        "{warnings:?}"
-    );
+    assert!(warnings.is_empty(), "{warnings:?}");
 }
 
-/// A hit on a one-line declaration is not outside every declaration:
-/// the warning says there is nothing to widen.
+/// A match outside every declaration of a parse the parser recovered from
+/// is named with the skipped spans that start before it, and only those: a
+/// later span cannot hide what encloses it.
 #[test]
-fn one_line_declarations_are_named_as_such_not_as_outside() {
+fn an_unenclosed_match_names_only_the_recovered_spans_before_it() {
+    let flow = "// @flow\ntype Dispatch<A> = A => void;\nfirst();\nexport function useState<S>(init: S): [S, Dispatch<S>] {\n  return [init, () => {}];\n}\ntype Later<B> = B => void;\n";
+    let read = |hits: &[usize]| {
+        let mut warnings = vec![];
+        widen_matches(
+            flow,
+            "Hooks.js",
+            hits,
+            hits.iter()
+                .map(|&hit| LineRange {
+                    start: hit,
+                    end: hit,
+                })
+                .collect(),
+            &mut warnings,
+            &mut vec![],
+            &mut NextCalls::default(),
+        );
+        warnings
+    };
+    let before = read(&[3]);
+    assert_eq!(before.len(), 1, "{before:?}");
+    assert!(
+        before[0].starts_with("block: no declaration encloses line 3; it kept its context window. The parser could not parse lines 2"),
+        "{before:?}"
+    );
+    assert!(
+        !before[0].contains('7'),
+        "a later span is not named: {before:?}"
+    );
+    // A hit before every skipped span: the parse hid nothing that encloses it.
+    assert!(read(&[1]).is_empty(), "{:?}", read(&[1]));
+}
+
+/// A hit on a one-line declaration already holds it whole: nothing is
+/// unread, so it adds no warning; a hit outside every declaration of a
+/// clean parse adds none either.
+#[test]
+fn one_line_declarations_and_clean_unenclosed_hits_add_no_warning() {
     let source =
         "pub struct Id(u8);\npub struct Name(String);\n\nfn body() {\n    1;\n}\n// trailing\n";
     let mut warnings = vec![];
@@ -328,15 +366,7 @@ fn one_line_declarations_are_named_as_such_not_as_outside() {
         &mut NextCalls::default(),
     );
     assert_eq!(windows[0], LineRange { start: 1, end: 1 });
-    assert_eq!(warnings.len(), 2, "{warnings:?}");
-    assert!(
-        warnings[0].starts_with("block: 2 match(es) are one-line declarations"),
-        "{warnings:?}"
-    );
-    assert!(
-        warnings[1].starts_with("block: 1 match(es) sit outside any declaration"),
-        "{warnings:?}"
-    );
+    assert!(warnings.is_empty(), "{warnings:?}");
     let mut warnings = vec![];
     widen_ranges(
         source,
@@ -429,10 +459,11 @@ fn call_site_hits_keep_window_when_a_declaration_hit_exists() {
         ]
     );
     assert_eq!(blocks.len(), 1);
+    // The call site is named by its line, with the read that widens it.
     assert_eq!(
         warnings,
         [
-            "block: 1 match(es) are inside declarations away from their heads; those keep their context windows because this read also matched declaration heads."
+            "block: line 10 kept its window: it is inside a declaration, not its head, and other matches are heads; a ranges read of it with block:true reads that declaration."
         ]
     );
     assert_eq!(

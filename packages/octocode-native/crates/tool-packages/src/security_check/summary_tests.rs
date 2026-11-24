@@ -419,34 +419,36 @@ fn a_row_with_no_list_keeps_its_sentence() {
     assert!(lean.get("advisoryCount").is_none(), "{lean}");
 }
 
-/// Withdrawn GitHub records are never counted; the summary
-/// names them in one sentence (the `details` view states each with its
-/// date), and its `related` calls stay to read them.
+/// A target no source covers (a release OSV does not name, a distribution
+/// version asked with no release) gives no verdict and no count: its empty
+/// list is not none known, and its sentence says why.
 #[test]
-fn withdrawn_warnings_collapse_to_one_sentence_in_the_summary() {
-    let withdrew = |id: &str| {
-        format!(
-            "GitHub withdrew {id} at 2021-10-01T22:04:28Z, so it is not counted; the related read shows it."
-        )
-    };
-    let other = "OSV lists a range GitHub does not.".to_owned();
-    let warnings = json!([
-        withdrew("GHSA-aaaa-bbbb-cccc"),
-        other,
-        withdrew("GHSA-dddd-eeee-ffff"),
-        withdrew("GHSA-gggg-hhhh-iiii"),
-    ]);
-    let row = json!({"affected": true, "advisories": [], "warnings": warnings});
-    let details = apply(SecurityCheckView::Details, row.clone(), target(package()));
-    assert_eq!(details["warnings"], warnings, "details lists each");
-    let lean = apply(SecurityCheckView::Summary, row, target(package()));
-    let lean = lean["warnings"].as_array().expect("warnings");
-    assert_eq!(lean.len(), 2, "{lean:?}");
-    assert_eq!(
-        lean[0],
-        "GitHub withdrew GHSA-aaaa-bbbb-cccc, GHSA-dddd-eeee-ffff and GHSA-gggg-hhhh-iiii, so they are not counted; the related reads show them."
+fn a_target_no_source_covers_has_no_count() {
+    let row = json_fixture(
+        r#"{
+            "answer": "openssl@3.1.4-r0: not evaluated.",
+            "packageName": "openssl",
+            "version": "3.1.4-r0",
+            "advisories": [],
+            "sources": [{"source": "osv", "status": "notCovered", "why": "no release"}]
+        }"#,
     );
-    assert_eq!(lean[1], "OSV lists a range GitHub does not.");
+    let lean = apply(SecurityCheckView::Summary, row, target(package()));
+    assert!(lean.get("advisoryCount").is_none(), "{lean}");
+    assert_eq!(lean["answer"], "openssl@3.1.4-r0: not evaluated.", "{lean}");
+    // One source that answered makes the empty list a count again.
+    let answered = json_fixture(
+        r#"{
+            "affected": false,
+            "advisories": [],
+            "sources": [
+                {"source": "osv", "status": "noneKnown"},
+                {"source": "github", "status": "notCovered", "why": "not on GitHub"}
+            ]
+        }"#,
+    );
+    let lean = apply(SecurityCheckView::Summary, answered, target(package()));
+    assert_eq!(lean["advisoryCount"], 0, "{lean}");
 }
 
 /// A newer release is named once: `latestVersion` stays only when it is not
@@ -469,11 +471,12 @@ fn the_newer_release_is_named_once() {
     assert!(apart.get("outdated").is_none(), "{apart}");
 }
 
-/// One withdrawn advisory is one whole sentence that names it, and one lead:
-/// the read of that record. Reads of advisories the row lists are the details
-/// view's, chosen by id, whatever a warning says.
+/// The summary passes the row's warnings as built, and keeps one lead: the
+/// read of a record the row does not list (one only GitHub matches). Reads
+/// of advisories the row lists are the details view's, chosen by id,
+/// whatever a warning says.
 #[test]
-fn one_withdrawn_advisory_is_one_sentence_and_one_lead() {
+fn a_record_the_row_does_not_list_keeps_its_read() {
     let call = |id: &str| {
         json!({"kind": "related", "tool": "securityCheck", "input": {"queries": [
             {"operation": "advisory", "id": id, "view": "details"}]}})
@@ -484,16 +487,14 @@ fn one_withdrawn_advisory_is_one_sentence_and_one_lead() {
             {"id": "GHSA-listed-aaaa", "aliases": ["CVE-2026-0001"]},
             {"id": "GHSA-listed-bbbb"}
         ],
-        "warnings": ["GitHub withdrew GHSA-gone-cccc at 2021-10-01T22:04:28Z, so it is not counted; the related read shows it."],
-        "related": [call("GHSA-listed-aaaa"), call("CVE-2026-0001"), call("GHSA-listed-bbbb"), call("GHSA-gone-cccc")]
+        "warnings": ["GitHub withdrew GHSA-gone-dddd: not counted.",
+            "GitHub's advisory database matches GHSA-only-cccc to this version and OSV does not list it: GitHub's word, not counted in answer; related reads each."],
+        "related": [call("GHSA-listed-aaaa"), call("CVE-2026-0001"), call("GHSA-listed-bbbb"), call("GHSA-only-cccc")]
     });
+    let warnings = row["warnings"].clone();
     let lean = apply(SecurityCheckView::Summary, row, target(package()));
-    assert_eq!(
-        lean["warnings"],
-        json!(["GitHub withdrew GHSA-gone-cccc, so it is not counted; the related read shows it."]),
-        "{lean}"
-    );
-    assert_eq!(lean["related"], json!([call("GHSA-gone-cccc")]), "{lean}");
+    assert_eq!(lean["warnings"], warnings, "{lean}");
+    assert_eq!(lean["related"], json!([call("GHSA-only-cccc")]), "{lean}");
 }
 
 /// An advisory whose database states no severity word ranks by the CVSS

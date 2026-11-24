@@ -5,24 +5,41 @@ fn checkout_destinations_ignore_case() {
     let home = Path::new("/tmp/octocode-clones-root");
     let sha = "ABCDEF0123456789ABCDEF0123456789ABCDEF01";
     let entry =
-        |owner, repo, commit| clone_dir(home, owner, repo, commit, None, 1, "https://example.test");
+        |owner, repo, commit| clone_dir(home, owner, repo, commit, None, "https://example.test");
     let lower = sha.to_ascii_lowercase();
     assert_eq!(entry("o", "r", sha), entry("o", "r", &lower));
     // Owner/repo are case-insensitive on GitHub: one checkout.
     assert_eq!(entry("Octo", "Repo", sha), entry("octo", "repo", sha));
     assert!(entry("o", "r", sha).starts_with(home.join("clones/o/r")));
 }
+
+/// Each sparse set keys its own entry, apart from the full checkout's.
 #[test]
-fn deep_history_and_sparse_sets_key_their_own_entries() {
+fn sparse_sets_key_their_own_entries() {
     let home = Path::new("/tmp/octocode-clones-root");
     let sha = "c".repeat(40);
-    let shallow = clone_dir(home, "o", "r", &sha, None, 1, "https://example.test");
-    let deep = clone_dir(home, "o", "r", &sha, None, 5, "https://example.test");
-    assert_ne!(shallow, deep);
-    assert!(deep.to_string_lossy().contains("__d5__host_"));
-    octocode_runtime_base::test_support::checks::assert_absent(
-        &serde_json::json!(shallow.to_string_lossy()),
-        "__d",
+    let entry = |sparse| clone_dir(home, "o", "r", &sha, sparse, HOST);
+    assert_ne!(entry(None), entry(Some("src")));
+    assert_ne!(entry(Some("src")), entry(Some("tests")));
+}
+
+/// Checkouts persist across releases: an entry is named exactly as an
+/// earlier build named a row's that requested no history depth
+/// (`<commit>__full[__sp_<scope>]__host_<host>`), so a checkout it
+/// published is found again rather than cloned beside itself.
+#[test]
+fn an_entry_keeps_the_name_an_earlier_build_gave_it() {
+    let home = Path::new("/tmp/octocode-clones-root");
+    let sha = "c".repeat(40);
+    let repository = home.join("clones/o/r");
+    let host = hash(HOST, 16);
+    assert_eq!(
+        clone_dir(home, "o", "r", &sha, None, HOST),
+        repository.join(format!("{sha}__full__host_{host}"))
+    );
+    assert_eq!(
+        clone_dir(home, "o", "r", &sha, Some("src"), HOST),
+        repository.join(format!("{sha}__full__sp_{}__host_{host}", hash("src", 6)))
     );
 }
 

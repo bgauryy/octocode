@@ -10,37 +10,46 @@ fn read(fields: Value) -> FetchCall {
     FetchCall::continued(serde_json::from_value(row).expect("read"))
 }
 
+/// A miss at the default branch leads to a code search of the repository
+/// for the literal; a miss at a pinned ref gets none, since code search
+/// indexes only the default branch. No miss offers history leads.
 #[test]
-fn empty_match_search_uses_the_index_while_history_keeps_the_ref() {
-    for reference in ["main", "0123456789abcdef0123456789abcdef01234567"] {
-        let source: GhGetFileContentQuery = serde_json::from_value(json!({
-            "owner":"o", "repo":"r", "path":"README.md", "ref":reference,
-            "matchString":["missing literal"]
-        }))
-        .expect("query");
-        let local: LocalFetchQuery = serde_json::from_value(json_fixture(
-            r#"{"path": "README.md", "matchString": ["missing literal"]}"#,
-        ))
-        .expect("local query");
+fn empty_match_searches_code_only_at_the_default_branch() {
+    let local: LocalFetchQuery = serde_json::from_value(json_fixture(
+        r#"{"path": "README.md", "matchString": ["missing literal"]}"#,
+    ))
+    .expect("local query");
+    for reference in [
+        None,
+        Some("main"),
+        Some("0123456789abcdef0123456789abcdef01234567"),
+    ] {
+        let mut row =
+            json!({"owner":"o", "repo":"r", "path":"README.md", "matchString":["missing literal"]});
+        if let Some(reference) = reference {
+            row["ref"] = json!(reference);
+        }
+        let source: GhGetFileContentQuery = serde_json::from_value(row).expect("query");
         let leads = empty_match_leads(&source, &local, true);
-        let code = &leads
-            .iter()
-            .find(|(name, _)| *name == "findCode")
-            .expect("code")
-            .1;
-        assert_eq!(code["kind"], "related");
-        let code_query = &code["input"]["queries"][0];
-        assert_eq!(
-            code_query["keywords"],
-            json_fixture(r#"["missing literal"]"#)
+        let names: Vec<&str> = leads.iter().map(|(name, _)| *name).collect();
+        assert!(
+            !names.contains(&"listCommits") && !names.contains(&"findPullRequest"),
+            "{names:?}"
         );
-        assert!(code_query.get("ref").is_none(), "{code}");
-        let history = &leads
-            .iter()
-            .find(|(name, _)| *name == "listCommits")
-            .expect("history")
-            .1;
-        assert_eq!(history["input"]["queries"][0]["ref"], reference);
+        let code = leads.iter().find(|(name, _)| *name == "findCode");
+        match reference {
+            None => {
+                let code = &code.expect("code").1;
+                assert_eq!(code["kind"], "related");
+                let code_query = &code["input"]["queries"][0];
+                assert_eq!(
+                    code_query["keywords"],
+                    json_fixture(r#"["missing literal"]"#)
+                );
+                assert!(code_query.get("ref").is_none(), "{code}");
+            }
+            Some(_) => assert!(code.is_none(), "{reference:?}: {names:?}"),
+        }
     }
 }
 

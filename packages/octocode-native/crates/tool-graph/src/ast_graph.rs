@@ -109,7 +109,20 @@ use octocode_tools_shared::import_resolution::{aliases, js_paths, paths};
 /// 48: an awaited `async fn` call has its declared return type, and a
 /// destructuring `let (a, b) = f()` gives each name its tuple element's type;
 /// an unresolved call on a typed receiver records the type (`receiverType`).
-const ANALYSIS_VERSION: u32 = 48;
+/// 49: the tsconfig governing a file settles a TypeScript value import it
+/// reads only as a type: a `static-import` where the project keeps value
+/// imports, an `elided-import` (type-only) where its emit elides them, and a
+/// `type-use-import` only where none governs or decorator metadata may keep it.
+/// 50: every form that loads a third-party package is a `pkg:` import edge:
+/// a dynamic `import()`, a `require` or `createRequire` call and a re-export
+/// (`export … from`), each witness naming its kind (`importKind`).
+/// 51: macros are a namespace of their own only where the grammar invokes
+/// them with syntax of their own (Rust `name!`): a C-family call links to a
+/// function-like `#define` again, as it did before 47.
+/// 52: a C# `using N;` or Scala wildcard import of a repository namespace
+/// depends on the files declaring the types of it the file uses
+/// (`namespace-use`).
+const ANALYSIS_VERSION: u32 = 52;
 
 /// graphBuild's and graphQuery's recovery for the shared response stages.
 pub struct Output;

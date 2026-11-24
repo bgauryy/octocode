@@ -338,16 +338,25 @@ fn drop_repository_homepage(artifact: &mut ArtifactItem) {
 
 /// This tool's recovery for the shared response stages: a package the
 /// registry does not know is a spelling to check where that registry writes
-/// it, never a path to list.
+/// it, never a path to list; a registry host the network policy refuses is
+/// the user's setting to change, which the error names, so no text is added.
 pub struct Output;
 impl octocode_runtime_base::response::output::ToolOutput for Output {
     fn error_hint(&self, code: ErrorCode, _query: &Value) -> Option<&'static str> {
-        (code == ErrorCode::NotFound).then_some(NOT_FOUND_HINT)
+        match code {
+            ErrorCode::NotFound => Some(NOT_FOUND_HINT),
+            ErrorCode::SecurityValidationFailed => {
+                Some(octocode_runtime_base::response::output::NO_HINT)
+            }
+            _ => None,
+        }
     }
 }
 
-/// The recovery of a package the registry does not know.
-const NOT_FOUND_HINT: &str = "Check packageName and ecosystem as the registry spells them (an npm scope, a Maven groupId:artifactId, a Go module path), then retry with the exact name; the related[] search, when given, lists the names the registry has.";
+/// The recovery of a package the registry does not know. The schema already
+/// refuses a Maven name that is not `group:artifact`.
+const NOT_FOUND_HINT: &str =
+    "Check packageName as the registry spells it (an npm scope, a Go module path).";
 
 /// The generated query for a test's JSON row. These tests read the whole
 /// row, so a row that states no view asks for `details`; a test of the

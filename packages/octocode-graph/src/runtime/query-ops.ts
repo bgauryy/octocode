@@ -16,11 +16,17 @@ import {
 } from './query-index.ts';
 import { PatternError, traceRelations, type Relation } from '../relations.ts';
 import {
+  betweenness,
+  cycleGroups,
+  depths,
   fewestHopPath,
+  kcore,
+  pagerank,
   prerequisiteOrder,
   shortestRing,
 } from '../algorithms.ts';
-import type { Graph } from '../graph-model.ts';
+import { undirected, type Graph } from '../graph-model.ts';
+import type { LoadMode } from '../loads.ts';
 import type { FileMetrics, Loc } from './types.ts';
 import { absOf, fileOf } from '../ids.ts';
 
@@ -30,8 +36,14 @@ export interface QueryArgs {
   tests: boolean;
   imports: boolean;
   weak: boolean;
+  /** Walk only imports that run (`runtime`) or that run while the importer loads (`eager`); null: every edge. */
+  load: LoadMode | null;
   depth: number | null;
   hops?: boolean;
+  /** Answer with the count (and the `--group` counts) instead of every row. */
+  count?: boolean;
+  /** Group file rows by `dir`, `dir:N` (the first N path segments), `chunk`, `package` or `depth`. */
+  group?: string;
 }
 
 /** Every row names a file (its id and location) plus the fields of its op. */
@@ -183,6 +195,9 @@ function nodeOf(G: Graph, id: string) {
 
 // Rows of a walk: depth, the weight of the edge that reached the file, the file it reached through, and that edge's
 // evidence line in the depending file.
+// A reaching import that does not load with its importer: `type` (never runs), `deferred` (a dynamic import()).
+const NOTED_LOADS = new Set(['type', 'deferred']);
+
 function walkRows(I: QueryIndex, seeds: string[], options: WalkOptions) {
   const { depth, via } = walk(I, seeds, options);
   const found: Row[] = [];
@@ -191,12 +206,14 @@ function walkRows(I: QueryIndex, seeds: string[], options: WalkOptions) {
     const [id, through] = [I.ids[v], I.ids[u]];
     const [from, to] = options.dir === 'in' ? [id, through] : [through, id];
     edges.push([from, to]);
+    const load = edgeOf(I, from, to)?.load;
     found.push(
       fileRow(I, id, {
         depth: depth.get(v),
         weight: round(w),
         through,
         line: options.dir === 'in' ? evidenceLine(I, from, to) : undefined,
+        ...(load && NOTED_LOADS.has(load) && { load }),
       })
     );
   }
@@ -212,7 +229,7 @@ function walkRows(I: QueryIndex, seeds: string[], options: WalkOptions) {
 // Default walks follow strong edges, while metrics count every production edge. So an answer states what `--weak` would
 // add: "nothing depends on it" must never be read as a fact the graph's own metrics contradict.
 function weakView(I: QueryIndex) {
-  return I.weak || I.imports
+  return I.weak || I.imports || I.load
     ? null
     : indexOf(I.D, { tests: I.tests, weak: true });
 }
@@ -229,6 +246,13 @@ const weakNote = (n: number) =>
   n > 0
     ? `; --weak adds ${plural(n, 'file')} reached only through name-bound calls`
     : '';
+// A walk over every edge reaches some files only through `import type`: say so, since such a file never loads.
+const typeNote = (I: QueryIndex, rows: Row[]) => {
+  const n = rows.filter(r => r.load === 'type').length;
+  return n && !I.load
+    ? `; ${plural(n, 'file')} reached through a type-only import (load type: never runs; --runtime walks only imports that run)`
+    : '';
+};
 
 function depthText(byDepth: Record<string, number>) {
   return Object.entries(byDepth)
@@ -302,7 +326,11 @@ export function impact(I: QueryIndex, { args, depth }: QueryArgs): OpResult {
   const summary = r.rows.length
     ? `${plural(r.rows.length, 'file')} ${r.rows.length === 1 ? 'depends' : 'depend'} on ${label}${depth ? ` within depth ${depth}` : ' transitively'} (${depthText(stats.byDepth)}) across ${plural(chunks, 'chunk')}`
     : `nothing depends on ${label}`;
-  return { ...r, stats, summary: `${summary}${weakNote(weak)}` };
+  return {
+    ...r,
+    stats,
+    summary: `${summary}${weakNote(weak)}${typeNote(I, r.rows)}`,
+  };
 }
 
 function neighbors(
@@ -332,7 +360,7 @@ function neighbors(
   return {
     ...r,
     stats,
-    summary: `${plural(r.rows.length, 'file')} ${what} ${label} within depth ${maxDepth === Infinity ? 'all' : maxDepth}${weakNote(weak)}`,
+    summary: `${plural(r.rows.length, 'file')} ${what} ${label} within depth ${maxDepth === Infinity ? 'all' : maxDepth}${weakNote(weak)}${typeNote(I, r.rows)}`,
   };
 }
 export const deps: Op = (I, q) => neighbors(I, q, 'out');
@@ -368,16 +396,21 @@ function heapPop(h: HeapItem[]) {
   return first;
 }
 
-interface Route {
+/** A route between files: its ids in order and its cost (Σ 1/weight, or hops). */
+export interface Route {
   path: string[];
   cost: number;
 }
 
-// Dijkstra with cost 1/weight: the strongest dependency path s → t (node indices), or null.
+/** The node or nodes a route may end at. */
+type Target = number | ReadonlySet<number>;
+
+// Dijkstra with cost 1/weight: the strongest dependency path s → t (node indices), or null. With a set of targets, the
+// strongest path to whichever of them is nearest.
 function strongest(
   I: QueryIndex,
   s: number,
-  t: number,
+  t: Target,
   blocked?: Uint8Array
 ): Route | null {
   const { n, out } = I.G;
@@ -385,10 +418,14 @@ function strongest(
     prev = new Int32Array(n).fill(-1);
   dist[s] = 0;
   const heap: HeapItem[] = [[0, s]];
+  let end = -1;
   while (heap.length) {
     const [d, u] = heapPop(heap);
     if (d > dist[u]) continue;
-    if (u === t) break;
+    if (typeof t === 'number' ? u === t : t.has(u)) {
+      end = u;
+      break;
+    }
     for (let k = out.offsets[u]; k < out.offsets[u + 1]; k++) {
       const v = out.targets[k],
         c = d + 1 / Math.max(out.weights[k], 1e-9);
@@ -400,8 +437,8 @@ function strongest(
       }
     }
   }
-  if (dist[t] === Infinity) return null;
-  return { path: routeIds(I, prev, s, t), cost: dist[t] };
+  if (end < 0) return null;
+  return { path: routeIds(I, prev, s, end), cost: dist[end] };
 }
 
 function routeIds(I: QueryIndex, prev: Int32Array, start: number, end: number) {
@@ -412,16 +449,20 @@ function routeIds(I: QueryIndex, prev: Int32Array, start: number, end: number) {
   }
 }
 
-// Unit-cost BFS on the same filtered CSR that the weighted solver reads.
+// Unit-cost BFS on the same filtered CSR that the weighted solver reads; with a set of targets, the nearest one.
 function fewestHops(
   I: QueryIndex,
   s: number,
-  t: number,
+  t: Target,
   blocked?: Uint8Array
 ): Route | null {
-  const route = fewestHopPath(I.G, s, t, blocked);
-  if (!route) return null;
-  return { path: route.map(v => I.ids[v]), cost: route.length - 1 };
+  let best: number[] | null = null;
+  for (const goal of typeof t === 'number' ? [t] : t) {
+    const route = fewestHopPath(I.G, s, goal, blocked);
+    if (route && (!best || route.length < best.length)) best = route;
+  }
+  if (!best) return null;
+  return { path: best.map(v => I.ids[v]), cost: best.length - 1 };
 }
 
 // One row per file on the path; each carries the hop to the next file: weight, import lines and symbol calls.
@@ -437,8 +478,12 @@ export function pathRows(I: QueryIndex, route: string[], direction: string) {
       nextFile: next,
       weight: round(weight),
       line: evidenceLine(I, id, next),
+      // When the hop's import takes effect: a type-only hop never loads the next file.
+      ...(ev.load && { load: ev.load }),
       evidence: {
         imports: [...new Set(ev.imports)].toSorted((a, b) => a - b),
+        kinds: ev.kinds,
+        load: ev.load,
         calls: ev.calls,
       },
     });
@@ -480,9 +525,115 @@ function avoided(I: QueryIndex, names: string[]) {
   return files;
 }
 
+/**
+ * One route per distinct first hop of `a` that still reaches a target (never back through `a`): the strongest route
+ * through that hop (`hops`: the fewest-hop one), fewest hops first, then cost, then the first hop. Every way `a` pulls a
+ * target in, where `path` shows only the strongest; `path --all` and `why` answer with it.
+ */
+export function firstHopRoutes(
+  I: QueryIndex,
+  a: string,
+  targets: ReadonlySet<number>,
+  hops = false
+) {
+  const solve = hops ? fewestHops : strongest;
+  const s = nodeOf(I.G, a);
+  const blocked = new Uint8Array(I.G.n);
+  blocked[s] = 1;
+  const firsts = new Set<number>();
+  for (let k = I.G.out.offsets[s]; k < I.G.out.offsets[s + 1]; k++)
+    firsts.add(I.G.out.targets[k]);
+  const found: Route[] = [];
+  for (const x of firsts) {
+    const route = targets.has(x)
+      ? { path: [I.ids[x]], cost: 0 }
+      : solve(I, x, targets, blocked);
+    if (route) found.push({ path: [a, ...route.path], cost: route.cost });
+  }
+  found.sort(
+    (p, q) =>
+      p.path.length - q.path.length ||
+      p.cost - q.cost ||
+      byText(p.path[1], q.path[1])
+  );
+  return { routes: found, firstHops: firsts.size };
+}
+
+// `--all [n]`: one route per distinct first hop from a that still reaches b (firstHopRoutes).
+function allRoutes(
+  I: QueryIndex,
+  a: string,
+  b: string,
+  rest: string[],
+  hops = false
+): OpResult {
+  if (rest.length > 1 || (rest[0] && !/^(\d+|all)$/i.test(rest[0])))
+    throw new QueryError(
+      'path --all takes one count or all: path <a> <b> --all [n|all]'
+    );
+  const n = /^\d+$/.test(rest[0] ?? '') ? Number(rest[0]) : Infinity;
+  const { routes: found, firstHops } = firstHopRoutes(
+    I,
+    a,
+    new Set([nodeOf(I.G, b)]),
+    hops
+  );
+  const shown = found.slice(0, n);
+  const routes = shown.map(r => pathRows(I, r.path, 'forward'));
+  const rows = shown.map((r, i) =>
+    fileRow(I, r.path[1], {
+      route: i + 1,
+      hops: r.path.length - 1,
+      path: r.path,
+      hopLoads: r.path
+        .slice(1)
+        .map((id, k) => evidenceOf(I, r.path[k], id).load),
+      line: evidenceLine(I, a, r.path[1]),
+      ...(evidenceOf(I, a, r.path[1]).load && {
+        load: evidenceOf(I, a, r.path[1]).load,
+      }),
+    })
+  );
+  const edges = [
+    ...new Set(
+      shown.flatMap(r => r.path.slice(1).map((id, i) => `${r.path[i]}\0${id}`))
+    ),
+  ].map(k => k.split('\0') as Pair);
+  return {
+    rows,
+    routes,
+    edges,
+    nodes: [...new Set(shown.flatMap(r => r.path))],
+    found: found.length > 0,
+    stats: {
+      routes: found.length,
+      shown: shown.length,
+      firstHops,
+    },
+    summary: found.length
+      ? `${plural(found.length, 'distinct first hop')} of ${a} reach ${b}${shown.length < found.length ? ` (${shown.length} shown; --all all lists every one)` : ''}; each row is the ${hops ? 'fewest-hop' : 'strongest'} route through that hop`
+      : `no route ${a} → ${b}`,
+  };
+}
+
 export function path(I: QueryIndex, { args, hops }: QueryArgs): OpResult {
   const solve = hops ? fewestHops : strongest;
   const objective = hops ? 'hops' : 'strength';
+  const all = args.indexOf('--all');
+  if (all >= 0) {
+    const ends = args.slice(0, all);
+    if (ends.length !== 2)
+      throw new QueryError(
+        'path needs two files: path <from> <to> --all [n|all]'
+      );
+    return allRoutes(
+      I,
+      resolveFile(I, ends[0]),
+      resolveFile(I, ends[1]),
+      args.slice(all + 1),
+      hops
+    );
+  }
   const at = args.indexOf('--avoid');
   const ends = at < 0 ? args : args.slice(0, at);
   if (ends.length !== 2)
@@ -495,10 +646,11 @@ export function path(I: QueryIndex, { args, hops }: QueryArgs): OpResult {
   const found = solve(I, s, t);
   if (found) {
     const r = pathResult(I, found, 'forward', objective);
+    const typeHops = r.rows.filter(x => x.load === 'type').length;
     return {
       ...r,
       found: true,
-      summary: `${a} → ${b}: ${plural(r.stats.hops, 'hop')}, weight ${r.stats.weight} (${hops ? 'fewest hops' : `strongest path, cost Σ 1/weight ${r.stats.cost}`})`,
+      summary: `${a} → ${b}: ${plural(r.stats.hops, 'hop')}, weight ${r.stats.weight} (${hops ? 'fewest hops' : `strongest path, cost Σ 1/weight ${r.stats.cost}`})${typeHops && !I.load ? `; ${plural(typeHops, 'hop')} is a type-only import, so ${a} never loads ${b} along it: add --runtime for a route that runs` : ''}`,
     };
   }
   const back = solve(I, t, s);
@@ -524,7 +676,7 @@ export function path(I: QueryIndex, { args, hops }: QueryArgs): OpResult {
   return {
     ...r,
     found: false,
-    summary: `no path ${a} → ${b}; the reverse ${b} → ${a} exists: ${plural(r.stats.hops, 'hop')}, weight ${r.stats.weight}${weakText}`,
+    summary: `no path ${a} → ${b}; the reverse ${b} → ${a} exists, and the rows show that reverse route (${plural(r.stats.hops, 'hop')}, weight ${r.stats.weight}), not a route from ${a}${weakText}`,
   };
 }
 
@@ -625,6 +777,7 @@ const byPagerank = (I: QueryIndex) => (a: string, b: string) =>
 // Every dependency cycle the build measured (metrics.cycles), largest first, each with all its members; `cycle <file>`
 // then walks one ring through a member.
 function cycleList(I: QueryIndex): OpResult {
+  if (I.load) return walkedCycles(I);
   const cycles = (I.D.metrics?.cycles ?? []).toSorted(
     (a, b) => b.size - a.size || b.weight - a.weight || a.id - b.id
   );
@@ -647,6 +800,32 @@ function cycleList(I: QueryIndex): OpResult {
     summary: cycles.length
       ? `${plural(cycles.length, 'dependency cycle')} over ${plural(files.size, 'file')}, largest first; \`cycle <file>\` walks one ring through a member`
       : 'no dependency cycle in this graph',
+  };
+}
+
+// The cycles of the walked graph itself (`--runtime`, `--eager`): the build measured cycles over every production edge,
+// so a load filter recounts them here. Largest first, then by smallest member.
+function walkedCycles(I: QueryIndex): OpResult {
+  const groups = cycleGroups(I.G, I.components());
+  const rows = groups.map((members, i) => {
+    const ids = members.map(v => I.ids[v]).toSorted(byPagerank(I));
+    return {
+      id: ids[0],
+      label: `${I.load} cycle ${i}`,
+      loc: { path: ids[0] },
+      weight: componentWeight(I.G, new Set(members)),
+      members: ids,
+    };
+  });
+  const files = new Set(rows.flatMap(r => r.members));
+  return {
+    rows,
+    edges: [],
+    nodes: [...files],
+    stats: { cycles: rows.length, files: files.size, load: I.load },
+    summary: rows.length
+      ? `${plural(rows.length, `${I.load} dependency cycle`)} over ${plural(files.size, 'file')} (imports that ${I.load === 'eager' ? 'run while the importer loads' : 'run'}), largest first`
+      : `no ${I.load} dependency cycle in this graph`,
   };
 }
 
@@ -861,6 +1040,8 @@ function symbolCalls(
 
 /** The Octocode calls an answer hands over: read the cited source, or confirm a caller list with LSP. */
 export interface NextCalls {
+  /** The graph query that continues this answer where a budget cut it (context --from). */
+  query?: string;
   read?: {
     tool: 'localFetch';
     input: {
@@ -979,6 +1160,30 @@ export const METRICS = {
 const metricKey = (name: string) =>
   Object.hasOwn(METRICS, name) ? METRICS[name as keyof typeof METRICS] : null;
 
+// One metric over the walked graph (`--runtime`, `--eager`): the saved metrics count every production edge, so a load
+// filter measures again over the edges it keeps. Community and cycle ids are not recomputed.
+function walkedMetric(I: QueryIndex, key: keyof FileMetrics) {
+  const { G } = I;
+  let values: ArrayLike<number>;
+  if (key === 'pagerank') values = pagerank(G).rank;
+  else if (key === 'betweenness') values = betweenness(G);
+  else if (key === 'core') values = kcore(undirected(G));
+  else if (key === 'depth') values = depths(G, I.components());
+  else {
+    const adj = key === 'inWeight' ? G.in : G.out;
+    values = Array.from({ length: G.n }, (_, u) => {
+      let w = 0;
+      for (let k = adj.offsets[u]; k < adj.offsets[u + 1]; k++)
+        w += adj.weights[k];
+      return w;
+    });
+  }
+  return (id: string) => {
+    const v = G.index.get(id);
+    return v === undefined ? null : round(values[v], 8);
+  };
+}
+
 // Files ranked by one metric, highest first (ties by path). n: a count or `all`; default 20, said in the summary.
 export function top(I: QueryIndex, { args }: QueryArgs): OpResult {
   const key = metricKey((args[0] ?? '').toLowerCase());
@@ -986,8 +1191,10 @@ export function top(I: QueryIndex, { args }: QueryArgs): OpResult {
     throw new QueryError(
       `top needs a metric: ${Object.values(METRICS).join(', ')}`
     );
-  const value = (id: string) => metricOf(I, id, key) ?? 0;
-  const ranked = I.ids.filter(id => typeof metricOf(I, id, key) === 'number');
+  const walked = I.load ? walkedMetric(I, key) : null;
+  const read = (id: string) => (walked ? walked(id) : metricOf(I, id, key));
+  const value = (id: string) => read(id) ?? 0;
+  const ranked = I.ids.filter(id => typeof read(id) === 'number');
   if (!ranked.length)
     throw new QueryError(
       `no file has ${key}: metrics were not computed for this result`
@@ -1000,7 +1207,7 @@ export function top(I: QueryIndex, { args }: QueryArgs): OpResult {
     .toSorted((a, b) => value(b) - value(a) || (a < b ? -1 : 1))
     .slice(0, n);
   const rows = order.map((id, i) =>
-    fileRow(I, id, { rank: i + 1, value: metricOf(I, id, key) })
+    fileRow(I, id, { rank: i + 1, value: read(id) })
   );
   const more =
     ranked.length > rows.length
@@ -1012,7 +1219,7 @@ export function top(I: QueryIndex, { args }: QueryArgs): OpResult {
     edges: [],
     nodes: order,
     stats: { metric: key, shown: rows.length, ranked: ranked.length },
-    summary: `top ${rows.length} of ${ranked.length} files by ${key}${more}`,
+    summary: `top ${rows.length} of ${ranked.length} files by ${key}${I.load ? ` over ${I.load} imports` : ''}${more}`,
   };
 }
 

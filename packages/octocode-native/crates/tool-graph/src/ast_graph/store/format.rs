@@ -105,7 +105,16 @@ pub(crate) const MAGIC: &[u8; 8] = b"OCGRAPH\0";
 /// v22: a source snapshot's encoding byte also names `latin1` (3) and
 /// `lossy` (4): 8-bit text that is not UTF-8 is indexed as it reads, so an
 /// older reader must refuse such a snapshot.
-pub(crate) const FORMAT_VERSION: u32 = 24;
+/// v24: an unresolved site stores its receiver's type as spelled
+/// (`receiverType`).
+/// v25: an `outside-root` or `unresolved-internal` diagnostic of an import
+/// stores the edge kind that import links as (`importKind`), so joining
+/// snapshots keeps a type-only import apart from a load.
+/// v26: a witness of an import of a package stores the import's edge kind
+/// (`importKind`) beside the declaration status its edge's `detail` holds.
+/// v27: a declaration stores its parameter list and return type as written
+/// (`params`, `returns`).
+pub(crate) const FORMAT_VERSION: u32 = 27;
 /// Packed edge byte bit: the edge's evidence is test code.
 const EDGE_TEST: u8 = 0x80;
 const HEADER_LEN: usize = 8 + 4 + 4 + 32;
@@ -284,6 +293,9 @@ pub(crate) struct DiagRec {
     pub message: u32,
     /// File node the diagnostic is about besides `file`, or [`NONE`].
     pub target: u32,
+    /// Edge kind of the unlinked import the diagnostic is about (interned),
+    /// or [`NONE`].
+    pub import_kind: u32,
 }
 
 /// Every occurrence supporting topology, before adjacency deduplication.
@@ -294,6 +306,10 @@ pub(crate) struct WitnessRec {
     pub argument: u32,
     /// Occurrence identity within this source snapshot (interned string).
     pub occurrence: u32,
+    /// For an import of a package, the import's edge kind (`type-import`,
+    /// `static-import`, ...; interned), since the edge's `detail` holds how
+    /// the package is declared; else [`NONE`].
+    pub import_kind: u32,
 }
 
 /// A source call site whose target could not be established by this model.
@@ -335,6 +351,10 @@ pub(crate) struct DeclarationRec {
     pub selection_origin: u32,
     /// Serialized typed parse assessment; only enums and source positions.
     pub assessment: u32,
+    /// The parameter list and return type as written (interned), or
+    /// [`NONE`] where the declaration writes none.
+    pub params: u32,
+    pub returns: u32,
 }
 
 /// The rows whose strings the build's secret scan replaced, by row index: a

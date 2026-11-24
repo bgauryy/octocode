@@ -140,7 +140,7 @@ test('the channel declares claude/channel, an earlier protocol revision and its 
   const list = await c.call('tools/list', {});
   // Ours, and the engine's graph tools passed through when the engine resolves.
   const names = list.result.tools.map((tool) => tool.name);
-  const ours = ['build_graph', 'diff_graph', 'link_graph', 'open_graph', 'query_graph', 'refresh_graph', 'reply', 'wiki_lint', 'wiki_note', 'wiki_promote', 'wiki_read'];
+  const ours = ['build_graph', 'check_graph', 'diff_graph', 'link_graph', 'open_graph', 'query_graph', 'refresh_graph', 'reply', 'wiki_lint', 'wiki_note', 'wiki_promote', 'wiki_read'];
   assert.deepEqual(names.filter((n) => ours.includes(n)).toSorted(), ours);
   assert.ok(names.filter((n) => !ours.includes(n)).every((n) => ['graphBuild', 'graphQuery'].includes(n)), names.join(','));
   assert.match(init.result.instructions, /query_graph/);
@@ -476,6 +476,14 @@ test('the channel builds, queries, refreshes and diffs a saved graph without a v
   assert.equal(typo.isError, true);
   assert.match(typo.content[0].text, /unknown field qurey \(did you mean query\?\).*query is required/);
   assert.match((await call('diff_graph', { result: f.out, format: 'xml' })).content[0].text, /format must be one of text, json/);
+  // check_graph is the CLI's check: an error violation is an error result with its chain; no rules file is an error.
+  writeFileSync(join(f.dir, 'rules.json'), JSON.stringify({ forbidden: [{ name: 'b-no-a', severity: 'error', from: { path: '^src/b' }, to: { path: '^src/a' } }] }));
+  const broken = await call('check_graph', { result: f.out, rules: join(f.dir, 'rules.json'), format: 'json' });
+  assert.equal(broken.isError, true);
+  assert.deepEqual(JSON.parse(broken.content[0].text).violations.map((v) => [v.rule, v.from, v.to]), [['b-no-a', 'src/b.ts', 'src/a.ts']]);
+  const missing = await call('check_graph', { result: f.out });
+  assert.equal(missing.isError, true);
+  assert.match(missing.content[0].text, /no rules file/);
 });
 
 test('mcp serves the saved-graph tools without a viewer: no channel capability, result required, viewer tools absent', { timeout: 30000 }, async (t) => {
@@ -487,7 +495,7 @@ test('mcp serves the saved-graph tools without a viewer: no channel capability, 
   c.notify('notifications/initialized');
   const tools = (await c.call('tools/list', {})).result.tools;
   const names = tools.map((tool) => tool.name);
-  for (const n of ['build_graph', 'query_graph', 'refresh_graph', 'diff_graph', 'link_graph']) assert.ok(names.includes(n), n);
+  for (const n of ['build_graph', 'query_graph', 'refresh_graph', 'diff_graph', 'check_graph', 'link_graph']) assert.ok(names.includes(n), n);
   for (const n of ['open_graph', 'reply', 'wiki_read']) assert.ok(!names.includes(n), n);
   const query = tools.find((tool) => tool.name === 'query_graph');
   assert.deepEqual(query.inputSchema.required.toSorted(), ['query', 'result']);

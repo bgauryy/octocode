@@ -61,10 +61,12 @@ pub fn invalid_registry_url() -> ArtifactError {
 }
 
 /// The one refusal for a registry host that is internal, does not resolve,
-/// or resolves to any address that is not public.
+/// or resolves to any address that is not public: a security refusal, as
+/// the same policy's refusal of a page URL is, which no other input fixes;
+/// only the user's setting the message names permits the host.
 fn registry_target_error(host: &str) -> ArtifactError {
     ArtifactError::new(
-        ErrorCode::InvalidInput,
+        ErrorCode::SecurityValidationFailed,
         format!(
             "registryUrl host {} network.allowPrivateRegistry \
              (OCTOCODE_ALLOW_PRIVATE_REGISTRY) permits a private registry.",

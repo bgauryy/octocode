@@ -27,6 +27,36 @@ impl<'a> SpanPositions<'a> {
         GraphPosition { line, character }
     }
 
+    /// The source text of `span` with whitespace runs collapsed to one space:
+    /// a signature as written, on one line.
+    pub(super) fn written(&self, span: Span) -> String {
+        self.content
+            .get(span.start as usize..span.end as usize)
+            .unwrap_or_default()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// The parameter list and return type a function writes.
+    pub(super) fn signature(
+        &self,
+        params: Span,
+        returns: Option<&oxc_ast::ast::TSTypeAnnotation>,
+    ) -> (Option<String>, Option<String>) {
+        use oxc_span::GetSpan;
+        (
+            Some(self.written(params)),
+            // The annotation's span holds its `:`; the type follows it.
+            returns.map(|annotation| {
+                self.written(annotation.type_annotation.span())
+                    .trim_start_matches(':')
+                    .trim_start()
+                    .to_owned()
+            }),
+        )
+    }
+
     pub(super) fn range(&self, span: Span) -> GraphRange {
         GraphRange {
             start: self.position(span.start),

@@ -23,7 +23,7 @@ pub(in crate::gh_get_history_item) struct FileOutcome {
     /// `(dropped, listed)` changed files of the `matchString` filter.
     pub(in crate::gh_get_history_item) match_dropped: Option<(usize, usize)>,
     pub(in crate::gh_get_history_item) scope_unmatched: bool,
-    /// Changed files the read's `include`/`status`/`minChanges` scope
+    /// Changed files the read's `include`/`status` scope
     /// kept (every listed file without one), when the scope or literal
     /// matched nothing.
     pub(in crate::gh_get_history_item) in_scope: usize,
@@ -31,27 +31,25 @@ pub(in crate::gh_get_history_item) struct FileOutcome {
     /// the count and the nearest changed directories, as a commit or a
     /// comparison read states them ([`empty_scope_warning`]).
     pub(in crate::gh_get_history_item) scope_warning: Option<String>,
-    /// `readAtCommit`/`readParent`: the top shown file at the head and base.
+    /// `readAtCommit`/`readParent`: each shown patchless file's source at
+    /// the head and base.
     pub(in crate::gh_get_history_item) side_reads: Vec<(String, Value)>,
     /// Files whose `matchString` context the hunks cut short.
     pub(in crate::gh_get_history_item) clipped: Vec<(String, Vec<(usize, usize)>)>,
 }
 
 /// The files the cross-tool reads below cover, as loaded (shaping consumes
-/// them). A file page's first patch window reports every file GitHub sent
-/// without a patch, so each page leads to the source of its own: the first
-/// page also gets the optional code pick, a later page only those required
-/// reads (its files that have a patch cannot lead to a read). A later patch
-/// window of a page repeats none of it.
+/// them): a file page's first patch window reports every file GitHub sent
+/// without a patch, so each page leads to the source of its own. A later
+/// patch window of a page repeats none of it.
 fn lead_files(query: &HistoryItemRequest, loaded: &[Value]) -> Option<Vec<Value>> {
     if gh_get_history_item_query::char_offset(query).is_some() {
         return None;
     }
-    let first_page = gh_get_history_item_query::page(query).is_none_or(|page| page <= 1);
     Some(
         loaded
             .iter()
-            .filter(|file| first_page || file.get("patch").is_none())
+            .filter(|file| file.get("patch").is_none())
             .cloned()
             .collect(),
     )
@@ -70,7 +68,7 @@ pub(super) fn shape_files_section(
     let lead_files = lead_files(query, &loaded.items);
     let listed = loaded.state.skipped + loaded.items.len();
     let state = loaded.state;
-    // An `include`/`status`/`minChanges` scope that matched no changed file at all.
+    // An `include`/`status` scope that matched no changed file at all.
     let scope_unmatched = (plan.scope.is_some() || plan.needle.is_some())
         && state.exhausted
         && gh_get_history_item_query::page(query).unwrap_or(1) == 1
@@ -97,8 +95,7 @@ pub(super) fn shape_files_section(
         plan.scope.as_ref(),
     );
     // The diff's side reads name only a file the page shows (the filter keeps
-    // more files than one patch window packs): their hunk bounds are the
-    // page's numbered lines.
+    // more files than one patch window packs).
     let shown = |file: &Value| {
         file_filter.matches(file)
             && shaped.shown.as_ref().is_none_or(|paths| {
@@ -107,8 +104,7 @@ pub(super) fn shape_files_section(
                     .any(|path| Some(path.as_str()) == str_at(file, "/filename"))
             })
     };
-    // Source reads use the shown diff's head and base identities. An
-    // optional code pick at the merge commit is no requested evidence.
+    // Source reads use the shown diff's head and base identities.
     let side_reads = match lead_files
         .as_deref()
         .filter(|_| wants.has(Section::Patches))
@@ -121,7 +117,6 @@ pub(super) fn shape_files_section(
             &pr_menu::ChangeSides {
                 new_ref: str_at(raw, "/head/sha").filter(|sha| !sha.is_empty()),
                 old_ref: str_at(raw, "/base/sha").filter(|sha| !sha.is_empty()),
-                needle: plan.needle.as_deref(),
             },
             shown,
         ),

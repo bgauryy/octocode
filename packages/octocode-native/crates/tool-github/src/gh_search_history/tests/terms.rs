@@ -40,8 +40,6 @@ fn every_typed_history_filter_reaches_the_provider_query() {
             ),
             "closed:2024-01-01T00:00:00Z..2024-02-01T00:00:00Z",
         ),
-        (json_fixture(r#"{"archive": "only"}"#), "archived:true"),
-        (json_fixture(r#"{"archive": "exclude"}"#), "archived:false"),
         (
             json_fixture(r#"{"matchIn": ["title", "body"]}"#),
             "in:title,body",
@@ -66,27 +64,13 @@ fn pull_request_predicates_are_distinct_and_negation_survives() {
     for (filters, expected) in [
         (json_fixture(r#"{"isMerged": false}"#), "is:unmerged"),
         (json_fixture(r#"{"isMerged": true}"#), "is:merged"),
-        (json_fixture(r#"{"isDraft": false}"#), "-is:draft"),
-        (json_fixture(r#"{"isDraft": true}"#), "is:draft"),
-        (
-            json_fixture(r#"{"review": "changesRequested"}"#),
-            "review:changes_requested",
-        ),
-        (
-            json_fixture(r#"{"checkStatus": "failure"}"#),
-            "status:failure",
-        ),
-        (
-            json_fixture(r#"{"reviewRequested": "alice"}"#),
-            "review-requested:alice",
-        ),
         (json_fixture(r#"{"reviewedBy": "bot"}"#), "reviewed-by:bot"),
         (
             json_fixture(r#"{"headRef": "feature/x"}"#),
             "head:feature/x",
         ),
         (json_fixture(r#"{"baseRef": "main"}"#), "base:main"),
-        (json_fixture(r#"{"linked": "issue"}"#), "linked:issue"),
+        (json_fixture(r#"{"linked": false}"#), "-linked:issue"),
         (
             json_fixture(r#"{"mergedAt": {"from": "2024-01-01T00:00:00Z"}}"#),
             "merged:>=2024-01-01T00:00:00Z",
@@ -105,16 +89,36 @@ fn pull_request_predicates_are_distinct_and_negation_survives() {
             "filters must not be discarded by REST list routing"
         );
     }
-    let q = serde_json::from_value(json_fixture(
-        r#"{
-            "operation": "issue",
-            "owner": "o",
-            "repo": "r",
-            "filters": {"linked": "pullRequest"}
-        }"#,
-    ))
-    .expect("query");
-    assert!(build_query(&q).expect("query").contains("linked:pr"));
+}
+
+/// `linked` is one boolean on both operations: `true` sends the term for
+/// items linked to the other kind (an issue to a pull request, `linked:pr`;
+/// a pull request to an issue, `linked:issue`) and `false` its negation. The
+/// per-operation string choices it replaced are refused.
+#[test]
+fn linked_is_one_boolean_sent_as_the_other_kinds_term() {
+    for (operation, linked, expected) in [
+        ("issue", true, "linked:pr"),
+        ("issue", false, "-linked:pr"),
+        ("pullRequest", true, "linked:issue"),
+        ("pullRequest", false, "-linked:issue"),
+    ] {
+        let terms = query_terms(operation, json!({ "linked": linked }));
+        let sent: Vec<&String> = terms.iter().filter(|t| t.contains("linked:")).collect();
+        assert_eq!(sent, [expected], "{operation} linked:{linked}: {terms:?}");
+    }
+    for (operation, choice) in [("issue", "pullRequest"), ("pullRequest", "issue")] {
+        let row = json!({"operation":operation,"owner":"o","repo":"r","filters":{"linked":choice}});
+        assert!(
+            serde_json::from_value::<GhSearchHistoryQuery>(row.clone()).is_err(),
+            "{operation} linked:{choice}: the string form must not parse"
+        );
+        assert!(
+            octocode_runtime_base::contracts::validate("ghSearchHistory", json!({"queries":[row]}))
+                .is_err(),
+            "{operation} linked:{choice}: the string form must be refused"
+        );
+    }
 }
 
 #[test]
@@ -268,28 +272,37 @@ fn query_terms(operation: &str, filters: Value) -> Vec<String> {
     terms
 }
 
+/// `archive`, `checkStatus`, `review`, `reviewRequested` and `isDraft` were
+/// removed from the history filters: admission refuses each on both
+/// operations, so none reaches the provider query unstated.
 #[test]
-fn review_requests_name_a_team_by_its_slash_and_a_login_by_its_name() {
-    let terms = query_terms(
-        "pullRequest",
-        json_fixture(r#"{"reviewRequested": "acme/core"}"#),
-    );
-    assert!(
-        terms.iter().any(|t| t == "team-review-requested:acme/core"),
-        "{terms:?} lacks team-review-requested:acme/core"
-    );
-    assert!(
-        !terms.iter().any(|t| t == "review-requested:acme/core"),
-        "{terms:?}"
-    );
-    let terms = query_terms(
-        "pullRequest",
+fn removed_history_filters_are_refused_at_admission() {
+    for filters in [
+        json_fixture(r#"{"archive": "only"}"#),
+        json_fixture(r#"{"archive": "exclude"}"#),
+        json_fixture(r#"{"checkStatus": "failure"}"#),
+        json_fixture(r#"{"review": "changesRequested"}"#),
         json_fixture(r#"{"reviewRequested": "alice"}"#),
-    );
-    assert!(
-        terms.iter().any(|t| t == "review-requested:alice"),
-        "{terms:?}"
-    );
+        json_fixture(r#"{"reviewRequested": "acme/core"}"#),
+        json_fixture(r#"{"isDraft": true}"#),
+        json_fixture(r#"{"isDraft": false}"#),
+    ] {
+        for operation in ["issue", "pullRequest"] {
+            let row = json!({"operation":operation,"owner":"o","repo":"r","filters":filters});
+            assert!(
+                serde_json::from_value::<GhSearchHistoryQuery>(row.clone()).is_err(),
+                "{operation} {filters}: a removed filter must not parse"
+            );
+            assert!(
+                octocode_runtime_base::contracts::validate(
+                    "ghSearchHistory",
+                    json!({"queries":[row]})
+                )
+                .is_err(),
+                "{operation} {filters}: a removed filter must be refused"
+            );
+        }
+    }
 }
 
 /// Before 2026-11-19 this pinned the quoted form of the `not<Field>` twins

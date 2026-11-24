@@ -24,7 +24,6 @@ fn workspace() -> tempfile::TempDir {
             commit_sha: "6ecc29b9c8c84d08a7e860f7f69c22b113b480ea".into(),
             paths: Some(vec!["src".into()]),
             root_files: true,
-            history_depth: 1,
         },
     )
     .expect("record");

@@ -80,9 +80,9 @@ fn an_artifact_search_ecosystem_runs_here_as_sent_and_comes_back_unchanged() {
     }
 }
 
-/// OSV's own spelling of a registry is never a silent input: it is read as
-/// the word with a note that names the word (a case form of it), or refused
-/// with the word to send.
+/// OSV's own spelling of a registry runs as the word: a case form of it is
+/// read as the word, silently, as the reading changes no meaning; any other
+/// spelling is refused with the word to send.
 #[test]
 fn osvs_spelling_of_a_registry_names_the_word_to_send() {
     let contract =
@@ -100,8 +100,12 @@ fn osvs_spelling_of_a_registry_names_the_word_to_send() {
         let quoted = format!("\"{word}\"");
         match octocode_runtime_base::contracts::validate("securityCheck", read.clone()) {
             Ok(_) => {
+                assert!(
+                    osv.eq_ignore_ascii_case(word),
+                    "only a case form runs: {osv}"
+                );
                 assert_eq!(read["queries"][0]["ecosystem"], json!(word), "{osv}");
-                assert!(notes.iter().any(|note| note.contains(&quoted)), "{notes:?}");
+                assert!(notes.is_empty(), "{osv}: {notes:?}");
             }
             Err(refused) => {
                 let said = refused.to_string();

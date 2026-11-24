@@ -41,15 +41,19 @@ fn span_list(spans: &[[usize; 2]]) -> String {
 /// a span holding a `redacted` line or the line after it (where the parser
 /// meets the placeholder's missing syntax) is redacted text the grammar
 /// cannot read; the rest are syntax the grammar lacks (Flow types, in
-/// JavaScript). `None` after a clean parse.
+/// JavaScript). With `through`, only the spans that start at or before that
+/// line: a later span cannot hide what encloses it. `None` after a clean
+/// parse, or when no span starts by `through`.
 fn unparsed_note(
     document: Option<&octocode_engine::graph::GraphFactsDocument>,
     path: &str,
     redacted: &[usize],
+    through: Option<usize>,
     misses: &str,
 ) -> Option<String> {
     let (by_redaction, by_syntax): (Vec<_>, Vec<_>) = unparsed_spans(document)
         .into_iter()
+        .filter(|&[start, _]| through.is_none_or(|line| start <= line))
         .partition(|&[start, end]| {
             redacted
                 .iter()
@@ -79,14 +83,16 @@ fn unparsed_note(
 }
 
 /// Why a block may miss its enclosing declaration: the parser recovered
-/// from syntax errors, named with the skipped line spans. A read states it
-/// once, however many of its windows it explains.
-pub(super) fn recovered_parse(content: &str, path: &str) -> Option<String> {
+/// from syntax errors, named with the skipped line spans (with `through`,
+/// those starting at or before that line). A read states it once, however
+/// many of its windows it explains.
+pub(super) fn recovered_parse(content: &str, path: &str, through: Option<usize>) -> Option<String> {
     let document = file_document(content, path);
     unparsed_note(
         document.as_deref(),
         path,
         &[],
+        through,
         "the outline may miss the enclosing declaration",
     )
     .map(|note| format!(" {note}"))
@@ -120,6 +126,7 @@ pub(in crate::source_view) fn outline_recovery_warning(
         document,
         path,
         redacted,
+        None,
         "this outline may miss declarations there",
     )
     .into_iter()

@@ -87,10 +87,6 @@ pub(crate) fn context_lines(query: &LocalFetchQuery) -> octocode_engine::types::
         )
 }
 
-pub(crate) fn whole_word(query: &LocalFetchQuery) -> bool {
-    matched(query).is_some_and(|q| q.whole_word)
-}
-
 pub fn match_strings(query: &LocalFetchQuery) -> Vec<&str> {
     matched(query).map_or_else(Vec::new, |q| {
         q.match_string.0.iter().map(|term| term.as_str()).collect()
@@ -239,10 +235,8 @@ pub fn read_lead(path: &str) -> Option<LocalFetchQuery> {
     Some(
         LocalFetchQueryContent0 {
             limit: None,
-            main_goal: None,
             path: path.try_into().ok()?,
             read_progress: None,
-            reasoning: None,
             snapshot: None,
             view: ContentView::Content,
         }
@@ -266,11 +260,9 @@ pub fn ranges_lead(path: &str, windows: &[(u64, u64)]) -> Option<LocalFetchQuery
         LocalFetchQueryContentRanges {
             block: None,
             limit: None,
-            main_goal: None,
             path: path.try_into().ok()?,
             ranges,
             read_progress: None,
-            reasoning: None,
             snapshot: None,
             view: ContentView::Content,
         }
@@ -283,10 +275,8 @@ pub fn outline_lead(path: &str) -> Option<LocalFetchQuery> {
     Some(
         LocalFetchQuerySymbols {
             limit: None,
-            main_goal: None,
             path: path.try_into().ok()?,
             read_progress: None,
-            reasoning: None,
             snapshot: None,
             view: LocalFetchQuerySymbolsView::Symbols,
         }

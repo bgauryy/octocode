@@ -46,7 +46,6 @@ pub fn files_listing(path: &str) -> Option<StructureSearchQueryFiles> {
         include_hidden: None,
         include_ignored: None,
         limit: None,
-        main_goal: None,
         max_depth: None,
         min_depth: None,
         modified_at: None,
@@ -55,7 +54,6 @@ pub fn files_listing(path: &str) -> Option<StructureSearchQueryFiles> {
         page: NonZeroU64::MIN,
         path: path.try_into().ok()?,
         permissions: None,
-        reasoning: None,
         scan_offset: None,
         snapshot: None,
         // The path rank in its own order, as the contract states it.

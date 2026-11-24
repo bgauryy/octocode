@@ -210,14 +210,15 @@ async fn a_field_beside_a_cursor_at_another_value_is_refused_naming_the_saved_va
     assert!(failed, "{sent}: {refused}");
     assert_eq!(refused["errorCode"], "invalidInput", "{sent}: {refused}");
     // A cursor sent inside the one row is the cursor call, its row's fields
-    // beside it: held where the saved query holds them, and said.
+    // beside it: held where the saved query holds them. The lift itself
+    // changes no value, so only the held field is said.
     let sent = json!({"queries": [beside(&next, json!({"operation": "search"}))]});
     let (failed, ran) = mcp(&runtime, "in a row", "ghSearchRepo", sent.clone()).await;
     assert!(!failed, "{sent}: {ran}");
     assert!(
-        warnings(&ran)
+        !warnings(&ran)
             .iter()
-            .any(|warning| warning.starts_with("read queries[0].cursor")),
+            .any(|warning| warning.starts_with("read ")),
         "{sent}: {ran}"
     );
     runtime.close().await;

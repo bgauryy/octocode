@@ -1837,7 +1837,6 @@
           ],
           "regexEngine": "rust",
           "caseMode": "smart",
-          "wholeWord": false,
           "contextLines": {
             "before": 0,
             "after": 100
@@ -1936,7 +1935,6 @@
           ],
           "regexEngine": "literal",
           "caseMode": "smart",
-          "wholeWord": false,
           "ranges": [
             {
               "startLine": 1,
@@ -3459,8 +3457,7 @@
           "matchString": [
             "expire"
           ],
-          "caseMode": "insensitive",
-          "wholeWord": true
+          "caseMode": "insensitive"
         }
       ]
     },
@@ -3476,11 +3473,28 @@
           ],
           "regexEngine": "literal",
           "caseMode": "insensitive",
-          "wholeWord": true,
           "contextLines": {
             "before": 0,
             "after": 0
           }
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-content.whole-word",
+    "tool": "ghGetFileContent",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "path": "src/a.ts",
+          "matchString": [
+            "expire"
+          ],
+          "wholeWord": true
         }
       ]
     }
@@ -3516,8 +3530,7 @@
       "queries": [
         {
           "owner": "o",
-          "repo": "r",
-          "historyDepth": 1
+          "repo": "r"
         }
       ]
     }
@@ -3534,8 +3547,7 @@
           "paths": [
             "src",
             ".github"
-          ],
-          "historyDepth": 50
+          ]
         }
       ]
     },
@@ -3547,8 +3559,21 @@
           "paths": [
             "src",
             ".github"
-          ],
-          "historyDepth": 50
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "clone.history-depth",
+    "tool": "ghCloneRepo",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "historyDepth": 1
         }
       ]
     }
@@ -3910,12 +3935,10 @@
           "filters": {
             "state": "closed",
             "isMerged": false,
-            "isDraft": false,
             "labels": [
               "good first issue"
             ],
             "headRef": "feature",
-            "review": "approved",
             "createdAt": {
               "from": "2026-01-01T00:00:00Z"
             }
@@ -3939,9 +3962,7 @@
             "labels": [
               "good first issue"
             ],
-            "review": "approved",
             "isMerged": false,
-            "isDraft": false,
             "headRef": "feature"
           }
         }
@@ -3959,7 +3980,7 @@
           "owner": "o",
           "repo": "r",
           "filters": {
-            "linked": "pullRequest",
+            "linked": true,
             "author": "alice"
           }
         }
@@ -3975,7 +3996,7 @@
           "repo": "r",
           "filters": {
             "author": "alice",
-            "linked": "pullRequest"
+            "linked": true
           }
         }
       ]
@@ -4204,7 +4225,6 @@
           "fileStatus": [
             "modified"
           ],
-          "minChanges": 2,
           "matchString": [
             "expire"
           ]
@@ -4228,17 +4248,14 @@
           "fileStatus": [
             "modified"
           ],
-          "minChanges": 2,
           "matchString": [
             "expire"
           ],
-          "regexEngine": "literal",
-          "caseMode": "smart",
-          "wholeWord": false,
           "contextLines": {
             "before": 0,
             "after": 0
-          }
+          },
+          "regexEngine": "literal"
         }
       ]
     }

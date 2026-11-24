@@ -22,62 +22,29 @@ pub(super) struct Global {
     /// The `others` OSV lists for the package's module, in records that name
     /// other packages of it and not this one.
     module_listed: Vec<String>,
-    /// Ids OSV does not list that GitHub withdrew, with when: never counted.
-    withdrawn: Vec<(String, String)>,
-    /// What GitHub states of each record beyond its row: its withdrawal and
-    /// its class when not `reviewed` ([`advisories::github_notes`]).
-    notes: Vec<String>,
-    /// Ids GitHub classes `unreviewed`: a withdrawn one states that in its
-    /// withdrawal warning, so its note is not repeated.
+    /// Ids OSV does not list that GitHub withdrew: never counted.
+    withdrawn: Vec<String>,
+    /// What GitHub states of each record that its row's `githubType`
+    /// cannot ([`advisories::github_notes`]), by the record's id.
+    notes: Vec<(String, String)>,
+    /// Ids GitHub classes `unreviewed`: a record on the row states it as
+    /// `githubType`; one only GitHub matches gets a note.
     unreviewed: Vec<String>,
     /// Ids GitHub classes as malware that it still matches (not withdrawn):
     /// each fires the contract's `malware` caution.
     malware: Vec<String>,
 }
 
-/// How a withdrawal warning begins, and what follows the id it names: the
-/// summary view states these as one sentence ([`collapse_withdrawn`]).
-const WITHDREW: &str = "GitHub withdrew ";
-const WITHDREW_AT: &str = " at ";
-
-/// The summary's one sentence for the withdrawal warnings in `warnings`: each
-/// withdrawn record is retracted and never counted, so the summary names them
-/// once, at the place of the first, and `related` reads them (the `details`
-/// view states each with its date).
-pub(super) fn collapse_withdrawn(warnings: &mut Vec<Value>) {
-    let withdrawn = |warning: &Value| {
-        warning
-            .as_str()
-            .and_then(|text| text.strip_prefix(WITHDREW))
-            .and_then(|rest| rest.split_once(WITHDREW_AT))
-            .map(|(id, _)| id.to_owned())
+/// The one sentence that names every record GitHub withdrew, in both views:
+/// a withdrawn record is retracted and never counted, which bounds what the
+/// answer claims; its date and text stay on its own `advisory` read.
+fn withdrawn_warning(ids: &[String]) -> Option<String> {
+    let named = match ids {
+        [] => return None,
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
     };
-    let ids = warnings.iter().filter_map(withdrawn).collect::<Vec<_>>();
-    let Some(first) = warnings
-        .iter()
-        .position(|warning| withdrawn(warning).is_some())
-    else {
-        return;
-    };
-    let mut seen = false;
-    warnings.retain(|warning| {
-        let drop = withdrawn(warning).is_some();
-        let keep = !drop || !seen;
-        seen |= drop;
-        keep
-    });
-    let (named, them) = match ids.as_slice() {
-        [one] => (
-            one.clone(),
-            "so it is not counted; the related read shows it",
-        ),
-        [rest @ .., last] => (
-            format!("{} and {last}", rest.join(", ")),
-            "so they are not counted; the related reads show them",
-        ),
-        [] => return,
-    };
-    warnings[first] = json!(format!("{WITHDREW}{named}, {them}."));
+    Some(format!("GitHub withdrew {named}: not counted."))
 }
 
 /// GitHub's advisories at the confirmed version, every page; `None` when no
@@ -113,7 +80,11 @@ pub(super) async fn read(confirmed: &Confirmed, net: &Net<'_>) -> Option<Global>
     for advisory in &walked.advisories {
         match advisories::row(advisory, &selection) {
             Ok(row) => {
-                notes.extend(advisories::github_notes(advisory));
+                notes.extend(
+                    advisories::github_notes(advisory)
+                        .into_iter()
+                        .map(|note| (advisory.ghsa_id.clone(), note)),
+                );
                 if advisory.kind.as_deref() == Some("unreviewed") {
                     unreviewed.push(advisory.ghsa_id.clone());
                 }
@@ -215,10 +186,7 @@ impl Global {
             })
             .map(|row| row.id.clone())
             .collect();
-        self.withdrawn = withdrawn
-            .into_iter()
-            .map(|row| (row.id.clone(), row.withdrawn.clone().unwrap_or_default()))
-            .collect();
+        self.withdrawn = withdrawn.into_iter().map(|row| row.id.clone()).collect();
         if !twins.is_empty() {
             let mut merged = SourceResult::new(Source::GitHub);
             merged.advisories = twins;
@@ -234,17 +202,14 @@ impl Global {
 
     /// With no OSV answer to merge with: every record GitHub matches is a row
     /// of its own, and none is named as one OSV does not list. A withdrawn
-    /// record is retracted: stated apart, one call away, as [`Self::merge`]
-    /// states it, so neither it nor its CVE is counted.
+    /// record is retracted: stated apart, as [`Self::merge`] states it, so
+    /// neither it nor its CVE is counted.
     pub(super) fn stand_alone(&mut self, results: &mut Vec<SourceResult>) {
         self.others.clear();
         self.module_listed.clear();
         let (withdrawn, matched): (Vec<_>, Vec<_>) =
             self.rows.iter().partition(|row| row.withdrawn.is_some());
-        self.withdrawn = withdrawn
-            .into_iter()
-            .map(|row| (row.id.clone(), row.withdrawn.clone().unwrap_or_default()))
-            .collect();
+        self.withdrawn = withdrawn.into_iter().map(|row| row.id.clone()).collect();
         if !matched.is_empty() {
             let mut own = SourceResult::new(Source::GitHub);
             own.advisories = matched.into_iter().cloned().collect();
@@ -254,7 +219,8 @@ impl Global {
 
     /// The row's one GitHub entry states what the database said: the ids OSV
     /// does not list, each one ready `advisory` call away, or why the list is
-    /// not whole.
+    /// not whole. A withdrawn record is named, never read: it is not counted,
+    /// and its read shows only the retraction.
     pub(super) fn apply(&self, data: &mut Value, brief: &Map<String, Value>) {
         let stopped = advisories::failure(&self.end);
         let status = match (self.answered(), self.rows.is_empty()) {
@@ -335,42 +301,31 @@ impl Global {
                 if module.len() == 1 { "a record" } else { "records" }
             ));
         }
-        // A withdrawn record that is also unreviewed gets one warning naming
-        // both facts, so its unreviewed note is not stated again.
-        let folded = |id: &str| self.unreviewed.iter().any(|known| known == id);
-        warnings.extend(self.withdrawn.iter().map(|(id, at)| {
-            let both = if folded(id) {
-                " and has not reviewed it (its database marks it unreviewed)"
-            } else {
-                ""
-            };
-            format!(
-                "{WITHDREW}{}{WITHDREW_AT}{}{both}, so it is not counted; the related read shows it.",
-                super::answer::stated_id(id),
-                super::answer::typed(at)
-            )
-        }));
-        let repeated = self
+        let withdrawn = self
             .withdrawn
             .iter()
-            .filter(|(id, _)| folded(id))
-            .map(|(id, _)| advisories::unreviewed_note(&super::answer::stated_id(id)))
+            .map(|id| super::answer::stated_id(id))
             .collect::<Vec<_>>();
+        warnings.extend(withdrawn_warning(&withdrawn));
+        // A record on the row states its class as `githubType`; one only
+        // GitHub matches is named in a warning alone, so its class is said
+        // there. A withdrawn one is not counted, whatever its class.
+        warnings.extend(
+            self.others
+                .iter()
+                .filter(|id| self.unreviewed.contains(id))
+                .map(|id| advisories::unreviewed_note(&super::answer::stated_id(id))),
+        );
         warnings.extend(
             self.notes
                 .iter()
-                .filter(|note| !repeated.contains(note))
-                .cloned(),
+                .filter(|(id, _)| !self.withdrawn.contains(id))
+                .map(|(_, note)| note.clone()),
         );
         if !warnings.is_empty() {
             paging::push_warnings(data, warnings);
         }
-        let ids = self
-            .others
-            .iter()
-            .chain(self.withdrawn.iter().map(|(id, _)| id))
-            .map(String::as_str)
-            .collect::<Vec<_>>();
+        let ids = self.others.iter().map(String::as_str).collect::<Vec<_>>();
         // GitHub's records are named in warnings alone, uncounted.
         super::answer::advisory_calls(data, "globalAdvisories", &ids, brief, true);
     }

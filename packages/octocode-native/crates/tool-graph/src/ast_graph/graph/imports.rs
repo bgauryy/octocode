@@ -1,5 +1,6 @@
 //! `FileLink`: edges, declarations, imports and package imports.
 use super::*;
+use crate::ast_graph::aliases::TypeUseImports;
 use crate::ast_graph::linking::LinkerGraph;
 
 impl FileLink<'_, '_> {
@@ -121,12 +122,14 @@ impl FileLink<'_, '_> {
         )
     }
 
+    /// Tallies one import of edge `kind`; see [`record_resolution`].
     pub(super) fn record(
         &mut self,
         line: u32,
         spec: &str,
         target: &Option<String>,
         unsupported: bool,
+        kind: &'static str,
     ) -> bool {
         let bare = if target.is_none() {
             self.bare_target(spec)
@@ -142,8 +145,33 @@ impl FileLink<'_, '_> {
             target,
             unsupported,
             bare,
+            kind,
             self.inputs.security,
         )
+    }
+
+    /// The edge kind import `i` links as: its fact's kind for this
+    /// language, a Python import inside a function lazy, and a TypeScript
+    /// value import read only as a type as the governing tsconfig's emit
+    /// settles it: kept (a value import), elided, or not settled.
+    fn import_kind(&self, i: &octocode_engine::graph::GraphFactImport) -> &'static str {
+        let fact = if i.import_kind.is_empty() {
+            "value"
+        } else {
+            &i.import_kind
+        };
+        let kind = self.lang.import_edge(fact);
+        if kind == super::super::edges::PYTHON_IMPORT && self.inside_function(i.line) {
+            return super::super::edges::PYTHON_LAZY_IMPORT;
+        }
+        if !i.type_use_only {
+            return kind;
+        }
+        match self.inputs.ctx.type_use_imports(&self.file) {
+            TypeUseImports::Kept => kind,
+            TypeUseImports::Elided => super::super::edges::ELIDED_IMPORT,
+            TypeUseImports::Unknown => super::super::edges::TYPE_USE_IMPORT,
+        }
     }
 
     pub(super) fn declarations(
@@ -182,6 +210,8 @@ impl FileLink<'_, '_> {
                 return_elements: d.return_elements,
                 asynchronous: d.asynchronous,
                 function_typed: d.function_typed,
+                params: d.params,
+                returns: d.returns,
             });
         }
     }
@@ -238,6 +268,7 @@ impl FileLink<'_, '_> {
         // a quoted C include is one the project's search path missed.
         let quoted =
             self.lang == Linker::CFamily && i.resolution_hint.as_deref() == Some("c-relative");
+        let kind = self.import_kind(&i);
         let external = if include || quoted {
             record_resolution(
                 self.b,
@@ -248,25 +279,13 @@ impl FileLink<'_, '_> {
                 &target,
                 unsupported,
                 BareTarget::Internal,
+                kind,
                 self.inputs.security,
             )
         } else {
-            self.record(i.line, &i.specifier, &target, unsupported)
+            self.record(i.line, &i.specifier, &target, unsupported, kind)
         };
         if let Some(t) = target.as_ref().filter(|t| **t != self.file) {
-            let kind = if i.import_kind.is_empty() {
-                "value"
-            } else {
-                &i.import_kind
-            };
-            let mut kind = self.lang.import_edge(kind);
-            if kind == super::super::edges::PYTHON_IMPORT && self.inside_function(i.line) {
-                kind = super::super::edges::PYTHON_LAZY_IMPORT;
-            }
-            // A binding read only as a type: the emit settings decide its load.
-            if i.type_use_only {
-                kind = super::super::edges::TYPE_USE_IMPORT;
-            }
             self.edge(t, kind, i.line);
             if i.imported_name.as_deref() == Some("*") || self.lang == Linker::CFamily || splice {
                 self.b.namespace_targets.insert(t.clone());
@@ -282,6 +301,7 @@ impl FileLink<'_, '_> {
             external,
             scope_id: i.scope_id,
             inline,
+            kind,
         });
     }
 
@@ -337,6 +357,7 @@ impl FileLink<'_, '_> {
                     i.line,
                     &i.specifier,
                     target == BareTarget::OutsideRoot,
+                    self.lang.import_edge("value"),
                     self.inputs.security,
                 );
                 Vec::new()
@@ -369,6 +390,7 @@ impl FileLink<'_, '_> {
                 external,
                 scope_id: i.scope_id,
                 inline: false,
+                kind: self.lang.import_edge("value"),
             });
             return;
         }
@@ -403,6 +425,7 @@ impl FileLink<'_, '_> {
                 external: false,
                 scope_id: i.scope_id.clone(),
                 inline: false,
+                kind: self.lang.import_edge("value"),
             });
         }
     }

@@ -69,7 +69,7 @@ pub fn line_read(q: &LocalFetchQuery, ranges: &[LineRange]) -> Option<LocalFetch
         q,
         serde_json::json!({
             "view": "content", "matchString": null, "regexEngine": null,
-            "caseMode": null, "wholeWord": null, "contextLines": null,
+            "caseMode": null, "contextLines": null,
             "block": null, "readProgress": null, "snapshot": null,
             "ranges": ranges.iter().map(|range| serde_json::json!({
                 "startLine": range.start, "endLine": range.end

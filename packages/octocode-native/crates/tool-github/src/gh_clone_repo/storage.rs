@@ -245,27 +245,25 @@ fn repo_dir(home: &Path, owner: &str, repo: &str) -> PathBuf {
 }
 
 /// The destination of `commit` (a full SHA, keyed lowercase: one commit
-/// in any case is one checkout) with its sparse set and history depth.
+/// in any case is one checkout) with its sparse set. Every checkout holds
+/// the commit's whole ancestry, so history keys nothing: this is the very
+/// entry an earlier build gave a row without a requested depth, so its
+/// checkouts are still found and reused. An entry an earlier build keyed by
+/// a depth (`__d<n>` before `__host_`) is no row's destination: it stays on
+/// disk, readable and registered in its store, beside this one.
 pub(super) fn clone_dir(
     home: &Path,
     owner: &str,
     repo: &str,
     commit: &str,
     sparse_key: Option<&str>,
-    depth: u64,
     host: &str,
 ) -> PathBuf {
     let sparse = sparse_key
         .map(|key| format!("__sp_{}", hash(key, 6)))
         .unwrap_or_default();
-    // A shallow checkout's entry names no depth.
-    let history = if depth > 1 {
-        format!("__d{depth}")
-    } else {
-        String::new()
-    };
     repo_dir(home, owner, repo).join(format!(
-        "{}__full{sparse}{history}__host_{}",
+        "{}__full{sparse}__host_{}",
         commit.to_ascii_lowercase(),
         hash(host, 16)
     ))

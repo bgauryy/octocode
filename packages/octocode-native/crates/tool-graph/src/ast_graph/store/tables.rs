@@ -194,7 +194,9 @@ const RECOVERED_TARGET: u16 = 32;
 const MEMBER_DATA: u16 = 64;
 /// An enum member: constructed (`Attempt::Done(1)`), never called.
 const ENUM_MEMBER: u16 = 128;
-/// A Rust `macro_rules!` macro: only an invocation (`expands`) reaches it.
+/// A macro its grammar invokes with syntax of its own (a Rust
+/// `macro_rules!`): only an invocation (`expands`) reaches it, never a call.
+/// A C-family `#define` is invoked with call syntax, so it is no such target.
 const MACRO_TARGET: u16 = 256;
 
 /// A field, property or enum member, or a constant or variable declared in
@@ -213,7 +215,9 @@ fn is_member_data(decl: &Declaration, by_id: &HashMap<&str, &Declaration>) -> bo
     }
 }
 
-fn target_bits(kind: &str, member_data: bool) -> u16 {
+/// `invokes_macros`: the declaring file's grammar invokes macros with their
+/// own syntax ([`crate::ast_graph::linking::LinkerGraph::invokes_macros`]).
+fn target_bits(kind: &str, member_data: bool, invokes_macros: bool) -> u16 {
     let call = if NON_CALLABLE.contains(&kind) {
         0
     } else {
@@ -232,7 +236,11 @@ fn target_bits(kind: &str, member_data: bool) -> u16 {
     };
     let data = if member_data { MEMBER_DATA } else { 0 };
     let variant = if kind == "enumMember" { ENUM_MEMBER } else { 0 };
-    let macro_ = if kind == "macro" { MACRO_TARGET } else { 0 };
+    let macro_ = if kind == "macro" && invokes_macros {
+        MACRO_TARGET
+    } else {
+        0
+    };
     call | ty | method | REFERENCE_TARGET | lexical | data | variant | macro_
 }
 
@@ -246,6 +254,8 @@ struct External<'f> {
     name: String,
     declared: &'static str,
     line: u32,
+    /// The import's edge kind (`static-import`, `type-import`, ...).
+    kind: &'static str,
 }
 
 /// Projection state: the interned strings, nodes and edges built so far.

@@ -27,6 +27,7 @@ mod link;
 mod markup;
 mod resolve;
 mod rust;
+mod namespaces;
 mod scan;
 pub(crate) mod scope;
 mod turn;
@@ -238,6 +239,7 @@ pub(crate) fn build_graph_with_registry(
         }
     }
     inherit_parent_globs(&mut built, &inputs);
+    namespaces::link_namespace_uses(&mut built);
     markup::link_markup(
         &mut built,
         &inputs,
@@ -247,7 +249,20 @@ pub(crate) fn build_graph_with_registry(
     )?;
     diagnose_unlinked_path_imports(&mut built, &js_modules, security);
     built.diagnostics.sort();
-    built.diagnostics.dedup();
+    // One row per statement: the bindings of one unlinked import that link
+    // as different kinds (`import { type T, v }`) keep the strongest, as
+    // the file edge of a linked one does.
+    fn statement(d: &Diagnostic) -> (&str, Option<u32>, DiagnosticCode, &str, Option<&str>) {
+        (&d.file, d.line, d.code, &d.message, d.target.as_deref())
+    }
+    built.diagnostics.dedup_by(|later, kept| {
+        let same = statement(later) == statement(kept);
+        let strength = |kind: Option<&str>| kind.map_or(u8::MAX, super::edges::strength);
+        if same && strength(later.import_kind) < strength(kept.import_kind) {
+            kept.import_kind = later.import_kind;
+        }
+        same
+    });
     Ok(built)
 }
 

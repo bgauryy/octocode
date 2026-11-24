@@ -1,5 +1,7 @@
 use super::super::ValidationIssue;
-use super::{render_selector, selector_literals, selectors_accept, sibling_selector_values};
+use super::{
+    render_selector, selector_literals, selectors_accept, sibling_selector_values, sibling_switch,
+};
 use serde_json::Value;
 
 pub(super) fn branch_object<'a>(root: &'a Value, branch: &'a Value) -> &'a Value {
@@ -9,14 +11,13 @@ pub(super) fn branch_object<'a>(root: &'a Value, branch: &'a Value) -> &'a Value
 /// An unknown field that a sibling branch declares is a mode mismatch, not a
 /// typo. Record the sibling's missing required fields so the error projector
 /// can say which mode the field belongs to (e.g. discovery-only `pageSize`).
-/// When the query omits the selectors of the one branch in its mode, and
-/// each is a single literal, the fix sets them (`setFields`:
-/// `nameRegex` → `operation:"files"`). A selector the query spells at its
-/// default value says what omitting it says, so the fix is the same switch
-/// (`operation:"tree"` → `"files"`); when the query's own
-/// selector picks another branch, the field is that mode's
-/// (`siblingConflict`). Only a field directly in the union's value: a nested
-/// one that shares a branch field's name (`filters.owner`) is not that field.
+/// When the query's own selector picks another branch, record the selector
+/// values that admit the field (`siblingRequires`), and, when one value
+/// does in every declaring branch, that switch (`siblingSwitch`:
+/// `{"operation":"search"}`), which an example applies. A nested key counts
+/// only where a sibling declares it at the same path (`filters.language` of
+/// a search, refused by a list): a nested one that merely shares a branch
+/// field's name (`filters.owner`) is not that field.
 pub(super) fn annotate_sibling_branch_fields(
     issues: &mut [ValidationIssue],
     root: &Value,
@@ -26,20 +27,22 @@ pub(super) fn annotate_sibling_branch_fields(
 ) {
     for item in issues.iter_mut().filter(|item| {
         item.rule_id == "schema.unknown-field"
-            && item.path.len() == path.len() + 1
+            && item.path.len() > path.len()
             && item.path.starts_with(path)
     }) {
-        let Some(field) = item.path.last() else {
+        let within = &item.path[path.len()..];
+        let Some(field) = within.first() else {
             continue;
         };
         let declaring = branches
             .iter()
             .flat_map(|branch| super::branches::alternatives(root, branch))
-            .filter(|branch| {
-                branch
+            .filter(|branch| match within {
+                [_] => branch
                     .get("properties")
                     .and_then(|properties| properties.get(field))
-                    .is_some()
+                    .is_some(),
+                _ => names_nested_key(root, branch, within),
             })
             .collect::<Vec<_>>();
         // Missing fields only repair a branch in the query's own mode; when no
@@ -57,8 +60,35 @@ pub(super) fn annotate_sibling_branch_fields(
             schema.insert("siblingRequires".into(), Value::Array(requires));
         } else if let Some(requires) = sibling_selector_values(root, &declaring, value, field) {
             schema.insert("siblingRequires".into(), Value::Array(requires));
+            if let Some(switch) = sibling_switch(root, &declaring, value, field) {
+                schema.insert("siblingSwitch".into(), switch);
+            }
         }
     }
+}
+
+/// Whether `branch` names the key `within` ends with among the
+/// `properties` of the object at the path before it (any form of that
+/// object): a value that takes any key (`additionalProperties`) names none.
+fn names_nested_key(root: &Value, branch: &Value, within: &[String]) -> bool {
+    fn names(root: &Value, schema: &Value, key: &str, depth: usize) -> bool {
+        let shape = crate::contracts::resolve_ref(schema, &root["$defs"]);
+        shape["properties"].get(key).is_some()
+            || (depth < 8
+                && ["allOf", "anyOf", "oneOf"].iter().any(|keyword| {
+                    shape[keyword]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .any(|form| names(root, form, key, depth + 1))
+                }))
+    }
+    let Some((key, parents)) = within.split_last() else {
+        return false;
+    };
+    super::super::sample::schemas_at(branch, &root["$defs"], parents)
+        .into_iter()
+        .any(|parent| names(root, parent, key, 0))
 }
 
 /// An unknown field directly in the union's value lists as allowed every

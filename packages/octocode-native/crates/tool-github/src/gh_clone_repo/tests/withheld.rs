@@ -183,7 +183,14 @@ fn a_remote_that_ignores_the_blob_filter_is_refused() {
     );
     git(&bare, &["config", "uploadpack.allowFilter", "true"]);
     let restored = clone_pinned(&fixture, &query(), &context).expect("filtered retry");
-    assert!(restored.location.full_history);
+    // The refused fetch left nothing behind: the retry holds the whole
+    // ancestry, as the origin has it.
+    let origin = git_output(&fixture.work, &["rev-list", "--count", "HEAD"]);
+    assert_eq!(
+        history(&restored.location.path).to_string(),
+        origin.trim(),
+        "{restored:?}"
+    );
 }
 
 /// A credential blob that reached the store (a rule set that withheld less

@@ -7,6 +7,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createGzip } from 'node:zlib';
 import { writeNewFile } from './output.ts';
+import { buildSearchIndex, readSearchIndex } from './runtime/search-sidecar.ts';
 
 // Gzip and base64 a file, or text: a file's bytes as they are, the event log as readEvents rebuilds it (its
 // `rows` events store references to the chunk results, which the page cannot read).
@@ -73,6 +74,8 @@ export async function exportHtml(run: string, output: string) {
   });
   for await (const line of events)
     if (line.trim()) replayRoot = check(JSON.parse(line));
+  // The page's query worker cannot read the source: the search sidecar (doc comments, every declaration) goes with it.
+  const search = readSearchIndex(inputs[1]) ?? buildSearchIndex(inputs[1]);
   async function* document() {
     yield before;
     yield `<script id="saved-root" type="application/json">${JSON.stringify(replayRoot ?? null).replaceAll('<', '\\u003c')}</script>`;
@@ -82,6 +85,7 @@ export async function exportHtml(run: string, output: string) {
     for (const [id, source] of [
       ['saved-events', { text: `${log}\n` }],
       ['saved-data', join(run, 'data.json')],
+      ['saved-search', { text: JSON.stringify(search) }],
     ] as const) {
       yield `<script type="application/octet-stream" id="${id}">`;
       yield* encoded(source);

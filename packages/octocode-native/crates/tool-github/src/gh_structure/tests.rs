@@ -531,3 +531,36 @@ fn include_globs_read_paths_below_the_listed_path_by_the_one_rule() {
         }
     }
 }
+
+/// A walk that missed entries counts what stays unread, in one short warning
+/// each; the retry is the row's `next`, never restated.
+#[test]
+fn a_walk_that_missed_entries_counts_them() {
+    let traversal = Traversal {
+        failed_subtrees: 2,
+        unchecked: 3,
+        ..Traversal::default()
+    };
+    let query: GhStructureQueryTree = serde_json::from_value(json_fixture(
+        r#"{"operation": "tree", "owner": "a", "repo": "b"}"#,
+    ))
+    .expect("tree query");
+    let page = ListingPage::of(&query, &traversal.entries);
+    let mut value = json!({});
+    disclose_limits(&traversal, &page, &mut value);
+    assert_eq!(
+        value["warnings"],
+        json_fixture(
+            r#"[
+                "2 folder(s) could not be read: their entries are missing.",
+                "3 file(s) left out: their folder's git tree did not answer."
+            ]"#
+        ),
+        "{value}"
+    );
+    assert_eq!(
+        value["partialReasons"],
+        json!(["partialTreeFailures"]),
+        "{value}"
+    );
+}

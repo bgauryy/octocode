@@ -984,9 +984,7 @@ async fn confirm(
             // The repair call reads as many nearest versions as one call carries.
             let limit =
                 octocode_runtime_base::contracts::batch_limit(ToolId::SecurityCheck).unwrap_or(1);
-            let (nearest, fewer) = crate::artifact::suggested(kind, &error, limit);
-            error.nearest = nearest;
-            error.hints.extend(fewer);
+            error.nearest = crate::artifact::suggested(kind, &error, limit);
             return Ok((
                 Confirmed {
                     ecosystem: package.ecosystem,
@@ -1398,21 +1396,6 @@ async fn ask_unlisted(
     }
 }
 
-/// The ids of the advisories `results` count, each advisory once by its
-/// first live record; a withdrawn one is not counted.
-fn counted_ids(results: &[SourceResult]) -> Vec<String> {
-    let records = results
-        .iter()
-        .flat_map(|result| &result.advisories)
-        .collect::<Vec<_>>();
-    super::record::advisory_groups(&records)
-        .iter()
-        .map(|group| super::record::Standing::of(group))
-        .filter(|standing| !standing.is_withdrawn())
-        .filter_map(|standing| standing.live.first().map(|row| row.id.clone()))
-        .collect()
-}
-
 /// A row whose empty answer proves nothing: each source says it did not cover
 /// this target, never `noneKnown`.
 fn not_evaluated(data: &mut Value, why: &str) {
@@ -1526,31 +1509,28 @@ fn respond(
     if let Some(trust) = &notes.trust {
         trust.apply(&mut data, &package.brief);
     }
-    if let Some(absent) = notes.absent {
+    if let Some(mut absent) = notes.absent {
         match version {
             // OSV answered at a version its records name: an answer, which
             // states the nearest published versions to move to as evidence
-            // of its own (`nearestVersions`), not as a call.
-            Some(version) if notes.unlisted => {
-                paging::push_warnings(
-                    &mut data,
-                    [answer::unlisted_warning(
-                        name,
-                        version,
-                        &counted_ids(results),
-                    )],
-                );
+            // of its own (`nearestVersions`), not as a call. `versionListed`
+            // says the registry does not list it.
+            Some(_) if notes.unlisted => {
                 if !absent.nearest.is_empty() {
                     data["nearestVersions"] = json!(absent.nearest);
                 }
             }
             // A version the registry does not list is a failed lookup, so the
             // row exits non-zero; it still lists what the sources know of the
-            // name, and its repair reads the nearest published versions.
+            // name, and its repair reads the nearest published versions (the
+            // call that discovers them, so no hint says to).
             _ => {
                 data["status"] = json!("error");
                 data["errorCode"] = json!(absent.code);
                 data["error"] = json!(sentence(&absent.message));
+                if !absent.nearest.is_empty() {
+                    absent.drop_version_hint();
+                }
                 octocode_runtime_base::response::result::add_hints(
                     &mut data,
                     absent.hints.iter().cloned(),

@@ -3,11 +3,12 @@ use super::*;
 use octocode_test_support::json_fixture;
 
 /// An empty commit listing scoped to a path broadens by dropping each
-/// narrowing filter, the path among them, and leads to the listing that
-/// checks the path: its parent directory at the listed ref. An empty
-/// pull-request search narrowed by `state` drops it too.
+/// narrowing filter, never the path (a listing without it answers nothing
+/// about the path), and leads to the listing that checks the path: its
+/// parent directory at the listed ref. An empty pull-request search narrowed
+/// by `isMerged` drops it too.
 #[tokio::test]
-async fn an_empty_path_scoped_listing_broadens_past_the_path_and_checks_it() {
+async fn an_empty_path_scoped_listing_broadens_its_filters_and_checks_the_path() {
     let server = wiremock::MockServer::builder().start().await;
     octocode_test_support::mock_http::mount_json(
         &server,
@@ -58,8 +59,7 @@ async fn an_empty_path_scoped_listing_broadens_past_the_path_and_checks_it() {
         "{data}"
     );
     assert!(
-        rows.iter()
-            .any(|row| row.get("path").is_none() && row["filters"]["committedAt"].is_object()),
+        rows.iter().all(|row| row["path"] == "crates/nonexistent"),
         "{data}"
     );
     assert_eq!(
@@ -99,9 +99,9 @@ async fn an_empty_path_scoped_listing_broadens_past_the_path_and_checks_it() {
         "ghSearchHistory",
         |_| true,
     )["input"]["queries"];
-    assert!(
-        rows.as_array()
-            .is_some_and(|rows| rows.iter().any(|row| row.get("state").is_none())),
+    assert_eq!(
+        rows,
+        &json!([{"operation":"pullRequest","owner":"o","repo":"r","keywords":["fix"]}]),
         "{data}"
     );
     assert!(data["next"].get("viewTree").is_none(), "{data}");
@@ -144,6 +144,18 @@ async fn an_empty_path_listing_says_unpushed_files_have_no_history_here() {
     assert!(
         hints.contains("pushed") && hints.contains("local git"),
         "the hint says only pushed history is listed and points at local git: {hints}"
+    );
+    // No filter and no term to change: the path hint is the only one, and no
+    // broader history search drops the path it asks about.
+    assert_eq!(data["hints"].as_array().map(Vec::len), Some(1), "{data}");
+    assert!(!hints.contains("related"), "{hints}");
+    assert!(
+        data["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .all(|call| call["tool"] != "ghSearchHistory"),
+        "{data}"
     );
 }
 

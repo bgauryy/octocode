@@ -256,14 +256,17 @@ pub(super) fn push_opt(out: &mut Vec<DocumentSymbol>, symbol: Option<DocumentSym
 
 fn function_symbol(f: &Function, li: &SpanPositions) -> Option<DocumentSymbol> {
     let id = f.id.as_ref()?;
-    Some(container(
-        id.name.as_str(),
-        symbol_kind::FUNCTION,
-        f.span,
-        id.span,
-        nested_in_function(f, li),
-        li,
-    ))
+    Some(
+        container(
+            id.name.as_str(),
+            symbol_kind::FUNCTION,
+            f.span,
+            id.span,
+            nested_in_function(f, li),
+            li,
+        )
+        .with_signature(li.signature(f.params.span, f.return_type.as_deref())),
+    )
 }
 
 /// Named declarations inside a function body: function declarations,

@@ -226,3 +226,19 @@ fn a_message_mentions_only_same_repository_references() {
     assert_eq!(mentioned, [12, 2483]);
     assert!(super::mentioned_numbers("printer: add hyperlinks").is_empty());
 }
+
+/// The no-pull-request note is one short sentence, fact first, beside its
+/// related search by SHA; a number the message mentions is named as maybe
+/// another item, never as the commit's own, and the search is named once.
+#[test]
+fn the_no_pull_request_note_is_short_and_names_mentions_as_unconfirmed() {
+    let plain = super::no_pull_request_named("printer: add hyperlinks");
+    assert_eq!(plain, super::NO_PULL_REQUEST_NAMED);
+    assert!(plain.chars().count() <= 150, "{plain}");
+    let mentioned = super::no_pull_request_named("submitted as part of PR #2483");
+    assert!(
+        mentioned.contains("#2483 it mentions may be an issue or another pull request"),
+        "{mentioned}"
+    );
+    assert_eq!(mentioned.matches("related[]").count(), 1, "{mentioned}");
+}

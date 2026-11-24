@@ -15,6 +15,7 @@ Measured on `packages/octocode-native` (3,520 files, 19 chunks, 70,031 calls) on
 | `brief.txt` | Text | 4 KB | With `data.json` | Agents first: counts, top PageRank, betweenness, cycles, packages, checks |
 | `events.jsonl` | JSON Lines, append-only | 12 MB | Every event as it happens; a refresh appends. A `rows` event keeps its page and count, not its rows, which its chunk result holds | `serve --replay` and `html` (rows rebuilt from the chunk results), `refresh` (the run's root and listing) |
 | `chunks/<id>/data.json.gz` | gzip JSON | 4.9 MB in all | Atomically when the chunk is built | `refresh` (reuses unchanged chunks), stitching |
+| `search-index.json` | One JSON document | 17 MB for 36k symbols | Atomically on the first `search` or `context` after `data.json` changes (keyed by its sha256); each chunk's part also goes to the graph cache | `search`, `context`, `html` (embedded for the offline worker): every declaration and its doc comment |
 | `chunks/<id>/evidence/*.jsonl.gz` | gzip JSON Lines, one native page per line | 7.5 MB in all | While the chunk is built | People auditing a row: `gzip -dc … \| rg <id>` |
 | `links.json` | JSON | — | `octocode-graph link … add` | Agents' links with their quotes and hashes; kept across rebuilds and checked by each |
 | `wiki/` | Markdown | 0.9 MB | After metrics | `wiki read`, the viewer |
@@ -23,17 +24,21 @@ Measured on `packages/octocode-native` (3,520 files, 19 chunks, 70,031 calls) on
 
 `stitched.json` exists only while a build runs, so queries can answer before LSP finishes; `data.json` replaces it.
 
+Outside the result directory, `graph-cache/` in the Octocode home holds what any build can reuse, keyed by content: `chunks/<key>/` (a chunk's `data.json.gz`, its evidence and `meta.json` with every key part), `lsp/<key>.json` (one declaration's callees answer with the digests of the files it points into) and `derived/<namespace>/` (package closures). A build copies a hit into its own directory, so pruning the cache (`octocode-graph cache prune --max-bytes N`) never changes a saved graph.
+
 ## `data.json`
 
 | Field | Holds |
 |---|---|
 | `section` | The absolute root; a path's absolute form is `section/path` |
-| `files[]` | `id` (root-relative path), `label`, `language`, `roles`, `chunk`, `fanIn`, `fanOut`, `check` (on-disk status), `metrics` (PageRank, betweenness, in/out weight, depth, core, community, cycle); workspace package nodes add `kind: "package"` and `manifest` |
+| `files[]` | `id` (root-relative path), `label`, `language`, `roles`, `chunk`, `fanIn`, `fanOut`, `check` (on-disk status, `lines` and `bytes`: what `reach` and `hubs` sum), `metrics` (PageRank, betweenness, in/out weight, depth, core, community, cycle); workspace package nodes add `kind: "package"` and `manifest` |
 | `symbols[]` | Functions and other callables in the call graph: `id` (`file#name`), `file`, `name`, `kind`, `line`, `endLine`, `exported`, `calls` |
-| `imports[]`, `calls[]` | `source`, `target`, `line`, `lines`, `count`, `confidence`, `resolution`, `test`, `crossChunk` (stitched between chunks); calls add `via` (graph, lsp or both) |
-| `fileEdges[]` | The weighted file graph: `weight` = import + evidence-weighted call sites, with `imports`, `calls`, `test` and `strong` |
+| `imports[]`, `calls[]` | `source`, `target`, `line`, `lines`, `count`, `confidence`, `resolution`, `test`, `crossChunk` (stitched between chunks); calls add `via` (graph, lsp or both). An import's `resolution` lists its kinds (`static-import`, `type-import`, `dynamic-import`, `named-reexport`, `rust-use`, …), how stitching joined it (`relative`, `package`, `crate-path`) and, for a package, how the package is declared (`external`, `external-dev`, …) |
+| `uses[]` | What each file takes from the files it imports: `source`, `target` (the declaration `file#name`, or a file for a namespace import), `line` (the import), `detail` (`import`, `reexport` through a re-export, `namespace`, `path`, `reexported-name`) |
+| `externals[]` | Installed packages: `id` (`pkg:<name>`), `count`, `files` (importers), `testFiles` and `kinds` (each importer's import kinds); `bytes` with `bytesMethod` (`bundle`: its inputs in a bundler file found under an output directory; `installed-closure`: every file its installed entry loads) and `bytesEvidence` (`source`, `files`, `version`, `measure`, `packages`, `unresolved`), or `bytes: null` with `bytesEvidence.reason` |
+| `fileEdges[]` | The weighted file graph: `weight` = import + evidence-weighted call sites, with `imports`, `calls`, `test`, `strong` and `load` (when the pair's strongest import runs: `eager`, `deferred`, `type`, `compile`, `data`, `unknown`; null for calls alone) |
 | `metrics` | `cycles`, `communities`, `packages` (Ca, Ce, instability), `stats`, `weightRule` |
-| `coverage`, `verification`, `callStats` | What the build saw and could not see: partial chunks, unbuilt chunks, files checked, LSP probes, answers that omitted locations outside the read roots (`withheld`) and unanswered calls |
+| `coverage`, `verification`, `callStats` | What the build saw and could not see: partial chunks, unbuilt chunks, files checked, LSP probes, answers taken from the graph cache instead of a probe (`cached`), answers that omitted locations outside the read roots (`withheld`) and unanswered calls |
 | `links[]`, `unresolvedLinks[]` | Docs, manifests and agents → files and symbols: `source`, `line`, `target`, `rule`, `relation`, `check`; what named no single target with `reason` and `candidates`. Never in the code metrics |
 
 Nodes and edges store their own lines; query rows add `loc: {path, line}` when they are answered.
@@ -65,5 +70,5 @@ Measured on the same workspace, before its cross-crate calls were bound (63,560 
 | Update after edits | `octocode-graph refresh <dir>`: only chunks with changed files rebuild (2.1 s when nothing changed on this graph) | Rebuild from scratch |
 | Diff | `octocode-graph diff <dir>` after a refresh, or `diff <before> <after>`: new cycles, package links against stability, reach and ranking changes, then every dependency added or removed | `diff`/`git diff` on `data.json`: one line of ids and metrics, no meaning |
 | Check | `brief.txt`, then `query <dir> "about <file>"`; coverage gaps: `jq '.coverage, .callStats.lsp' data.json` | Read the brief as proof: cite the rows' `path:line` |
-| Search | `query <dir> "search <name>"` (ranked: exact, prefix, initials, substring, misspelling) | `rg` over `data.json`: a match prints the whole 34 MB line |
+| Search | `query <dir> "search <name or what it does>"` (exact and prefix names first, then BM25F over declarations, doc comments and signatures) | `rg` over `data.json`: a match prints the whole 34 MB line |
 | Read the source | The answer's `read:` line (`localFetch` with the cited range), and `confirm:` (`lspSearch` callers) before calling a list complete | — |

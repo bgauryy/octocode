@@ -104,14 +104,12 @@ async fn commit_files_scope_covers_late_matches_and_continuations_exactly_once()
         .map(|n| file(&format!("src/ignored-{n}.rs"), "modified", 10))
         .collect::<Vec<_>>();
     files.push(file("docs/wrong-status.md", "added", 10));
-    files.push(file("docs/too-small.md", "modified", 1));
     files.extend((0..101).map(|n| file(&format!("docs/kept-{n}.md"), "modified", 10)));
     let (_server, provider) = provider(files).await;
     let scope = json_fixture(
         r#"{
             "include": ["docs/**"],
-            "fileStatus": ["modified"],
-            "minChanges": 5
+            "fileStatus": ["modified"]
         }"#,
     );
     let (row, next) = first_page(&provider, scope.clone()).await;
@@ -127,7 +125,7 @@ async fn commit_files_scope_covers_late_matches_and_continuations_exactly_once()
         panic!("one continuation: {next:?}")
     };
     let saved = &next["input"]["queries"][0];
-    for key in ["include", "fileStatus", "minChanges"] {
+    for key in ["include", "fileStatus"] {
         assert_eq!(saved[key], scope[key], "{next}");
     }
     assert_eq!(saved["page"], 2);

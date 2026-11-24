@@ -169,6 +169,7 @@ impl<'a> Projector<'a> {
             edge,
             occurrence,
             provenance,
+            import_kind: NONE,
         });
         self.edges.push(edge);
     }
@@ -234,6 +235,12 @@ impl<'a> Projector<'a> {
         let keys = symbol_keys(file, &ordered, &by_id);
         let file_is_test = self.has_role(file, ROLE_TEST);
         let python = self.lang(file) == "python";
+        // The grammar the file was linked by decides whether its macros are
+        // their own namespace.
+        let invokes_macros = {
+            use crate::ast_graph::linking::{Linker, LinkerGraph};
+            Linker::of_read(file, &facts.language).invokes_macros()
+        };
         let is_test_decl = |decl: &Declaration| {
             file_is_test
                 || facts.test_scoped(decl.line)
@@ -297,7 +304,7 @@ impl<'a> Projector<'a> {
             } else if module_holders.contains(decl.id.as_str()) {
                 REFERENCE_TARGET | RECOVERED_TARGET
             } else {
-                target_bits(&decl.kind, is_member_data(decl, &by_id))
+                target_bits(&decl.kind, is_member_data(decl, &by_id), invokes_macros)
             };
             let source_origin = self.sources.origin(file, decl.source_range);
             let source_digest = self
@@ -316,6 +323,14 @@ impl<'a> Projector<'a> {
                 selection_end: decl.selection_byte_range.map_or(NONE, |r| r.end_byte),
                 selection_origin: self.sources.origin(file, decl.selection_byte_range),
                 assessment: self.strings.json(&decl.parse_assessment),
+                params: decl
+                    .params
+                    .as_deref()
+                    .map_or(NONE, |text| self.strings.id(text)),
+                returns: decl
+                    .returns
+                    .as_deref()
+                    .map_or(NONE, |text| self.strings.id(text)),
             });
             // A method declared outside its type's body (a Go receiver) is
             // no name of its module: only its type's method set reaches it.

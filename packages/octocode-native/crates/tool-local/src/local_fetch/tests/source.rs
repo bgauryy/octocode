@@ -133,7 +133,6 @@ fn a_leading_bom_is_not_text_of_line_one() {
             json_fixture(
                 r#"{
                     "matchString": ["alpha"],
-                    "wholeWord": true,
                     "contextLines": {"before": 0, "after": 0}
                 }"#,
             ),
@@ -141,6 +140,7 @@ fn a_leading_bom_is_not_text_of_line_one() {
         &paths,
     );
     assert_eq!(r.matched_lines, vec![1, 2], "{r:?}");
+    assert_eq!(r.content.as_deref(), Some("alpha\nbeta alpha\n"), "{r:?}");
 }
 
 /// A NUL byte past the binary sniff's head sample makes the file binary.

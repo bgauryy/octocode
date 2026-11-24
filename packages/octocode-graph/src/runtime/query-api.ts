@@ -1,6 +1,8 @@
 // The graph query language over one data.json (pure functions; the server, the channel, this CLI and the offline
 // viewer's worker share it).
-//   search <text> [--files|--symbols] [--all]   files and symbols ranked by name match, then importance
+//   search <text> [--files|--symbols] [--all] [--kind|--lang|--role|--path <v>] [--exported] [--param|--returns <type>]
+//          [--provider]   files and symbols: name matches first, then BM25F over their documents
+//   context <file|symbol...> [--tokens N] [--from K]   what surrounds them, by personalized PageRank, cut to a budget
 //   about <file|symbol>            metrics, community, direct dependencies and dependents (or callers and callees)
 //   critical functions|points [n|all], critical path [<file>] [--up]   central functions, cut points, longest chain
 //   impact <file> [depth N]        every file that transitively depends on <file>
@@ -10,8 +12,16 @@
 //   community <file|id>            members by PageRank and links to other communities
 //   callers | callees <file#symbol|name>   symbol-level calls with provenance
 //   top <metric> [n|all]           files ranked by pagerank, betweenness, inWeight, outWeight, core or depth
+//   reach <entry...> [--eager] [--forbid <file|dir|pkg:name>...]   what an entry loads: files, bytes, packages, chains
+//   why <entry> <file|pkg:name> [--eager]   the route through every first hop that loads it, each hop's line and kinds
+//   hubs [n|all] [<dir>]           files ranked by importers × what each import pulls in; `hubs <file>` its importers
+//   bundle [<output>] [--diff]     what a bundler shipped (enrich evidence): outputs, bytes by file and package, vs reach
+//   hot [files|functions] [n|all] [--from <file>]   profile cost per file or function, self and total (enrich evidence)
 // `--tests` includes test-only edges; `--imports` walks import edges only; `--weak` adds edges backed only by
-// medium/low-confidence name-bound calls (walks follow strong edges by default). Result: { ok, op, text, error?, candidates?, nodes, edges, rows, summary, stats }.
+// medium/low-confidence name-bound calls (walks follow strong edges by default); `--runtime` walks imports that run
+// (no type-only imports), `--eager` only those that run while the importer loads (no dynamic import()). `--count`
+// answers the count, `--group dir|dir:N|chunk|package|depth` the counts per group. Result: { ok, op, text, error?,
+// candidates?, nodes, edges, rows, summary, stats }.
 import { links } from './query-links.ts';
 import {
   QueryError,
@@ -22,10 +32,17 @@ import {
 } from './query-index.ts';
 import * as ops from './query-ops.ts';
 import { about, search } from './query-search.ts';
+import { context } from './query-context.ts';
 import { critical } from './query-critical.ts';
 import { region } from './query-flow.ts';
 import { nearest, readQuery } from './query-forgiving.ts';
+import { hopsText, reach, why, type Hop } from './query-reach.ts';
+import { hubs } from './query-hubs.ts';
+import { bundle } from './bundle.ts';
+import { hot } from './profile.ts';
+import { formatBytes, grouped } from './query-group.ts';
 import type { NextCalls, Op, OpResult, QueryArgs, Row } from './query-ops.ts';
+import type { LoadMode } from '../loads.ts';
 
 export type { QueryData } from './query-index.ts';
 export type { OpResult, Row } from './query-ops.ts';
@@ -33,6 +50,7 @@ export type { OpResult, Row } from './query-ops.ts';
 export const OPS: Record<string, Op> = {
   search,
   about,
+  context,
   critical,
   region,
   files: ops.fileRecords,
@@ -48,9 +66,14 @@ export const OPS: Record<string, Op> = {
   callees: ops.callees,
   top: ops.top,
   links,
+  reach,
+  why,
+  hubs,
+  bundle,
+  hot,
 };
 export const HINT =
-  'search <text> [--files|--symbols] [--all] · about <file|symbol> · critical functions|points [n|all] · critical path [<file>] [--up] · region <entry> <outcome> · files <file...> · impact <file...> [depth N] · deps|dependents <file...> [depth N] · path <a> <b> [--hops] [--avoid <file|dir>...] · cycle [<file>] · order <file> · trace <file|file#symbol> <pattern> · community <file|id> · callers|callees <file#symbol|name> · top <metric> [n|all] · links [<file>] [--unresolved|--stale] [--rule md-link|md-path|md-cite|md-symbol|manifest|tsconfig|contract|md-contract|agent] · --tests · --imports · --weak';
+  'search <text> [--files|--symbols] [--all] [--kind|--lang|--role|--path <value>] [--exported] [--param|--returns <type>] [--unsigned] [--provider] · about <file|symbol> · context <file|symbol...> [--tokens N] [--from K] · critical functions|points [n|all] · critical path [<file>] [--up] · region <entry> <outcome> · files <file...> · impact <file...> [depth N] · deps|dependents <file...> [depth N] · path <a> <b> [--hops] [--avoid <file|dir>...] · cycle [<file>] · order <file> · trace <file|file#symbol> <pattern> · community <file|id> · callers|callees <file#symbol|name> · top <metric> [n|all] · links [<file>] [--unresolved|--stale] [--rule md-link|md-path|md-cite|md-symbol|manifest|tsconfig|contract|md-contract|agent] · reach <entry...> [--eager] [--forbid <file|dir|pkg:name>...] · why <entry> <file|pkg:name> [--eager] · hubs [n|all] [<dir>] · hubs <file> · path <a> <b> --all [n] · bundle [<output>] [--diff] · hot [files|functions] [n|all] [--from <file>] [--heap] · --runtime · --eager · --count · --group dir|dir:N|chunk|package|depth · --tests · --imports · --weak';
 
 // Words, with "double" or 'single' quotes keeping spaces.
 export function tokenize(text: unknown): string[] {
@@ -76,18 +99,23 @@ function depthValue(v: string | undefined, allowZero: boolean) {
 }
 
 // Ops whose walk takes a depth; elsewhere `depth` is an ordinary word (top depth, find depth).
-const WALKS = new Set(['impact', 'deps', 'dependents']);
+const WALKS = new Set(['impact', 'deps', 'dependents', 'reach']);
+const GROUPS = /^(dir(:[1-9]\d*)?|chunk|package|depth)$/;
 
-// Arguments, `--tests`, `--imports`, `--weak`, and (for walks) `depth N` / `--depth N` / `depth=N` anywhere after the op.
+// Arguments, `--tests`, `--imports`, `--weak`, `--runtime`, `--eager`, `--count`, `--group <key>`, and (for walks)
+// `depth N` / `--depth N` / `depth=N` anywhere after the op.
 export function parseArgs(
   tokens: string[],
   { walk = true, path = false, trace = false } = {}
 ): QueryArgs {
   const args: string[] = [];
-  let hops = false;
+  let hops = false,
+    count = false;
+  let group: string | undefined;
   let tests = false,
     imports = false,
     weak = false,
+    load: LoadMode | null = null,
     depth: number | null = null;
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
@@ -96,10 +124,30 @@ export function parseArgs(
     else if (t === '--tests') tests = true;
     else if (t === '--imports') imports = true;
     else if (t === '--weak') weak = true;
-    else if (m) depth = depthValue(m[1] ?? tokens[++i], trace);
+    else if (t === '--runtime') load ??= 'runtime';
+    else if (t === '--eager') load = 'eager';
+    else if (t === '--count') count = true;
+    else if (t === '--group' || t.startsWith('--group=')) {
+      const key = t.includes('=') ? t.slice(t.indexOf('=') + 1) : tokens[++i];
+      if (!GROUPS.test(key ?? ''))
+        throw new QueryError(
+          `--group takes dir, dir:N, chunk, package or depth, not ${key ?? 'nothing'}`
+        );
+      group = key;
+    } else if (m) depth = depthValue(m[1] ?? tokens[++i], trace);
     else args.push(t);
   }
-  return { args, tests, imports, weak, depth, ...(hops && { hops }) };
+  return {
+    args,
+    tests,
+    imports,
+    weak,
+    load,
+    depth,
+    ...(hops && { hops }),
+    ...(count && { count }),
+    ...(group && { group }),
+  };
 }
 
 export interface Candidate {
@@ -143,6 +191,9 @@ export interface QueryResult extends OpResult {
   tests?: true;
   imports?: true;
   weak?: true;
+  load?: LoadMode;
+  /** A rule the query states was broken (reach --forbid): the CLI exits 1. */
+  failed?: true;
 }
 
 const empty = (): Pick<OpResult, 'nodes' | 'edges' | 'rows'> => ({
@@ -189,6 +240,24 @@ export function runQuery(D: QueryData, text: unknown): QueryResult {
     };
   }
   if (!Object.hasOwn(OPS, op)) {
+    const files = tokens.filter(t => /[/.]/.test(t) && !t.startsWith('-'));
+    // A file where the op belongs (`src/a.ts src/b.ts`): the queries that ask about it, not the whole grammar.
+    if (files.length && files[0] === tokens[0]) {
+      const [a, b] = files;
+      const asks = [
+        ...(b ? [`path ${a} ${b}`] : []),
+        ...['about', 'deps', 'dependents', 'reach'].map(o => `${o} ${a}`),
+      ];
+      const error = `"${tokens.join(' ')}" starts with a file, not a query; ask one of: ${asks.join(' · ')}`;
+      return {
+        ok: false,
+        ...base,
+        error,
+        candidates: asks.map(query => ({ id: query.split(' ')[0], query })),
+        ...empty(),
+        summary: error,
+      };
+    }
     const error = op
       ? `unknown query "${op}"; try: ${HINT}`
       : `empty query; try: ${HINT}`;
@@ -200,10 +269,13 @@ export function runQuery(D: QueryData, text: unknown): QueryResult {
       path: op === 'path',
       trace: op === 'trace',
     });
-    const r = OPS[op](
-      indexOf(D, { tests: p.tests, imports: p.imports, weak: p.weak }),
-      p
-    );
+    const I = indexOf(D, {
+      tests: p.tests,
+      imports: p.imports,
+      weak: p.weak,
+      load: p.load,
+    });
+    const r = grouped(I, OPS[op](I, p), p);
     return {
       ok: true,
       ...base,
@@ -213,6 +285,7 @@ export function runQuery(D: QueryData, text: unknown): QueryResult {
       ...(p.tests ? { tests: true as const } : {}),
       ...(p.imports ? { imports: true as const } : {}),
       ...(p.weak ? { weak: true as const } : {}),
+      ...(p.load ? { load: p.load } : {}),
     };
   };
   try {
@@ -309,6 +382,8 @@ export function resolveNodes(
 }
 
 function rowLine(r: Row) {
+  if (r.group)
+    return `${r.id}  ${r.count} ${r.count === 1 ? 'row' : 'rows'}${r.bytes != null ? `  ${formatBytes(Number(r.bytes))}` : ''}`;
   const symbol = r.symbol
     ? `${r.name ?? r.symbol} (${r.via ?? r.kind ?? 'symbol'}${r.confidence ? `/${r.confidence}` : ''}${(r.count ?? 1) > 1 ? ` ×${r.count}` : ''})`
     : null;
@@ -320,7 +395,9 @@ function rowLine(r: Row) {
     r.order != null ? `ring ${r.order}` : null,
     typeof r.cycleId === 'number' ? `cycle ${r.cycleId}` : null,
     r.weight != null ? `w ${r.weight}` : null,
-    r.value != null && !r.parts ? `${r.value}` : null,
+    r.value != null && !r.parts && typeof r.importers !== 'number'
+      ? `${r.value}`
+      : null,
     r.pagerank != null && r.match == null ? `pr ${r.pagerank}` : null,
     r.endpoint ?? null,
     symbol,
@@ -335,6 +412,35 @@ function rowLine(r: Row) {
     r.fromEntry != null
       ? `${r.mustPass ? 'must pass  ' : ''}+${r.fromEntry}/−${r.toOutcome}`
       : null,
+    typeof r.load === 'string' ? r.load : null,
+    r.bytes !== undefined ? formatBytes(r.bytes as number | null) : null,
+    typeof r.cost === 'string' ? r.cost : null,
+    typeof r.importers === 'number'
+      ? `${r.importers} importer${r.importers === 1 ? '' : 's'} × ${r.closureBytes != null ? `${formatBytes(Number(r.closureBytes))} (${String(r.closureFiles)} files) = ${formatBytes(Number(r.value))} loaded across importers` : `${String(r.closureFiles)} files (sizes missing)`}`
+      : null,
+    typeof r.verdict === 'string' ? r.verdict : null,
+    Array.isArray(r.names) && r.names.length
+      ? `takes ${r.names.join(', ')}`
+      : null,
+    Array.isArray(r.direct)
+      ? `import directly from ${r.direct.join(', ')}`
+      : null,
+    typeof r.route === 'number' && Array.isArray(r.chain)
+      ? `route ${r.route}: ${hopsText(r.chain as Hop[])}`
+      : null,
+    typeof r.route === 'number' && Array.isArray(r.path) && !r.chain
+      ? `route ${r.route}: ${(r.path as string[])
+          .map((id, k) => {
+            const load = k
+              ? (r.hopLoads as (string | null)[] | undefined)?.[k - 1]
+              : null;
+            return k
+              ? `${load && load !== 'eager' && load !== 'compile' ? ` →[${load}] ` : ' → '}${id}`
+              : id;
+          })
+          .join('')}`
+      : null,
+    Array.isArray(r.kinds) && r.kinds.length ? `[${r.kinds.join(', ')}]` : null,
     r.through ? `via ${r.through}` : null,
     r.nextFile ? `→ ${r.nextFile}` : null,
     Array.isArray(r.members)
@@ -350,6 +456,8 @@ function rowLine(r: Row) {
 /** Plain text of a result: the summary, every row with its location, links or candidates. */
 export function formatResult(r: QueryResult) {
   const lines = [`${r.ok ? '' : 'error: '}${r.summary ?? r.error ?? ''}`];
+  if (typeof r.count === 'number' && !r.rows.length)
+    lines.push(`count: ${r.count}`);
   if (r.readAs)
     lines.unshift(`read as: ${r.readAs.query}  (${r.readAs.notes.join('; ')})`);
   if (r.scope?.isPartial)
@@ -367,6 +475,7 @@ export function formatResult(r: QueryResult) {
     lines.push(
       `confirm: octocode lspSearch '${JSON.stringify(next.confirm.input)}'`
     );
+  if (next?.query) lines.push(`more: ${next.query}`);
   for (const x of r.rows ?? []) lines.push(`  ${rowLine(x)}`);
   for (const step of asList(r.steps)) lines.push(`  ${JSON.stringify(step)}`);
   for (const c of asList<{ source: string; target: string; evidence: unknown }>(
@@ -382,6 +491,41 @@ export function formatResult(r: QueryResult) {
   }>(r.links))
     lines.push(
       `  link community ${l.community}${l.label ? ` (${l.label})` : ''}: weight ${l.weight} (out ${l.out}, in ${l.in})`
+    );
+  for (const v of asList<{
+    forbidden: string;
+    target: string;
+    load: string;
+    chain: Hop[];
+  }>(r.violations))
+    lines.push(
+      `  VIOLATION ${v.forbidden}: ${v.target} (${v.load}) via ${hopsText(v.chain)}`
+    );
+  for (const p of asList<{
+    id: string;
+    kind: string;
+    load: string;
+    files?: number;
+    bytes: number | null;
+    bytesIfWhole?: number | null;
+    bytesMethod?: string | null;
+    importers?: string[];
+    chain: string[];
+  }>(r.packages))
+    lines.push(
+      `  package ${p.id}  ${p.kind}  ${p.load}${p.files != null ? `  ${p.files} files` : ''}  ${p.kind === 'workspace' ? `up to ${formatBytes(p.bytesIfWhole)}` : `${formatBytes(p.bytes)}${p.bytesMethod ? ` (${p.bytesMethod})` : ''}`}${p.importers ? `  ${p.importers.length} importer${p.importers.length === 1 ? '' : 's'}` : ''}  chain ${p.chain.join(' → ')}`
+    );
+  for (const b of asList<{ source: string; target: string; line?: number }>(
+    r.boundaries
+  ))
+    lines.push(
+      `  lazy boundary ${b.source}${b.line ? `:${b.line}` : ''} → ${b.target}`
+    );
+  for (const u of asList<{ source: string; target: string; kinds: string[] }>(
+    r.unsettled
+  ))
+    lines.push(
+      `  unsettled ${u.source} → ${u.target} [${u.kinds.join(', ') || 'no kind recorded'}]`
     );
   if (r.candidates?.length)
     lines.push(

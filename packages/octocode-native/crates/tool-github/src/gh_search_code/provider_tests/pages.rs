@@ -186,14 +186,12 @@ fn warnings_of(out: &octocode_runtime_base::response::result::ToolData) -> &serd
     &out.data["warnings"]
 }
 
-/// Page 2 of a walk drops the file page 1 listed (the
-/// walk's continuation knows it), and says GitHub's results moved; a clean
-/// first page says nothing.
+/// Page 2 of a walk drops the file page 1 listed (the walk's continuation
+/// knows it) and states the shift by its reason alone: the repeat loses no
+/// evidence and the reason says results moved, so no warning restates it. A
+/// clean first page says nothing.
 #[tokio::test]
 async fn paged_pages_state_estimates_and_the_repeats_they_dropped() {
-    let dropped =
-        "Dropped 1 file GitHub listed again (already on an earlier page of this walk or this one).";
-    let moved = "GitHub's results moved between page reads, so a file may have moved past this walk unseen.";
     {
         let server = MockServer::builder().start().await;
         mount_search_page(&server, 1, 100, &["a.rs", "b.rs"]).await;
@@ -207,7 +205,7 @@ async fn paged_pages_state_estimates_and_the_repeats_they_dropped() {
         // 100 is an estimate, and repeats were dropped on the way.
         assert!(out.data["pagination"]["total"].is_null(), "{}", out.data);
         assert_eq!(paths_of(&out), ["c.rs"], "{}", out.data);
-        assert_eq!(warnings_of(&out), &json!([dropped, moved]), "{}", out.data);
+        assert_eq!(warnings_of(&out), &serde_json::Value::Null, "{}", out.data);
         assert_eq!(
             out.data["partialReasons"],
             json_fixture(r#"["providerResultsShifted"]"#)
@@ -237,14 +235,16 @@ async fn a_page_of_only_repeats_is_not_an_empty_search() {
         "{}",
         second.data
     );
+    // The repeats lose no evidence: the shift is its reason alone.
     assert_eq!(
         warnings_of(&second),
-        &json_fixture(
-            r#"[
-                "Dropped 2 files GitHub listed again (already on an earlier page of this walk or this one).",
-                "GitHub's results moved between page reads, so a file may have moved past this walk unseen."
-            ]"#
-        ),
+        &serde_json::Value::Null,
+        "{}",
+        second.data
+    );
+    assert_eq!(
+        second.data["partialReasons"],
+        json_fixture(r#"["providerResultsShifted"]"#),
         "{}",
         second.data
     );

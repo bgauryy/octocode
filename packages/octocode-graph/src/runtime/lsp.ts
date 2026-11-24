@@ -10,6 +10,7 @@ import { relative, resolve, join } from 'node:path';
 import { errorMessage, isInteger, pool, nativeWorkspaceRoot } from './lib.ts';
 import { continuations, pagedTool, readResponse } from './tools.ts';
 import type { ToolData, ToolResult } from './tools.ts';
+import type { ProbeCache, RawCallee } from './graph-cache.ts';
 import type {
   CallEdge,
   CallStats,
@@ -68,7 +69,13 @@ interface CalleeAnswer {
   ambiguous?: AmbiguousDefinition[];
   /** The read policy hid some locations (outside the allowed roots, or a credential file by name). */
   withheld?: boolean;
+  /** The server's definitions before the graph placed them: kept by the graph cache when the answer is complete. */
+  raw?: RawCallee[];
 }
+
+/** The server's answer before the graph's declarations place it: incomplete (why), or every definition it named. */
+type RawAnswer =
+  { unanswered: string[] } | { callees: RawCallee[]; withheld: boolean };
 
 /** Definition lines by `file#name`: the declaration id at each line, null where two declarations share it. */
 type Definitions = Map<string, Map<number, string | null>>;
@@ -97,12 +104,7 @@ export function lspReasons(data: LspData) {
 // Locations the read policy withheld (outside every allowed root, or a credential file by name) are never graph
 // files: the graph is listed through the same policy. An answer whose only gap is withheld locations is therefore
 // complete for the graph; `withheld` keeps the omission counted (callStats.withheld).
-function calleesOf(
-  rowPages: ToolResult[],
-  root: string,
-  definitions: Definitions,
-  base: string
-): CalleeAnswer {
+function rawCallees(rowPages: ToolResult[], base: string): RawAnswer {
   if (!rowPages.length || rowPages.some(p => !p?.data))
     return { unanswered: ['missingResult'] };
   // Every row has data (checked above): lspSearch row data.
@@ -122,37 +124,67 @@ function calleesOf(
     return { unanswered: reasons.length ? reasons : ['partial'] };
   }
   // Past the check above, a partial answer's one reason is locationsWithheld.
-  const withheld = partial;
-  const known = reasons.filter(r => r !== 'locationsWithheld');
-  const callees = new Map<string, Callee>(),
-    ambiguous: AmbiguousDefinition[] = [];
+  const callees: RawCallee[] = [];
   for (const d of rows)
     for (const group of d.files ?? [])
-      for (const match of group.matches ?? []) {
-        if (!isNamedAt(match)) continue;
-        const file = relative(root, resolve(base, match.path ?? group.path));
-        const key = keyOf(file, match.symbolName);
-        const exact = definitions.get(key)?.get(match.line);
-        if (exact === null) {
-          ambiguous.push({
-            file,
-            name: match.symbolName,
+      for (const match of group.matches ?? [])
+        if (isNamedAt(match))
+          callees.push({
+            path: resolve(base, match.path ?? group.path),
+            symbolName: match.symbolName,
             line: match.line,
             sites: match.sites ?? [],
           });
-          continue;
-        }
-        addCallee(callees, exact ?? `${key}@${match.line}`, file, match);
-      }
+  return { callees, withheld: partial };
+}
+
+// The definitions an answer named, placed on the graph's declarations by file, name and line.
+function placeCallees(
+  { callees: named, withheld }: { callees: RawCallee[]; withheld: boolean },
+  root: string,
+  definitions: Definitions
+): CalleeAnswer {
+  const callees = new Map<string, Callee>(),
+    ambiguous: AmbiguousDefinition[] = [];
+  for (const match of named) {
+    const file = relative(root, match.path);
+    const key = keyOf(file, match.symbolName);
+    const exact = definitions.get(key)?.get(match.line);
+    if (exact === null) {
+      ambiguous.push({
+        file,
+        name: match.symbolName,
+        line: match.line,
+        sites: match.sites,
+      });
+      continue;
+    }
+    addCallee(callees, exact ?? `${key}@${match.line}`, file, match);
+  }
   const flag = withheld ? { withheld } : {};
   if (ambiguous.length)
     return {
       callees,
-      unanswered: [...known, 'ambiguousDefinition'],
+      unanswered: ['ambiguousDefinition'],
       ambiguous,
       ...flag,
     };
   return { callees, ...flag };
+}
+
+function calleesOf(
+  rowPages: ToolResult[],
+  root: string,
+  definitions: Definitions,
+  base: string
+): CalleeAnswer {
+  const raw = rawCallees(rowPages, base);
+  if ('unanswered' in raw) return raw;
+  return {
+    ...placeCallees(raw, root, definitions),
+    // Only a complete answer is kept: withheld locations depend on the read policy of the run.
+    ...(!raw.withheld && { raw: raw.callees }),
+  };
 }
 
 // The language a package manifest's own server reads (the languages lspSearch serves).
@@ -191,7 +223,7 @@ function addCallee(
   out: Map<string, Callee>,
   key: string,
   file: string,
-  m: NamedMatch
+  m: Pick<RawCallee, 'symbolName' | 'line' | 'sites'>
 ) {
   const cur = out.get(key) ?? {
     file,
@@ -257,6 +289,8 @@ interface LspStats {
   receiverSources: number;
   /** Sources a refresh carried over instead of probing again (carriedProbes). */
   carried: number;
+  /** Declarations answered from the shared graph cache (graph-cache.ts) instead of a probe; counted in `resolved`. */
+  cached: number;
   unanswered: UnansweredProbe[];
   scope: string;
   total?: number;
@@ -458,6 +492,8 @@ export interface LspOptions {
   receiverSources?: Iterable<string>;
   /** A refresh's answers from the previous run that still hold (carriedProbes): applied, never probed again. */
   carried?: CarriedProbes;
+  /** The shared cache of answers (graph-cache.ts): answered declarations are applied, never probed again. */
+  cache?: ProbeCache | null;
 }
 
 export async function lspPhase(
@@ -472,6 +508,7 @@ export async function lspPhase(
     batchSize = 1,
     receiverSources = [],
     carried,
+    cache,
   }: LspOptions
 ): Promise<CallStats> {
   // Every probe the server left unanswered is listed (never only counted), so it can be retried or reported.
@@ -486,6 +523,7 @@ export async function lspPhase(
     lspOnly: 0,
     receiverSources: 0,
     carried: 0,
+    cached: 0,
     unanswered: [],
     scope:
       mode === 'all'
@@ -557,8 +595,12 @@ export async function lspPhase(
     return false;
   });
   const ambiguous = probe.length - unique.length;
-  for (let i = 0; i < unique.length; i += size)
-    batches.push(unique.slice(i, i + size));
+  const known = cache
+    ? await cache.lookup(unique)
+    : new Map<string, RawCallee[]>();
+  const asked = unique.filter(x => !known.has(x.id));
+  for (let i = 0; i < asked.length; i += size)
+    batches.push(asked.slice(i, i + size));
   let sentUnanswered = 0;
   function publish(update: LspEvent['update'], added: CallEdge[]) {
     const { unanswered, ...counts } = stats;
@@ -578,14 +620,47 @@ export async function lspPhase(
     emit({
       type: 'progress',
       phase: 'lsp',
-      done: stats.probed + ambiguous,
+      done: stats.probed + stats.cached + ambiguous,
       total: probe.length,
     });
   }
   if (carried?.sources.size) {
     const r = applyCarried(D, carried, index, stats);
     publish(r.update, r.added);
-  } else if (ambiguous) publish([], []);
+  } else if (ambiguous && !known.size) publish([], []);
+  if (known.size) {
+    const update: LspEvent['update'] = [],
+      added: CallEdge[] = [];
+    for (const x of unique) {
+      const callees = known.get(x.id);
+      if (!callees) continue;
+      stats.cached++;
+      const answer = placeCallees(
+        { callees, withheld: false },
+        root,
+        index.definitions
+      );
+      if (answer.unanswered) {
+        stats.unanswered.push({
+          id: x.id,
+          file: x.file,
+          symbol: x.name,
+          line: x.line,
+          reasons: answer.unanswered,
+          ...(answer.ambiguous && { ambiguousDefinitions: answer.ambiguous }),
+        });
+        if (!answer.callees?.size) continue;
+        stats.partialWithMatches++;
+      } else {
+        stats.resolved++;
+        markProbed(D, index, x);
+      }
+      const r = applyCallees(D, x, answer, index, stats);
+      update.push(...r.update);
+      added.push(...r.added);
+    }
+    publish(update, added);
+  }
   // Half the cores: the language server bounds throughput (measured on 3,516 Rust files: 154 s with 6 workers,
   // 164 s with 12), and the rest stay for the server itself.
   await pool(batches, Math.max(1, Math.floor(jobs / 2)), async batch => {
@@ -628,14 +703,16 @@ export async function lspPhase(
         stats.resolved++;
         markProbed(D, index, x);
       }
+      if (answer.raw) cache?.store(x, answer.raw);
       const r = applyCallees(D, x, answer, index, stats);
       update.push(...r.update);
       added.push(...r.added);
     }
     publish(update, added);
   });
+  await cache?.flush();
   D.coverage.calls = D.calls.length;
-  if (stats.probed < unique.length) stats.lsp = 'cancelled';
+  if (stats.probed + stats.cached < unique.length) stats.lsp = 'cancelled';
   else if (!stats.unanswered.length) stats.lsp = 'ok';
   else
     stats.lsp =

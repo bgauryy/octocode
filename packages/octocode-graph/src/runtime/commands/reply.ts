@@ -9,16 +9,19 @@ import {
   serverOf,
   type ServerInfo,
 } from '../lib/served.ts';
+import { graphCommand } from '../invocation.ts';
 
-const USAGE = `usage: octocode-graph reply <result-dir> "text" [--chat <chat_id>] [--nodes a,b,c]
-       octocode-graph reply <result-dir> - [--chat <chat_id>] [--nodes a,b,c]            (text from stdin)
-       octocode-graph reply query <result-dir> "<query>"                  (saved queries: references/query.md)
-       octocode-graph reply wiki <result-dir> read <slug> | read --file <file>
-       octocode-graph reply wiki <result-dir> note <slug> "text"|-
-       octocode-graph reply wiki <result-dir> promote [<slug>] (--chat <chat_id> | "text"|-) [--file <file>]
-       octocode-graph reply wiki <result-dir> lint
+const cli = graphCommand();
+
+const USAGE = `usage: ${cli} reply <result-dir> "text" [--chat <chat_id>] [--nodes a,b,c]
+       ${cli} reply <result-dir> - [--chat <chat_id>] [--nodes a,b,c]            (text from stdin)
+       ${cli} reply query <result-dir> "<query>"                  (saved queries: references/query.md)
+       ${cli} reply wiki <result-dir> read <slug> | read --file <file>
+       ${cli} reply wiki <result-dir> note <slug> "text"|-
+       ${cli} reply wiki <result-dir> promote [<slug>] (--chat <chat_id> | "text"|-) [--file <file>]
+       ${cli} reply wiki <result-dir> lint
   A reply goes to --chat, else the latest unanswered message; --nodes (paths, unique suffixes or node ids) light up
-  and frame on the graph. After code changes: octocode-graph refresh <result-dir>. Prints one JSON line; exit 0 ok,
+  and frame on the graph. After code changes: ${cli} refresh <result-dir>. Prints one JSON line; exit 0 ok,
   1 refused or failed (a query error or ambiguity: the JSON lists candidates), 2 usage, 3 no running server.`;
 
 const fail = (code: number, message: string): never => {
@@ -52,7 +55,7 @@ function serverInfo(dir: string) {
     serverOf(dir) ??
     fail(
       3,
-      `no viewer serves ${dir} (server.json missing or stale): start octocode-graph serve for it first`
+      `no viewer serves ${dir} (server.json missing or stale): start ${cli} serve for it first`
     )
   );
 }

@@ -13,7 +13,7 @@ use failures::{
 };
 use selectors::{
     annotate_forbidden_fields, annotate_missing_selector, annotate_sibling_selectors,
-    render_selector, selector_literals, selectors_accept, sibling_selector_values,
+    render_selector, selector_literals, selectors_accept, sibling_selector_values, sibling_switch,
 };
 use serde_json::Value;
 use siblings::{

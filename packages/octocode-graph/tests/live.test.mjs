@@ -29,6 +29,9 @@ import { chunkOf } from '../src/runtime/stitch.ts';
 import { foldEdges } from '../src/runtime/section.ts';
 import { tempDir, fakeCatalog } from './test-tmp.mjs';
 
+// Builds register their result in the per-user graph registry: keep it in a temp home, never the real one.
+const HOME = tempDir('graph-home-');
+
 const here = fileURLToPath(new URL('../src/runtime/', import.meta.url));
 
 for (const [script, args] of Object.entries({
@@ -46,7 +49,7 @@ for (const [script, args] of Object.entries({
     const options = {
       cwd,
       encoding: 'utf8',
-      env: { ...process.env, OCTOCODE_CLI: join(cwd, 'absent-cli') },
+      env: { ...process.env, OCTOCODE_HOME: HOME, OCTOCODE_CLI: join(cwd, 'absent-cli') },
     };
     const direct = spawnSync(
       process.execPath,
@@ -503,7 +506,7 @@ test('an incompatible CLI stops before listing files or building a chunk', () =>
     [join(here, 'commands', 'build.ts'), root, '--out', root],
     {
       encoding: 'utf8',
-      env: { ...process.env, OCTOCODE_CLI: `${process.execPath} ${cli}` },
+      env: { ...process.env, OCTOCODE_HOME: HOME, OCTOCODE_CLI: `${process.execPath} ${cli}` },
     }
   );
   assert.notEqual(r.status, 0);
@@ -526,7 +529,7 @@ test('a refused file listing stops with the native cause', () => {
     {
       cwd: root,
       encoding: 'utf8',
-      env: { ...process.env, OCTOCODE_CLI: cli, TEST_REFUSE_LIST: '1' },
+      env: { ...process.env, OCTOCODE_HOME: HOME, OCTOCODE_CLI: cli, TEST_REFUSE_LIST: '1' },
     }
   );
   assert.notEqual(run.status, 0);
@@ -575,7 +578,7 @@ test('a graph without an advertised LSP tool keeps its calls and skips confirmat
     {
       cwd: root,
       encoding: 'utf8',
-      env: { ...process.env, OCTOCODE_CLI: cli, TEST_NO_LSP: '1' },
+      env: { ...process.env, OCTOCODE_HOME: HOME, OCTOCODE_CLI: cli, TEST_NO_LSP: '1' },
     }
   );
   assert.equal(run.status, 0, run.stderr);
@@ -608,7 +611,7 @@ test('the headless run streams rows whose fold is data.json, and every node and 
     {
       encoding: 'utf8',
       cwd: root,
-      env: { ...process.env, OCTOCODE_CLI: `${process.execPath} ${cli}` },
+      env: { ...process.env, OCTOCODE_HOME: HOME, OCTOCODE_CLI: `${process.execPath} ${cli}` },
     }
   );
   assert.equal(r.status, 0, r.stderr);
@@ -778,7 +781,7 @@ test('the stitched graph answers a query before the first LSP probe and publishe
   const result = spawnSync(
     process.execPath,
     ['--input-type=module', '-e', source],
-    { cwd: root, encoding: 'utf8', env: { ...process.env, OCTOCODE_CLI: cli } }
+    { cwd: root, encoding: 'utf8', env: { ...process.env, OCTOCODE_HOME: HOME, OCTOCODE_CLI: cli } }
   );
   assert.equal(result.status, 0, result.stderr);
 });
@@ -811,7 +814,7 @@ for (const script of ['commands/build.ts', 'commands/serve.ts']) {
             value,
           ],
           {
-            env: { ...process.env, OCTOCODE_CLI: join(root, 'missing-cli') },
+            env: { ...process.env, OCTOCODE_HOME: HOME, OCTOCODE_CLI: join(root, 'missing-cli') },
             encoding: 'utf8',
           }
         );
@@ -839,7 +842,7 @@ for (const script of ['commands/build.ts', 'commands/serve.ts']) {
           : []),
       ],
       {
-        env: { ...process.env, OCTOCODE_CLI: join(root, 'missing-cli') },
+        env: { ...process.env, OCTOCODE_HOME: HOME, OCTOCODE_CLI: join(root, 'missing-cli') },
         encoding: 'utf8',
       }
     );
@@ -925,7 +928,7 @@ test('concurrent builds record complete tool events in their own result director
   const child = spawnSync(
     process.execPath,
     ['--input-type=module', '-e', source],
-    { cwd: root, env: { ...process.env, OCTOCODE_CLI: cli }, encoding: 'utf8' }
+    { cwd: root, env: { ...process.env, OCTOCODE_HOME: HOME, OCTOCODE_CLI: cli }, encoding: 'utf8' }
   );
   assert.equal(child.status, 0, child.stderr);
 });
@@ -970,7 +973,7 @@ for (const script of ['commands/build.ts', 'commands/serve.ts']) {
           ...args,
         ],
         {
-          env: { ...process.env, OCTOCODE_CLI: join(root, 'missing-cli') },
+          env: { ...process.env, OCTOCODE_HOME: HOME, OCTOCODE_CLI: join(root, 'missing-cli') },
           encoding: 'utf8',
         }
       );
@@ -1089,7 +1092,7 @@ test('a listing outside the workspace root resolves its paths against the root i
     console.log(JSON.stringify({ results: [{ index: 0, data: { root: ${JSON.stringify(outside)}, files: [{ dir: 'clone', files: ['a.ts'] }, { dir: 'clone/src', files: ['b.ts'] }] } }] }));
   `);
   const source = `import { listFiles } from ${JSON.stringify(new URL('../src/runtime/pipeline.ts', import.meta.url).href)}; console.log(JSON.stringify(await listFiles(${JSON.stringify(project)}, () => {})));`;
-  const child = spawnSync(process.execPath, ['--input-type=module', '-e', source], { encoding: 'utf8', env: { ...process.env, OCTOCODE_CLI: `${process.execPath} ${script}` } });
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', source], { encoding: 'utf8', env: { ...process.env, OCTOCODE_HOME: HOME, OCTOCODE_CLI: `${process.execPath} ${script}` } });
   assert.equal(child.status, 0, child.stderr);
   assert.deepEqual(JSON.parse(child.stdout), ['a.ts', 'src/b.ts']);
 });

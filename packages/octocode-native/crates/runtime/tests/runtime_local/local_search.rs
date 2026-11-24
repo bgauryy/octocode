@@ -380,10 +380,10 @@ async fn a_schema_derived_reading_runs_and_an_undeclared_name_is_refused() {
             .filter_map(|warning| warning.as_str())
             .filter(|warning| warning.starts_with("read "))
             .collect::<Vec<_>>();
+        // The reading changes no value (`{field}`), so the call states nothing.
         assert!(
-            matches!(warnings.as_slice(), [one]
-                if one.contains(field) && !one.contains("next time")),
-            "{tool} {row}: {}",
+            warnings.is_empty(),
+            "{tool} {row} ({field}): {}",
             found.structured_content
         );
         // It ran: the hit's file (search views) or its line (reads) is shown.

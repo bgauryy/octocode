@@ -95,7 +95,8 @@ async fn answer_viewed(
             name,
             version,
             resume,
-            brief: Map::from_iter([("mainGoal".to_owned(), json!("audit"))]),
+            // securityCheck declares no brief field: only clasify takes one.
+            brief: Map::new(),
         },
         &Net {
             http,
@@ -268,16 +269,9 @@ async fn an_unpublished_version_goes_to_osv_once_it_lists_the_package() {
     );
     assert!(data.get("version").is_none());
     assert_eq!(data["advisories"][0]["id"], "GHSA-1");
-    // The miss says what to do: check the version the manifest pins, and
-    // discover the published ones, which its repair reads.
-    assert!(
-        data["hints"][0]
-            .as_str()
-            .is_some_and(|hint| hint.contains("discover published versions")),
-        "{data}"
-    );
-    // The repair reads every version the registry has, newest first, and
-    // says that is all there is to suggest.
+    // The repair is the recovery: it reads every version the registry has,
+    // newest first, and no hint restates it.
+    assert!(data.get("hints").is_none(), "{data}");
     let suggested = data["related"]
         .as_array()
         .into_iter()
@@ -286,16 +280,6 @@ async fn an_unpublished_version_goes_to_osv_once_it_lists_the_package() {
         .filter_map(|row| row.get("version").cloned())
         .collect::<Vec<_>>();
     assert_eq!(suggested, [json!("4.18.1"), json!("4.17.20")], "{data}");
-    assert!(
-        data["hints"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|hint| hint
-                .as_str()
-                .is_some_and(|hint| hint.starts_with("Only 2 published"))),
-        "{data}"
-    );
     // No record names the version, so nothing says the registry lost it.
     assert!(data.get("versionListed").is_none(), "{data}");
     // Nothing known about the name is still not a verdict on the version,
@@ -352,9 +336,9 @@ const UNLISTED: &str = "4.17.999-internal";
 /// A version the registry no longer holds (unpublished, removed for
 /// malware) that a record OSV returns for the package names by version is
 /// public in that record: OSV is asked at it, and the row is an answer in
-/// both views, not a failed lookup. `versionListed:false` and a warning say the
-/// registry does not list it; `nearestVersions` names the published versions
-/// nearest to it.
+/// both views, not a failed lookup. `versionListed:false` says the registry
+/// does not list it, and no warning restates that or the verdict;
+/// `nearestVersions` names the published versions nearest to it.
 #[tokio::test]
 async fn an_unpublished_version_a_record_lists_is_affected() {
     // OSV by name lists both; at the version it matches the one naming it.
@@ -416,16 +400,7 @@ async fn an_unpublished_version_a_record_lists_is_affected() {
                 .collect::<Vec<_>>()
         );
         assert_eq!(ids, json!(["MAL-1"]), "{row}");
-        let warned = row["warnings"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .any(|warning| {
-                warning.starts_with(&format!("The registry does not list lodash {UNLISTED}"))
-                    && warning.ends_with("affected by MAL-1: do not install it.")
-            });
-        assert!(warned, "{row}");
+        assert!(!row["warnings"].to_string().contains(UNLISTED), "{row}");
         // The versions to move to are the row's own evidence, stated as a
         // field: an answer carries no call for them.
         assert_eq!(
@@ -676,7 +651,7 @@ async fn a_stopped_walk_lists_nothing_and_has_a_next_page() {
         let next = serde_json::to_string(&data["next"]["nextPage"]).expect("next");
         assert!(next.contains("t1"), "{next}");
         assert!(next.contains("\"version\":\"4.17.20\""), "{next}");
-        assert!(next.contains("\"mainGoal\":\"audit\""), "{next}");
+        assert!(next.contains("\"packageName\":\"lodash\""), "{next}");
     }
 }
 
@@ -1590,9 +1565,10 @@ async fn global_page_row_of(
 }
 
 /// GitHub's database returns a withdrawn, unreviewed advisory OSV lacks (live:
-/// GHSA-8p5q-j9m2-g8wr at lodash@4.17.20). The row states the withdrawal and
-/// the review state, never names it as a match, and still offers it whole
-/// (RV-SEC F1).
+/// GHSA-8p5q-j9m2-g8wr at lodash@4.17.20). The row states the withdrawal in
+/// one sentence and never names it as a match; a retracted record is not
+/// counted whatever its class, so neither its review state nor a read of it
+/// is offered.
 #[tokio::test]
 async fn a_withdrawn_global_advisory_is_stated_as_withdrawn_never_as_a_match() {
     let data = global_page_row(vec![
@@ -1624,33 +1600,54 @@ async fn a_withdrawn_global_advisory_is_stated_as_withdrawn_never_as_a_match() {
         .find(|text| text.contains("matches"))
         .unwrap_or_default();
     assert!(!matches.contains("GHSA-8p5q"), "{data}");
-    let text = data["warnings"].to_string();
-    assert!(
-        text.contains("GitHub withdrew GHSA-8p5q-j9m2-g8wr at 2021-10-01T22:04:28Z"),
-        "{text}"
-    );
-    assert!(text.contains("unreviewed"), "{text}");
-    // One warning names both facts, not one for each.
     let about = warnings
         .iter()
         .filter_map(Value::as_str)
         .filter(|text| text.contains("GHSA-8p5q-j9m2-g8wr"))
-        .count();
-    assert_eq!(about, 1, "{text}");
-    assert!(
-        read_whole_ids(&data).contains(&"GHSA-8p5q-j9m2-g8wr".to_owned()),
-        "still one call away: {data}"
+        .collect::<Vec<_>>();
+    assert_eq!(
+        about,
+        ["GitHub withdrew GHSA-8p5q-j9m2-g8wr: not counted."],
+        "{data}"
     );
-    let mut output = json!({"results": [{"index": 0, "data": data}]});
-    octocode_runtime_base::response::workflow_lead::retain_guidance(
-        octocode_runtime_base::id::ToolId::SecurityCheck,
-        &mut output,
-        &Value::Null,
+    assert_eq!(
+        read_whole_ids(&data),
+        ["GHSA-glob-only-bbbb"],
+        "only what GitHub matches is one call away: {data}"
     );
-    assert!(
-        read_whole_ids(&output["results"][0]["data"]).contains(&"GHSA-8p5q-j9m2-g8wr".to_owned()),
-        "withdrawal warning's read survives final shaping: {output}"
-    );
+}
+
+/// GitHub's class of a record the row lists is its `githubType`, so no
+/// warning restates it; a record only GitHub matches is named in a warning
+/// alone, so its class is said there.
+#[tokio::test]
+async fn an_unreviewed_note_is_said_only_of_a_record_the_row_does_not_list() {
+    let data = global_page_row(vec![
+        global_record(
+            "GHSA-glob-twin-aaaa",
+            json_fixture(r#"{"type": "unreviewed"}"#),
+        ),
+        global_record(
+            "GHSA-glob-only-bbbb",
+            json_fixture(r#"{"type": "unreviewed"}"#),
+        ),
+    ])
+    .await;
+    let typed = data["advisories"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|row| row["id"] == "GHSA-glob-twin-aaaa" && row["githubType"] == "unreviewed");
+    assert!(typed, "{data}");
+    let notes = data["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|text| text.starts_with("GitHub has not reviewed"))
+        .collect::<Vec<_>>();
+    assert_eq!(notes.len(), 1, "{data}");
+    assert!(notes[0].contains("GHSA-glob-only-bbbb"), "{data}");
 }
 
 /// GitHub classes an advisory it matches to the version as malware: the row
@@ -1928,14 +1925,12 @@ async fn an_osv_failure_never_counts_a_withdrawn_record_as_a_match() {
     );
     let warnings = data["warnings"].to_string();
     assert!(
-        warnings.contains("GitHub withdrew GHSA-8p5q-j9m2-g8wr at 2021-10-01T22:04:28Z")
-            && warnings.contains("unreviewed")
-            && warnings.contains(", so it is not counted"),
+        warnings.contains("GitHub withdrew GHSA-8p5q-j9m2-g8wr: not counted."),
         "{data}"
     );
     assert!(
-        read_whole_ids(&data).contains(&"GHSA-8p5q-j9m2-g8wr".to_owned()),
-        "still one call away: {data}"
+        !read_whole_ids(&data).contains(&"GHSA-8p5q-j9m2-g8wr".to_owned()),
+        "a retracted record is named, not read: {data}"
     );
 }
 
@@ -3274,53 +3269,69 @@ async fn the_repository_block_names_repo_and_dates_its_read_as_read_on() {
     );
 }
 
-/// The summary warns that a withdrawn advisory is read by `related`, so it
-/// serves the call that reads it.
+/// Every record GitHub withdrew is named in one sentence, in both views: it
+/// bounds what the answer counts. None is read: its read shows only the
+/// retraction, and its date stays on that read.
 #[tokio::test]
-async fn a_summary_that_counts_a_withdrawn_advisory_serves_its_read() {
+async fn withdrawn_advisories_are_one_sentence_in_both_views_and_never_read() {
     use crate::security_check::AdvisoryRead;
-    let http = monorepo_registry().osv_pages(vec![(200, json!({}))]);
-    let github = monorepo_github("GHSA-mono-twin-aaaa").global_page(
-        None,
-        AdvisoryRead::Page(octocode_github::AdvisoryPage {
-            advisories: vec![global_record(
-                "GHSA-8p5q-j9m2-g8wr",
-                json_fixture(r#"{"withdrawn_at": "2021-10-01T22:04:28Z"}"#),
-            )],
-            next: None,
-        }),
-    );
-    let budget = test_budget();
-    let reused = ReusedSince::default();
-    let config = crate::security_check::tests::default_config();
-    let row = run(
-        &Package {
-            view: octocode_contract_types::SecurityCheckView::Summary,
-            ecosystem: crate::artifact::query::artifact_type::osv_ecosystem(ArtifactType::Npm),
-            release: None,
-            name: "lodash",
-            version: Some("4.17.20"),
-            resume: None,
-            brief: Map::new(),
-        },
-        &crate::security_check::github_double::net(&http, &budget, &reused, &config, &github),
-    )
-    .await
-    .expect("row");
-    assert!(
-        row["warnings"]
-            .to_string()
-            .contains("GitHub withdrew GHSA-8p5q-j9m2-g8wr, so it is not counted"),
-        "{row}"
-    );
-    octocode_runtime_base::test_support::assert_lead_served(
-        octocode_runtime_base::id::ToolId::SecurityCheck,
-        &row,
-        |input| {
-            input["queries"][0]["operation"] == "advisory"
-                && input["queries"][0]["id"] == "GHSA-8p5q-j9m2-g8wr"
-        },
-    );
+    for view in [
+        octocode_contract_types::SecurityCheckView::Details,
+        octocode_contract_types::SecurityCheckView::Summary,
+    ] {
+        let http = monorepo_registry().osv_pages(vec![(200, json!({}))]);
+        let github = monorepo_github("GHSA-mono-twin-aaaa").global_page(
+            None,
+            AdvisoryRead::Page(octocode_github::AdvisoryPage {
+                advisories: ["GHSA-8p5q-j9m2-g8wr", "GHSA-9wx3-p993-35vp"]
+                    .into_iter()
+                    .map(|id| {
+                        global_record(
+                            id,
+                            json_fixture(r#"{"withdrawn_at": "2021-10-01T22:04:28Z"}"#),
+                        )
+                    })
+                    .collect(),
+                next: None,
+            }),
+        );
+        let budget = test_budget();
+        let reused = ReusedSince::default();
+        let config = crate::security_check::tests::default_config();
+        let row = run(
+            &Package {
+                view,
+                ecosystem: crate::artifact::query::artifact_type::osv_ecosystem(ArtifactType::Npm),
+                release: None,
+                name: "lodash",
+                version: Some("4.17.20"),
+                resume: None,
+                brief: Map::new(),
+            },
+            &crate::security_check::github_double::net(&http, &budget, &reused, &config, &github),
+        )
+        .await
+        .expect("row");
+        let withdrawn = row["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .filter(|text| text.contains("withdrew"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            withdrawn,
+            ["GitHub withdrew GHSA-8p5q-j9m2-g8wr and GHSA-9wx3-p993-35vp: not counted."],
+            "{view:?}: {row}"
+        );
+        let read = read_whole_ids(&row);
+        assert!(
+            !read
+                .iter()
+                .any(|id| id.starts_with("GHSA-8p5q") || id.starts_with("GHSA-9wx3")),
+            "{view:?}: {row}"
+        );
+    }
 }
 
 /// The aliases of a long list are not each read: the details view asks OSV

@@ -180,7 +180,6 @@ pub(super) fn tree_lead(
     let tree = AstSearchQuerySyntaxTreePath {
         include_provenance: None,
         line: line.and_then(std::num::NonZeroU64::new),
-        main_goal: None,
         named_only: true,
         operation: SyntaxTreeOperation::SyntaxTree,
         page: std::num::NonZeroU64::MIN,
@@ -189,7 +188,6 @@ pub(super) fn tree_lead(
             None => None,
         },
         path: file.to_string_lossy().as_ref().try_into().ok()?,
-        reasoning: None,
         snapshot: None,
     };
     Some(octocode_runtime_base::response::result::Continuation::related_query(tree).build())

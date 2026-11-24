@@ -2,6 +2,8 @@
 // data.json over every chunk, the event stream the viewer and events.jsonl carry, and the run options.
 // Native tool rows (graphBuild, graphQuery and the research tools) come from the generated contract
 // (../contract.generated.d.ts); these types describe what this package derives and saves from them.
+import type { Load } from '../loads.ts';
+import type { BytesEvidence, BytesMethod } from './package-bytes.ts';
 import type { Relation } from '../relations.ts';
 
 /** Graph binding confidence, as graphQuery states it. */
@@ -67,6 +69,12 @@ export interface GraphEdge {
   /** Every witness is test code. Absent on an edge only the language server reported from production code. */
   test?: boolean;
   crossChunk?: boolean;
+  /** Imports: the lines of each kind (`{ "type-import": [3], "dynamic-import": [40] }`), so an answer cites the import
+   * that loads; absent in builds before it. */
+  kindLines?: Record<string, number[]>;
+  /** Imports: the load the engine states for each kind (`{ "type-import": "type" }`); loads.ts reads it before its
+   * kind table. Absent in builds before the engine stated loads. */
+  loads?: Record<string, Load>;
 }
 
 export type ImportEdge = GraphEdge;
@@ -84,6 +92,9 @@ export interface Declaration {
   line?: number;
   endLine?: number;
   exported: boolean;
+  /** The parameter list and return type as the declaration writes them (graphQuery `params`, `returns`). */
+  params?: string;
+  returns?: string;
 }
 
 /** A symbol in the call graph: a declaration or a call endpoint, with its outgoing call count. */
@@ -99,6 +110,29 @@ export interface ExternalPackage {
   count: number;
   files: string[];
   testFiles?: string[];
+  /** Per importing file: the kinds its imports of the package record (loads.ts reads when it loads). */
+  kinds?: Record<string, string[]>;
+  /** Per importing file: the lines of its imports of the package. */
+  lines?: Record<string, number[]>;
+  /** The load the engine states for each kind of these imports; read before the kind table. */
+  loads?: Record<string, Load>;
+  /** What the package costs as a build measured it (package-bytes.ts `PackageSize`); null when it could not. */
+  bytes?: number | null;
+  bytesMethod?: BytesMethod | null;
+  bytesEvidence?: BytesEvidence;
+}
+
+/**
+ * What a file takes from a file it imports: the declaration a name resolves to (`file#name`; a file for a namespace
+ * import) and how: `import` (declared in the imported file), `reexport` (through a re-export of it), `namespace`,
+ * `path` (a Rust value path), `reexported-name` (a name the source re-exports).
+ */
+export interface UseEdge {
+  source: string;
+  target: string;
+  line: number | null;
+  detail: string;
+  test?: boolean;
 }
 
 /** An import the section's snapshot could not link inside its root. */
@@ -108,6 +142,10 @@ export interface OutsideImport {
   test?: boolean;
   specifier: string | null;
   message: string;
+  /** The import's kind (static-import, type-import, dynamic-import, …) when the engine states it. */
+  importKind?: string;
+  /** When that import takes effect, as the engine states it. */
+  load?: Load;
 }
 
 /** A call site the section left unbound (graphQuery `unresolved`), kept for stitching between chunks. */
@@ -126,6 +164,30 @@ export interface Partial {
   partialReasons: string[];
 }
 
+/** One package of the enclosing workspace the build imported from outside its root. */
+export interface WorkspaceExternal {
+  /** The graph's package node, `pkg:<name>`, when the engine made one. */
+  id?: string;
+  /** The name as the graph's package node spells it, else the member's own name. */
+  name: string;
+  /** The member directories it names, relative to the workspace root. */
+  paths: string[];
+  /** Imports of the build into it: package-node import edges plus unresolved out-of-root import lines. */
+  imports: number;
+  /** Files of the build importing it. */
+  files: number;
+}
+
+/** A workspace enclosing the build root whose packages the build imported as externals. */
+export interface WorkspaceExternals {
+  root: string;
+  /** What declares the workspace: `package.json workspaces`, `pnpm-workspace.yaml`, `Cargo.toml [workspace]`, `go.work`. */
+  manifests: string[];
+  packages: WorkspaceExternal[];
+  /** The build of the workspace root that stitches them. */
+  command: string;
+}
+
 export interface Coverage extends Partial {
   files: number;
   imports: number;
@@ -142,6 +204,8 @@ export interface Coverage extends Partial {
   crossChunkImports?: number;
   crossChunkCalls?: number;
   note?: string;
+  /** Workspaces enclosing the build root whose packages the build imported as externals (workspace-scope.ts). */
+  workspaceExternals?: WorkspaceExternals[];
 }
 
 export interface Snapshot {
@@ -221,6 +285,8 @@ export interface SectionData {
   outsideRoot: OutsideImport[];
   declarations: Declaration[];
   unresolvedCalls: UnresolvedCall[];
+  /** Names each file takes from the files it imports; absent in builds before it. */
+  uses?: UseEdge[];
 }
 
 /** Weighted file edges (graph-model.ts `fileEdges`), as data.json stores them. */
@@ -233,6 +299,8 @@ export interface WeightedEdge {
   test: boolean;
   /** An import or a full-evidence call backs it; absent in exports written before strong edges (read as strong). */
   strong?: boolean;
+  /** When the pair's strongest import takes effect (loads.ts); null when only calls join it, absent in older exports. */
+  load?: Load | null;
 }
 
 export interface CycleSet {
@@ -317,6 +385,8 @@ export interface CallStats {
   receiverSources?: number;
   /** Sources a refresh did not probe again: their previous answers were carried over (lsp.ts carriedProbes). */
   carried?: number;
+  /** Sources whose answers came from the shared LSP answer cache (graph-cache.ts). */
+  cached?: number;
   total?: number;
   scope?: string;
   unanswered?: UnansweredProbe[];

@@ -41,8 +41,9 @@ fn missing_items_list_where_the_right_one_is() {
 
 /// [`super::super::run`] states a missing ref exactly as the runtime
 /// dispatch did (tests/runtime_gh_default_branch.rs): the message names
-/// the default branch, `atDefaultBranch` retries there, `viewRefs` stays;
-/// a comparison names its missing side, and offers no retry that would
+/// the default branch and `viewRefs` lists the refs; a commit read offers
+/// no read of the default branch's head (another question), a comparison
+/// retries there, names its missing side, and offers no retry that would
 /// compare the default branch with itself.
 #[tokio::test]
 async fn a_missing_ref_is_recovered_inside_the_tool() {
@@ -119,9 +120,7 @@ async fn a_missing_ref_is_recovered_inside_the_tool() {
         "{}",
         commit.message
     );
-    let retry = lead(&commit, "atDefaultBranch");
-    assert_eq!(retry["tool"], "ghGetHistoryItem");
-    assert_eq!(retry["input"]["queries"][0]["ref"], "master");
+    assert!(lead(&commit, "atDefaultBranch").is_null());
     assert_eq!(lead(&commit, "viewRefs")["tool"], "ghStructure");
 
     let compare = fail(json_fixture(
@@ -165,8 +164,8 @@ async fn a_missing_ref_is_recovered_inside_the_tool() {
 }
 
 /// A missing ref in a repository GitHub redirected to a new name states
-/// the rename once and leads (`atDefaultBranch`, `viewRefs`) under the
-/// canonical name; a repository that was never redirected states none.
+/// the rename once and leads (`viewRefs`) under the canonical name; a
+/// repository that was never redirected states none.
 #[tokio::test]
 async fn a_missing_ref_of_a_renamed_repository_names_the_rename() {
     use octocode_runtime_base::security::scan::Passthrough;
@@ -233,6 +232,6 @@ async fn a_missing_ref_of_a_renamed_repository_names_the_rename() {
         let query = &next[lead]["input"]["queries"][0];
         (query["owner"].clone(), query["repo"].clone())
     };
-    assert_eq!(named("atDefaultBranch"), (json!("c"), json!("d")), "{next}");
+    assert!(next.get("atDefaultBranch").is_none(), "{next}");
     assert_eq!(named("viewRefs"), (json!("c"), json!("d")), "{next}");
 }

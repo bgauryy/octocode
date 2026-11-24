@@ -132,6 +132,12 @@ impl<'t> Encoder<'t> {
                 tables.str(decl.test_identity),
                 tables.str(decl.assessment),
             ]);
+            texts.extend(
+                [decl.params, decl.returns]
+                    .into_iter()
+                    .filter(|text| *text != NONE)
+                    .map(|text| tables.str(text)),
+            );
         }
         for diag in &tables.diagnostics {
             texts.extend([
@@ -139,6 +145,9 @@ impl<'t> Encoder<'t> {
                 tables.str(diag.code),
                 tables.str(diag.message),
             ]);
+            if diag.import_kind != NONE {
+                texts.push(tables.str(diag.import_kind));
+            }
         }
         texts.extend(tables.digests.iter().map(|(_, digest)| tables.str(*digest)));
         for (_, dir, name, meta) in &tables.components {
@@ -166,6 +175,7 @@ impl<'t> Encoder<'t> {
                 witness.edge.detail,
                 witness.occurrence,
                 witness.argument,
+                witness.import_kind,
                 witness.provenance.source_digest,
                 witness.provenance.derivation_version,
             ] {
@@ -277,6 +287,14 @@ impl<'t> Encoder<'t> {
             put(&mut diags, u64::from(self.sid(diag.code)));
             put(&mut diags, u64::from(self.sid(diag.message)));
             put_opt(&mut diags, diag.target);
+            put_opt(
+                &mut diags,
+                if diag.import_kind == NONE {
+                    NONE
+                } else {
+                    self.sid(diag.import_kind)
+                },
+            );
         }
         diags
     }

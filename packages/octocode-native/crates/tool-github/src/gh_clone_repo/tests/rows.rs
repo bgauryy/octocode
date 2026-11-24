@@ -1,4 +1,4 @@
-//! Clone rows: missing repositories, local exploration, checkout sizes and history depth.
+//! Clone rows: missing repositories, local exploration, checkout sizes and history.
 use super::bench::*;
 use super::*;
 use octocode_test_support::json_fixture;
@@ -157,34 +157,6 @@ fn reuse_probes_git_and_reports_the_checked_out_size() {
     );
 }
 
-/// Distinct requested depths keep their destinations while sharing full history.
-#[test]
-fn requested_depths_share_history_across_checkout_destinations() {
-    let bench = Bench::committing(api_github_endpoint());
-    let context = bench.context();
-    bench.fixture.push_second();
-    let shallow = clone_pinned(&bench.fixture, &query(), &context).expect("shallow");
-    let deep = clone_pinned(
-        &bench.fixture,
-        &GhCloneRepoQuery {
-            history_depth: std::num::NonZeroU64::new(2).expect("depth"),
-            ..query()
-        },
-        &context,
-    )
-    .expect("depth 2");
-    assert_ne!(shallow.location.path, deep.location.path);
-    assert_eq!(deep.location.history_depth, Some(2));
-    assert_eq!(shallow.location.history_depth, None);
-    let count = |path: &str| {
-        git_output(Path::new(path), &["rev-list", "--count", "HEAD"])
-            .trim()
-            .to_owned()
-    };
-    assert_eq!(count(&shallow.location.path), count(&deep.location.path));
-    assert_eq!(count(&deep.location.path), "2");
-}
-
 #[test]
 fn clone_timeout_defaults_to_the_runtime_network_limit() {
     assert_eq!(
@@ -232,10 +204,9 @@ fn reuse_reports_the_fresh_clones_completion_time() {
     );
 }
 
-fn at_depth(commit: &str, depth: u64) -> GhCloneRepoQuery {
+fn at(commit: &str) -> GhCloneRepoQuery {
     GhCloneRepoQuery {
         ref_: Some(reference(commit)),
-        history_depth: std::num::NonZeroU64::new(depth).expect("depth"),
         ..query()
     }
 }
@@ -256,9 +227,8 @@ fn default_rows_share_the_full_commit_graph() {
         fixture.push_commit("three.txt"),
     ];
     // Out of order, so a later fetch is an ancestor of an earlier one.
-    let rows = [2, 0, 1].map(|index| {
-        clone_pinned(&fixture, &at_depth(&commits[index], 1), &context).expect("depth 1 row")
-    });
+    let rows =
+        [2, 0, 1].map(|index| clone_pinned(&fixture, &at(&commits[index]), &context).expect("row"));
     assert_eq!(store_dirs(&home).len(), 1, "{:?}", store_dirs(&home));
     for (row, expected) in rows.iter().zip([3, 1, 2]) {
         assert_eq!(history(&row.location.path), expected, "{row:?}");
@@ -268,7 +238,7 @@ fn default_rows_share_the_full_commit_graph() {
 /// A second tip can traverse the same objects without cutting the first
 /// checkout's ancestry. A branch or tag is available before its own checkout.
 #[test]
-fn deeper_rows_share_one_store_and_keep_each_tips_ancestry() {
+fn rows_share_one_store_and_keep_each_tips_ancestry() {
     let fixture = Fixture::new();
     let (root, home) = home_root();
     let policy = test_support::workspace_policy(&root.0);
@@ -280,7 +250,7 @@ fn deeper_rows_share_one_store_and_keep_each_tips_ancestry() {
     let third = fixture.push_commit("three.txt");
     let fourth = fixture.push_commit("four.txt");
 
-    let first = clone_pinned(&fixture, &at_depth(&third, 3), &context).expect("C3");
+    let first = clone_pinned(&fixture, &at(&third), &context).expect("C3");
     assert_eq!(
         git_output(
             Path::new(&first.location.path),
@@ -290,7 +260,7 @@ fn deeper_rows_share_one_store_and_keep_each_tips_ancestry() {
         fixture.first_commit
     );
     assert_eq!(history(&first.location.path), 3);
-    let second = clone_pinned(&fixture, &at_depth(&fourth, 3), &context).expect("C4");
+    let second = clone_pinned(&fixture, &at(&fourth), &context).expect("C4");
     assert_eq!(history(&second.location.path), 4);
     assert_eq!(
         history(&first.location.path),
@@ -310,7 +280,7 @@ fn deeper_rows_share_one_store_and_keep_each_tips_ancestry() {
 }
 
 #[test]
-fn a_shallow_remote_cannot_supply_a_full_history_receipt() {
+fn a_shallow_remote_is_refused_for_incomplete_ancestry() {
     let bench = Bench::committing(api_github_endpoint());
     let tip = bench.fixture.push_commit("second.txt");
     let remote = url::Url::parse(&bench.fixture.bare_url)
@@ -318,37 +288,16 @@ fn a_shallow_remote_cannot_supply_a_full_history_receipt() {
         .to_file_path()
         .unwrap();
     fs::write(remote.join("shallow"), format!("{tip}\n")).unwrap();
-    let error = clone_pinned(&bench.fixture, &at_depth(&tip, 1), &bench.context())
-        .expect_err("incomplete ancestry");
+    let error =
+        clone_pinned(&bench.fixture, &at(&tip), &bench.context()).expect_err("incomplete ancestry");
     assert_eq!(error.code, ErrorCode::GitFailed, "{error:?}");
     assert!(error.message.contains("shallow"), "{error:?}");
 }
 
-/// A repository with fewer commits than `historyDepth` asks for is complete
-/// in the store: a second row of the same commit and depth (another scope)
-/// finds the root commit and does not fetch again.
+/// Every checkout, fresh or reused, holds the pinned commit's whole
+/// ancestry, as the origin has it.
 #[test]
-fn a_history_shorter_than_the_depth_is_not_fetched_again() {
-    let fixture = Fixture::shared();
-    let (root, home) = home_root();
-    let policy = test_support::workspace_policy(&root.0);
-    let endpoint = api_github_endpoint();
-    let runner = fixture_runner(&fixture);
-    let config = GitConfig::persistent(&home);
-    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
-    let deep = |paths: Vec<_>| GhCloneRepoQuery {
-        history_depth: std::num::NonZeroU64::new(5).expect("depth"),
-        paths,
-        ..query()
-    };
-    clone_pinned(&fixture, &deep(Vec::new()), &context).expect("whole");
-    clone_pinned(&fixture, &deep(one("src")), &context).expect("scoped");
-    assert_eq!(steps(&runner, "fetch requested commit"), 1, "one fetch");
-}
-
-/// Fresh and reused checkouts disclose full history for every requested depth.
-#[test]
-fn every_depth_discloses_full_ancestry() {
+fn every_checkout_holds_the_whole_ancestry() {
     let bench = Bench::committing(api_github_endpoint());
     let context = bench.context();
     bench.fixture.push_second();
@@ -357,30 +306,9 @@ fn every_depth_discloses_full_ancestry() {
         .trim()
         .parse()
         .expect("count");
-    for depth in [2, 3, 50] {
-        for _ in 0..2 {
-            let clone = clone_pinned(
-                &bench.fixture,
-                &GhCloneRepoQuery {
-                    history_depth: std::num::NonZeroU64::new(depth).expect("depth"),
-                    ..query()
-                },
-                &context,
-            )
-            .expect("deep clone");
-            let whole = history(&clone.location.path) == origin;
-            assert_eq!(
-                clone.location.full_history, whole,
-                "depth {depth}: {clone:?}"
-            );
-            let served = serde_json::to_value(&clone).expect("serialize");
-            assert_eq!(
-                served["location"].get("fullHistory").is_some(),
-                whole,
-                "{served}"
-            );
-        }
+    for reused in [false, true] {
+        let clone = clone_pinned(&bench.fixture, &query(), &context).expect("clone");
+        assert_eq!(clone.location.reused, reused, "{clone:?}");
+        assert_eq!(history(&clone.location.path), origin, "{clone:?}");
     }
-    let shallow = clone_pinned(&bench.fixture, &query(), &context).expect("shallow");
-    assert!(shallow.location.full_history, "{shallow:?}");
 }

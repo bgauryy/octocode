@@ -56,16 +56,17 @@ pub(in crate::gh_search_code) async fn disclose_index_ref(
     let index = head.as_deref().map_or_else(String::new, |sha| {
         format!(" at {}", &sha[..sha.len().min(7)])
     });
+    // What the rows show first (their lines are the ref's), then what the
+    // index leaves unsearched: a file that matches only at the ref is no
+    // candidate, so its absence proves nothing. The route is said in words:
+    // an evidence row serves no optional `viewRepo` call.
     let lines = if resolved_sha_shown(value) {
-        format!("; `matches` read at {reference}")
+        format!("`matches` read at {reference}; candidates")
     } else {
-        String::new()
+        "Candidates".to_owned()
     };
-    // The index commit, the ref, and what that leaves unsearched: a file that
-    // exists only at the ref is not a candidate, so its absence proves
-    // nothing. `viewRepo` lists the ref's own files.
     let warning = format!(
-        "Candidate files come from the default-branch index{index}, not {reference}: a file whose keywords match only at {reference} (it exists only there, or its text changed since) cannot appear, so absence proves nothing; list the files at {reference} and read them with `matchString`{lines}."
+        "{lines} come from the default-branch index{index}, so a file matching only at {reference} is missing: list {reference} with ghStructure, read with matchString."
     );
     push_warnings(value, [warning]);
     // Rows not at the ref were moved or renamed there: search their names
@@ -96,7 +97,6 @@ pub(in crate::gh_search_code) async fn disclose_index_ref(
             |(((((include, owner), repo), reference), path), sort)| GhStructureQueryTree {
                 include,
                 limit: NonZeroU64::new(300).unwrap_or(NonZeroU64::MIN),
-                main_goal: None,
                 materialize: None,
                 materialize_offset: None,
                 max_depth: None,
@@ -104,7 +104,6 @@ pub(in crate::gh_search_code) async fn disclose_index_ref(
                 owner,
                 page: None,
                 path,
-                reasoning: None,
                 ref_: Some(reference),
                 repo,
                 sort,

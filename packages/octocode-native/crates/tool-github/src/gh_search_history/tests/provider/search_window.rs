@@ -153,11 +153,12 @@ async fn a_page_past_the_search_window_leads_to_the_last_reachable_page() {
     assert_eq!(row["keywords"], json_fixture(r#"["fix"]"#), "{next}");
 }
 
-/// A capped search names one narrowing lead per call: a date-ordered
-/// result continues past the window from its last row's date (creation
-/// newest first: `until`; oldest first: `since`; update order: an
-/// `updated:` qualifier); an order with no date to resume from is first
-/// re-sorted newest-first, which that keyset continuation then follows.
+/// A capped search names one narrowing lead per call on its last reachable
+/// page: a date-ordered result continues past the window from its last
+/// row's date (creation newest first: `until`; oldest first: `since`;
+/// update order: an `updated:` qualifier); an order with no date to resume
+/// from is first re-sorted newest-first, which that keyset continuation then
+/// follows.
 #[tokio::test]
 async fn a_capped_search_names_one_narrowing_lead() {
     use wiremock::MockServer;
@@ -222,8 +223,11 @@ async fn a_capped_search_names_one_narrowing_lead() {
     )
     .await;
     let provider = one_shot_provider(&server);
-    let lead = |row: Value| {
+    let lead = |mut row: Value| {
         let provider = &provider;
+        // The last reachable page: 1,000 results at 100 a page.
+        row["limit"] = json!(100);
+        row["page"] = json!(10);
         async move {
             let operation = row["operation"].clone();
             let query: GhSearchHistoryQuery = serde_json::from_value(row).expect("query");
@@ -367,10 +371,11 @@ async fn a_capped_search_names_one_narrowing_lead() {
 }
 
 /// The sentence beside a capped search's related call says what the call
-/// runs. A date-ordered page continues from its own last row, on every page.
-/// A search with no date order is re-run newest first from its first row:
-/// that replaces the walk, so it is stated where the walk starts and where
-/// it ends, and no page between carries a call that would restart it.
+/// runs. A date-ordered search continues from its last reachable page's last
+/// row: before that page, the walk reaches the same rows. A search with no
+/// date order is re-run newest first from its first row: that replaces the
+/// walk, so it is stated where the walk starts and where it ends, and no page
+/// between carries a call that would restart it.
 #[tokio::test]
 async fn a_capped_search_says_what_its_related_call_does() {
     use wiremock::MockServer;
@@ -412,13 +417,14 @@ async fn a_capped_search_says_what_its_related_call_does() {
             .find(|call| call["tool"] == "ghSearchHistory")
             .cloned()
     };
-    let says = |data: &Value, needle: &str| {
+    use crate::gh_search_history::leads::PastWindow;
+    let says = |data: &Value, route: PastWindow| {
         data["warnings"]
             .as_array()
             .into_iter()
             .flatten()
             .filter_map(Value::as_str)
-            .any(|warning| warning.contains(needle))
+            .any(|warning| warning == route.warning())
     };
     let relevance = |page: u64| {
         json!({"operation": "pullRequest", "owner": "o", "repo": "r", "keywords": ["fix"],
@@ -438,11 +444,8 @@ async fn a_capped_search_says_what_its_related_call_does() {
         row["filters"].get("createdAt").is_none(),
         "it narrows nothing yet: {first}"
     );
-    assert!(
-        says(&first, "re-runs the search newest first from its first row"),
-        "{first}"
-    );
-    assert!(!says(&first, "bounded at this page's last row"), "{first}");
+    assert!(says(&first, PastWindow::Resorted), "{first}");
+    assert!(!says(&first, PastWindow::FromLastRow), "{first}");
     // A page between carries no call that would restart the walk, and still
     // says the search is capped.
     let middle = read(relevance(3)).await;
@@ -452,29 +455,30 @@ async fn a_capped_search_says_what_its_related_call_does() {
         "{middle}"
     );
     assert_eq!(related(&middle), None, "{middle}");
-    assert!(!says(&middle, "re-runs the search"), "{middle}");
+    assert!(!says(&middle, PastWindow::Resorted), "{middle}");
     // The last reachable page states it again: the reader who walked needs it.
     let last = read(relevance(10)).await;
     assert!(related(&last).is_some(), "{last}");
-    assert!(says(&last, "re-runs the search newest first"), "{last}");
-    // A date order continues from each page's own last row, and says the
-    // boundary instant is included.
-    let dated = read(
-        json!({"operation": "pullRequest", "owner": "o", "repo": "r",
-        "keywords": ["fix"], "limit": 100, "page": 3,
-        "sort": {"by": "createdAt", "order": "desc"}}),
-    )
-    .await;
-    let call = related(&dated).expect("a date-ordered page continues from its last row");
+    assert!(says(&last, PastWindow::Resorted), "{last}");
+    // A date order continues from the last reachable page's last row, and
+    // says the boundary instant repeats; a page before it offers no call.
+    let dated = |page: u64| {
+        read(
+            json!({"operation": "pullRequest", "owner": "o", "repo": "r",
+            "keywords": ["fix"], "limit": 100, "page": page,
+            "sort": {"by": "createdAt", "order": "desc"}}),
+        )
+    };
+    let between = dated(3).await;
+    assert_eq!(related(&between), None, "{between}");
+    assert!(!says(&between, PastWindow::FromLastRow), "{between}");
+    let end = dated(10).await;
+    let call = related(&end).expect("the last reachable page continues from its last row");
     assert_eq!(
         call["input"]["queries"][0]["filters"]["createdAt"]["to"], "2026-03-01T09:30:00Z",
-        "{dated}"
+        "{end}"
     );
-    assert!(
-        says(&dated, "bounded at this page's last row's date"),
-        "{dated}"
-    );
-    assert!(says(&dated, "is included"), "{dated}");
+    assert!(says(&end, PastWindow::FromLastRow), "{end}");
 }
 
 /// A keyword-less pullRequest search runs newest created first, as the
@@ -516,11 +520,14 @@ async fn a_capped_keyword_less_pull_request_search_narrows_its_window() {
     )
     .await;
     let provider = one_shot_provider(&server);
+    // The last reachable page (1,000 results at 100 a page) offers the lead.
     let row = json_fixture(
         r#"{
             "operation": "pullRequest",
             "owner": "o",
             "repo": "r",
+            "limit": 100,
+            "page": 10,
             "filters": {"labels": ["bug"]}
         }"#,
     );

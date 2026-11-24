@@ -1,5 +1,5 @@
 //! What a ghCloneRepo checkout holds, as the checkout records it: the
-//! repository, commit, history depth and sparse scope, in one file of the
+//! repository, commit and sparse scope, in one file of the
 //! checkout's git administration directory (never its work tree, so the
 //! checkout stays clean). ghCloneRepo writes it ([`write_record`]); the
 //! local tools read it ([`clone_scope`]) to say that a missing path lies
@@ -22,7 +22,7 @@ const RECORD_FILE: &str = "octocode-clone.json";
 /// scope paths, each a path on disk (within the longest any filesystem
 /// allows: Windows' 32,767 UTF-16 units, at most 3 UTF-8 bytes each, above
 /// Unix `PATH_MAX`), doubled for JSON escapes (the contract admits no control
-/// character), and the fixed fields (owner, repository, commit id, depth).
+/// character), and the fixed fields (owner, repository, commit id).
 const RECORD_BYTES: u64 = {
     const PATH_BYTES: u64 = 32_767 * 3;
     octocode_runtime_base::id::MAX_INPUT_ARRAY_ITEMS as u64 * (PATH_BYTES * 2 + 4) + 1024
@@ -42,7 +42,6 @@ pub struct CloneRecord {
     /// Whether the files directly at the repository root are on disk beside
     /// a sparse scope (cone mode); always true for a full checkout.
     pub root_files: bool,
-    pub history_depth: u64,
 }
 
 /// Write `record` for the checkout whose git administration directory is
@@ -54,7 +53,9 @@ pub fn write_record(git_dir: &Path, record: &CloneRecord) -> std::io::Result<()>
 
 /// The record of the checkout whose git administration directory is
 /// `git_dir`; `None` when it has none, it is larger than any record
-/// ([`RECORD_BYTES`]) or it does not parse: the scope is then unknown.
+/// ([`RECORD_BYTES`]) or it does not parse: the scope is then unknown. A
+/// record an earlier build wrote reads too: a key it no longer has (the
+/// requested `historyDepth`) is ignored.
 pub fn read_record(git_dir: &Path) -> Option<CloneRecord> {
     let file = std::fs::File::open(git_dir.join(RECORD_FILE)).ok()?;
     let text = octocode_io::read::read_limited(file, RECORD_BYTES).ok()??;
@@ -139,8 +140,8 @@ impl CloneScope {
     }
 
     /// The related ghCloneRepo call that checks out `path` (under
-    /// [`Self::root`]) beside this checkout's scope: same repository,
-    /// commit and history depth. `None` when `path` is not under the root.
+    /// [`Self::root`]) beside this checkout's scope: same repository and
+    /// commit. `None` when `path` is not under the root.
     pub fn reclone(&self, path: &Path) -> Option<Value> {
         let relative = self
             .relative(path)
@@ -154,7 +155,6 @@ impl CloneScope {
             "repo": self.record.repo,
             "ref": self.record.commit_sha,
             "paths": paths,
-            "historyDepth": self.record.history_depth,
         }))
         .ok()?;
         Some(Continuation::related_query(query).build())

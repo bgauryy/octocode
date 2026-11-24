@@ -13,6 +13,7 @@ the round compares ([COMPARISONS.md](../COMPARISONS.md)), and never pool sets in
 | [local-goals/](local-goals/README.md) | 40 | nine pinned checkouts named by path in each question; Q33–Q40 are a Terraform slice | local MCP with and without clasify (2026-10-13) |
 | local-transfer/ | 12 | same format as local-goals (checkout named by path) | clasify guidance transfer (2026-10-13) |
 | [local-scenarios/](local-scenarios/README.md) | 30 | language root-cause scenarios: a goal and questions only; the set's README maps each to its clone | native CLI against shell exploration (2026-10-17) |
+| [graph-search/](graph-search/README.md) | 50 | `octocode-graph search` on this repository and two pinned clones; each question carries its expected symbols, scored by `scripts/search-eval.mjs` (recall@1, recall@10, MRR) | name tiers, BM25F and `--expand` (2026-11-24) |
 
 How a local round uses the local sets, flow by flow, is in [local/FLOWS.md](../local/FLOWS.md); the
 repositories they need are in [local/README.md](../local/README.md).

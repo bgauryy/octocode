@@ -67,7 +67,9 @@ async fn commit_match_string_that_removes_every_file_says_so() {
             && warnings.contains("hunk-header"),
         "{out}"
     );
-    assert!(warnings.contains("drop matchString"), "{out}");
+    // The related read without the literal is the recovery: no sentence
+    // restates it.
+    assert!(!warnings.contains("drop matchString"), "{out}");
     let lead = octocode_runtime_base::test_support::checks::related_call(
         &out,
         "ghGetHistoryItem",
@@ -143,7 +145,8 @@ async fn commit_match_string_header_only_hit_counts_as_a_match() {
 }
 
 /// A commit's `matchString` keeps the files whose patch holds it (not a
-/// path-only hit) and counts the files it dropped.
+/// path-only hit) and counts the files it dropped. A lowercase literal
+/// matches in any case (smart case).
 #[tokio::test]
 async fn commit_match_string_drops_path_only_hits_and_counts_them() {
     let server = MockServer::builder().start().await;
@@ -160,7 +163,7 @@ async fn commit_match_string_drops_path_only_hits_and_counts_them() {
     .await;
     let out = read(
         &server,
-        json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,"matchString":["NEW"],"caseMode":"insensitive"}),
+        json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,"matchString":["new"]}),
     )
     .await;
     let files = out["files"].as_array().expect("files");

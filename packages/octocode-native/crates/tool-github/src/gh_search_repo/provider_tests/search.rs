@@ -225,6 +225,28 @@ async fn capped_search_states_the_full_match_count() {
     );
     let warnings = out.data["warnings"].to_string();
     assert!(warnings.contains("4156"), "{}", out.data);
+    // One warning: the count. The required split is the route to the rest,
+    // and no sentence restates it.
+    assert_eq!(
+        out.data["warnings"].as_array().map(Vec::len),
+        Some(1),
+        "{}",
+        out.data
+    );
+    let split = octocode_runtime_base::test_support::checks::related_call(
+        &out.data,
+        "ghSearchRepo",
+        |input| {
+            input["queries"]
+                .as_array()
+                .is_some_and(|rows| rows.len() == 2)
+        },
+    );
+    assert!(
+        split["input"]["queries"][1]["filters"]["createdAt"]["from"].is_string(),
+        "{}",
+        out.data
+    );
     // A page can be read on its own: a later page states the count too.
     let second = run(
         &server,
@@ -275,13 +297,17 @@ async fn an_ignored_language_filter_is_named() {
         ),
     )
     .await;
-    let warnings = out.data["warnings"].to_string();
-    assert!(
-        warnings.contains("language") && warnings.contains("zz-nolang"),
+    // Fact first, naming the field, the value and the fix, in one short
+    // sentence: an alias may still explain it, so it says "may".
+    assert_eq!(
+        out.data["warnings"],
+        json!([
+            "filters.language `zz-nolang` may be unknown to GitHub: no row has it and the count equals the unfiltered search's; check the language name."
+        ]),
         "{}",
         out.data
     );
-    assert!(warnings.contains("unverified"), "{}", out.data);
+    let warnings = out.data["warnings"].to_string();
     assert!(
         !warnings.contains("GitHub ignored language"),
         "{}",

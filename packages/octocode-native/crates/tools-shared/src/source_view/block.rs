@@ -247,7 +247,7 @@ fn no_outline(
             } else {
                 ""
             },
-            recovered_parse(content, path).unwrap_or_default()
+            recovered_parse(content, path, None).unwrap_or_default()
         ));
     }
     if let Some(read) = read {
@@ -311,7 +311,7 @@ pub(super) fn widen_ranges(
         warnings.push(format!(
             "block: no declaration encloses {}; returned the requested lines.{}",
             named_lines(&unenclosed),
-            recovered_parse(content, path).unwrap_or_default()
+            recovered_parse(content, path, None).unwrap_or_default()
         ));
     }
     widened
@@ -339,7 +339,22 @@ fn declares(declared: &[Declared], hit: usize) -> bool {
 
 /// The warning of a block read whose `contextLines` sized nothing: every
 /// match was widened to its declaration.
-pub(super) const CONTEXT_UNUSED: &str = "contextLines has no effect: block:true returned the whole declaration of every match; omit block to read the lines around each match instead.";
+pub(super) const CONTEXT_UNUSED: &str =
+    "contextLines unused: block:true read each match's whole declaration.";
+
+/// Why the call-site `lines` of a block read kept their windows (another
+/// match is a declaration head), named with the read that widens them.
+fn call_site_warning(lines: &[usize]) -> String {
+    match lines {
+        [line] => format!(
+            "block: line {line} kept its window: it is inside a declaration, not its head, and other matches are heads; a ranges read of it with block:true reads that declaration."
+        ),
+        _ => format!(
+            "block: {} kept their windows: each is inside a declaration, not its head, and other matches are heads; a ranges read of each with block:true reads its declaration.",
+            named_lines(lines)
+        ),
+    }
+}
 
 /// Replace each match window with the innermost declaration containing the
 /// matched line, whatever its length: the read's pages bound what one
@@ -367,15 +382,15 @@ pub(super) fn widen_matches(
         .iter()
         .zip(&windows)
         .any(|(&hit, window)| window.start != hit || window.end != hit);
-    let mut unenclosed = 0;
+    let mut unenclosed = vec![];
     let mut one_line = 0;
-    let mut call_sites = 0;
+    let mut call_sites = vec![];
     let widened = hits
         .iter()
         .zip(windows)
         .map(|(&hit, window)| match innermost(&spans, hit) {
             Some(_) if declaration_first && !declares(declared, hit) => {
-                call_sites += 1;
+                call_sites.push(hit);
                 window
             }
             // A hit on the declaration's head and a hit inside it read the
@@ -393,31 +408,36 @@ pub(super) fn widen_matches(
                 window
             }
             None => {
-                unenclosed += 1;
+                unenclosed.push(hit);
                 window
             }
         })
         .collect();
     // Every hit reads its whole declaration, so no context window is left
     // for `contextLines` to size.
-    if context_asked && call_sites + one_line + unenclosed == 0 {
+    if context_asked && call_sites.len() + one_line + unenclosed.len() == 0 {
         warnings.push(CONTEXT_UNUSED.to_owned());
     }
-    // `matchedLines` names every hit; the warning carries the count.
-    if call_sites > 0 {
-        warnings.push(format!(
-            "block: {call_sites} match(es) are inside declarations away from their heads; those keep their context windows because this read also matched declaration heads."
-        ));
+    // A call site's window is a choice this read made: it names the lines
+    // and the read that widens them.
+    if !call_sites.is_empty() {
+        warnings.push(call_site_warning(&call_sites));
     }
-    if one_line > 0 {
+    // A one-line declaration's window already holds it whole, and `blocks`
+    // against `matchedLines` shows which hits kept their windows. Only a
+    // parse the parser recovered from, before an unenclosed hit, bounds what
+    // the read may claim: the outline may miss the declaration enclosing it.
+    if let Some(&last) = unenclosed.iter().max()
+        && let Some(note) = recovered_parse(content, path, Some(last))
+    {
         warnings.push(format!(
-            "block: {one_line} match(es) are one-line declarations, nothing to widen; those keep their match context window."
-        ));
-    }
-    if unenclosed > 0 {
-        warnings.push(format!(
-            "block: {unenclosed} match(es) sit outside any declaration; those keep their match context window.{}",
-            recovered_parse(content, path).unwrap_or_default()
+            "block: no declaration encloses {}; {} context window.{note}",
+            named_lines(&unenclosed),
+            if unenclosed.len() == 1 {
+                "it kept its"
+            } else {
+                "each kept its"
+            }
         ));
     }
     widened

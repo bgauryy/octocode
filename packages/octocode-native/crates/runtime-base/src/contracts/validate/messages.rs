@@ -17,6 +17,9 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError, sent
         .filter_map(|issue| issue.path.get(..2))
         .collect::<Vec<_>>();
     let renamed = renamed_row(tool_name, error, sent);
+    let satisfied = sent_row(error, sent)
+        .map(|rejected| satisfied_by_another_fix(tool_name, &rejected))
+        .unwrap_or_default();
     let mut issues = error
         .issues
         .iter()
@@ -24,6 +27,8 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError, sent
             misplaced_request_field(tool_name, issue).is_some()
                 || !misplaced.iter().any(|row| issue.path.starts_with(row))
         })
+        // A rule the fix of another one satisfies is no cause of its own.
+        .filter(|issue| !satisfied.contains(&issue.path))
         // A field a rename supplies is not also missing.
         .filter(|issue| {
             !(issue.rule_id == "schema.required"
@@ -324,6 +329,14 @@ fn call_reference(tool_name: &str, rejected: Option<&Rejected<'_>>) -> Vec<Strin
             .into_iter()
             .collect();
     }
+    // Fields another form admits are that form's: the row runs under it,
+    // every field it asked kept, rather than stripped of them.
+    if let Some(switched) = rejected.and_then(|rejected| switched_row(tool_name, rejected)) {
+        return vec![format!(
+            "{EXAMPLE}{}",
+            serde_json::json!({ "queries": [switched] })
+        )];
+    }
     let row = rejected.map(|rejected| rejected.row);
     let example = rejected.and_then(|rejected| with_missing_fields(tool_name, rejected));
     let example = match example {
@@ -455,9 +468,87 @@ fn with_missing_fields(tool_name: &str, rejected: &Rejected<'_>) -> Option<Value
             .find_map(|schema| sample(schema, defs, field))?;
         shown.insert(field.clone(), value);
     }
-    super::validate(tool_name, serde_json::json!({ "queries": [shown] }))
-        .is_ok()
-        .then_some(Value::Object(shown))
+    let accepted = |row: &serde_json::Map<String, Value>| {
+        super::validate(tool_name, serde_json::json!({ "queries": [row] })).is_ok()
+    };
+    if !accepted(&shown) {
+        return None;
+    }
+    // A field the fix of an earlier one makes needless is left out, the
+    // later rules first: `owner`, which `repo` requires, also makes a
+    // search runnable, so no keyword placeholder joins it.
+    for field in rejected.missing.iter().rev() {
+        let mut without = shown.clone();
+        without.shift_remove(field);
+        if accepted(&without) {
+            shown = without;
+        }
+    }
+    Some(Value::Object(shown))
+}
+
+/// The rejected row under the selector values that admit every field its
+/// issues refuse ([`Rejected::switch`]), its brief and page position aside.
+/// A field the switched form refuses (a list's `sort` by `pushedAt` under
+/// a search) is left out while that leaves fewer issues; the fields the
+/// switch is for always stay. `None` when no one switch admits them or the
+/// switched row stays refused.
+fn switched_row(tool_name: &str, rejected: &Rejected<'_>) -> Option<Value> {
+    let switch = rejected.switch?;
+    let tool = crate::id::ToolId::from_name(tool_name)?;
+    let state = crate::contracts::state_fields(tool);
+    let mut shown = rejected
+        .row
+        .iter()
+        .filter(|(field, _)| {
+            !crate::contracts::BRIEF_FIELDS.contains(&field.as_str()) && !state.contains(*field)
+        })
+        .map(|(field, value)| (field.clone(), value.clone()))
+        .collect::<serde_json::Map<_, _>>();
+    for (selector, literal) in switch {
+        shown.insert(selector.clone(), literal.clone());
+    }
+    let issues = |row: &serde_json::Map<String, Value>| {
+        super::validate(tool_name, serde_json::json!({ "queries": [row] }))
+            .err()
+            .map_or(0, |error| error.issues.len())
+    };
+    let mut left = issues(&shown);
+    while left > 0 {
+        let (fewer, count) = shown
+            .keys()
+            .filter(|field| !switch.contains_key(*field) && !rejected.faulted.contains(*field))
+            .find_map(|field| {
+                let mut without = shown.clone();
+                without.shift_remove(field);
+                let count = issues(&without);
+                (count < left).then_some((without, count))
+            })?;
+        shown = fewer;
+        left = count;
+    }
+    Some(Value::Object(shown))
+}
+
+/// The paths of the rejected row's missing-field issues that the repair
+/// ([`with_missing_fields`]) leaves out: the fix of another rule already
+/// satisfies them, so they are no cause of their own.
+fn satisfied_by_another_fix(tool_name: &str, rejected: &Rejected<'_>) -> Vec<Vec<String>> {
+    let Some(repaired) = with_missing_fields(tool_name, rejected) else {
+        return Vec::new();
+    };
+    let satisfied = rejected
+        .missing
+        .iter()
+        .filter(|field| repaired.get(field.as_str()).is_none())
+        .map(|field| vec!["queries".to_owned(), rejected.index.clone(), field.clone()])
+        .collect::<Vec<_>>();
+    // Some fix is the cause the others give way to.
+    if satisfied.len() < rejected.missing.len() {
+        satisfied
+    } else {
+        Vec::new()
+    }
 }
 
 /// The forms `tool_name` publishes (`schema <tool> --view variants`): each
@@ -869,6 +960,8 @@ fn nearest_form<'a>(
 /// A rejected row as it was sent, and the row fields its issues name.
 struct Rejected<'a> {
     row: &'a serde_json::Map<String, Value>,
+    /// The row's index in `queries`, as its issues' paths state it.
+    index: String,
     /// The fields the row's issues name; none for an issue of the row as a
     /// whole, whose fields stand only where the request validates.
     faulted: Vec<String>,
@@ -883,6 +976,10 @@ struct Rejected<'a> {
     /// whose message states the form to send (`…; send [\"x\"], not \"x\"`):
     /// its path under the row, and the value.
     mistyped: Vec<(Vec<String>, Value)>,
+    /// The selector values (`{"operation":"search"}`) that admit every field
+    /// the row's issues refuse, when each issue is such a field and one
+    /// switch admits them all (`siblingSwitch`, set by union validation).
+    switch: Option<&'a serde_json::Map<String, Value>>,
 }
 
 impl Rejected<'_> {
@@ -943,7 +1040,7 @@ fn with_literal(mut value: Value, path: &[String], literal: &Value) -> Option<Va
 /// path states (`queries.<n>.…`), with the fields that row's issues name. An
 /// input guard's path names a value inside its field (`keywords[]`,
 /// `outer.key`): the field is the one at fault.
-fn sent_row<'a>(error: &ContractValidationError, sent: &'a Value) -> Option<Rejected<'a>> {
+fn sent_row<'a>(error: &'a ContractValidationError, sent: &'a Value) -> Option<Rejected<'a>> {
     let path = &error.issues.first()?.path;
     let [queries, index, ..] = path.as_slice() else {
         return None;
@@ -959,11 +1056,18 @@ fn sent_row<'a>(error: &ContractValidationError, sent: &'a Value) -> Option<Reje
     let mut meant = Vec::new();
     let mut missing = Vec::new();
     let mut mistyped = Vec::new();
+    let mut switches = Vec::new();
     for issue in &error.issues {
         if let [queries, at, field, ..] = issue.path.as_slice()
             && queries == "queries"
             && at == index
         {
+            switches.push(
+                issue
+                    .schema
+                    .as_ref()
+                    .and_then(|schema| schema["siblingSwitch"].as_object()),
+            );
             if let Some(literal) = meant_literal(issue) {
                 meant.push((issue.path[2..].to_vec(), literal));
             }
@@ -984,13 +1088,20 @@ fn sent_row<'a>(error: &ContractValidationError, sent: &'a Value) -> Option<Reje
             faults.push(under);
         }
     }
+    let switch = switches
+        .first()
+        .copied()
+        .flatten()
+        .filter(|first| switches.iter().all(|switch| *switch == Some(*first)));
     Some(Rejected {
         row,
+        index: index.clone(),
         faulted,
         faults,
         meant,
         missing,
         mistyped,
+        switch,
     })
 }
 

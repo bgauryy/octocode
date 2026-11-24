@@ -16,6 +16,7 @@ export { startMcp } from './mcp.ts';
 // Saved graphs: build one with the native engine, refresh it after edits, open it and ask it questions, diff two.
 export {
   buildGraph,
+  openFreshGraph,
   openGraph,
   previousGraph,
   refreshGraph,
@@ -23,10 +24,12 @@ export {
 export type {
   BuildOptions,
   BuildSummary,
+  FreshGraph,
   RefreshOptions,
   RefreshSummary,
   SavedGraph,
 } from './runtime/api.ts';
+export type { WorkspaceExternals } from './runtime/workspace-scope.ts';
 export { formatResult, runQuery } from './runtime/query-api.ts';
 export type { QueryData, QueryResult } from './runtime/query-api.ts';
 export { diffGraphs, formatDiff } from './runtime/diff.ts';

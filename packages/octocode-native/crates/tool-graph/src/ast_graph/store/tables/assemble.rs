@@ -13,25 +13,30 @@ impl<'a> Projector<'a> {
         for (file, facts) in &built.facts {
             let language = self.lang(file);
             let eco = ecosystem(language);
-            for import in facts
+            let imports = facts
                 .imports
                 .iter()
                 .filter(|i| i.external && i.target.is_none())
-            {
+                .map(|i| (i.specifier.as_str(), i.line, i.kind));
+            let loads = facts
+                .package_loads
+                .iter()
+                .map(|load| (load.specifier.as_str(), load.line, load.kind));
+            for (specifier, line, kind) in imports.chain(loads) {
                 let name = if eco == "go" {
                     self.workspace
-                        .go_module(&import.specifier)
+                        .go_module(specifier)
                         .map(str::to_owned)
-                        .or_else(|| package_name(&import.specifier, language))
+                        .or_else(|| package_name(specifier, language))
                 } else {
-                    package_name(&import.specifier, language)
+                    package_name(specifier, language)
                 };
                 let Some(name) = name else { continue };
                 let mut declared = self.workspace.declared(file, &name, eco);
                 if eco == "cargo" && declared == Declared::Unknown {
                     continue;
                 }
-                if declared != Declared::Builtin && facts.test_scoped(import.line) {
+                if declared != Declared::Builtin && facts.test_scoped(line) {
                     declared = Declared::TestScoped;
                 }
                 packages.entry(name.clone()).or_insert(eco);
@@ -39,7 +44,8 @@ impl<'a> Projector<'a> {
                     file: file.as_str(),
                     name,
                     declared: declared.as_str(),
-                    line: import.line,
+                    line,
+                    kind,
                 });
             }
         }
@@ -126,6 +132,7 @@ impl<'a> Projector<'a> {
                     .as_deref()
                     .and_then(|target| self.file_nodes.get(target).copied())
                     .unwrap_or(NONE),
+                import_kind: diag.import_kind.map_or(NONE, |kind| self.strings.id(kind)),
             })
             .collect::<Vec<_>>();
         diagnostics.dedup();

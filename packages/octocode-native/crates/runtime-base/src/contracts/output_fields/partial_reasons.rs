@@ -74,9 +74,11 @@ const EMITTERS: &[(&str, &[ToolId])] = &[
             SecurityCheck,
         ],
     ),
+    // ghSearchRepo states its cap once, as a warning: its rows never carry
+    // this reason (the registry test's `STRIPPED`).
     (
         "providerResultCap",
-        &[GhSearchCode, GhSearchRepo, GhSearchHistory, ArtifactSearch],
+        &[GhSearchCode, GhSearchHistory, ArtifactSearch],
     ),
     ("providerResultsShifted", &[GhSearchCode]),
     ("regexMatchLimit", &[LocalSearch]),

@@ -19,7 +19,7 @@ The default home is `~/.octocode` on macOS and Linux or `%USERPROFILE%\.octocode
 
 `ghCloneRepo` resolves the requested ref with your credential on every call. One bare Git store per host and repository holds the commit history. The first fetch imports branch heads and tags with `--filter=blob:none`. A checkout downloads the file content its scope needs. A pin missing from the store triggers a fetch that refreshes the remote refs. Each checkout stays detached at the commit in its receipt.
 
-Use `git log HEAD` in the returned path to walk the pinned history. Branches from the last fetch are under `refs/remotes/origin/` and remote tags under `refs/octocode/tags/`. Local branches and tags remain user-owned. `historyDepth` requests a minimum and retains a separate checkout path for that depth. New checkouts use the full-history store. Previously returned shallow checkout paths remain usable.
+Use `git log HEAD` in the returned path to walk the pinned history. Branches from the last fetch are under `refs/remotes/origin/` and remote tags under `refs/octocode/tags/`. Local branches and tags remain user-owned. Every checkout holds the commit's full history from the shared store, so one commit and one `paths` scope share one checkout path. Paths returned by earlier releases, including checkouts made with the removed `historyDepth`, remain usable.
 
 ## Cache storage and lifecycle
 

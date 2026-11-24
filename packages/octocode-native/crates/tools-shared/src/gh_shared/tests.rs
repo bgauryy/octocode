@@ -292,3 +292,35 @@ fn a_pick_of_absent_fields_never_names_an_empty_list() {
     assert!(warning.contains("bogus"), "{warning}");
     assert!(!warning.contains(": ."), "{warning}");
 }
+
+/// A picked identity key is kept whenever a row carries it, and one no row
+/// carries is a flag at its default (`lineResolved`, `alsoAt`): no warning
+/// names it. A picked non-identity key no row carries is still named.
+#[test]
+fn a_pick_of_an_identity_key_no_row_carries_warns_nothing() {
+    let id = ["path", "lineResolved", "alsoAt"];
+    let mut value = json_fixture(r#"{"files": [{"path": "a", "matches": []}]}"#);
+    let fields = ["lineResolved".to_owned(), "alsoAt".to_owned()];
+    pick_rows(&mut value, "files", &id, &fields);
+    assert!(value.get("warnings").is_none(), "{value}");
+    let mut value = json_fixture(r#"{"files": [{"path": "a"}]}"#);
+    let fields = ["lineResolved".to_owned(), "matchedLines".to_owned()];
+    pick_rows(&mut value, "files", &id, &fields);
+    let warnings = value["warnings"].to_string();
+    assert!(warnings.contains("matchedLines"), "{warnings}");
+    assert!(!warnings.contains("lineResolved"), "{warnings}");
+}
+
+/// An unread whole comment count is one short coverage sentence: which
+/// count is missing, and what `commentsCount` still counts; the output
+/// reference defines the whole count, so the note does not.
+#[test]
+fn the_unread_whole_count_note_is_one_short_sentence() {
+    let note = history::WHOLE_COUNT_UNREAD;
+    assert!(note.chars().count() <= 150, "{note}");
+    assert!(note.starts_with("totalCommentsCount"), "{note}");
+    assert!(
+        note.contains("commentsCount counts the conversation"),
+        "{note}"
+    );
+}

@@ -400,32 +400,25 @@ fn an_owner_listing_excludes_archived_unless_its_filter_includes_them() {
 }
 
 /// A keyword spelled as a qualifier (`language:rust`, `stars:>1000`) matches
-/// text: an empty answer names the filter that carries it.
+/// text, so a search would return repositories that merely mention it: the
+/// call is refused, naming the field that carries each one. `user:` and `org:`
+/// name `owner`, which search takes.
 #[test]
-fn an_empty_search_names_the_filter_for_a_qualifier_keyword() {
-    let query: GhSearchRepoQuery = serde_json::from_value(json_fixture(
-        r#"{"operation": "search", "keywords": ["language:rust", "stars:>1000", "parser"]}"#,
-    ))
-    .expect("query");
-    let empty = repository_output(
-        json_fixture(r#"{"repositories": []}"#),
-        &query,
-        true,
-        false,
-        false,
+fn a_qualifier_keyword_is_refused_naming_its_filter() {
+    let refused =
+        super::leads::reject_qualifier_keywords(&["language:rust", "stars:>1000", "parser"])
+            .expect_err("refused");
+    assert_eq!(refused.kind, octocode_github::ProviderErrorKind::Validation);
+    let message = refused.to_string();
+    assert!(message.contains("filters.language"), "{message}");
+    assert!(message.contains("filters.stars"), "{message}");
+    assert!(message.contains(r#"{"min":1001}"#), "{message}");
+    assert!(!message.contains("`parser`"), "{message}");
+    let owner = super::leads::reject_qualifier_keywords(&["org:pallets"]).expect_err("refused");
+    let message = owner.to_string();
+    assert!(
+        message.contains("`owner`") && !message.contains("list"),
+        "{message}"
     );
-    let hints = empty.data["hints"].to_string();
-    assert!(hints.contains("filters.language"), "{hints}");
-    assert!(hints.contains("filters.stars"), "{hints}");
-    assert!(hints.contains(r#"{\"min\":1001}"#), "{hints}");
-    assert!(!hints.contains("`parser`"), "{hints}");
-    // Rows found: nothing to explain.
-    let found = repository_output(
-        json_fixture(r#"{"repositories": []}"#),
-        &query,
-        false,
-        false,
-        false,
-    );
-    assert!(found.data.get("hints").is_none(), "{}", found.data);
+    super::leads::reject_qualifier_keywords(&["parser", "std::fs"]).expect("plain keywords run");
 }

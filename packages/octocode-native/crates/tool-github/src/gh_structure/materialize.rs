@@ -48,19 +48,22 @@ pub(super) async fn materialize_page(
         .next_offset
         .or_else(|| outcome.retryable.then_some(offset))
         .map(|offset| MaterializeResume { offset });
-    let mut warnings = outcome.warnings;
-    // Folders at the listing's depth are listed, not written: say so, so a
-    // local search below them is not mistaken for absence.
+    // Folders at the listing's depth are listed, not written: `location.skipped`
+    // names each (`<path>/`), so a local search below them is not mistaken
+    // for absence, and `expandDepth` writes them.
     let unwritten = unwritten_folders(selection, scope);
     if let Some(first) = unwritten.first() {
-        warnings.push(format!(
-            "{} listed folder(s) at maxDepth {} were not written.",
-            unwritten.len(),
-            scope.depth
-        ));
         value["calls"]["expandDepth"] = expand_depth(query, scope, commit_sha, first)?;
     }
     let mut location = outcome.location;
+    if !unwritten.is_empty() {
+        let skipped = location
+            .as_object_mut()
+            .map(|location| location.entry("skipped").or_insert_with(|| json!([])));
+        if let Some(Value::Array(skipped)) = skipped {
+            skipped.extend(unwritten.iter().map(|folder| json!(format!("{folder}/"))));
+        }
+    }
     // The checkout is complete when this listing wrote everything it can name
     // as text: no offset left, no folder below the depth, and no file skipped
     // but those that are not text (`location.skipped` still names them).
@@ -77,10 +80,7 @@ pub(super) async fn materialize_page(
             &[],
         );
     }
-    octocode_runtime_base::response::paging::push_warnings(value, warnings);
-    if let Some(hint) = outcome.hint {
-        octocode_runtime_base::response::paging::push_warnings(value, [hint]);
-    }
+    octocode_runtime_base::response::paging::push_warnings(value, outcome.warnings);
     Ok(resume)
 }
 
@@ -153,8 +153,6 @@ pub(super) struct MaterializeOutcome {
     pub(super) gap: bool,
     /// A file failed to read (not oversized): reading it again can write it.
     pub(super) retryable: bool,
-    /// What a skip of only binaries says: complete, with their names.
-    pub(super) hint: Option<String>,
 }
 
 /// The commit a materialize writes, and the Octocode home it writes under.
@@ -266,12 +264,9 @@ pub(super) async fn materialize_tree(
     let mut location = json!({
         "path": local.to_string_lossy(),
         "coverage": {"state": if has_more { "partial" } else { "complete" }}});
+    // A resume from an earlier entry than asked (a snapshot file went
+    // missing or changed) rewrites it: bookkeeping, not a gap, so unsaid.
     let mut warnings = writer.skips.warnings();
-    if offset != requested_offset {
-        warnings.push(format!(
-            "A previous materialize file was missing or changed; resumed from entry {offset} instead of {requested_offset}."
-        ));
-    }
     warnings.extend(writer.stopped.take());
     if !writer.skips.is_empty() {
         location["skipped"] = json!(writer.skips.paths());
@@ -282,7 +277,6 @@ pub(super) async fn materialize_tree(
         warnings,
         gap: writer.skips.leaves_a_gap(),
         retryable: !writer.skips.unreadable.is_empty(),
-        hint: writer.skips.binary_hint(),
     }))
 }
 

@@ -18,7 +18,7 @@ fn nothing_is_read_into_a_call_that_bills() {
     {
         for sent in lenient(&row) {
             assert_eq!(
-                normalized_input(tool.as_str(), sent.clone()),
+                normalized_readings(tool.as_str(), sent.clone()),
                 (sent, Vec::new()),
                 "{tool:?}"
             );
@@ -37,7 +37,7 @@ fn a_row_that_still_fails_is_refused_for_what_is_still_wrong() {
     let lenient = json_fixture(r#"{"path": ".", "matchString": ["x"], "exclude": "target"}"#);
     let failing = with(&lenient, "undeclaredField", json!(1));
     let sent = json!({"queries": [failing, lenient]});
-    let (input, notes) = normalized_input("localSearch", sent);
+    let (input, notes) = normalized_readings("localSearch", sent);
     assert_eq!(input["queries"][0]["undeclaredField"], 1);
     assert_eq!(input["queries"][1]["exclude"], json!(["target"]));
     assert!(
@@ -50,7 +50,7 @@ fn a_row_that_still_fails_is_refused_for_what_is_still_wrong() {
     // R6: a miscased form selector beside a value outside its enum.
     let sent = json!({"queries": [{"operation": "MATCH", "view": "Filez", "path": "src",
         "rule": {"pattern": "export const $A = $B"}}]});
-    let (input, notes) = normalized_input("astSearch", sent);
+    let (input, notes) = normalized_readings("astSearch", sent);
     assert_eq!(notes, Vec::<String>::new());
     let shown = refusal(ToolId::AstSearch, &input).expect("the row is refused");
     assert!(
@@ -81,7 +81,7 @@ fn a_value_without_one_typed_reading_is_refused() {
         );
         let sent = request(&row);
         assert_eq!(
-            normalized_input("localSearch", sent.clone()),
+            normalized_readings("localSearch", sent.clone()),
             (sent.clone(), Vec::new()),
             "{field}"
         );
@@ -106,7 +106,7 @@ fn a_row_field_beside_queries_is_refused_saying_where_it_goes() {
         let mut sent = request(&row);
         sent[field] = value.clone();
         assert_eq!(
-            normalized_input(tool.as_str(), sent.clone()),
+            normalized_readings(tool.as_str(), sent.clone()),
             (sent.clone(), Vec::new()),
             "{tool:?}"
         );
@@ -129,7 +129,7 @@ fn a_request_field_in_a_row_is_refused_saying_where_it_goes() {
             }
             let sent = request(&with(&row, &field, json!(2000)));
             assert_eq!(
-                normalized_input(tool.as_str(), sent.clone()),
+                normalized_readings(tool.as_str(), sent.clone()),
                 (sent.clone(), Vec::new()),
                 "{tool:?}"
             );
@@ -169,7 +169,7 @@ fn an_undeclared_field_is_refused_naming_a_declared_one() {
             }
             for sent in sent.iter().map(request) {
                 assert_eq!(
-                    normalized_input(tool.as_str(), sent.clone()),
+                    normalized_readings(tool.as_str(), sent.clone()),
                     (sent.clone(), Vec::new()),
                     "{tool:?} {word}"
                 );

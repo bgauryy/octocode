@@ -4,11 +4,11 @@ use super::{GhFailure, provider_hint, provider_message, validation_message};
 use octocode_github::{ProviderError, ProviderErrorKind, ProviderErrorReason};
 
 /// The note of pull-request rows without `totalCommentsCount`: GitHub's
-/// whole count (conversation, inline review comments and review bodies),
-/// which its search sorts and filters by and both history tools state,
-/// could not be read (GraphQL). `commentsCount` still counts the
-/// conversation, as it always does.
-pub const WHOLE_COUNT_UNREAD: &str = "totalCommentsCount is absent: GitHub's whole comment count (conversation, inline review comments, review bodies), which its sort and filters use, could not be read (GraphQL); commentsCount counts the conversation only.";
+/// whole count (conversation, inline review comments and review bodies,
+/// as the output reference defines it) could not be read (GraphQL).
+/// `commentsCount` still counts the conversation, as it always does.
+pub const WHOLE_COUNT_UNREAD: &str =
+    "totalCommentsCount unread (GraphQL failed); commentsCount counts the conversation only.";
 
 /// The message and the optional hint for a history failure. `search`
 /// distinguishes ghSearchHistory from the direct-fetch ghGetHistoryItem: a

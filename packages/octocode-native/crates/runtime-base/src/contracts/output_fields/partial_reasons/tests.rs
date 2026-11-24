@@ -62,32 +62,39 @@ fn is_test(path: &Path) -> bool {
     })
 }
 
-fn sources(tool: ToolId) -> String {
-    fn walk(path: &Path, out: &mut String) {
-        if is_test(path) {
-            return;
-        }
-        if path.is_dir() {
-            let mut entries: Vec<_> = std::fs::read_dir(path)
-                .expect("read dir")
-                .flatten()
-                .map(|entry| entry.path())
-                .collect();
-            entries.sort();
-            entries.iter().for_each(|entry| walk(entry, out));
-        } else if path.extension().is_some_and(|ext| ext == "rs") {
-            out.push_str(&std::fs::read_to_string(path).expect("source"));
-            out.push('\n');
-        }
+/// The non-test Rust source under `path`, appended to `out`.
+fn walk(path: &Path, out: &mut String) {
+    if is_test(path) {
+        return;
     }
+    if path.is_dir() {
+        let mut entries: Vec<_> = std::fs::read_dir(path)
+            .expect("read dir")
+            .flatten()
+            .map(|entry| entry.path())
+            .collect();
+        entries.sort();
+        entries.iter().for_each(|entry| walk(entry, out));
+    } else if path.extension().is_some_and(|ext| ext == "rs") {
+        out.push_str(&std::fs::read_to_string(path).expect("source"));
+        out.push('\n');
+    }
+}
+
+/// The non-test source of `trees` (relative to `crates/`); a moved tree
+/// would leave its tool's reasons unread.
+fn read_trees(tool: ToolId, trees: &[&str]) -> String {
     let mut text = String::new();
-    for tree in trees(tool) {
-        // A moved tree would leave its tool's reasons unread.
+    for tree in trees {
         let path = crates_dir().join(tree);
         assert!(path.exists(), "{tool:?} source tree {tree} does not exist");
         walk(&path, &mut text);
     }
     text
+}
+
+fn sources(tool: ToolId) -> String {
+    read_trees(tool, trees(tool))
 }
 
 /// How code spells a reason: its wire name, its `PartialReason` variant, or
@@ -120,6 +127,25 @@ fn emits(source: &str, reason: &str) -> bool {
         .any(|spelling| source.contains(spelling.as_str()))
 }
 
+/// Reasons a shared tree writes that a tool's own code removes from every
+/// row it serves, with that tool's own tree: ghSearchRepo states the
+/// provider cap once, as a warning (`state_cap_once`), so its rows never
+/// carry `providerResultCap`.
+const STRIPPED: &[(ToolId, &str, &str)] = &[(
+    GhSearchRepo,
+    "providerResultCap",
+    "tool-github/src/gh_search_repo",
+)];
+
+/// Whether `tool` serves `reason`: its code names it and its own code does
+/// not strip it ([`STRIPPED`]).
+fn serves(tool: ToolId, source: &str, reason: &str) -> bool {
+    emits(source, reason)
+        && !STRIPPED
+            .iter()
+            .any(|(stripper, stripped, _)| *stripper == tool && *stripped == reason)
+}
+
 fn dictionary() -> Map<String, Value> {
     crate::contracts::partial_reasons()
         .and_then(Value::as_object)
@@ -143,7 +169,7 @@ fn every_listed_reason_is_emittable_by_its_tool_and_no_other() {
             .1;
         for (tool, source) in &sources {
             assert_eq!(
-                emits(source, &reason),
+                serves(*tool, source, &reason),
                 listed.contains(tool),
                 "{reason} for {tool:?}: {}",
                 if listed.contains(tool) {
@@ -162,14 +188,34 @@ fn every_listed_reason_is_emittable_by_its_tool_and_no_other() {
     }
 }
 
+/// A stripped reason's strip site is still in its tool's own code: the
+/// tool names the reason it removes. Without it the shared tree's reason
+/// reaches the tool's rows, and the registry must list the tool again.
+#[test]
+fn every_stripped_reason_is_removed_by_its_tools_own_code() {
+    for (tool, reason, tree) in STRIPPED {
+        let own = read_trees(*tool, &[tree]);
+        assert!(
+            own.contains(&format!("\"{reason}\"")),
+            "{tool:?} no longer strips {reason}: list it as an emitter again"
+        );
+        assert!(
+            emitted_by(*tool, &dictionary()).get(*reason).is_none(),
+            "{tool:?} strips {reason}, so its reference must not list it"
+        );
+    }
+}
+
 /// A tool's reference serves its own reasons and none of another tool's.
 #[test]
 fn a_tool_is_served_only_the_reasons_it_emits() {
     let all = dictionary();
-    let git = emitted_by(GhSearchRepo, &all);
-    assert!(git.contains_key("providerResultCap"));
-    assert!(!git.contains_key("serverUnhealthy"), "an lspSearch reason");
+    let code = emitted_by(GhSearchCode, &all);
+    assert!(code.contains_key("providerResultCap"));
+    assert!(!code.contains_key("serverUnhealthy"), "an lspSearch reason");
     let lsp = emitted_by(LspSearch, &all);
     assert!(lsp.contains_key("serverUnhealthy") && !lsp.contains_key("providerResultCap"));
-    assert!(git.len() < all.len() / 4 && lsp.len() < all.len());
+    assert!(code.len() < all.len() / 4 && lsp.len() < all.len());
+    // ghSearchRepo states its provider cap as a warning, never as a reason.
+    assert!(!emitted_by(GhSearchRepo, &all).contains_key("providerResultCap"));
 }

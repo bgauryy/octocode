@@ -2,8 +2,9 @@
 use super::*;
 use octocode_test_support::json_fixture;
 
-/// A commit listing names its row kind like commit search: `type` is
-/// `commits`, whether `path` names a file, a directory, or nothing.
+/// A commit listing's rows are commits whether `path` names a file, a
+/// directory, or nothing; the reply restates neither a row kind nor how the
+/// commits were picked.
 #[tokio::test]
 async fn commit_listing_rows_are_typed_commits() {
     use wiremock::MockServer;
@@ -37,15 +38,8 @@ async fn commit_listing_rows_are_typed_commits() {
         let data = execute(&provider, &query, &default_context(), &Passthrough)
             .await
             .expect("commit listing");
-        assert_eq!(
-            data["commitSelection"],
-            if scope.is_null() {
-                "revisionHistory"
-            } else {
-                "pathChanges"
-            },
-            "{data}"
-        );
+        // The request fixes how commits were picked: the reply does not restate it.
+        assert!(data.get("commitSelection").is_none(), "{scope}: {data}");
         assert!(data.get("type").is_none(), "{scope}: {data}");
         assert_eq!(
             octocode_test_support::commit_field(&data["commits"][0], "commitSha"),

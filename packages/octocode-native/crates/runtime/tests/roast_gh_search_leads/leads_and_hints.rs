@@ -184,7 +184,10 @@ async fn an_empty_search_drops_one_filter_per_variant() {
     runtime.close().await;
 }
 
-/// A missed match in a source file leads first to the file's symbols.
+/// A missed match in a source file leads first to the file's symbols. A read
+/// at the default branch then leads to a code search of the repository; a
+/// read at a pinned commit gets none, since code search indexes only the
+/// default branch.
 #[tokio::test]
 async fn a_match_miss_in_a_rust_file_leads_to_its_outline_before_a_search() {
     let server = MockServer::builder().start().await;
@@ -197,33 +200,36 @@ async fn a_match_miss_in_a_rust_file_leads_to_its_outline_before_a_search() {
         })))
         .mount(&server)
         .await;
-    Mock::given(method("POST"))
-        .and(path("/api/graphql"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
-            r#"{
-                "data": {"repository": {"object": {"history": {"nodes": []}}}}
-            }"#,
-        )))
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/HEAD"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": SHA})))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
     let runtime = runtime(&workspace, &server);
-    let outcome = call(
-        &runtime,
-        "ghGetFileContent",
-        json!({"owner":"a","repo":"b","path":"a.rs","ref":SHA,"matchString":["absent"]}),
-    )
-    .await
-    .expect("miss");
-    let data = row_data(&outcome);
-    let leads = related(data);
-    let position = |pred: &dyn Fn(&Value) -> bool| leads.iter().position(|lead| pred(lead));
-    let symbols = position(&|lead| {
-        lead["tool"] == "ghGetFileContent" && lead["input"]["queries"][0]["view"] == "symbols"
-    })
-    .unwrap_or_else(|| panic!("an outline lead: {data}"));
-    let search = position(&|lead| lead["tool"] == "ghSearchCode")
-        .unwrap_or_else(|| panic!("a search lead: {data}"));
-    assert!(symbols < search, "{data}");
+    for reference in [None, Some(SHA)] {
+        let mut query = json!({"owner":"a","repo":"b","path":"a.rs","matchString":["absent"]});
+        if let Some(reference) = reference {
+            query["ref"] = json!(reference);
+        }
+        let outcome = call(&runtime, "ghGetFileContent", query)
+            .await
+            .expect("miss");
+        let data = row_data(&outcome);
+        let leads = related(data);
+        let position = |pred: &dyn Fn(&Value) -> bool| leads.iter().position(|lead| pred(lead));
+        let symbols = position(&|lead| {
+            lead["tool"] == "ghGetFileContent" && lead["input"]["queries"][0]["view"] == "symbols"
+        })
+        .unwrap_or_else(|| panic!("an outline lead: {data}"));
+        let search = position(&|lead| lead["tool"] == "ghSearchCode");
+        match reference {
+            None => {
+                let search = search.unwrap_or_else(|| panic!("a search lead: {data}"));
+                assert!(symbols < search, "{data}");
+            }
+            Some(_) => assert!(search.is_none(), "a pinned read searches no code: {data}"),
+        }
+    }
     runtime.close().await;
 }

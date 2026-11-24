@@ -34,7 +34,7 @@ async fn equal_counts_do_not_prove_a_language_alias_was_ignored() {
             out.data
         );
         assert!(
-            warnings.contains("alias"),
+            warnings.contains("may be unknown"),
             "ambiguity must remain visible for {languages:?}: {}",
             out.data
         );

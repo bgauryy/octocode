@@ -6,7 +6,6 @@ use octocode_contract_types::GhGetHistoryItemQuery;
 use octocode_runtime_base::id::ToolId;
 use octocode_runtime_base::response::result::wire_query;
 use octocode_runtime_base::response::result::{Continuation, edited_query, query_row};
-use octocode_tools_shared::leads::broaden::{Broaden, broaden};
 use serde_json::{Value, json};
 
 /// This search with `changes` applied ([`edited_query`]); a change the
@@ -66,7 +65,6 @@ pub(super) fn without_users(q: &GhSearchHistoryQuery) -> Option<Value> {
         "mentions",
         "commenter",
         "reviewedBy",
-        "reviewRequested",
     ] {
         removed |= filters.remove(key).is_some();
     }
@@ -120,29 +118,55 @@ pub(super) fn next_page(q: &GhSearchHistoryQuery, page: usize) -> Option<Continu
     )?))
 }
 
-/// An empty search, broadened ([`broaden`]): drop `filters` and `path`
-/// as separate groups, then drop keywords one at a time. A
-/// variant keeps at least one keyword: without any it lists the scope, not
-/// the topic searched.
+/// The hint beside [`broaden_search`]'s variants.
+pub(super) const DROP_ONE_FILTER: &str = "No match with these filters; a search without one answers only if its wider scope still fits the question.";
+
+/// The hint of an empty search by `keywords` that no qualifier hint names a
+/// fix for: GitHub ANDs the terms.
+pub(super) const TERMS_ANDED: &str =
+    "No match for these terms (ANDed; a spaced entry is one phrase): try fewer or other words.";
+
+/// An empty search, broadened by its `filters` alone: one variant per
+/// filter, each without it, so the variant that returns rows names the
+/// filter that emptied the search (a lone filter drops the whole object).
+/// `path` and `keywords` stay: without its path a listing no longer answers
+/// the path's question, and [`TERMS_ANDED`] covers the terms. `None` when the
+/// search sets no filter or no variant passes the contract.
 pub(super) fn broaden_search(q: &GhSearchHistoryQuery) -> Option<Value> {
-    let mut lead = broaden(
-        ToolId::GhSearchHistory,
-        &query_row(q, &[]),
-        &Broaden {
-            strip: &[],
-            groups: &[&["filters"], &["path"]],
-            split_lone_keyword: false,
-        },
-        octocode_runtime_base::response::result::rows_per_call(ToolId::GhSearchHistory),
-    )?;
-    if !gh_search_history_query::keywords(q).is_empty() {
-        let rows = lead.pointer_mut("/input/queries")?.as_array_mut()?;
-        rows.retain(|row| row.get("keywords").is_some());
-        if rows.is_empty() {
-            return None;
-        }
-    }
-    Some(lead)
+    let row = same_query(q);
+    let filters = row.get("filters")?.as_object()?;
+    let variants = filters
+        .keys()
+        .map(|dropped| {
+            let mut variant = row.clone();
+            let kept = filters
+                .iter()
+                .filter(|(key, _)| *key != dropped)
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect::<serde_json::Map<_, _>>();
+            if kept.is_empty() {
+                if let Some(fields) = variant.as_object_mut() {
+                    fields.remove("filters");
+                }
+            } else {
+                variant["filters"] = Value::Object(kept);
+            }
+            variant
+        })
+        .filter(|variant| {
+            octocode_runtime_base::contracts::validate(
+                ToolId::GhSearchHistory.as_str(),
+                json!({ "queries": [variant] }),
+            )
+            .is_ok()
+        })
+        .take(octocode_runtime_base::response::result::rows_per_call(
+            ToolId::GhSearchHistory,
+        ))
+        .collect::<Vec<_>>();
+    (!variants.is_empty()).then(|| {
+        Continuation::related_input(ToolId::GhSearchHistory, json!({ "queries": variants })).build()
+    })
 }
 
 /// A capped search's narrowing (`narrowScope`), one call. Rows in a date
@@ -224,21 +248,22 @@ impl PastWindow {
     pub(super) fn warning(self) -> &'static str {
         match self {
             Self::FromLastRow => {
-                "The related ghSearchHistory search may reach beyond the provider window: it runs the same search bounded at this page's last row's date. That instant is included, so its rows show again. Use the page continuation to keep walking the current result."
+                "Past the reachable window: related[] continues from this page's last row's date (that instant repeats)."
             }
             Self::Resorted => {
-                "This order has no date to continue from past the reachable window: the related ghSearchHistory search re-runs the search newest first from its first row, and its last reachable page continues by date. For every match, run it instead of walking these pages."
+                "For every match, run related[] instead of these pages: it re-sorts newest first, and its last reachable page continues by date."
             }
         }
     }
 
-    /// Whether a page states the route. A continuation from the last row is
-    /// each page's own call. The re-sorted search is one call for the whole
-    /// walk: stated where the walk starts (it saves the walk) and where it
-    /// ends (the reader who walked needs it), never between.
+    /// Whether a page states the route. A continuation from the last row
+    /// reaches past the window only from the last reachable page: before it,
+    /// the page walk reaches the same rows. The re-sorted search is one call
+    /// for the whole walk: stated where the walk starts (it saves the walk)
+    /// and where it ends (the reader who walked needs it), never between.
     pub(super) fn stated_on(self, page: usize, more: bool) -> bool {
         match self {
-            Self::FromLastRow => true,
+            Self::FromLastRow => !more,
             Self::Resorted => page <= 1 || !more,
         }
     }

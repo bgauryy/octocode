@@ -61,35 +61,6 @@ pub(in crate::gh_get_history_item) fn head_text_needed(
     matching_hunks(patch, needle, context, None).is_some_and(|found| !found.clipped.is_empty())
 }
 
-/// The hunks of `patch` that hold a diff line with the needle, as a patch of
-/// their own, and the number of such lines. A patch with no hit gives an
-/// empty text.
-pub(in crate::gh_get_history_item) fn hit_hunks(
-    patch: &str,
-    needle: &super::super::matcher::Matcher,
-) -> (String, usize) {
-    let (mut kept, mut hits) = (String::new(), 0);
-    for hunk in stream::parse_hunks(patch) {
-        let count = hunk
-            .lines
-            .iter()
-            .filter(|line| line.diff && needle.matches(&line.text))
-            .count();
-        if count == 0 {
-            continue;
-        }
-        hits += count;
-        kept.push_str(hunk.header);
-        for line in &hunk.lines {
-            kept.push_str(&line.text);
-        }
-        if !kept.ends_with('\n') {
-            kept.push('\n');
-        }
-    }
-    (kept, hits)
-}
-
 /// The patch view of one changed file: a `matchString` view keeps only the
 /// hit runs (widened from the head text when the hunks hold too little
 /// context) under the diff's own hunk headers; every other read is the

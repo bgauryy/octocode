@@ -248,6 +248,12 @@ pub(super) fn named_declaration(
                 _ => super::receiver::DeclaredReturns::default(),
             };
             acc.non_reference_tokens.insert(name_token.start_byte());
+            let (params, returns_written) =
+                if matches!(kind, "property" | "constant" | "variable" | "enumMember") {
+                    (None, None)
+                } else {
+                    written_signature(node, content)
+                };
             GraphFactDeclaration {
                 id,
                 name,
@@ -279,8 +285,60 @@ pub(super) fn named_declaration(
                 return_elements: returns.elements,
                 asynchronous: returns.asynchronous,
                 function_typed,
+                params,
+                returns: returns_written,
             }
         })
+}
+
+/// A callable's parameter list and return type as written, whitespace
+/// collapsed. The grammar's `parameters` fields hold the list (every one: a
+/// Scala definition may curry several), reached through a C-family
+/// declarator chain; the return type is the `return_type` (Rust, Python,
+/// Scala), `result` (Go), `returns` (C#) or `type` (Java, C-family, with the
+/// `*` or `&` of each pointer or reference declarator around the function)
+/// field. A declaration with no parameter list has neither.
+fn written_signature(node: Node<'_>, content: &str) -> (Option<String>, Option<String>) {
+    let text = |node: Node<'_>| {
+        node.utf8_text(content.as_bytes())
+            .unwrap_or_default()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let mut declarator = node;
+    let mut indirection = String::new();
+    while declarator.child_by_field_name("parameters").is_none() {
+        let Some(inner) = declarator.child_by_field_name("declarator") else {
+            return (None, None);
+        };
+        match declarator.kind() {
+            "pointer_declarator" => indirection.push('*'),
+            "reference_declarator" => indirection.push('&'),
+            _ => {}
+        }
+        declarator = inner;
+    }
+    let mut cursor = declarator.walk();
+    let params = declarator
+        .children_by_field_name("parameters", &mut cursor)
+        // Scala's grammar files type parameters (`[B]`) under the same field.
+        .filter(|list| list.kind() != "type_parameters")
+        .map(text)
+        .collect::<String>();
+    let returns = ["return_type", "result", "returns", "type"]
+        .into_iter()
+        .find_map(|field| node.child_by_field_name(field))
+        .map(|ty| {
+            // A TypeScript annotation node holds its `:`.
+            let ty = text(ty).trim_start_matches(':').trim_start().to_owned();
+            if indirection.is_empty() {
+                ty
+            } else {
+                format!("{ty} {indirection}")
+            }
+        });
+    (Some(params), returns)
 }
 
 /// Push `declaration` with its `contains` edge, export and heritage facts;

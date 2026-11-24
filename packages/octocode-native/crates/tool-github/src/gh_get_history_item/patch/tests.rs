@@ -5,7 +5,6 @@ use super::super::promotion::promote_pr_continuations;
 use super::super::util::str_at;
 use super::super::window::*;
 use super::hunks::*;
-use super::locate::*;
 use super::page::*;
 use octocode_github::MAX_PER_PAGE;
 use octocode_test_support::json_fixture;

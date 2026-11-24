@@ -216,10 +216,8 @@ fn stats_lead(id: &str, path: &str) -> Option<Value> {
         subtype_0: Some(GraphQueryStats {
             graph: Some(id.try_into().ok()?),
             include_provenance: None,
-            main_goal: None,
             operation: GraphQueryStatsOperation::Stats,
             path: Some(path.try_into().ok()?),
-            reasoning: None,
             view: None,
         }),
         ..GraphQueryQuery::default()

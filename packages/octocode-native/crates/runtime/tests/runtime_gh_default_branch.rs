@@ -1,6 +1,6 @@
 //! A ref that does not exist: every GitHub tool that takes `ref` names the
-//! repository's actual default branch and offers the same call at it. There is
-//! no fallback: the row stays an error.
+//! repository's actual default branch and offers the same call at it (a
+//! commit read names it only). There is no fallback: the row stays an error.
 
 use crate::support::{Workspace, call, checks, row_data};
 use octocode_test_support::json_fixture;
@@ -51,7 +51,11 @@ fn calls(missing: &str) -> Vec<(&'static str, Value)> {
 }
 
 /// The default branch is named in the message, and the lead is the same
-/// query at it, whatever the branch is called; `viewRefs` stays.
+/// query at it, whatever the branch is called; `viewRefs` stays. A commit
+/// read and a refs lookup are the exceptions: their fix is a ref the refs
+/// listing names, and the default branch's head commit answers another
+/// question (for a lookup, the message and the listing already state it), so
+/// they offer none.
 #[tokio::test]
 async fn a_missing_ref_names_the_default_branch_and_leads_to_it() {
     for (default, missing) in [("master", "main"), ("trunk", "develop"), ("main", "master")] {
@@ -70,14 +74,20 @@ async fn a_missing_ref_names_the_default_branch_and_leads_to_it() {
                 message.ends_with(&format!("; the default branch is \"{default}\".")),
                 "{tool}: {message}"
             );
-            let lead =
-                checks::related_call(data, tool, |input| input["queries"][0].get("ref").is_some());
-            assert_eq!(lead["tool"], tool, "{data}");
-            let mut expected = query.clone();
-            expected["ref"] = json!(default);
-            let row = &lead["input"]["queries"][0];
-            for (field, value) in expected.as_object().expect("object") {
-                assert_eq!(&row[field], value, "{tool}.{field}: {data}");
+            let lead = checks::find_related_call(data, tool, |input| {
+                input["queries"][0].get("ref").is_some()
+            });
+            if tool == "ghGetHistoryItem" || query["operation"] == "refs" {
+                assert_eq!(lead, None, "{tool}: {data}");
+            } else {
+                let lead =
+                    lead.unwrap_or_else(|| panic!("{tool}: no default-branch retry: {data}"));
+                let mut expected = query.clone();
+                expected["ref"] = json!(default);
+                let row = &lead["input"]["queries"][0];
+                for (field, value) in expected.as_object().expect("object") {
+                    assert_eq!(&row[field], value, "{tool}.{field}: {data}");
+                }
             }
             assert_eq!(
                 crate::support::checks::related_call(data, "ghStructure", |input| input["queries"]

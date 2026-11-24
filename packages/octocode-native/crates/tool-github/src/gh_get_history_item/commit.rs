@@ -359,7 +359,7 @@ const FIND_PULL_REQUEST: &str = "findPullRequest";
 /// checks: a message may still mention other pull requests in prose
 /// ("submitted as part of PR #2483"), which say nothing of the one that
 /// holds the commit.
-pub(in crate::gh_get_history_item) const NO_PULL_REQUEST_NAMED: &str = "This commit's message states no pull request of its own (no (#N) headline, merge headline or PR-URL trailer): the related[] ghSearchHistory search by its SHA lists pull requests that mention it; an empty or unrelated result means GitHub links none.";
+pub(in crate::gh_get_history_item) const NO_PULL_REQUEST_NAMED: &str = "Message states no pull request of its own: related[] searches pull requests by this SHA; none found means GitHub links none.";
 
 /// [`NO_PULL_REQUEST_NAMED`] for `message`, naming the same-repository
 /// references it makes in prose ([`mentioned_numbers`]): each may be an

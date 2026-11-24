@@ -21,10 +21,17 @@ pub(super) const RECOVERED_IMPORT: &str = "recovered-import";
 pub(super) const RECOVERED_NAMED_REEXPORT: &str = "recovered-named-reexport";
 pub(super) const RECOVERED_STAR_REEXPORT: &str = "recovered-star-reexport";
 /// A TypeScript value import whose binding the file uses only as a type
-/// (`typeUseOnly`): TypeScript's emit elides it unless the project keeps
-/// value imports (`verbatimModuleSyntax`, decorator metadata), which the
-/// graph does not read, so its load is not established.
+/// (`typeUseOnly`) where the governing tsconfig does not settle its emit:
+/// none governs the file, or `emitDecoratorMetadata` may keep it (a
+/// decorated signature's parameter type is emitted as a value), so its load
+/// is not established. A project that keeps value imports
+/// (`verbatimModuleSyntax`, `preserveValueImports`, `importsNotUsedAsValues`
+/// `preserve`/`error`) emits it as a `static-import`.
 pub(super) const TYPE_USE_IMPORT: &str = "type-use-import";
+/// A TypeScript value import whose binding the file uses only as a type,
+/// under a tsconfig that neither keeps value imports nor emits decorator
+/// metadata: TypeScript and esbuild elide it, so it loads nothing.
+pub(super) const ELIDED_IMPORT: &str = "elided-import";
 
 /// When the import an edge records takes effect.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,7 +42,8 @@ pub(super) enum Load {
     /// Later, on a call (a dynamic `import()`, a Python import inside a
     /// function).
     Deferred,
-    /// Never: erased before run time (`import type`).
+    /// Never: erased before run time (`import type`, an import the
+    /// project's emit elides).
     TypeOnly,
     /// At compile or link time, with no load order (Rust `use` and paths,
     /// Go and Java imports, C includes).
@@ -43,13 +51,31 @@ pub(super) enum Load {
     /// Module structure (a Rust `mod` declaration): not a dependency.
     ModuleTree,
     /// Not established: a parser fallback read the edge, or a TypeScript
-    /// import is used only as a type and the project's emit settings decide
-    /// it, so it may load eagerly or be erased.
+    /// import is used only as a type and no tsconfig settles its emit (none
+    /// governs the file, or decorator metadata may keep it), so it may load
+    /// eagerly or be erased.
     Unknown,
     /// Never as code: the target is embedded as text or bytes. A build
     /// input (its dependents rebuild), but it adds no names and closes no
     /// dependency cycle.
     Data,
+}
+
+impl Load {
+    /// The name graphQuery states an import's load by (`load` on import
+    /// witnesses and import diagnostics); module structure is no import, so
+    /// it has none.
+    pub(crate) fn name(self) -> Option<&'static str> {
+        match self {
+            Self::Eager => Some("eager"),
+            Self::Deferred => Some("deferred"),
+            Self::TypeOnly => Some("type"),
+            Self::CompileTime => Some("compile"),
+            Self::Data => Some("data"),
+            Self::Unknown => Some("unknown"),
+            Self::ModuleTree => None,
+        }
+    }
 }
 
 /// Every edge kind with its [`Load`].
@@ -65,6 +91,7 @@ const KINDS: &[(&str, Load)] = &[
     ("type-import", Load::TypeOnly),
     ("type-named-reexport", Load::TypeOnly),
     ("type-star-reexport", Load::TypeOnly),
+    (ELIDED_IMPORT, Load::TypeOnly),
     (RECOVERED_IMPORT, Load::Unknown),
     (RECOVERED_NAMED_REEXPORT, Load::Unknown),
     (RECOVERED_STAR_REEXPORT, Load::Unknown),
@@ -74,6 +101,8 @@ const KINDS: &[(&str, Load)] = &[
     ("go-import", Load::CompileTime),
     ("java-import", Load::CompileTime),
     ("java-same-package", Load::CompileTime),
+    // A type a C# `using` or Scala wildcard import brings into scope.
+    ("namespace-use", Load::CompileTime),
     ("c-include", Load::CompileTime),
     (RUST_MODULE, Load::ModuleTree),
     (RUST_INCLUDE, Load::CompileTime),
@@ -90,7 +119,7 @@ pub(super) fn mounts(kind: &str) -> bool {
 
 /// The [`Load`] of edge `kind`. A kind outside the table (a store edge
 /// such as `unparsed-target`) has no load order: compile time.
-pub(super) fn load(kind: &str) -> Load {
+pub(crate) fn load(kind: &str) -> Load {
     KINDS
         .iter()
         .find(|(name, _)| *name == kind)

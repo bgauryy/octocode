@@ -43,9 +43,9 @@ async fn run_empty_in(
     .expect("empty search")
 }
 
-/// An empty repo-scoped search is unproven absence; its lead scopes the next
-/// step: the root listing at the searched ref. A miss never leads to a clone
-/// of the whole repository (no `paths` to bound it), whatever the filters.
+/// An empty repo-scoped search is unproven absence. A miss never leads to a
+/// clone of the whole repository (no `paths` to bound it), whatever the
+/// filters; only a `path` scope leads to its listing.
 #[tokio::test]
 async fn an_empty_repo_search_never_leads_to_an_unscoped_clone() {
     for row in [
@@ -86,27 +86,26 @@ async fn an_empty_repo_search_never_leads_to_an_unscoped_clone() {
             "{row}: {}",
             out.data
         );
-        // A narrowing to drop leads to `broadenSearch` in the listing's place.
-        if row.get("extensions").is_none() {
-            assert!(
-                octocode_runtime_base::test_support::checks::find_related_call(
-                    &out.data,
-                    "ghStructure",
-                    |input| { input["queries"][0]["operation"] == "tree" }
-                )
-                .is_some(),
-                "{row}: {}",
-                out.data
-            );
-        }
+        assert_eq!(
+            octocode_runtime_base::test_support::checks::find_related_call(
+                &out.data,
+                "ghStructure",
+                |input| { input["queries"][0]["operation"] == "tree" }
+            )
+            .is_some(),
+            row.get("path").is_some(),
+            "{row}: {}",
+            out.data
+        );
     }
 }
 
-/// An empty repo-wide search lists the root at the searched ref, a route every surface
-/// runs. A search with a narrowing to drop leads to `broadenSearch`
-/// instead.
+/// An empty repo-wide search lists nothing: the tool description routes
+/// unindexed files and other refs to ghStructure, so a root listing would
+/// restate it. A ref the index does not cover is named in the hint; a
+/// search with a narrowing to drop leads to `broadenSearch`.
 #[tokio::test]
-async fn an_empty_repo_search_also_lists_the_root_on_every_surface() {
+async fn an_empty_repo_wide_search_offers_no_root_listing() {
     let out = run_empty(json_fixture(
         r#"{
             "owner": "a",
@@ -116,21 +115,11 @@ async fn an_empty_repo_search_also_lists_the_root_on_every_surface() {
         }"#,
     ))
     .await;
-    let tree = octocode_runtime_base::test_support::checks::related_call(
-        &out.data,
-        "ghStructure",
-        |input| input["queries"][0]["operation"] == "tree",
-    );
-    assert_eq!(tree["tool"], "ghStructure", "{}", out.data);
+    assert!(out.data.get("related").is_none(), "{}", out.data);
     assert_eq!(
-        tree["input"]["queries"][0],
+        out.data["hints"],
         json_fixture(
-            r#"{
-                "operation": "tree",
-                "owner": "a",
-                "repo": "b",
-                "ref": "v1"
-            }"#
+            r#"["Code search indexes only the default branch `main`; `v1` was not searched."]"#
         ),
         "{}",
         out.data
@@ -564,24 +553,38 @@ async fn a_scoped_empty_search_does_not_restate_the_description() {
 }
 
 /// GitHub's index holds nothing of an archived repository: its empty search
-/// is partial coverage with the reason, never `complete`, and a live
-/// repository's empty search says what `complete` covers.
+/// is partial coverage whose reason names the cause, never `complete`, and
+/// its recovery is the root listing, with no hint restating either (nor the
+/// default-branch note of a ref). A live repository's empty search says what
+/// `complete` covers.
 #[tokio::test]
 async fn an_empty_search_of_an_archived_repo_proves_no_absence() {
     let row = json_fixture(r#"{"owner": "a", "repo": "b", "keywords": ["zzqq"]}"#);
-    let archived = run_empty_in(row.clone(), true).await;
-    assert_eq!(
-        archived.data["coverage"]["state"], "partial",
-        "{}",
-        archived.data
-    );
-    assert!(
-        archived.data["coverage"]["reason"]
-            .as_str()
-            .is_some_and(|reason| reason.contains("archived")),
-        "{}",
-        archived.data
-    );
+    let mut at_ref = row.clone();
+    at_ref["ref"] = serde_json::json!("v1");
+    for asked in [row.clone(), at_ref] {
+        let archived = run_empty_in(asked.clone(), true).await;
+        assert_eq!(
+            archived.data["coverage"],
+            json_fixture(
+                r#"{
+                    "state": "partial",
+                    "reason": "archived: GitHub's code search does not index archived repositories"
+                }"#
+            ),
+            "{}",
+            archived.data
+        );
+        assert!(archived.data.get("hints").is_none(), "{}", archived.data);
+        assert!(archived.diagnostics.hints.is_empty(), "{}", archived.data);
+        let listing = &octocode_runtime_base::test_support::checks::related_call(
+            &archived.data,
+            "ghStructure",
+            |input| input["queries"][0]["operation"] == "tree",
+        )["input"]["queries"][0];
+        assert_eq!(listing["path"], "", "{}", archived.data);
+        assert_eq!(listing["ref"], asked["ref"], "{}", archived.data);
+    }
     let live = run_empty(row).await;
     assert_eq!(live.data["coverage"]["state"], "complete", "{}", live.data);
     assert!(

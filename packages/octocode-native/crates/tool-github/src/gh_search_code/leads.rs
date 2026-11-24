@@ -58,8 +58,6 @@ pub(super) fn source_read(
         }],
         block: Some(true),
         view: ContentView::Content,
-        main_goal: None,
-        reasoning: None,
         read_progress: None,
     };
     Some(read.into())

@@ -59,18 +59,12 @@ pub(super) fn should_use_search_for_prs(q: &HistorySearch) -> bool {
     gh_search_history_query::owner(q).is_none()
         || gh_search_history_query::repo(q).is_none()
         || needs_issue_search_qualifiers(q)
-        || f.draft.is_some()
         || f.unmerged.is_some()
         || f.reviewed_by.is_some()
-        || f.review_requested.is_some()
-        || f.status.is_some()
-        || f.review.is_some()
         || q.head().is_some()
         || q.base().is_some()
         || f.merged.is_some()
         || q.state().as_deref() == Some("merged")
-        // The pulls list cannot filter on repository archive state.
-        || f.archived.is_some()
 }
 
 /// Whether the operation runs the search API (else a REST list endpoint).
@@ -157,9 +151,6 @@ fn issue_terms(q: &HistorySearch, out: &mut SearchTerms) -> Result<(), ProviderE
         gh_search_history_query::repo(q),
     );
     out.text("is", q.state().as_deref());
-    if let Some(draft) = f.draft {
-        out.push(if draft { "is:draft" } else { "-is:draft" });
-    }
     if f.unmerged == Some(true) {
         out.push("is:unmerged");
     }
@@ -175,19 +166,16 @@ fn issue_terms(q: &HistorySearch, out: &mut SearchTerms) -> Result<(), ProviderE
             ("closed", f.closed.as_deref()),
             ("comments", f.comments.as_deref()),
             ("reactions", f.reactions.as_deref()),
-            ("linked", f.linked.as_deref()),
-            ("review", f.review.as_deref()),
         ])
     {
         out.text(k, v);
     }
+    if let Some(linked) = &f.linked {
+        out.push(linked.as_str());
+    }
     for label in q.label() {
         out.text("label", Some(label));
     }
-    if let Some(archived) = f.archived {
-        out.push(format!("archived:{archived}"));
-    }
-    out.text("status", f.status.as_deref());
     Ok(())
 }
 

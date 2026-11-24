@@ -292,10 +292,11 @@ async fn issue_closing_references_past_the_read_limit_are_disclosed() {
     runtime.close().await;
 }
 
-/// `archived:` filters a scoped pull-request listing through search, with
-/// or without keywords; the pulls list would silently ignore it.
+/// A filter only search understands (`reviewed-by:`) runs a scoped
+/// pull-request listing through search; the pulls list would silently
+/// ignore it.
 #[tokio::test]
-async fn archived_pull_request_listing_enforces_the_filter() {
+async fn search_only_pull_request_filter_runs_the_listing_through_search() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
@@ -327,12 +328,12 @@ async fn archived_pull_request_listing_enforces_the_filter() {
                 "operation": "pullRequest",
                 "owner": "a",
                 "repo": "b",
-                "filters": {"archive": "only"}
+                "filters": {"reviewedBy": "alice"}
             }"#,
         ),
     )
     .await
-    .expect("archived listing");
+    .expect("reviewed listing");
     assert_ne!(row_status(&outcome), "error", "{}", row_data(&outcome));
     let requests = server.received_requests().await.unwrap_or_default();
     let search = requests
@@ -345,7 +346,7 @@ async fn archived_pull_request_listing_enforces_the_filter() {
         .find(|(key, _)| key == "q")
         .map(|(_, value)| value.into_owned())
         .unwrap_or_default();
-    assert!(q.contains("archived:true"), "{q}");
+    assert!(q.contains("reviewed-by:alice"), "{q}");
     runtime.close().await;
 }
 

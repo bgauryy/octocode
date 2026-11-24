@@ -49,8 +49,9 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
     assert!(none_row.get("title").is_none(), "{none}");
     assert!(none_row.get("bodyPreview").is_none(), "{none}");
     // A matchString that hits no patch line is an empty read, not a summary
-    // that looks like an ignored filter; its leads run the fix: the same
-    // read without the literal, then the file inventory.
+    // that looks like an ignored filter; its lead runs the fix: the same
+    // read without the literal. With no file scope to drop, no inventory
+    // read repeats it less its patches.
     assert_eq!(status, "empty", "{none}");
     assert!(none["hints"].is_null(), "{none}");
     let unfiltered = &crate::support::checks::related_call(&none, "ghGetHistoryItem", |input| {
@@ -63,13 +64,11 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
         "{none}"
     );
     assert!(unfiltered.get("minify").is_none(), "{none}");
-    assert_eq!(
-        support::checks::related_call(
-            &none,
-            "ghGetHistoryItem",
-            |input| input["queries"][0]["sections"] == json_fixture(r#"["files"]"#)
-        )["input"]["queries"][0]["sections"],
-        json_fixture(r#"["files"]"#),
+    assert!(
+        support::checks::find_related_call(&none, "ghGetHistoryItem", |input| input["queries"][0]
+            ["sections"]
+            == json_fixture(r#"["files"]"#))
+        .is_none(),
         "{none}"
     );
     support::checks::assert_leads_valid(&none);
@@ -272,8 +271,8 @@ async fn include_scopes_a_body_and_patch_read() {
 }
 
 /// A `matchString` that hits no patch line says so: alone it is an empty
-/// row whose leads read without it and read the file inventory; beside a
-/// body read it is a warning on the row, never a silent summary.
+/// row whose lead reads without it (no file scope, so no inventory read);
+/// beside a body read it is a warning on the row, never a silent summary.
 #[tokio::test]
 async fn match_string_with_zero_hits_says_so() {
     let server = MockServer::builder().start().await;
@@ -305,13 +304,11 @@ async fn match_string_with_zero_hits_says_so() {
         json_fixture(r#"["patches"]"#),
         "{alone}"
     );
-    assert_eq!(
-        support::checks::related_call(
-            &alone,
-            "ghGetHistoryItem",
-            |input| input["queries"][0]["sections"] == json_fixture(r#"["files"]"#)
-        )["input"]["queries"][0]["sections"],
-        json_fixture(r#"["files"]"#),
+    assert!(
+        support::checks::find_related_call(&alone, "ghGetHistoryItem", |input| input["queries"][0]
+            ["sections"]
+            == json_fixture(r#"["files"]"#))
+        .is_none(),
         "{alone}"
     );
     support::checks::assert_leads_valid(&alone);

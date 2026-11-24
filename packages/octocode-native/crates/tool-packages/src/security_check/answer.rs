@@ -154,6 +154,30 @@ impl Facts<'_> {
     }
 }
 
+impl Facts<'_> {
+    /// The row's `affected`: whether the version is affected, when the
+    /// sources' answer decides it. A version the registry does not hold is
+    /// affected by a record that lists it by name; an evaluated version is
+    /// affected by a match, and clear when its walk finished with none.
+    pub(super) fn verdict(&self) -> Option<bool> {
+        if self.version_evaluated
+            && (self.matched > 0 || self.count == 0 || !self.compared_here)
+            && !self.stopped
+            && !self.all_versions
+            && !self.release_unmatched
+            && !self.release_missing
+        {
+            return Some(self.matched > 0);
+        }
+        (self
+            .unregistered
+            .as_ref()
+            .is_some_and(|(_, listed)| !listed.is_empty())
+            && !self.stopped)
+            .then_some(true)
+    }
+}
+
 /// `count` known advisories, in the right number.
 fn counted(count: usize) -> String {
     octocode_engine::text::counted(count, "known advisory", "known advisories")
@@ -237,38 +261,30 @@ fn evaluation_clause(facts: &Facts<'_>) -> String {
     clause
 }
 
-/// The warning of a row no registry confirmed: the name and version went to
-/// OSV as given. It names no package, so the rows of one call that share it
-/// state it once.
+/// The warning of a row no registry confirmed: a public registry that does
+/// not list the name (removed, as for malware) says so on any row. Where no
+/// registry reads the ecosystem, it is said only beside a verdict of none
+/// known (`affected:false`), which a misspelt name would fake; a row with
+/// advisories, or with no verdict, claims nothing a misspelling could fake,
+/// and `registryConfirmed:false` says the rest. It names no package, so the
+/// rows of one call that share it state it once.
 pub(super) fn unconfirmed_warning(facts: &Facts<'_>) -> Option<String> {
     if !facts.registry_unconfirmed {
         return None;
     }
-    Some(if let Some(registry) = facts.unregistered_name {
-        format!(
+    if let Some(registry) = facts.unregistered_name {
+        return Some(format!(
             "Not registry-confirmed: the public {registry} registry does not list this name (removed, as for malware, or never published), so the name and version went to OSV as given."
-        )
-    } else if facts.release_named {
+        ));
+    }
+    if facts.verdict() != Some(false) {
+        return None;
+    }
+    Some(if facts.release_named {
         "Not registry-confirmed: no registry reads this ecosystem, so the version went to OSV as given; the name is one OSV lists in this release.".to_owned()
     } else {
         "Not registry-confirmed: no registry reads this ecosystem, so the name and version went to OSV as given, and a misspelt name reads as none known.".to_owned()
     })
-}
-
-/// The warning of a row OSV answered at a version the registry does not list
-/// (`versionListed:false`): `ids` are the advisories it counts, each named up to
-/// [`CVES_IN_SENTENCE`], past that counted (`advisories` lists them).
-pub(super) fn unlisted_warning(name: &str, version: &str, ids: &[String]) -> String {
-    let affected_by = if ids.len() <= CVES_IN_SENTENCE {
-        ids_clause(ids)
-    } else {
-        format!("{} (advisories)", counted(ids.len()))
-    };
-    format!(
-        "The registry does not list {} {} (yanked, unpublished or removed); OSV lists it as affected by {affected_by}: do not install it.",
-        typed(name),
-        typed(version)
-    )
 }
 
 const STOPPED: &str = "the source stopped before its last page, so this is not an answer yet: follow the reply's next.";
@@ -357,22 +373,8 @@ pub(super) fn lead(target: &str, facts: &Facts<'_>) -> Value {
         ));
     }
     let mut data = json!({ "answer": sentence });
-    if facts
-        .unregistered
-        .as_ref()
-        .is_some_and(|(_, listed)| !listed.is_empty())
-        && !facts.stopped
-    {
-        data["affected"] = json!(true);
-    }
-    if facts.version_evaluated
-        && (facts.matched > 0 || facts.count == 0 || !facts.compared_here)
-        && !facts.stopped
-        && !facts.all_versions
-        && !facts.release_unmatched
-        && !facts.release_missing
-    {
-        data["affected"] = json!(found);
+    if let Some(affected) = facts.verdict() {
+        data["affected"] = json!(affected);
     }
     if let Some(version) = facts.upgrade_to {
         data["upgradeTo"] = json!(version);
@@ -387,7 +389,10 @@ pub(super) fn lead(target: &str, facts: &Facts<'_>) -> Value {
 /// The lead of an advisory row: each record's id, its aliases, and every
 /// package it affects with each affected range and the fix closing it, from
 /// the record's own events (`>=0.2.7-0 <0.2.23 (fixed 0.2.23)`). Every range
-/// is listed; a git range names commits, so the record keeps it.
+/// is listed; a git range names commits, so the record keeps it. Records of
+/// one advisory under its aliases (GitHub's and PyPI's of one CVE) that
+/// state the same ranges are one clause naming each; records whose ranges
+/// differ keep a clause each.
 pub(super) fn advisory_lead(row: &Value) -> Value {
     let records = row["advisories"]
         .as_array()
@@ -396,116 +401,206 @@ pub(super) fn advisory_lead(row: &Value) -> Value {
     // OSV and GitHub each carry a record for one id: when both state the
     // same claim (the same packages, ranges and fixes), the first states it.
     let mut stated = std::collections::HashSet::new();
-    let sentences = records
-        .iter()
-        .filter_map(|record| {
-            let mut sentence = stated_id(record["id"].as_str().unwrap_or_default());
-            let aliases = stated_ids(&record["aliases"]);
-            if !aliases.is_empty() {
-                sentence.push_str(&format!(" (aliases {})", aliases.join(", ")));
-            }
-            // A withdrawn record no longer affects anything: it is stated with
-            // its date, and what it stated follows in the past tense.
-            let withdrawn = record["withdrawn"].as_str().map(typed);
-            if let Some(at) = &withdrawn {
-                sentence.push_str(&format!(", withdrawn at {at},"));
-            }
-            let packages = record["affected"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|entry| {
-                    let ranges = entry["ranges"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter(|range| range["type"] != "GIT")
-                        .flat_map(intervals)
-                        .collect::<Vec<_>>();
-                    let name = typed(entry["packageName"].as_str().unwrap_or_default());
-                    (!name.is_empty()).then(|| {
-                        let claim_of = |range: &str| format!("{name} {range}");
-                        let versions = entry["versions"].as_array().map_or(0, Vec::len);
-                        if !ranges.is_empty() {
-                            // OSV lets `versions` add to the ranges, and osv.dev
-                            // also enumerates a range's versions there: state
-                            // the count, never that they are extra.
-                            let listed = listed_versions(versions)
-                                .map_or_else(String::new, |listed| format!(" ({listed})"));
-                            let claim = claim_of(
-                                &ranges
-                                    .iter()
-                                    .map(|range| claimed(range))
-                                    .collect::<Vec<_>>()
-                                    .join(", "),
-                            );
-                            return (format!("{name} {}{listed}", ranges.join(", ")), claim);
-                        }
-                        if let Some(written) = written_range(entry) {
-                            return (
-                                format!("{name} {}", written.stated()),
-                                claim_of(&claimed(&written.claim())),
-                            );
-                        }
-                        let unranged = format!("{name} ({})", unranged(entry));
-                        (unranged.clone(), unranged)
-                    })
-                })
-                .collect::<Vec<_>>();
-            let claim = format!(
-                "{}|{withdrawn:?}|{}",
-                stated_id(record["id"].as_str().unwrap_or_default()),
-                packages
-                    .iter()
-                    .map(|(_, claim)| claim.as_str())
-                    .collect::<Vec<_>>()
-                    .join(";")
-            );
-            if !stated.insert(claim) {
-                return None;
-            }
-            let packages = packages
-                .into_iter()
-                .map(|(shown, _)| shown)
-                .collect::<Vec<_>>();
-            // A record naming no package (OSV's CVE records) still names
-            // the repositories its commit ranges are in.
-            let repositories = commit_repositories(record);
-            match (packages.is_empty(), withdrawn.is_some()) {
-                (true, _) if !repositories.is_empty() => {
-                    if withdrawn.is_some() {
-                        sentence.pop();
-                    }
-                    let verb = if withdrawn.is_some() {
-                        "named"
-                    } else {
-                        "names"
-                    };
-                    sentence.push_str(&format!(
-                        " {verb} no package, only commit ranges in {}.",
-                        repositories.join(", ")
-                    ));
-                }
-                (true, true) => {
-                    sentence.pop();
-                    sentence.push('.');
-                }
-                (true, false) => sentence.push('.'),
-                (false, true) => {
-                    sentence.push_str(&format!(" stated it affects {}.", packages.join("; ")));
-                }
-                (false, false) => {
-                    sentence.push_str(&format!(" affects {}.", packages.join("; ")));
-                }
-            }
-            Some(sentence)
-        })
-        .collect::<Vec<_>>();
-    if sentences.is_empty() {
+    let mut clauses: Vec<Vec<RecordClause>> = Vec::new();
+    for clause in records.iter().map(RecordClause::of) {
+        if !stated.insert(clause.claim()) {
+            continue;
+        }
+        match clauses.iter_mut().find(|group| {
+            group[0].states_as(&clause) && group.iter().any(|known| known.aliased(&clause))
+        }) {
+            Some(group) => group.push(clause),
+            None => clauses.push(vec![clause]),
+        }
+    }
+    if clauses.is_empty() {
         return json!({});
     }
+    let sentences = clauses
+        .iter()
+        .map(|group| RecordClause::sentence(group))
+        .collect::<Vec<_>>();
     json!({ "answer": sentences.join(" ") })
 }
+
+/// What one record of an advisory row states, as its clause says it.
+struct RecordClause {
+    /// The record's id and aliases, as [`stated_id`] states them.
+    id: String,
+    aliases: Vec<String>,
+    /// When it was withdrawn: what it stated follows in the past tense.
+    withdrawn: Option<String>,
+    /// Each package it names: as the sentence shows it, and its claim as
+    /// both sources make it alike ([`claimed`]).
+    packages: Vec<(String, String)>,
+    /// The repositories its commit ranges are in, when it names no package.
+    repositories: Vec<String>,
+}
+
+impl RecordClause {
+    fn of(record: &Value) -> Self {
+        let packages = record["affected"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| {
+                let ranges = entry["ranges"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|range| range["type"] != "GIT")
+                    .flat_map(intervals)
+                    .collect::<Vec<_>>();
+                let name = typed(entry["packageName"].as_str().unwrap_or_default());
+                (!name.is_empty()).then(|| {
+                    let claim_of = |range: &str| format!("{name} {range}");
+                    let versions = entry["versions"].as_array().map_or(0, Vec::len);
+                    if !ranges.is_empty() {
+                        // OSV lets `versions` add to the ranges, and osv.dev
+                        // also enumerates a range's versions there: state
+                        // the count, never that they are extra.
+                        let listed = listed_versions(versions)
+                            .map_or_else(String::new, |listed| format!(" ({listed})"));
+                        let claim = claim_of(
+                            &ranges
+                                .iter()
+                                .map(|range| claimed(range))
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                        );
+                        return (format!("{name} {}{listed}", ranges.join(", ")), claim);
+                    }
+                    if let Some(written) = written_range(entry) {
+                        return (
+                            format!("{name} {}", written.stated()),
+                            claim_of(&claimed(&written.claim())),
+                        );
+                    }
+                    let unranged = format!("{name} ({})", unranged(entry));
+                    (unranged.clone(), unranged)
+                })
+            })
+            .collect::<Vec<_>>();
+        Self {
+            id: stated_id(record["id"].as_str().unwrap_or_default()),
+            aliases: stated_ids(&record["aliases"]),
+            withdrawn: record["withdrawn"].as_str().map(typed),
+            packages,
+            // A record naming no package (OSV's CVE records) still names
+            // the repositories its commit ranges are in.
+            repositories: commit_repositories(record),
+        }
+    }
+
+    /// The record's claim under its id: a second copy of one id that makes
+    /// it is not stated again.
+    fn claim(&self) -> String {
+        format!(
+            "{}|{:?}|{}",
+            self.id,
+            self.withdrawn,
+            self.packages
+                .iter()
+                .map(|(_, claim)| claim.as_str())
+                .collect::<Vec<_>>()
+                .join(";")
+        )
+    }
+
+    /// Whether `other` states what this record does, word for word: one
+    /// clause can say it of both.
+    fn states_as(&self, other: &Self) -> bool {
+        self.withdrawn == other.withdrawn
+            && self.packages == other.packages
+            && self.repositories == other.repositories
+    }
+
+    /// Whether `other` is this advisory under another id: either names the
+    /// other as its alias.
+    fn aliased(&self, other: &Self) -> bool {
+        self.aliases.contains(&other.id) || other.aliases.contains(&self.id)
+    }
+
+    /// The clause of `group`, records that state one claim alike: their ids,
+    /// the aliases none of them is, and what they state.
+    fn sentence(group: &[Self]) -> String {
+        let ids = group
+            .iter()
+            .map(|clause| clause.id.clone())
+            .collect::<Vec<_>>();
+        let mut aliases: Vec<&String> = Vec::new();
+        for alias in group.iter().flat_map(|clause| &clause.aliases) {
+            if !ids.contains(alias) && !aliases.contains(&alias) {
+                aliases.push(alias);
+            }
+        }
+        let first = &group[0];
+        let one = group.len() == 1;
+        let mut sentence = match ids.as_slice() {
+            [rest @ .., last] if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
+            _ => first.id.clone(),
+        };
+        if !aliases.is_empty() {
+            let aliases = aliases
+                .iter()
+                .map(|alias| alias.as_str())
+                .collect::<Vec<_>>();
+            sentence.push_str(&format!(" (aliases {})", aliases.join(", ")));
+        }
+        // A withdrawn record no longer affects anything: it is stated with
+        // its date, and what it stated follows in the past tense.
+        if let Some(at) = &first.withdrawn {
+            sentence.push_str(&format!(", withdrawn at {at},"));
+        }
+        let packages = first
+            .packages
+            .iter()
+            .map(|(shown, _)| {
+                if one {
+                    shown.clone()
+                } else {
+                    shown.replace(THE_RECORD, EACH_RECORD)
+                }
+            })
+            .collect::<Vec<_>>();
+        let withdrawn = first.withdrawn.is_some();
+        match (packages.is_empty(), withdrawn) {
+            (true, _) if !first.repositories.is_empty() => {
+                if withdrawn {
+                    sentence.pop();
+                }
+                let verb = match (withdrawn, one) {
+                    (true, _) => "named",
+                    (false, true) => "names",
+                    (false, false) => "name",
+                };
+                sentence.push_str(&format!(
+                    " {verb} no package, only commit ranges in {}.",
+                    first.repositories.join(", ")
+                ));
+            }
+            (true, true) => {
+                sentence.pop();
+                sentence.push('.');
+            }
+            (true, false) => sentence.push('.'),
+            (false, true) => {
+                let said = if one { "it affects" } else { "they affect" };
+                sentence.push_str(&format!(" stated {said} {}.", packages.join("; ")));
+            }
+            (false, false) => {
+                let verb = if one { "affects" } else { "affect" };
+                sentence.push_str(&format!(" {verb} {}.", packages.join("; ")));
+            }
+        }
+        sentence
+    }
+}
+
+/// How a clause names the record its counts and ranges are in; a clause of
+/// several records that state them alike says each record holds them.
+const THE_RECORD: &str = "the record";
+const EACH_RECORD: &str = "each record";
 
 /// The repositories of a record's `GIT` ranges in entries that name no
 /// package, each once, in the record's order.
@@ -554,11 +649,11 @@ fn unranged(entry: &Value) -> String {
     let written = entry["ecosystemSpecific"]["vulnerable_version_range"].is_string();
     match (listed_versions(versions), git, written) {
         (Some(listed), _, _) => listed,
-        (None, true, _) => "git commit ranges in the record".to_owned(),
+        (None, true, _) => format!("git commit ranges in {THE_RECORD}"),
         // A range GitHub wrote that is not comparators alone: stated in
         // `affected`, never in the sentence.
         (None, false, true) => "a range GitHub writes as text, in affected".to_owned(),
-        (None, false, false) => "no ranges or versions in the record".to_owned(),
+        (None, false, false) => format!("no ranges or versions in {THE_RECORD}"),
     }
 }
 
@@ -627,8 +722,8 @@ impl WrittenRange {
 fn listed_versions(count: usize) -> Option<String> {
     match count {
         0 => None,
-        1 => Some("the record lists 1 affected version".to_owned()),
-        count => Some(format!("the record lists {count} affected versions")),
+        1 => Some(format!("{THE_RECORD} lists 1 affected version")),
+        count => Some(format!("{THE_RECORD} lists {count} affected versions")),
     }
 }
 

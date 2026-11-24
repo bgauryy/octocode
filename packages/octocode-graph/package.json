@@ -31,7 +31,8 @@
       "types": "./dist/analysis.d.ts",
       "default": "./dist/analysis.js"
     },
-    "./model-schema": "./dist/scheme/model.json"
+    "./model-schema": "./dist/scheme/model.json",
+    "./rules-schema": "./dist/scheme/rules.json"
   },
   "files": [
     "dist",

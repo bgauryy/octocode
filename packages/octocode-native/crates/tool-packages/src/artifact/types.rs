@@ -379,10 +379,6 @@ pub struct ArtifactError {
     /// tool's repair lead reads them.
     #[serde(skip)]
     pub nearest: Vec<String>,
-    /// `nearest` ranks every version the registry publishes, so fewer than
-    /// one call reads means there are no more to suggest.
-    #[serde(skip)]
-    pub nearest_ranked: bool,
     /// The package name is no exact coordinate of the registry but a search
     /// term (a bare Maven artifact name): the tool's repair lead searches it
     /// as keywords.
@@ -415,7 +411,6 @@ impl ArtifactError {
             hints: vec![],
             calls: None,
             nearest: vec![],
-            nearest_ranked: false,
             searchable_name: false,
             missing_version: false,
             yanked: vec![],
@@ -431,6 +426,12 @@ impl ArtifactError {
             missing_version: true,
             ..Self::new(ErrorCode::NotFound, message).with_status(404)
         }
+    }
+
+    /// The repair of a missing version reads the nearest published ones:
+    /// that call is the recovery, so the hint to discover them goes.
+    pub(crate) fn drop_version_hint(&mut self) {
+        self.hints.retain(|hint| hint != VERSION_NOT_FOUND_HINT);
     }
 
     pub fn with_status(mut self, status: u16) -> Self {

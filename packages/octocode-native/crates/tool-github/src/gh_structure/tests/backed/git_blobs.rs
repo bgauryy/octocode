@@ -397,7 +397,6 @@ fn outcome_of(outcome: &MaterializeOutcome) -> Value {
         "next": outcome.next_offset,
         "warnings": outcome.warnings,
         "gap": outcome.gap,
-        "hint": outcome.hint,
     })
 }
 

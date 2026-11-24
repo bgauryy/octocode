@@ -171,15 +171,15 @@ fn read_leads(
     } else {
         Vec::new()
     };
-    // One hint per miss: the order of this read's leads stands for the
-    // shared miss's own sentence, which names only the first of them.
-    if !misses.is_empty() {
-        content.hints = vec![miss_order(outlined, &misses, content.masked_spans)];
-    } else if match_not_found && next.is_none() {
-        // The shared miss's only lead searched the file's directory with
-        // localSearch, which has no GitHub form; a regex miss has no
-        // repository search either. The hint names no call the row lacks.
-        content.hints = vec![format!("{}.", absent(content.masked_spans))];
+    // A miss the file cannot answer states its absence in `status` and
+    // `matchNotFound`, and its leads in `related[]` order: no hint restates
+    // them. Only masked secret values bound the absence: a warning says
+    // they were never searched.
+    if match_not_found && !answered_here {
+        content.hints.clear();
+        content
+            .warnings
+            .extend(masked_coverage(content.masked_spans));
     }
     if !misses.is_empty()
         && let Some(calls) = next.get_or_insert_with(|| json!({})).as_object_mut()
@@ -205,55 +205,22 @@ fn read_leads(
     next
 }
 
+/// What bounds a miss's absence claim: the `masked` secret values of the
+/// file, which no search reads; `None` when it holds none.
+pub(super) fn masked_coverage(masked: Option<usize>) -> Option<String> {
+    masked.filter(|masked| *masked > 0).map(|masked| {
+        format!(
+            "No line of the searched text holds it; {}.",
+            octocode_tools_shared::source_view::masked_unsearched(masked)
+        )
+    })
+}
+
 /// A selection with no hit in the file is an empty read that says why: the
 /// shared read's facts (redaction, a literal `|`, the lines a
 /// case-insensitive read or a read without `ranges` would select) and the
 /// file's size, with the contract's empty `content` (as in localFetch) and
 /// no zero counters.
-/// Which of a miss's leads to run first, in the order they are offered:
-/// the file's own declarations (the name may be spelled otherwise; the
-/// shared miss's outline read when `outlined`), then the repository's code
-/// (it may live in another file), then the path's history (it may have been
-/// removed or never merged). `masked` is the file's count of masked secret
-/// values: a miss proves no absence inside them.
-pub(super) fn miss_order(
-    outlined: bool,
-    misses: &[(&'static str, Value)],
-    masked: Option<usize>,
-) -> String {
-    let steps = outlined
-        .then_some("readSymbols")
-        .into_iter()
-        .chain(misses.iter().map(|(name, _)| *name))
-        .filter_map(|name| match name {
-            "readSymbols" => Some("this file's declarations (spelled otherwise)"),
-            "findCode" => Some("the repository's code (another file)"),
-            "listCommits" => Some("this path's commits (removed)"),
-            "findPullRequest" => Some("pull requests naming it (unmerged)"),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    format!(
-        "{}; related[] in order: {}.",
-        absent(masked),
-        steps.join(", then ")
-    )
-}
-
-/// What a miss proves: nothing of the file's text, or, when the file holds
-/// `masked` secret values, nothing of the text outside them.
-fn absent(masked: Option<usize>) -> String {
-    masked.map_or_else(
-        || "No line of this file holds it".to_owned(),
-        |masked| {
-            format!(
-                "No line of the searched text holds it; {}",
-                octocode_tools_shared::source_view::masked_unsearched(masked)
-            )
-        },
-    )
-}
-
 fn no_match(
     content: &mut octocode_tools_shared::source_view::LocalFetchResult,
     query: &GhGetFileContentQuery,

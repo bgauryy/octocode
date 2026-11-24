@@ -212,6 +212,46 @@ async fn tree_fallback_walk_reads_every_directory() {
     assert_eq!(folder_trees, 1 + 250, "the root and each directory once");
 }
 
+/// A directory at the Contents API's entry cap whose own git tree cannot be
+/// read lists only what the cap returned. The row states the cap's value
+/// (`providerLimit.maxEntriesPerDirectory`; the partial reason says why) in
+/// the shape the published output contract declares.
+#[tokio::test]
+async fn a_directory_at_the_contents_cap_states_the_cap_in_the_published_shape() {
+    use octocode_tools_shared::gh_shared::CONTENTS_LIMIT;
+    let server = MockServer::builder().start().await;
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b",
+        200,
+        json_fixture(r#"{"default_branch": "main"}"#),
+    )
+    .await;
+    mount_ref(&server, "HEAD").await;
+    let entries = (0..CONTENTS_LIMIT)
+        .map(
+            |n| json!({"name":format!("f{n}.rs"),"path":format!("f{n}.rs"),"type":"file","size":1}),
+        )
+        .collect::<Vec<_>>();
+    mount_json(&server, "/api/v3/repos/a/b/contents", 200, json!(entries)).await;
+    let out = run(
+        &server,
+        json_fixture(r#"{"operation": "tree", "owner": "a", "repo": "b"}"#),
+    )
+    .await
+    .expect("listing");
+    assert_eq!(
+        out.data["providerLimit"],
+        json!({"maxEntriesPerDirectory": CONTENTS_LIMIT}),
+        "{}",
+        out.data
+    );
+    octocode_runtime_base::test_support::assert_row_contract(
+        octocode_runtime_base::id::ToolId::GhStructure,
+        &out.data,
+    );
+}
+
 /// A listing without a ref names its default branch from one
 /// repository lookup per repository, not one per call.
 #[tokio::test]

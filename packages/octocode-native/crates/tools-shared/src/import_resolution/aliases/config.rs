@@ -17,6 +17,75 @@ pub(super) struct RawTsConfig {
     /// (the substitution base when no `baseUrl` is in effect).
     pub(super) paths: Option<(PatternTargets, PathBuf)>,
     pub(super) references: Vec<PathBuf>,
+    /// The options that decide whether emit keeps a value import read only
+    /// as a type.
+    pub(super) emit: EmitOptions,
+    /// A solution config: its own `files` is empty and it has no `include`,
+    /// so it compiles no file; its `references` build them.
+    pub(super) solution: bool,
+}
+
+/// The compiler options that decide whether TypeScript's (and esbuild's)
+/// emit keeps a value import whose bindings the file reads only as types,
+/// each as the nearest config of an `extends` chain sets it.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct EmitOptions {
+    verbatim_module_syntax: Option<bool>,
+    preserve_value_imports: Option<bool>,
+    /// `importsNotUsedAsValues` is `preserve` or `error` (`true`), or
+    /// `remove` (`false`).
+    imports_not_used_as_values: Option<bool>,
+    emit_decorator_metadata: Option<bool>,
+}
+
+impl EmitOptions {
+    /// The options `compilerOptions` sets.
+    fn of(options: Option<&Value>) -> Self {
+        let flag = |name: &str| options?.get(name)?.as_bool();
+        Self {
+            verbatim_module_syntax: flag("verbatimModuleSyntax"),
+            preserve_value_imports: flag("preserveValueImports"),
+            imports_not_used_as_values: options
+                .and_then(|options| options.get("importsNotUsedAsValues"))
+                .and_then(Value::as_str)
+                .map(|value| {
+                    value.eq_ignore_ascii_case("preserve") || value.eq_ignore_ascii_case("error")
+                }),
+            emit_decorator_metadata: flag("emitDecoratorMetadata"),
+        }
+    }
+
+    /// These options over `base`'s: each one set here wins.
+    fn over(self, base: Self) -> Self {
+        Self {
+            verbatim_module_syntax: self.verbatim_module_syntax.or(base.verbatim_module_syntax),
+            preserve_value_imports: self.preserve_value_imports.or(base.preserve_value_imports),
+            imports_not_used_as_values: self
+                .imports_not_used_as_values
+                .or(base.imports_not_used_as_values),
+            emit_decorator_metadata: self
+                .emit_decorator_metadata
+                .or(base.emit_decorator_metadata),
+        }
+    }
+
+    /// What emit does with an import read only as a type: kept when the
+    /// project keeps value imports, possibly kept for decorator metadata,
+    /// else elided.
+    pub(super) fn type_use_imports(self) -> TypeUseImports {
+        let keeps = [
+            self.verbatim_module_syntax,
+            self.preserve_value_imports,
+            self.imports_not_used_as_values,
+        ];
+        if keeps.contains(&Some(true)) {
+            TypeUseImports::Kept
+        } else if self.emit_decorator_metadata == Some(true) {
+            TypeUseImports::Unknown
+        } else {
+            TypeUseImports::Elided
+        }
+    }
 }
 
 /// A project manifest or config the graph reads beside its sources: inside
@@ -84,9 +153,16 @@ impl ConfigReader<'_> {
                     if parent.paths.is_some() {
                         merged.paths.clone_from(&parent.paths);
                     }
+                    merged.emit = parent.emit.over(merged.emit);
                 }
             }
             let options = value.get("compilerOptions");
+            merged.emit = EmitOptions::of(options).over(merged.emit);
+            merged.solution = value.get("include").is_none()
+                && value
+                    .get("files")
+                    .and_then(Value::as_array)
+                    .is_some_and(Vec::is_empty);
             if let Some(base_url) = options
                 .and_then(|options| options.get("baseUrl"))
                 .and_then(Value::as_str)
@@ -149,6 +225,7 @@ impl ConfigReader<'_> {
                         .map(|below| normalize(&below.to_string_lossy())),
                 }),
             patterns: Vec::new(),
+            type_use_imports: TypeUseImports::Unknown,
         };
         if let Some((entries, declared_in)) = &raw.paths {
             let base = raw.base_url.as_deref().unwrap_or(declared_in);
@@ -193,6 +270,24 @@ impl ConfigReader<'_> {
             return TsPaths::default();
         };
         let mut compiled = self.compile(&raw);
+        compiled.type_use_imports = if raw.solution {
+            // The references compile the files: one of them governs each,
+            // and which one only its `include` says. Settled when they agree.
+            let mut settled = raw.references.iter().map(|reference| {
+                self.raw(reference, 1)
+                    .map_or(TypeUseImports::Unknown, |referenced| {
+                        referenced.emit.type_use_imports()
+                    })
+            });
+            let first = settled.next().unwrap_or(TypeUseImports::Unknown);
+            if settled.all(|other| other == first) {
+                first
+            } else {
+                TypeUseImports::Unknown
+            }
+        } else {
+            raw.emit.type_use_imports()
+        };
         if compiled.patterns.is_empty()
             && compiled.base_url.is_none()
             && compiled.outer_base.is_none()

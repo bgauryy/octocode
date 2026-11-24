@@ -162,6 +162,7 @@ function productionEdges(D: QueryData, name: (id: string) => string) {
       source,
       target,
       strong: e.strong !== false,
+      load: e.load ?? null,
     });
   }
   return edges;

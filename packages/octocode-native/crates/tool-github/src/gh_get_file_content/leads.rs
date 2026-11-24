@@ -11,13 +11,12 @@ use octocode_runtime_base::response::result::{Continuation, query_row};
 
 /// The runnable next steps of a match that found nothing: the file's symbols
 /// outline when its language has one (the name may be a declaration the
-/// literal spells differently), a ghSearchCode of
-/// the repository for the literal (it may live in another file), and the
-/// file's history, since the text may live only on a branch or pull
-/// request: the commits that changed the path, and pull requests whose
-/// text names the literal (approximate: their discussion, not their
-/// diffs). A regex has no literal to search. `outline`: the outline is
-/// not offered yet (the shared miss offers it as its `read` when it can).
+/// literal spells differently), and, for a read at the default branch, a
+/// ghSearchCode of the repository for the literal (it may live in another
+/// file; code search indexes only the default branch, so a pinned ref gets
+/// no such lead). History leads are not offered: agents followed none.
+/// A regex has no literal to search. `outline`: the outline is not offered
+/// yet (the shared miss offers it as its `read` when it can).
 pub(super) fn empty_match_leads(
     query: &GhGetFileContentQuery,
     local: &LocalFetchQuery,
@@ -32,15 +31,6 @@ pub(super) fn empty_match_leads(
     }
     let (owner, repo) = (access::owner(query), access::repo(query));
     let reference = access::reference(query);
-    let code = json!({"owner": owner, "repo": repo, "keywords": [first]});
-    let mut commits =
-        json!({"operation": "commit", "owner": owner, "repo": repo, "path": access::path(query)});
-    // Code search explores the default-branch index; only history honors this ref.
-    if let Some(reference) = reference {
-        commits["ref"] = json!(reference);
-    }
-    let pulls =
-        json!({"operation": "pullRequest", "owner": owner, "repo": repo, "keywords": [first]});
     let mut leads = Vec::new();
     if outline && has_outline(access::path(query)) {
         let mut symbols = json!({
@@ -54,20 +44,13 @@ pub(super) fn empty_match_leads(
             Continuation::related(ToolId::GhGetFileContent, symbols).build(),
         ));
     }
-    leads.extend([
-        (
+    if reference.is_none() {
+        let code = json!({"owner": owner, "repo": repo, "keywords": [first]});
+        leads.push((
             "findCode",
             Continuation::related(ToolId::GhSearchCode, code).build(),
-        ),
-        (
-            "listCommits",
-            Continuation::related(ToolId::GhSearchHistory, commits).build(),
-        ),
-        (
-            "findPullRequest",
-            Continuation::related(ToolId::GhSearchHistory, pulls).build(),
-        ),
-    ]);
+        ));
+    }
     leads
 }
 

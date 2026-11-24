@@ -1,13 +1,10 @@
 //! The pull-request read menu: the public query a continuation starts from,
 //! and its optional section menu.
-use super::patch::hunks::hit_hunks;
-use super::patch::locate::hunk_windows;
 use super::patch_hop::includable;
 use super::util::merge;
 use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, ItemOperation};
 use crate::gh_get_history_item::sections::Section;
 use octocode_contract_types::{GhGetFileContentQuery, GhGetHistoryItemQuery};
-use octocode_engine::text::test_paths::is_test_path;
 use octocode_runtime_base::id::ToolId;
 use octocode_runtime_base::response::result::wire_query;
 use octocode_runtime_base::response::result::{Continuation, remove_nulls, restart_query};
@@ -58,13 +55,7 @@ pub(super) fn continuation(q: Value) -> Option<Continuation> {
 /// request's or a commit's): the same read without the literal and the
 /// `contextLines` that only shape its hits.
 pub(super) fn without_match_string(mut q: Value) -> Value {
-    for key in [
-        "matchString",
-        "contextLines",
-        "regexEngine",
-        "caseMode",
-        "wholeWord",
-    ] {
+    for key in ["matchString", "contextLines", "regexEngine"] {
         remove_key(&mut q, key);
     }
     restart_query(ToolId::GhGetHistoryItem, &q)
@@ -92,8 +83,6 @@ pub(super) fn fresh_pr_query(query: &HistoryItemRequest) -> Value {
             "matchString",
             "contextLines",
             "regexEngine",
-            "caseMode",
-            "wholeWord",
         ] {
             object.remove(key);
         }
@@ -149,23 +138,12 @@ pub(super) fn pr_next_menu(query: &HistoryItemRequest, review: &[String], raw: &
     Value::Object(next)
 }
 
-/// Added plus removed lines of a provider file.
-pub(super) fn churn(file: &Value) -> u64 {
-    ["additions", "deletions"]
-        .iter()
-        .filter_map(|key| file.get(*key).and_then(Value::as_u64))
-        .sum()
-}
-
-/// The two refs a change's numbered gutters read at: `new_ref` for ` `/`+`
-/// lines (the commit, the PR head, the comparison head), `old_ref` for `-`
-/// lines (the first parent, the PR base, the comparison merge base).
+/// The two refs a change's source reads at: `new_ref` for the new side (the
+/// commit, the PR head, the comparison head), `old_ref` for the old side
+/// (the first parent, the PR base, the comparison merge base).
 pub(super) struct ChangeSides<'a> {
     pub(super) new_ref: Option<&'a str>,
     pub(super) old_ref: Option<&'a str>,
-    /// The read's `matchString`: the pick is the file with the most hits and
-    /// its windows read the hit hunks only.
-    pub(super) needle: Option<&'a super::matcher::Matcher>,
 }
 
 /// The selected files GitHub sent without a patch whose text is readable
@@ -178,21 +156,14 @@ pub(super) fn unpatched(files: &[Value], selected: impl Fn(&Value) -> bool) -> V
         .collect()
 }
 
-/// `readAtCommit` and `readParent` (related calls reading both sides when
-/// the patch was delivered, the first named for its first side): every
-/// file GitHub sent without a patch (its change is in no response, so both
-/// sides are read whole; each side's reads ride calls within one call's
-/// queries limit), else with a `matchString` every file whose hunks
-/// hold it (most hits first, as many calls as the queries limit needs), else
-/// the change's most-changed code file (a test, doc or other file only when
-/// no code file has a patch), read over its hunks' windows at each side: the
-/// new-side windows at the new side, the old-side windows at the old side
-/// (its pre-rename path). A side the diff has no lines on (an added file's
-/// old side, a removed file's new side, a pure addition's or removal's
-/// other side) has no read, so a delivered patch never leads to a whole-file
-/// read. Only files the read selected are candidates: `selected` names the
-/// files the page shows. Missing patches require source recovery; delivered
-/// patches offer their source as optional related work.
+/// `readAtCommit` and `readParent`: the source of every selected file GitHub
+/// sent without a patch (its change is in no response), read whole at each
+/// side the change has: the new side at `new_ref` (none for a removed file),
+/// the old side at `old_ref` under its pre-rename path (none for an added
+/// file). Each side's reads ride required continuations within one call's
+/// queries limit. A delivered patch is the evidence itself and leads to no
+/// source read. Only files the read selected are candidates: `selected`
+/// names the files the page shows.
 pub(super) fn change_reads(
     owner: &str,
     repo: &str,
@@ -200,137 +171,47 @@ pub(super) fn change_reads(
     sides: &ChangeSides<'_>,
     selected: impl Fn(&Value) -> bool,
 ) -> Vec<(String, Value)> {
-    use octocode_runtime_base::content::{FileType, classify_file_type};
-    let hits = |file: &Value| {
-        sides.needle.map_or(0, |needle| {
-            let patch = file.get("patch").and_then(Value::as_str).unwrap_or("");
-            hit_hunks(patch, needle).1
-        })
-    };
-    let rank = |file: &Value| {
-        let path = file.get("filename").and_then(Value::as_str).unwrap_or("");
-        let code = classify_file_type(path) == Some(FileType::Code) && !is_test_path(path);
-        (hits(file), code, churn(file))
-    };
-    let missing_patch: Vec<&Value> = unpatched(files, &selected);
-    let patched =
-        |file: &&Value| selected(file) && file.get("patch").and_then(Value::as_str).is_some();
-    // Source recovery reads every file with no patch. Optional source
-    // reads cover every file a `matchString` hit (its hunks at each side),
-    // most hits first; with no literal, the one most-changed code file.
-    let picks: Vec<&Value> = match missing_patch.as_slice() {
-        [_, ..] => missing_patch.clone(),
-        [] if sides.needle.is_some() && files.iter().filter(patched).any(|f| hits(f) > 0) => {
-            let mut hit_files: Vec<&Value> = files
-                .iter()
-                .filter(patched)
-                .filter(|file| hits(file) > 0)
-                .collect();
-            hit_files.sort_by_key(|file| std::cmp::Reverse(rank(file)));
-            hit_files
-        }
-        [] => files
-            .iter()
-            .filter(patched)
-            .rev()
-            .max_by_key(|file| rank(file))
-            .into_iter()
-            .collect(),
-    };
-    let mut rows = Vec::new();
-    for file in picks {
-        rows.extend(file_side_rows(
-            owner,
-            repo,
-            file,
-            sides,
-            !missing_patch.is_empty(),
-        ));
-    }
-    // Missing source is the rest of the evidence: each side's reads are
-    // required continuations, as many calls as the queries limit needs.
+    let rows = unpatched(files, &selected)
+        .into_iter()
+        .flat_map(|file| file_side_rows(owner, repo, file, sides))
+        .collect::<Vec<_>>();
     let per_call =
         octocode_runtime_base::response::result::rows_per_call(ToolId::GhGetFileContent).max(1);
-    if !missing_patch.is_empty() {
-        let mut calls = Vec::new();
-        for kind in ["readAtCommit", "readParent"] {
-            let side = rows
-                .iter()
-                .filter(|(name, _)| *name == kind)
-                .map(|(_, row)| row.clone())
-                .collect::<Vec<_>>();
-            for (index, chunk) in side.chunks(per_call).enumerate() {
-                calls.push((
-                    octocode_runtime_base::id::numbered(kind, index),
-                    Continuation::continued_input(
-                        ToolId::GhGetFileContent,
-                        json!({"queries": chunk}),
-                    )
+    let mut calls = Vec::new();
+    for kind in ["readAtCommit", "readParent"] {
+        let side = rows
+            .iter()
+            .filter(|(name, _)| *name == kind)
+            .map(|(_, row)| row.clone())
+            .collect::<Vec<_>>();
+        for (index, chunk) in side.chunks(per_call).enumerate() {
+            calls.push((
+                octocode_runtime_base::id::numbered(kind, index),
+                Continuation::continued_input(ToolId::GhGetFileContent, json!({"queries": chunk}))
                     .build(),
-                ));
-            }
+            ));
         }
-        return calls;
     }
-    // Optional source is related calls reading both sides, so the one lead
-    // a complete row keeps names both commits.
-    let Some((name, _)) = rows.first() else {
-        return Vec::new();
-    };
-    let name = *name;
-    let rows = rows.into_iter().map(|(_, row)| row).collect::<Vec<_>>();
-    rows.chunks(per_call)
-        .enumerate()
-        .map(|(index, chunk)| {
-            (
-                octocode_runtime_base::id::numbered(name, index),
-                Continuation::related_input(ToolId::GhGetFileContent, json!({"queries": chunk}))
-                    .build(),
-            )
-        })
-        .collect()
+    calls
 }
 
-/// The `readAtCommit`/`readParent` rows of one file: its hunks' windows at
-/// each side (`whole`: a file with no patch, both sides read whole).
+/// The `readAtCommit`/`readParent` rows of one patchless file, each a whole
+/// read the contract accepts.
 fn file_side_rows(
     owner: &str,
     repo: &str,
     file: &Value,
     sides: &ChangeSides<'_>,
-    whole: bool,
 ) -> Vec<(&'static str, Value)> {
     let path = file.get("filename").and_then(Value::as_str).unwrap_or("");
     let status = file.get("status").and_then(Value::as_str).unwrap_or("");
-    let patch = file.get("patch").and_then(Value::as_str).unwrap_or("");
-    // A literal reads the hunks that hold it, not the file's other changes.
-    let hit_patch = sides
-        .needle
-        .map(|needle| hit_hunks(patch, needle).0)
-        .filter(|hit| !hit.is_empty());
-    let patch = hit_patch.as_deref().unwrap_or(patch);
-    // A side read row the contract accepts.
-    let source_read = |row: Value| wire_query::<GhGetFileContentQuery>(row.clone()).map(|_| row);
-    // A file with no patch has no hunks to bound a read: both sides read whole.
-    let side_read = |path: &str, reference: &str, mark: char| {
-        let mut row = json!({"owner": owner, "repo": repo, "path": path, "ref": reference});
-        if !whole {
-            let ranges = hunk_windows(patch, mark);
-            if ranges.is_empty() {
-                return None;
-            }
-            row["ranges"] = json!(
-                ranges
-                    .iter()
-                    .map(|(start, end)| json!({"startLine":start,"endLine":end}))
-                    .collect::<Vec<_>>()
-            );
-        }
-        source_read(row)
+    let side_read = |path: &str, reference: &str| {
+        let row = json!({"owner": owner, "repo": repo, "path": path, "ref": reference});
+        wire_query::<GhGetFileContentQuery>(row.clone()).map(|_| row)
     };
     let mut rows = Vec::new();
     if let Some(new_ref) = sides.new_ref.filter(|_| status != "removed")
-        && let Some(read) = side_read(path, new_ref, '+')
+        && let Some(read) = side_read(path, new_ref)
     {
         rows.push(("readAtCommit", read));
     }
@@ -339,7 +220,7 @@ fn file_side_rows(
             .get("previous_filename")
             .and_then(Value::as_str)
             .unwrap_or(path);
-        if let Some(read) = side_read(old_path, old_ref, '-') {
+        if let Some(read) = side_read(old_path, old_ref) {
             rows.push(("readParent", read));
         }
     }

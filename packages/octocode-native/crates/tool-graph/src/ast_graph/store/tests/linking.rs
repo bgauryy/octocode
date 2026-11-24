@@ -330,10 +330,11 @@ fn a_full_ratio_caveat_lives_in_the_description_not_in_every_answer() {
         .into_iter()
         .flatten()
         .find(|tool| tool["name"] == "graphQuery")
-        .map(|tool| tool["mcp"]["description"].to_string())
+        .map(|tool| tool["mcp"].to_string())
         .unwrap_or_default();
+    // The caveat is served once, with the `edges` field it bounds.
     assert!(
-        description.contains("other value uses (assignment, return) yield none"),
+        description.contains("assignments and returns record none"),
         "{description}"
     );
     let built = ingest_fixture(dir.0.as_path(), None);

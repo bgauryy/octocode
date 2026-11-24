@@ -6,12 +6,14 @@
 // in place. A package manifest added or removed changes the chunk plan: the
 // whole root runs again. Stateless: everything comes from <out> and the repository.
 import { writeGraph } from './lib/write-graph.ts';
+import { runHeader } from './lib/run-output.ts';
 import {
   copyFileSync,
   existsSync,
   linkSync,
   readFileSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { basename, join } from 'node:path';
@@ -19,7 +21,7 @@ import { gunzipSync } from 'node:zlib';
 import { CHUNK_DATA } from './section.ts';
 import { planChunks } from './plan.ts';
 import { chunkFreshness } from './verify.ts';
-import { pool, prepareGraphRun } from './lib.ts';
+import { engineRootFor, pool, prepareGraphRun, withEngineRoot } from './lib.ts';
 import {
   buildChunk,
   defaults,
@@ -44,6 +46,8 @@ import type {
 import { chunkOf } from './stitch.ts';
 import { readLinks } from './links.ts';
 import { carriedProbes } from './lsp.ts';
+import { recordRun } from './registry.ts';
+import { RunCache, type CacheSettings } from './graph-cache.ts';
 import type {
   Chunk,
   Emit,
@@ -309,6 +313,8 @@ export interface RefreshOptions {
   emit: Emit;
   signal?: AbortSignal;
   publish?: Publish;
+  /** The shared graph cache (graph-cache.ts): on unless `enabled` is false. */
+  cache?: CacheSettings;
 }
 
 // A changed plan: the viewer drops every chunk, the whole root runs again, and its listing is kept for the next refresh.
@@ -321,6 +327,7 @@ async function rerun(
     emit,
     signal,
     publish,
+    cache,
   }: RefreshOptions & { opts: RunOptions }
 ) {
   emit({
@@ -338,6 +345,7 @@ async function rerun(
     opts,
     signal,
     publish,
+    cache,
     emit: e => {
       if (e.type === 'skeleton') listed.push(...(e as SkeletonEvent).files);
       emit(e);
@@ -353,7 +361,8 @@ async function rerun(
 }
 
 // No chunk holds a change: data.json keeps its graph; only files outside every chunk may have come or gone, and docs
-// (never in a chunk) may have changed, so their links are read again.
+// (never in a chunk) may have changed, so their links are read again. A graph left as it was is still marked checked
+// now (its modification time), so files touched without a change no longer read as edited since it was written.
 async function unchanged(
   state: RefreshState,
   found: Changes,
@@ -370,8 +379,11 @@ async function unchanged(
   const linksChanged =
     JSON.stringify([docs.links, docs.unresolved]) !==
     JSON.stringify([state.D.links ?? [], state.D.unresolvedLinks ?? []]);
-  if (!found.added.length && !found.removed.length && !linksChanged)
+  if (!found.added.length && !found.removed.length && !linksChanged) {
+    const now = new Date();
+    utimesSync(join(out, 'data.json'), now, now);
     return state.D;
+  }
   state.D.links = docs.links;
   state.D.unresolvedLinks = docs.unresolved;
   state.D.uncoveredFiles = found.files.filter(p => !chunkOf(p, state.chunks));
@@ -451,8 +463,21 @@ function keepPrevious(out: string) {
 
 // Refreshes <out> for the edits made in <root> since it was built; resolves to the new data.json.
 // Events: chunk-reset (per rebuilt chunk) -> chunk/rows/progress -> stitched -> verify -> metrics -> refreshed.
-export function refreshRun(options: RefreshOptions) {
-  return reportTools(options.emit, () => refreshResult(options));
+export async function refreshRun(options: RefreshOptions) {
+  // As for a build (pipeline.ts runPipeline): an unanswered setting keeps the default root.
+  const engineRoot = await engineRootFor(
+    options.root,
+    recordedWorkspace(options.out)
+  ).catch(() => null);
+  return withEngineRoot(engineRoot, () =>
+    reportTools(options.emit, () => refreshResult(options))
+  );
+}
+
+// The engine workspace the build recorded in its run header (pipeline.ts RunHeaderEvent), when it did.
+function recordedWorkspace(out: string) {
+  const workspace = runHeader(out)?.workspace;
+  return typeof workspace === 'string' ? workspace : null;
 }
 
 async function refreshResult({
@@ -462,8 +487,11 @@ async function refreshResult({
   emit,
   signal,
   publish,
+  cache = { enabled: true },
 }: RefreshOptions) {
   const t0 = Date.now();
+  // The per-user registry finds this result for `query <root>` wherever it lives (registry.ts).
+  recordRun(root, out, text => emit({ type: 'note', level: 'warn', text }));
   const contract = await prepareGraphRun();
   const state = loadResult(out, opts);
   keepPrevious(out);
@@ -488,6 +516,7 @@ async function refreshResult({
       emit,
       signal,
       publish,
+      cache,
     });
     emit({
       type: 'refreshed',
@@ -537,6 +566,7 @@ async function refreshResult({
     used: new Set(ids(state.chunks)),
     changed,
     previousLinks: state.D.links ?? [],
+    cache: new RunCache(cache, emit),
   };
   const D = await restitch(state, found, ctx, t0);
   emit({

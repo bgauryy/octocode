@@ -5,7 +5,7 @@ import type { ExecFileException } from 'node:child_process';
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { freezeExecutable } from './lib/pin-cli.ts';
-import { isAbsolute, join, resolve } from 'node:path';
+import { basename, isAbsolute, join, resolve, sep } from 'node:path';
 
 // Directories a graph build never reads; the frozen copy skips the same ones.
 export const SKIPPED_DIRS = [
@@ -123,6 +123,17 @@ export function prepareGraphRun() {
   return contract;
 }
 
+/**
+ * The sha256 of the pinned engine executable (pin-cli.ts names its frozen image by it). The engine reports its
+ * analysis and format versions only inside each snapshot's manifest, never through a tool or CLI answer, so the graph
+ * cache keys engine answers by this digest: every engine change, a version bump included, changes it.
+ */
+export async function engineDigest() {
+  await prepareGraphRun();
+  // prepareGraphRun pinned the executable: cli is its frozen image.
+  return basename(cli![0]).replace(/\.[^.]*$/, '');
+}
+
 async function loadGraphContract(): Promise<GraphLimits> {
   const schema = (command: string[], args: string[]): SchemaAnswer => {
     let raw;
@@ -207,10 +218,47 @@ async function loadGraphContract(): Promise<GraphLimits> {
   return limits;
 }
 
+// The engine reads only inside its workspace root (WORKSPACE_ROOT, else its cwd). A build or refresh of a root outside
+// this process's workspace runs the engine rooted elsewhere for that run's calls only: where its build ran, else at the
+// root itself. The MCP server and the viewer serve several runs at once, so the root is per call chain, never global.
+const engineRoots = new AsyncLocalStorage<string>();
+
+/** Runs `task` with every engine call it makes rooted at `root` (cwd and WORKSPACE_ROOT); null leaves them as they are. */
+export function withEngineRoot<T>(root: string | null, task: () => T): T {
+  return root ? engineRoots.run(root, task) : task();
+}
+
+// Containment of real paths: a symlinked spelling (/var and /private/var on macOS) is the same directory.
+const real = (path: string) => {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+};
+const within = (dir: string, base: string) => {
+  const [d, b] = [real(dir), real(base)];
+  return d === b || d.startsWith(b.endsWith(sep) ? b : b + sep);
+};
+
+/**
+ * Where the engine must be rooted to read `root`: null when this process's workspace holds it; else the workspace its
+ * build recorded, when that still exists and holds the root (parent tsconfigs and manifests stay readable); else the
+ * root itself.
+ */
+export async function engineRootFor(root: string, recorded?: string | null) {
+  const current = await nativeWorkspaceRoot();
+  if (recorded && within(root, recorded) && existsSync(recorded))
+    return real(recorded) === real(current) ? null : recorded;
+  return within(root, current) ? null : root;
+}
+
 // The engine can root its answers in a configured ancestor of the CLI caller's cwd.
 // Read the effective setting from Octocode so .env, .octocoderc and defaults agree.
 let workspace: Promise<string> | undefined;
 export function nativeWorkspaceRoot() {
+  const rooted = engineRoots.getStore();
+  if (rooted) return Promise.resolve(rooted);
   workspace ??= octocode(['config', 'get', 'WORKSPACE_ROOT', '--json'])
     .then(answer => {
       // `config get --json` prints one setting object; its key is checked here.
@@ -353,10 +401,18 @@ export async function octocode(
   const toolHook = toolHooks.getStore();
   toolHook?.({ id, state: 'start', args });
   return new Promise((fulfill, reject) => {
+    const rooted = engineRoots.getStore();
     const child = execFile(
       command[0],
       [...command.slice(1), ...nativeArgs(args)],
-      { maxBuffer: Infinity, timeout },
+      {
+        maxBuffer: Infinity,
+        timeout,
+        ...(rooted && {
+          cwd: rooted,
+          env: { ...process.env, WORKSPACE_ROOT: rooted },
+        }),
+      },
       (err, stdout, stderr) => {
         const saved =
           evidenceRoot && join(evidenceRoot, `${randomUUID()}.json`);

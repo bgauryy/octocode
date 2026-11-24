@@ -403,6 +403,141 @@ fn a_cycle_through_an_import_used_only_as_a_type_has_unknown_runtime() {
     assert_eq!(cycle_load(root), [json!("unknown")]);
 }
 
+/// The kind and cycle load of `src/a.ts`'s import of `./b`, read only as a
+/// type, in the `a_cycle_through_an_import_used_only_as_a_type...` fixture
+/// with `files` (tsconfigs) beside it.
+fn type_use_settled_by(files: &[(&str, &str)]) -> (Vec<String>, Vec<Value>) {
+    let mut all = vec![
+        (
+            "src/a.ts",
+            "import { B } from './b';\nexport const A = 1;\nexport function describe(b: B): string { return String(b); }\n",
+        ),
+        (
+            "src/b.ts",
+            "import { A } from './a';\nexport class B { value = A; }\n",
+        ),
+    ];
+    all.extend_from_slice(files);
+    let temp = fixture(&all);
+    let root = ingested(&temp);
+    assert_eq!(via(root, "src/b.ts"), ["static-import"]);
+    (via(root, "src/a.ts"), cycle_load(root))
+}
+
+/// A project whose emit keeps value imports (`verbatimModuleSyntax`,
+/// `preserveValueImports`, `importsNotUsedAsValues` `preserve` or `error`,
+/// set by the nearest tsconfig or a config it extends) keeps an import read
+/// only as a type: TypeScript and esbuild emit it, so it loads eagerly.
+#[test]
+fn a_project_that_keeps_value_imports_loads_a_type_use_import_eagerly() {
+    for options in [
+        r#""verbatimModuleSyntax": true"#,
+        r#""preserveValueImports": true"#,
+        r#""importsNotUsedAsValues": "preserve""#,
+        r#""importsNotUsedAsValues": "error""#,
+    ] {
+        let config = format!("{{\"compilerOptions\": {{ {options} }}}}");
+        assert_eq!(
+            type_use_settled_by(&[("tsconfig.json", &config)]),
+            (vec!["static-import".to_owned()], vec![json!(true)]),
+            "{options}"
+        );
+    }
+    // Through `extends`, from the config nearest the file.
+    assert_eq!(
+        type_use_settled_by(&[
+            (
+                "tsconfig.base.json",
+                r#"{"compilerOptions": {"verbatimModuleSyntax": true}}"#
+            ),
+            (
+                "src/tsconfig.json",
+                r#"{"extends": "../tsconfig.base.json", /* jsonc */}"#
+            ),
+        ]),
+        (vec!["static-import".to_owned()], vec![json!(true)])
+    );
+    // A solution config (`files: []`) builds only its references: they
+    // govern the file, and settle it when they all agree.
+    assert_eq!(
+        type_use_settled_by(&[
+            (
+                "tsconfig.json",
+                r#"{"files": [], "references": [{"path": "./tsconfig.app.json"}, {"path": "./tsconfig.node.json"}]}"#,
+            ),
+            (
+                "tsconfig.app.json",
+                r#"{"compilerOptions": {"verbatimModuleSyntax": true}, "include": ["src"]}"#,
+            ),
+            (
+                "tsconfig.node.json",
+                r#"{"compilerOptions": {"verbatimModuleSyntax": true}, "include": ["vite.config.ts"]}"#,
+            ),
+        ]),
+        (vec!["static-import".to_owned()], vec![json!(true)])
+    );
+}
+
+/// Decorator metadata may keep an import read only as a type (a decorated
+/// signature's parameter type is emitted as a value), so with
+/// `emitDecoratorMetadata` its load stays not established.
+#[test]
+fn decorator_metadata_leaves_a_type_use_import_unknown() {
+    assert_eq!(
+        type_use_settled_by(&[(
+            "tsconfig.json",
+            r#"{"compilerOptions": {"experimentalDecorators": true, "emitDecoratorMetadata": true}}"#,
+        )]),
+        (vec!["type-use-import".to_owned()], vec![json!("unknown")])
+    );
+    // Solution references that disagree do not say which governs the file.
+    assert_eq!(
+        type_use_settled_by(&[
+            (
+                "tsconfig.json",
+                r#"{"files": [], "references": [{"path": "./tsconfig.app.json"}, {"path": "./tsconfig.node.json"}]}"#,
+            ),
+            (
+                "tsconfig.app.json",
+                r#"{"compilerOptions": {"verbatimModuleSyntax": true}, "include": ["src"]}"#,
+            ),
+            ("tsconfig.node.json", r#"{"include": ["vite.config.ts"]}"#),
+        ]),
+        (vec!["type-use-import".to_owned()], vec![json!("unknown")])
+    );
+}
+
+/// A tsconfig that neither keeps value imports nor emits decorator metadata
+/// lets TypeScript and esbuild elide an import read only as a type: an
+/// `elided-import`, erased like `import type`, so it closes no load cycle. A
+/// config that turns off what the one it extends sets elides it too.
+#[test]
+fn a_project_that_elides_imports_read_only_as_types_records_them_type_only() {
+    for files in [
+        &[("tsconfig.json", r#"{"compilerOptions": {"strict": true}}"#)][..],
+        &[(
+            "tsconfig.json",
+            r#"{"compilerOptions": {"importsNotUsedAsValues": "remove"}}"#,
+        )],
+        &[
+            (
+                "base.json",
+                r#"{"compilerOptions": {"verbatimModuleSyntax": true}}"#,
+            ),
+            (
+                "tsconfig.json",
+                r#"{"extends": "./base.json", "compilerOptions": {"verbatimModuleSyntax": false}}"#,
+            ),
+        ],
+    ] {
+        assert_eq!(
+            type_use_settled_by(files),
+            (vec!["elided-import".to_owned()], vec![json!(false)]),
+            "{files:?}"
+        );
+    }
+}
+
 /// A component rendered as a JSX tag is read as a value: the emitted call
 /// keeps the import, so two components rendering each other close a
 /// module-load cycle.
@@ -440,4 +575,36 @@ fn a_value_read_beside_a_type_use_keeps_the_load() {
     // `deps` states one edge per target file; the eager edge beside the
     // type-use one still closes the cycle.
     assert_eq!(cycle_load(root), [json!(true)]);
+}
+
+/// A symbol states its declaration's parameter list and return type as
+/// written (`params`, `returns`) on `symbols` rows and the `node` answer, so a
+/// search by type reads them; a value declaration states neither.
+#[test]
+fn symbol_rows_state_their_written_signature() {
+    let temp = fixture(&[(
+        "src/run.ts",
+        "export function runQuery(graph: Graph,\n  query: string): QueryResult { return graph.run(query); }\nexport const limit = 1;\n",
+    )]);
+    let root = ingested(&temp);
+    let symbols = ask(root, "symbols", Some("src/run.ts"));
+    let row = |name: &str| {
+        symbols["rows"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|row| row["symbolName"] == name)
+            .cloned()
+            .unwrap_or_else(|| panic!("{name}: {symbols}"))
+    };
+    let run = row("runQuery");
+    assert_eq!(run["params"], "(graph: Graph, query: string)", "{run}");
+    assert_eq!(run["returns"], "QueryResult", "{run}");
+    let limit = row("limit");
+    assert!(
+        limit.get("params").is_none() && limit.get("returns").is_none(),
+        "{limit}"
+    );
+    let node = ask(root, "node", Some("src/run.ts#runQuery"));
+    assert_eq!(node["node"]["returns"], "QueryResult", "{node}");
 }

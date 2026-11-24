@@ -51,3 +51,42 @@ test('profile-top discloses the rows shown, the profiles found and unreadable in
   assert.match(bad.stderr, /^profile-top: bad\.cpuprofile/);
   assert.equal(run([profileTop, 'missing'], dir).status, 2);
 });
+
+test('profile-top slices a time window, charges costs to the owner and lists caller chains', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'profile-top-test-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const frame = (id, functionName, url, children = []) => ({ id, callFrame: { functionName, url, lineNumber: 0 }, children });
+  // root > app (ours) > parse (a library) > scan; root > idle. Samples: app at 0 s, scan at 1 s and 2 s, idle at 3 s.
+  const profile = {
+    nodes: [frame(1, '(root)', '', [2, 5]), frame(2, 'app', 'file:///p/app.mjs', [3]), frame(3, 'parse', 'file:///p/node_modules/lib.mjs', [4]), frame(4, 'scan', 'file:///p/node_modules/lib.mjs'), frame(5, '(idle)', '')],
+    samples: [2, 4, 4, 5, 5],
+    timeDeltas: [0, 1_000_000, 1_000_000, 1_000_000, 1_000_000],
+    startTime: 0,
+    endTime: 5_000_000,
+  };
+  writeFileSync(join(dir, 'run.cpuprofile'), JSON.stringify(profile));
+  const window = run([profileTop, 'run.cpuprofile', '--from', '0.5', '--to', '2.5'], dir);
+  assert.equal(window.status, 0, window.stderr);
+  assert.match(window.stdout, /window 0\.5-2\.5 s, 2000 ms sampled busy/);
+  const owned = run([profileTop, 'run.cpuprofile', '--owner', 'app.mjs', '--top', '1'], dir);
+  assert.match(owned.stdout, /3000\.0\s+100\.0%\s+3000\.0\s+100\.0%\s+app/);
+  const chains = run([profileTop, 'run.cpuprofile', '--callers', 'parse'], dir);
+  assert.match(chains.stdout, /2000\.0\s+66\.7%\s+parse \S*lib\.mjs:1 < app \S*app\.mjs:1/);
+  writeFileSync(join(dir, 'live.heapprofile'), JSON.stringify({ head: { callFrame: { functionName: '(root)', url: '', lineNumber: 0 }, selfSize: 0, children: [] } }));
+  assert.equal(run([profileTop, 'live.heapprofile', '--from', '1'], dir).status, 2);
+});
+
+test('node-alloc records allocations the GC already collected, which a live-only heap profile misses', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'node-alloc-test-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  // `churn` allocates about 40 MB of short-lived arrays and keeps none of them.
+  writeFileSync(join(dir, 'app.mjs'), 'function churn() { let n = 0; for (let i = 0; i < 4000; i++) n += new Array(1250).fill(i).length; return n; }\nconsole.log(churn());\n');
+  const nodeAlloc = fileURLToPath(new URL('../node-alloc.mjs', import.meta.url));
+  const out = spawnSync(process.execPath, ['--import', nodeAlloc, 'app.mjs'], { cwd: dir, encoding: 'utf8', env: { ...process.env, NODE_ALLOC_DIR: dir } });
+  assert.equal(out.status, 0, out.stderr);
+  const summary = run([profileTop, dir, '--filter', 'churn', '--top', '1'], dir);
+  assert.equal(summary.status, 0, summary.stderr);
+  const bytes = Number(/^\s*(\d+)\s/m.exec(summary.stdout.split('\n').slice(3).join('\n'))?.[1]);
+  assert.ok(bytes > 10_000_000, `churn sampled ${bytes} bytes:\n${summary.stdout}`);
+  assert.equal(spawnSync(process.execPath, ['--import', nodeAlloc, 'app.mjs'], { cwd: dir, encoding: 'utf8', env: { ...process.env, NODE_ALLOC_DIR: join(dir, 'missing') } }).status, 1);
+});

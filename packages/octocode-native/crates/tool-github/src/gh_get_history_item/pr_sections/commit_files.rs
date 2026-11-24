@@ -56,7 +56,7 @@ pub(super) fn next_page(
     let mut row = json!({"operation":"commit","owner":gh_get_history_item_query::owner(query),
         "repo":gh_get_history_item_query::repo(query),"ref":sha,
         "sections":["files"],"page":page,"pageSize":page_size});
-    for key in ["include", "fileStatus", "minChanges"] {
+    for key in ["include", "fileStatus"] {
         if let Some(value) = query.public.get(key) {
             row[key] = value.clone();
         }

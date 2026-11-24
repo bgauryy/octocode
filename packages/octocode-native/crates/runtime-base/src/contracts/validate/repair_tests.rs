@@ -1163,7 +1163,10 @@ fn a_cursor_in_a_row_is_answered_by_the_cursor_alone_rule() {
     for tool in ["localFetch", "localSearch", "ghSearchCode"] {
         let (read, notes) = crate::contracts::normalized_input(tool, in_row.clone());
         assert_eq!(read, json_fixture(r#"{"cursor": "cursor2.x"}"#), "{tool}");
-        assert_eq!(notes.len(), 1, "{tool}: {notes:?}");
+        assert!(
+            notes.is_empty(),
+            "{tool}: a lossless reading is silent: {notes:?}"
+        );
         let (envelope, _) = answered(tool, &beside);
         let error = envelope["error"].as_str().expect("error");
         assert!(

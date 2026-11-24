@@ -195,6 +195,9 @@ async fn pr_file_filter_narrows_the_inventory_and_its_counts() {
     mount_pr(&server, 250).await;
     let mut batches = vec![numbered(1, 100), numbered(2, 100), numbered(3, 50)];
     batches[1][7] = rest_file("docs/guide.md", Some("@@ -1 +1 @@\n-a\n+b"), 30, 2);
+    for file in &mut batches[2] {
+        file["status"] = json!("removed");
+    }
     batches[2][3]["status"] = json!("added");
     mount_file_batches(&server, batches, Duration::ZERO).await;
     let data = run(
@@ -203,8 +206,7 @@ async fn pr_file_filter_narrows_the_inventory_and_its_counts() {
             r#"{
                 "sections": ["files"],
                 "include": ["**/*.md", "src/b3/**"],
-                "fileStatus": ["added", "modified"],
-                "minChanges": 3
+                "fileStatus": ["added", "modified"]
             }"#,
         ),
     )
@@ -212,10 +214,10 @@ async fn pr_file_filter_narrows_the_inventory_and_its_counts() {
     let row = &data["pullRequests"][0];
     assert_eq!(
         row["files"],
-        json_fixture(r#"["M +30 -2 docs/guide.md"]"#),
+        json_fixture(r#"["M +30 -2 docs/guide.md", "A +1 -1 src/b3/f3.rs"]"#),
         "{row}"
     );
-    // The one matching file is the complete filtered inventory: no block.
+    // The two matching files are the complete filtered inventory: no block.
     assert!(row["sectionPagination"].get("files").is_none(), "{row}");
     assert_eq!(row["changedFileCount"], 250, "{row}");
     let data = run(

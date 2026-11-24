@@ -17,6 +17,8 @@ fn unique_reference_resolution_does_not_project_discarded_candidate_evidence() {
             selection_end: NONE,
             selection_origin: NONE,
             assessment: NONE,
+            params: NONE,
+            returns: NONE,
         });
     g.t.sources = super::super::super::format::evidence_tests::source_fixture();
     g.source_budget = std::cell::RefCell::new(ProjectionBudget::new(ProjectionLimits {

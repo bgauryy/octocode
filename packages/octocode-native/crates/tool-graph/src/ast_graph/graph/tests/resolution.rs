@@ -119,6 +119,7 @@ fn alias_looking_bare_specifiers_are_internal_gaps_not_external() {
             &None,
             false,
             bare,
+            "static-import",
             &security,
         )
     };

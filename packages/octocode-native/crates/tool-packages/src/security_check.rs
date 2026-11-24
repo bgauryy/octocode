@@ -468,19 +468,21 @@ async fn follow_aliases(results: &mut Vec<source::SourceResult>, net: &Net<'_>) 
 impl Aliases {
     /// Says which records were read for an alias, and leads to each alias
     /// that was not. The details view lists an alias's records after the
-    /// record; the summary groups them into its row, so it says the answer
-    /// states them and the details view lists them. An unread alias is a
-    /// record the row does not list: its read is a related call, which the
-    /// summary keeps ([`summary::advisory`]).
+    /// record, and says why they follow; the summary groups them into its
+    /// row, whose answer states their packages and fixes, so it says
+    /// nothing of them. An unread alias is a record the row does not list:
+    /// its read is a related call, which the summary keeps
+    /// ([`summary::advisory`]).
     fn apply(&self, data: &mut Value, view: SecurityCheckView) {
-        let read = self.read.iter().map(|(record, alias)| match view {
-            SecurityCheckView::Details => format!(
-                "{record} names no package; {alias}, its alias, is listed after it for the packages and fixes."
-            ),
-            SecurityCheckView::Summary => format!(
-                "{record} names no package; the answer states the packages and fixes of {alias}, its alias, and view details lists its record."
-            ),
-        });
+        let read = self
+            .read
+            .iter()
+            .filter(|_| view == SecurityCheckView::Details)
+            .map(|(record, alias)| {
+                format!(
+                    "{record} names no package; {alias}, its alias, is listed after it for the packages and fixes."
+                )
+            });
         let unread = self.unread.iter().map(|(record, alias, why)| {
             format!("{record} names no package, and {alias}, its alias, could not be read ({why}); related reads it.")
         });
@@ -605,7 +607,7 @@ impl octocode_runtime_base::response::output::ToolOutput for Output {
 }
 
 /// The recovery of a package, advisory id or repository not found.
-const NOT_FOUND_HINT: &str = "Check the name, id or repository as its registry or database writes it (the ecosystem's package name, a GHSA, CVE or OSV id, owner and repo of a GitHub repository), then retry with that spelling.";
+const NOT_FOUND_HINT: &str = "Check packageName, id or owner and repo as the registry or database spells them (a GHSA, CVE or OSV id), then retry.";
 
 #[cfg(test)]
 #[path = "security_check/advisory_id_tests.rs"]

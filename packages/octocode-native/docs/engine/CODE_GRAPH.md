@@ -113,7 +113,9 @@ build again (`GraphOutput.retry`). The `unresolved-import` issue groups each fil
 sites by message with every line (`sites: [{message, lines}]`); `count` stays the
 total. An unlinked import whose code the project places beyond the scan root is a
 separate `outsideRoot` finding, a scope gap ranked below a broken import; both count
-as `unresolvedInternal`. That is a relative path climbing out of the root; a JS/TS
+as `unresolvedInternal`, and each diagnostic row keeps the import's edge kind
+(`importKind`), so joining snapshots of neighboring scopes keeps a type-only import
+apart from a load. That is a relative path climbing out of the root; a JS/TS
 workspace sibling or path dependency outside it, or a `paths` alias or `baseUrl` module
 above it; a Go package of the enclosing module, or a local `replace` or `go.work`
 member outside it; a Java class above it; a Rust path dependency outside it; a Python
@@ -149,7 +151,7 @@ is required for snapshot creation.
 | `find` | Optional `target` (a name, path or several words; omit: every node), optional `kind` | Ranked name/path search returning node IDs; without `target`, every node of `kind`, most connected first |
 | `candidates` | Required `target`; optional `kind` | Exact reference candidates, using the same normalization and precedence as node resolution |
 | `node` | Required `target`; optional `kind` | One node, its edge counts and related queries |
-| `symbols` | Optional source `target` (one or a list), `kind` | Symbols nested under each target in source order, each once; omit `target`: every symbol, file by file |
+| `symbols` | Optional source `target` (one or a list), `kind` | Symbols nested under each target in source order, each once; omit `target`: every symbol, file by file. A callable states `params` and `returns`, its parameter list and return type as written (whitespace collapsed, no inference), as `find` and `node` do: JS/TS (oxc: functions, methods, interface methods, function-valued fields and variables), Rust, Python, Go, Java, C#, Scala (every curried list, type parameters left out) and C/C++/CUDA (the return type keeps a pointer or reference declarator's `*`/`&`; a function-like `#define` states its parameters). A value declaration states neither |
 | `deps`, `dependents` | Required `target`; optional edge filters, `direction`, `depth`, `kind` | Outgoing/incoming imports for files/packages, calls for symbols; one hop |
 | `callers`, `callees` | Required `target`; same traversal options | Incoming/outgoing calls; one hop; file targets include their symbols and calls within the file. Recursive targets appear once when an edge reaches them. |
 | `walk` | Required `target`; same traversal options | All edge kinds, outgoing, two hops |
@@ -157,8 +159,8 @@ is required for snapshot creation.
 | `cycles` | Optional edge filters | Production cycles; imports by default |
 | `hubs` | Optional edge filters, `kind`, `direction: in/out` | Production nodes ranked by incoming edge count by default |
 | `cochange` | Required file `target` | Files under the scope that non-merge Git commits changed together with `target` (`commits`, `share` of the target's commits, `linked` when an edge of the snapshot joins the two either way), most commits first; `summary.targetCommits`. Read from Git at query time, not stored; renames are not followed, files outside the scope are left out, and nothing is capped: rows page. In a shallow clone the boundary commits (Git's `shallow` file) have no parents, so Git lists their whole tree: they count toward nothing, and `warnings` says the history is shallow |
-| `diagnostics` | Optional `target` code or file prefix | Matching scan/link diagnostics |
-| `witnesses` | Optional source `target` (one or a list), destination `to`, edge filters | Occurrences supporting linked relations; a file target includes its symbols |
+| `diagnostics` | Optional `target` code or file prefix | Matching scan/link diagnostics. An `outside-root` or `unresolved-internal` row of an import adds `importKind`, the edge kind that import would link as, spelled as a linked import's `detail` (`static-import`, `type-import`, `dynamic-import`, `type-named-reexport`, `rust-use`, `python-lazy-import`, ...), and `load`, when it takes effect; one statement whose bindings differ (`import { type T, v }`) is one row with its strongest kind. Rows about no import have none |
+| `witnesses` | Optional source `target` (one or a list), destination `to`, edge filters | Occurrences supporting linked relations; a file target includes its symbols. An import of a package (`to: pkg:<name>`) keeps how the package is declared in `detail` (`external`, `external-dev`, `external-unknown`, ...) and the import's own kind in `importKind`, spelled as for a file import. Every form that loads a package is one: an import, a dynamic `import()`, a `require` or `createRequire` call, and a re-export (`export … from`, `export * from`, their `type` forms); the edge stays one per file, package and declaration status, its witnesses one per site. Every `imports` witness states `load` (`eager`, `deferred`, `type`, `compile`, `data`, `unknown`), read from the one kind table in `ast_graph/edges.rs` |
 | `unresolved` | Optional source `target` (one or a list), edge filters, `reasons` | Unlinked call or argument references and unsupported argument forms; a file target includes its symbols; `reasons` filters before paging, so `total` counts kept rows |
 | `stale` | None | Source and linking-input changes since the snapshot |
 | `issues` | Optional `detectors`, `entries`, `baseline`, `minScore`, `minTier` (default 90) | Ranked possible problems with `evidence` and `controls`; see [`issues`](#issues-ranked-hypotheses) |
@@ -189,7 +191,7 @@ external test package), never a method, and non-test files never see
 `_test.go` files. Call traversals report their applied confidence. Stats rank called
 symbols using high-confidence production edges and report `callConfidence`.
 `cycles` and `hubs` exclude test edges. Import cycles include type imports;
-`runtime: false` means that group contains no detected eager module-loading cycle; `runtime: "unknown"` means a loop closes only through an edge whose load is not established: a parser-fallback import, or a `type-use-import` (a TypeScript value import whose bindings the file reads only in type positions or not at all; TypeScript's emit elides it unless the project keeps value imports with `verbatimModuleSyntax` or decorator metadata, which the graph does not read; a JSX tag, an export clause or any expression read keeps the import `static-import`). List operations
+`runtime: false` means that group contains no detected eager module-loading cycle; `runtime: "unknown"` means a loop closes only through an edge whose load is not established: a parser-fallback import, or a `type-use-import`. A TypeScript value import whose bindings the file reads only in type positions or not at all (a JSX tag, an export clause or any expression read is a value use) is settled by the tsconfig that governs the file (the nearest one, following `extends`; a solution config with `files: []` defers to its `references` when they agree): `verbatimModuleSyntax`, `preserveValueImports` or `importsNotUsedAsValues` `preserve`/`error` keep it, a `static-import`; otherwise `emitDecoratorMetadata` may keep it, a `type-use-import`; otherwise TypeScript and esbuild elide it, an `elided-import`, type-only like `import type`. With no tsconfig, or references that disagree, it stays a `type-use-import`. List operations
 accept `limit` (minimum 1, no contract maximum) to control the row window; omit
 it for the automatic window. `responseChars` can end a page sooner. `stats`,
 `node` and `path` do not accept `limit`. Where supported, `depth`
@@ -576,7 +578,8 @@ reported fresh.
   and declaration source identity, parse assessment and optional test identity.
   Occurrences include representation byte spans, analysis-unit origins and derivation
   versions. Typed argument metadata references `STRS` and is validated separately
-  from relationship details.
+  from relationship details. A witness of an import of a package also stores the
+  import's edge kind, since its edge's detail is the declaration status.
 - **`SRCE`:** captured source snapshots, representations, analysis units and encoded
   origins. Numeric references avoid repeating descriptor IDs in every origin.
   The reader validates every origin, including those outside a query's selected
@@ -590,8 +593,9 @@ reported fresh.
   A topology operation reads no lookup entry (it renders nodes and degrees from
   `NODE` and `EDGE`) and checks the key and name index order its searches use.
 - **`DIAG`, `FDIG`, `FCMP`, `ENTR`:** diagnostics (file, line, code,
-  message, and the file node a diagnostic is about, when that is another
-  file), per-file digests, components, and entrypoints.
+  message, the file node a diagnostic is about, when that is another
+  file, and the edge kind of the unlinked import it is about), per-file
+  digests, components, and entrypoints.
 - **`FSTM`** (optional): per-file size, mtime, ctime and inode, recorded only
   for files untouched for their settle window (`stamp::SourceStamp::settle_for`: twice the granularity of the write time, at least twice a 20 ms clock tick, so 2 seconds on a whole-second file system) before the scan. Query freshness
   compares these stamps before hashing a source; a file without a stamp, or with
@@ -877,6 +881,17 @@ also a removed and an added relation, and a moved line changes no relation.
 
 `dependents <file>` with the default edges also lists the files that use the
 file's exports through a re-exporting module (`edge: uses, via: reexport`).
+C# and Scala imports name namespaces, not files: a C# `using N;` or a Scala
+wildcard import of a repository package (`import a.b._`, `import a.b.*`) gives
+an `imports` edge with detail `namespace-use` (load `compile`), citing the
+import line, to each file declaring a type of `N` the file uses (a call head, a
+receiver type, a base type), as `java-same-package` does for Java. A C#
+namespace holds the types its `namespace` declarations (block or file-scoped)
+enclose directly; a Scala package, the top-level types of files whose directory
+ends in its path. A name the file declares itself, or (C#) one its own
+namespace chain declares, adds no edge, nor does a name two imported namespaces
+declare. An alias `using`, `using static` and explicit Scala imports of one
+type add none.
 TypeScript path aliases follow exact-match and longest-prefix precedence. Aliases
 whose targets all point into `node_modules` count as external dependencies;
 aliases with a project-source fallback still report unresolved internal links.
@@ -976,7 +991,7 @@ rather than linked by a name guess.
 | Java | method references (`Foo::bar`); untyped lambda parameters; `this(..)` and `super(..)` delegation (`constructor-binding-not-assessed`); record accessors and anonymous-class bodies |
 | C# | extension methods and literal receivers; `: base(..)` initializers; a `global using` declared in another file |
 | Scala | implicit and `given` resolution, `summon` and extension methods (a `given` is declared, an anonymous one under the type it provides); calls through the base type never reach an override |
-| C, C++, CUDA | calls inside macros; calls through function pointers, except a class's own function-pointer or `std::function` member called by its bare name inside the class body; overloads (every overload of the chosen type is a medium candidate); virtual dispatch (the static type's method only); only direct includes count as near for qualified calls |
+| C, C++, CUDA | calls inside macros (a call of a function-like `#define` links to the macro, which has no call-syntax namespace of its own: `listLength(l)` reaches the `listLength` a header defines as a function call reaches a function; a use of an object-like macro is no call); calls through function pointers, except a class's own function-pointer or `std::function` member called by its bare name inside the class body; overloads (every overload of the chosen type is a medium candidate); virtual dispatch (the static type's method only); only direct includes count as near for qualified calls |
 | Assembly | a C call into an assembly symbol: assembly is its own link family |
 
 ### Open decisions
@@ -1080,6 +1095,7 @@ binary; the 2026-10-30 text-oracle figure in brackets where it differs):
 | TSX | excalidraw (`packages`) | `mutateElement` | 1.00 | 1.00 |
 | JavaScript | lodash (excl. `vendor/**`) | `isObject` | 0.67 | 1.00 |
 | JavaScript (CommonJS) | next.js (`scripts`) | `getGitHubToken` | 1.00 | 1.00 |
+| JavaScript (lazy `require`) | VS Code (`scripts/chat-simulation`) | `startServer` | 1.00 | 1.00 |
 
 The oracle still matches text, not bindings:
 
@@ -1107,6 +1123,9 @@ The oracle still matches text, not bindings:
 - **JavaScript (CommonJS):** the probe is the exported name with the most
   caller files among modules two or more files load by relative `require`,
   picked before measuring; its callers use module-scope destructured requires.
+- **JavaScript (lazy `require`):** the probe is the export called most through
+  a function-scope or inline relative `require` across two or more files,
+  picked before measuring (row added 2026-11-23, from the v20 battery).
 - **TSX:** one oracle hit is a type position
   (`typeof h.app.scene.mutateElement<T>`), not a call.
 

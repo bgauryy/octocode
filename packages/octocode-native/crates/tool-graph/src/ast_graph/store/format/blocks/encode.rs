@@ -100,9 +100,11 @@ fn record_key(tag: &[u8; 4], r: &mut Reader<'_>, index: usize) -> Result<u32, St
         }
         return u32::try_from(index).map_err(|_| "encoder node id overflows".into());
     }
+    // A declaration: its test identity, node, then nine more columns and
+    // its signature's two optional strings.
     r.var()?;
     let node = r.var_u32()?;
-    for _ in 0..9 {
+    for _ in 0..11 {
         r.var()?;
     }
     Ok(node)

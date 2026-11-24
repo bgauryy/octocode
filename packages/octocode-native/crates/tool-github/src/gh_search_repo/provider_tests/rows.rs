@@ -28,15 +28,8 @@ async fn an_exact_lookup_of_a_renamed_repository_warns() {
     )
     .await;
     assert_eq!(out.data["repositories"][0]["repo"], "new", "{}", out.data);
-    // Leads name the repository as it is now.
-    assert_eq!(
-        octocode_runtime_base::test_support::checks::related_call(
-            &out.data,
-            "ghStructure",
-            |input| input["queries"][0]["operation"] == "tree"
-        )["input"]["queries"][0],
-        json_fixture(r#"{"owner": "o", "repo": "new", "operation": "tree"}"#)
-    );
+    // The row and the warning name the repository as it is now; no lead.
+    assert!(out.data.get("related").is_none(), "{}", out.data);
     assert_eq!(
         out.data["warnings"],
         json_fixture(
@@ -269,26 +262,10 @@ async fn owner_and_repo_return_that_repository_without_searching() {
         out.data
     );
     assert!(out.data.get("pagination").is_none(), "{}", out.data);
-    // No page; the repository's natural next reads are leads (shown with
-    // extras hints): its root tree and its refs, on the default branch.
-    let tree = octocode_runtime_base::test_support::checks::related_call(
-        &out.data,
-        "ghStructure",
-        |input| input["queries"][0]["operation"] == "tree",
-    );
-    assert_eq!(
-        tree["input"]["queries"][0],
-        json_fixture(r#"{"owner": "sindresorhus", "repo": "is", "operation": "tree"}"#)
-    );
-    let refs = octocode_runtime_base::test_support::checks::related_call(
-        &out.data,
-        "ghStructure",
-        |input| input["queries"][0]["operation"] == "refs",
-    );
-    assert_eq!(
-        refs["input"]["queries"][0],
-        json_fixture(r#"{"owner": "sindresorhus", "repo": "is", "operation": "refs"}"#)
-    );
+    // No page and no lead: the row is the answer (an evidence row serves no
+    // optional call), and the description routes to ghStructure.
+    assert!(out.data.get("related").is_none(), "{}", out.data);
+    assert!(out.data.get("next").is_none(), "{}", out.data);
 }
 
 /// Anchors: a search row carries exactly the next hop's coordinates

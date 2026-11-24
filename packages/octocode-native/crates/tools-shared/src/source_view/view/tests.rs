@@ -84,6 +84,26 @@ fn an_unanchored_read_uses_the_response_budget_and_small_files_finish() {
     assert!(out.next.is_none());
 }
 
+/// A misremembered declaration head is served as the file's one
+/// declaration of its name, and the warning names only the name that line
+/// declares: a pattern that is no head is not called a declaration.
+#[test]
+fn a_misremembered_head_names_only_the_declared_name_it_served() {
+    let source = "export function parseEnv(text: string) {\n  return text;\n}\nparseEnv('x');\n";
+    let read = fetch_window(
+        source,
+        &query(json!({"matchString": ["const parseEnv(", "parseEnv(zz"]})),
+        50_000,
+    );
+    assert_eq!(
+        read.warnings.first().map(String::as_str),
+        Some(
+            "No line holds `const parseEnv(`, `parseEnv(zz`: served the declaration of `parseEnv` at line 1 instead."
+        ),
+        "{read:?}"
+    );
+}
+
 mod fit;
 mod pages;
 mod scan_memo;

@@ -89,9 +89,6 @@ pub(super) fn split_by_created(query: &GhSearchRepoQuery, now_secs: i64) -> Opti
     )
 }
 
-/// What a capped search says of the call that reaches past its window.
-pub(super) const PAST_WINDOW_WARNING: &str = "The related ghSearchRepo searches reach the matches past the reachable window: the same search split in two by creation date.";
-
 pub(super) fn repository_output(
     value: Value,
     query: &GhSearchRepoQuery,
@@ -101,16 +98,13 @@ pub(super) fn repository_output(
 ) -> ToolData {
     let mut output = ToolData::from(value);
     // The matches past the window are reached by splitting the search: the
-    // lead rides the first page, where the cap is first stated.
+    // lead rides the first page, where the cap is first stated. The cap
+    // warning states the count; the required call is the route, unexplained.
     if provider_capped
         && super::access::page(query) == 1
         && let Some(split) = split_by_created(query, octocode_runtime_base::civil_date::unix_secs())
     {
         output.data["calls"]["splitByCreated"] = split;
-        octocode_runtime_base::response::paging::push_warnings(
-            &mut output.data,
-            [PAST_WINDOW_WARNING.to_owned()],
-        );
     }
     // No rows is empty whether or not GitHub finished the search, as
     // ghSearchCode reports it: an incomplete page keeps its retry (the CLI
@@ -120,23 +114,25 @@ pub(super) fn repository_output(
         if !provider_incomplete {
             match broaden_search(query) {
                 Some(broader) => set_broadened(&mut output.data, &copied_search(query), broader),
-                None if !super::access::keywords(query).is_empty() => {
-                    set_no_broader(&mut output.data);
-                }
+                // A lone phrase can lose words; a lone word has nothing to
+                // drop, and the empty status is the answer.
+                None if lone_phrase(query) => set_no_broader(&mut output.data),
                 None => {}
             }
         }
     }
-    if repositories_empty && !provider_capped {
-        let keywords = super::access::keywords(query);
-        let keywords: Vec<&str> = keywords.iter().map(String::as_str).collect();
-        octocode_runtime_base::response::result::add_hints(
-            &mut output.data,
-            qualifier_keyword_hints(&keywords),
-        );
-    }
     octocode_runtime_base::response::result::finish_calls(&mut output.data);
     output
+}
+
+/// The one keyword of a search, when it holds several words (one exact
+/// phrase): the only empty search with nothing to broaden whose next query
+/// changes the words.
+fn lone_phrase(query: &GhSearchRepoQuery) -> bool {
+    matches!(
+        super::access::keywords(query).as_slice(),
+        [lone] if lone.split_whitespace().nth(1).is_some()
+    )
 }
 
 /// The repository-search qualifiers a keyword can spell, with the field that
@@ -147,8 +143,6 @@ const QUALIFIER_FIELDS: &[Qualifier] = &[
     qualifier!(["stars"] => range "filters.stars"),
     qualifier!(["forks"] => range "filters.forks"),
     qualifier!(["size"] => range "filters.sizeKiB"),
-    qualifier!(["followers"] => range "filters.followerCount"),
-    qualifier!(["topics"] => range "filters.topicCount"),
     qualifier!(["good-first-issues"] => range "filters.goodFirstIssueCount"),
     qualifier!(["help-wanted-issues"] => range "filters.helpWantedIssueCount"),
     qualifier!(["topic"] => "filters.topics"),
@@ -158,11 +152,28 @@ const QUALIFIER_FIELDS: &[Qualifier] = &[
     qualifier!(["archived"] => "filters.archive" ("`exclude`, `include` or `only`")),
     qualifier!(["is", "visibility"] => "filters.visibility" ("`public`, `private` or `internal`")),
     qualifier!(["in"] => "matchIn" ("`name`, `description`, `readme` or `topics`")),
-    qualifier!(["user", "org"] => "owner" ("with operation `list`")),
+    qualifier!(["user", "org"] => "owner"),
 ];
 
 /// A hint per keyword spelled as a repository-search qualifier that names the
 /// field carrying it.
 fn qualifier_keyword_hints(keywords: &[&str]) -> Vec<String> {
     crate::qualifier_keywords::hints(keywords, QUALIFIER_FIELDS)
+}
+
+/// A keyword spelled as a repository-search qualifier (`language:rust`)
+/// matches text, so the search returns repositories that merely mention it,
+/// with no signal: the call is refused, naming the field that carries it.
+pub(super) fn reject_qualifier_keywords<S: AsRef<str>>(
+    keywords: &[S],
+) -> Result<(), octocode_github::ProviderError> {
+    let keywords: Vec<&str> = keywords.iter().map(AsRef::as_ref).collect();
+    let hints = qualifier_keyword_hints(&keywords);
+    if hints.is_empty() {
+        return Ok(());
+    }
+    Err(octocode_github::ProviderError::new(
+        octocode_github::ProviderErrorKind::Validation,
+        hints.join(" "),
+    ))
 }

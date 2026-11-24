@@ -269,15 +269,8 @@ impl Runs {
         let added = *READ_CURSOR_CHARS
             + READ_KEY_CHARS
             + READ_ENTRY_CHARS
-            + if query
-                .fields
-                .iter()
-                .any(|field| field.to_string() == "matchCount")
-            {
-                0
-            } else {
-                MATCH_COUNT_CHARS + total.to_string().len()
-            };
+            + MATCH_COUNT_CHARS
+            + total.to_string().len();
         // Each listed entry, and each hit's number when `matchedLines` lists them.
         let entries = prefix(lines.iter().map(|line| utf16_units(line).unwrap_or(0) + 1));
         let numbered_hits = lines.len() > matched.len();

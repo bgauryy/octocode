@@ -12,24 +12,27 @@ fn item(artifact_type: ArtifactType, repository: &str) -> ArtifactItem {
     item
 }
 
+/// A repository on another host is the row's own field, beside its ref, so
+/// nothing restates it; only a registry that names no repository at all is
+/// said, keeping the registry's release ref.
 #[test]
-fn a_non_github_warning_preserves_the_registrys_release_ref() {
+fn only_a_registry_naming_no_repository_warns() {
     let mut row = item(ArtifactType::Go, "https://go.googlesource.com/text");
     row.source_ref = Some("6c97a165".into());
-    for repository in [row.repository.clone(), None] {
-        row.repository = repository;
-        let warning = super::unknown_source_warning(&row).expect("no GitHub handoff");
-        assert!(!warning.contains("no release ref"), "{warning}");
-        assert!(warning.contains("GitHub"), "{warning}");
-    }
+    assert_eq!(super::unknown_source_warning(&row), None);
+    row.repository = None;
+    let warning = super::unknown_source_warning(&row).expect("no repository");
+    assert!(!warning.contains("no release ref"), "{warning}");
+    assert!(warning.contains("no source repository"), "{warning}");
 }
 
 /// A versioned row whose source resolves to the default branch (a
-/// monorepo package without a release ref) warns that the branch may
-/// hold another version; a row at a release ref, or a discovery row,
-/// does not.
+/// monorepo package without a release ref) states it as `verification`,
+/// which says the branch may hold another version: no warning repeats it.
+/// A redirect beside it still warns, and says the branch may differ; a row
+/// at a release ref, or a discovery row, does not warn.
 #[test]
-fn a_default_branch_source_warns_that_it_may_be_another_version() {
+fn a_default_branch_source_warns_only_with_a_reason_of_its_own() {
     let mut row = item(
         ArtifactType::Npm,
         "https://github.com/DefinitelyTyped/DefinitelyTyped",
@@ -39,10 +42,14 @@ fn a_default_branch_source_warns_that_it_may_be_another_version() {
     row.repository_directory = Some("types/node".into());
     label_release_source(&mut row, true);
     assert_eq!(row.verification, Some("defaultBranch"));
+    assert_eq!(source_warning(&row), None);
+    let mut moved = row.clone();
+    moved.repository_status = Some(crate::artifact::RepositoryStatus::Moved);
+    moved.successor_repository = Some("DefinitelyTyped/types".into());
     assert_eq!(
-        source_warning(&row).as_deref(),
+        source_warning(&moved).as_deref(),
         Some(
-            "@types/node 20.19.43: the registry names no release ref; its source on the default branch may be another version."
+            "@types/node 20.19.43: GitHub redirects DefinitelyTyped/DefinitelyTyped to DefinitelyTyped/types; its source on the default branch may be another version."
         )
     );
     let mut pinned = row.clone();
@@ -134,7 +141,8 @@ fn an_unread_tag_list_scopes_the_no_tag_claim_and_names_its_cause() {
     );
 }
 
-/// A moved repository's warning names where GitHub redirects it, when known.
+/// A moved repository's warning names where GitHub redirects it, when known,
+/// and nothing more: the new name is what a citation needs.
 #[test]
 fn a_moved_repository_warning_names_the_redirect_target() {
     use crate::artifact::RepositoryStatus;
@@ -149,8 +157,10 @@ fn a_moved_repository_warning_names_the_redirect_target() {
         "{unnamed}"
     );
     row.successor_repository = Some("c/d".into());
-    let named = source_warning(&row).expect("warning");
-    assert!(named.contains("redirects a/b to c/d (renamed"), "{named}");
+    assert_eq!(
+        source_warning(&row).as_deref(),
+        Some("x 1.0.0: GitHub redirects a/b to c/d.")
+    );
 }
 
 /// A moved repository whose release tag names another commit than the

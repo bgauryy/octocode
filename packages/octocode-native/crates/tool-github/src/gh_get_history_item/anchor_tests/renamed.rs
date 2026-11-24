@@ -33,15 +33,17 @@ fn assert_names_the_rename(data: &Value) {
     assert_leads_canonical(data);
 }
 
-/// A commit read under the old name leads (its files' reads) under the
-/// canonical one: each lead runs unchanged.
+/// A commit read under the old name leads (its patchless file's source
+/// reads) under the canonical one: each lead runs unchanged.
 #[tokio::test]
 async fn a_commit_of_a_renamed_repository_leads_canonically() {
     let server = MockServer::builder().start().await;
     mount_renamed(&server).await;
     let mut raw = commit_raw(HEAD, "Fix the reader (#12)");
     raw["parents"] = json!([{"sha":BASE}]);
-    raw["files"] = json!([changed_file("src/a.rs")]);
+    // GitHub sent no patch (too large): its source at each side is the lead.
+    raw["files"] = json!([{"filename":"src/a.rs","status":"modified","additions":9000,
+        "deletions":1,"sha":"4444444444444444444444444444444444444444"}]);
     mount_json(
         &server,
         format!("/api/v3/repositories/1/commits/{HEAD}"),
@@ -78,7 +80,7 @@ async fn a_comparison_of_a_renamed_repository_leads_canonically() {
     let out = read_renamed(
         &server,
         json!({"operation":"compare","owner":"a","repo":"b","baseRef":BASE,"headRef":HEAD,
-            "minChanges":1}),
+            "fileStatus":["modified"]}),
     )
     .await;
     assert_eq!(out["headCommitSha"], HEAD, "{out}");

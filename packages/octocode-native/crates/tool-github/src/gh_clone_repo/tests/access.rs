@@ -75,7 +75,9 @@ fn api_refusals_name_what_is_missing() {
         Ok(CloneFailure::Clone(error)) => {
             assert_eq!(error.code, ErrorCode::NotFound, "{error:?}");
             assert!(error.message.contains("\"nope\""), "{error:?}");
-            assert!(error.hints[0].contains("ghStructure"), "{error:?}");
+            // The message names the ref and `viewRefs` lists the refs: no
+            // hint restates them.
+            assert!(error.hints.is_empty(), "{error:?}");
             let refs = &error.calls.as_ref().expect("refs lead")["viewRefs"];
             assert_eq!(refs["tool"], "ghStructure", "{error:?}");
             assert_eq!(

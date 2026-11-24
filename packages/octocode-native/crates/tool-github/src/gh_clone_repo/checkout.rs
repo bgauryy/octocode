@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 /// The checkout already published at `clone_dir` (whose lock the caller
 /// holds), when it is still exactly the commit `reference`: the destination
-/// is keyed by that commit, scope and depth, and verification is the one
+/// is keyed by that commit and scope, and verification is the one
 /// replacement uses ([`git::safe_to_replace`]): HEAD is the commit, the work
 /// tree has no modified, untracked or ignored files, and no local refs exist.
 /// `None` when there is no checkout or it differs, so the caller fetches fresh.
@@ -374,14 +374,24 @@ pub(super) fn checked_out(stage: &Path, path: &str) -> bool {
         })
 }
 
+/// The recovery of a checkout holding local work: the message says it was
+/// preserved, so the hint says only how to make it clean or cloned again.
+pub(super) const DIRTY_CHECKOUT_HINT: &str = "Move your edits out of this checkout and restore it to clean, then retry. If its shared store was deleted, delete the directory to have it cloned again.";
+
+/// The recovery of a sparse clone whose missing paths no tree of the commit
+/// could name: it names the request's own field.
+pub(super) const UNVERIFIED_PATHS_HINT: &str =
+    "Verify the paths with ghStructure, or omit paths for a full clone.";
+
 pub(super) fn dirty_checkout(path: &Path) -> GitError {
     GitError {
-        hints: vec![
-            "Move your edits out of this managed checkout, restore it to clean, then retry; cloning never discards local files. If its shared store was deleted, git cannot read it: delete the directory to have it cloned again.".into(),
-        ],
+        hints: vec![DIRTY_CHECKOUT_HINT.into()],
         ..GitError::new(
             ErrorCode::CheckoutDirty,
-            format!("Clone checkout '{}' contains local files, changes, commits or Git refs; it was preserved without replacement.", path.display()),
+            format!(
+                "Clone checkout '{}' contains local files, changes, commits or Git refs; it was preserved without replacement.",
+                path.display()
+            ),
         )
     }
 }
@@ -400,7 +410,7 @@ fn sparse_not_found(plan: &Plan<'_>, reference: &str, missing: &[&str], store: &
     let hints = if next.is_some() {
         Vec::new()
     } else {
-        vec!["Verify the path with ghStructure, or omit path for a full clone.".into()]
+        vec![UNVERIFIED_PATHS_HINT.into()]
     };
     let paths = missing
         .iter()

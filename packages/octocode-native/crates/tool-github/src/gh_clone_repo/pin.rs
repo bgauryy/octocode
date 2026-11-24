@@ -131,11 +131,10 @@ pub(super) fn api_refusal(
 ) -> Result<CloneFailure, ProviderError> {
     let status = api.status;
     match (api.kind, api.reason) {
+        // The message names the ref and `viewRefs` lists the refs it could
+        // name: no hint restates them.
         (_, Some(ProviderErrorReason::RefNotFound)) => {
             Ok(CloneFailure::Clone(GitError {
-                hints: vec![
-                    "Verify the branch, tag, or SHA (ghStructure lists a ref), or omit ref for the default branch.".into(),
-                ],
                 calls: Some(Box::new(serde_json::json!({
                     "viewRefs": octocode_tools_shared::gh_shared::ref_recovery(&query.owner, &query.repo)
                 }))),

@@ -138,8 +138,8 @@ pub(in crate::gh_get_history_item) fn shape_patch_page_reserving(
 /// with what a `matchString` narrowing left of each.
 struct PatchViews {
     views: Vec<Option<String>>,
-    /// Whole-patch sizes of views narrowed to hit hunks: the row marker
-    /// selects the lossless re-read (`next.readFullPatches`).
+    /// Whole-patch sizes of views narrowed to hit hunks: each row states its
+    /// own (`fullPatchChars`).
     narrowed: Vec<Option<usize>>,
     /// Hit-line starts of each narrowed view.
     hits: Vec<Option<Vec<usize>>>,

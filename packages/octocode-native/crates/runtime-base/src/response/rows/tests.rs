@@ -168,3 +168,30 @@ fn an_error_row_with_a_related_call_gets_no_shared_hint() {
         );
     }
 }
+
+/// A rate-limited row states the wait only when nothing on it says when the
+/// limit resets or what to run instead.
+#[test]
+fn a_rate_limit_hint_appears_only_when_the_row_says_nothing_else() {
+    let tool = &crate::response::output::SharedOutput;
+    let query = json!({});
+    for (row, hinted) in [
+        (json!({"errorCode": "rateLimited", "error": "x"}), true),
+        (
+            json!({"errorCode": "rateLimited", "error": "x", "rateLimit": {"retryAfterSeconds": 30}}),
+            false,
+        ),
+        (
+            json!({"errorCode": "rateLimited", "error": "x", "rateLimit": {"resetEpochSeconds": 1}}),
+            false,
+        ),
+        (
+            json!({"errorCode": "rateLimited", "error": "x", "next": {"readFile": {"tool": "ghGetFileContent", "input": {}}}}),
+            false,
+        ),
+    ] {
+        let mut data = row.clone();
+        attach_error_hint(tool, &mut data, &query);
+        assert_eq!(data.get("hints").is_some(), hinted, "{row} -> {data}");
+    }
+}

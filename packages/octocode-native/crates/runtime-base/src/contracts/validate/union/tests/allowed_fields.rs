@@ -39,7 +39,6 @@ fn an_unknown_field_lists_every_field_of_the_forms_the_row_selects() {
             "ranges",
             "regexEngine",
             "view",
-            "wholeWord",
         ] {
             assert!(fields.contains(&field), "{field} missing: {message}");
         }

@@ -26,13 +26,11 @@ pub fn text_search_query(path: &str, terms: &[&str]) -> Option<LocalSearchQueryC
         invert_match: None,
         key_path: None,
         limit: None,
-        main_goal: None,
         match_string: TextMatchTerms(terms),
         max_depth: None,
         multiline: LocalSearchQueryMultiline::Off,
         page: std::num::NonZeroU64::MIN,
         path: path.try_into().ok()?,
-        reasoning: None,
         regex_engine: RegexEngine::Literal,
         row_offset: None,
         scan_offset: None,
@@ -56,8 +54,8 @@ pub(super) fn match_limit_lead(
 }
 
 /// A localSearch under `path` for exactly what the read looked for, so the
-/// lead never matches more than the read would: the regex dialect, each
-/// pattern's case rule and `wholeWord` carry over. Several patterns join as
+/// lead never matches more than the read would: the regex dialect and each
+/// pattern's case rule carry over. Several patterns join as
 /// one alternation, each keeping its own case rule; literal ones are
 /// escaped first.
 pub fn search_lead(
@@ -73,7 +71,6 @@ pub fn search_lead(
         case_mode: matched.case_mode,
         context_lines: matched.context_lines.clone(),
         regex_engine: matched.regex_engine,
-        whole_word: matched.whole_word,
         ..text_search_query(path, patterns)?
     };
     Some(octocode_runtime_base::response::result::Continuation::related_query(query).build())

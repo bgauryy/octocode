@@ -153,7 +153,6 @@ fn another_match_read_of_the_same_bytes_gets_its_own_hits() {
     let variants = [
         json_fixture(r#"{"matchString": ["NEEDLE"], "caseMode": "sensitive"}"#),
         json_fixture(r#"{"matchString": ["NEEDLE"], "caseMode": "insensitive"}"#),
-        json_fixture(r#"{"matchString": ["needl"], "wholeWord": true}"#),
         json_fixture(r#"{"matchString": ["needl"]}"#),
         json_fixture(r#"{"matchString": ["need[l]e$"], "regexEngine": "rust"}"#),
         json_fixture(r#"{"contextLines": {"before": 0, "after": 3}}"#),

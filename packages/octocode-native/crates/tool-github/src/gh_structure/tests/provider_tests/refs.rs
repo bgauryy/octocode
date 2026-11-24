@@ -554,24 +554,12 @@ async fn a_glob_ref_lists_only_the_matching_tags_and_branches() {
     )
     .await
     .expect("refs");
+    // A glob reads every ref: the empty status and the empty lists are the
+    // answer, with no warning restating them.
     assert_eq!(none.status, Some("empty"), "{}", none.data);
-    assert!(
-        none.data["warnings"][0]
-            .as_str()
-            .is_some_and(|warning| warning.contains("v99.*")),
-        "{}",
-        none.data
-    );
-    // Every field the warning names is one the row carries.
-    let warning = none.data["warnings"][0].as_str().unwrap_or_default();
-    for named in warning.split('`').skip(1).step_by(2) {
-        let field = named.split('.').next().unwrap_or_default();
-        assert!(
-            none.data.get(field).is_some(),
-            "the warning names `{named}`, which the row lacks: {}",
-            none.data
-        );
-    }
+    assert_eq!(none.data["tags"], json!([]), "{}", none.data);
+    assert_eq!(none.data["branches"], json!([]), "{}", none.data);
+    assert!(none.data.get("warnings").is_none(), "{}", none.data);
     let lead = &none.data["related"][0];
     assert_eq!(lead["tool"], "ghStructure", "{}", none.data);
     assert!(
@@ -586,8 +574,9 @@ async fn a_glob_ref_lists_only_the_matching_tags_and_branches() {
     );
 }
 
-/// An unfiltered listing carries the default branch's commit; an unborn
-/// default branch (no commit to resolve) leaves the listing whole without it.
+/// An unfiltered listing that reads branches carries the default branch's
+/// commit; an unborn default branch (no commit to resolve) leaves the listing
+/// whole without it. A tags-only listing neither reads nor states it.
 #[tokio::test]
 async fn an_unfiltered_listing_names_the_default_branch_commit_when_it_resolves() {
     for (head, expected) in [(200, Some(SHA)), (409, None)] {
@@ -624,6 +613,30 @@ async fn an_unfiltered_listing_names_the_default_branch_commit_when_it_resolves(
             listing.data
         );
         assert_eq!(listing.data["defaultBranch"], "main", "{}", listing.data);
+        let head_reads = || async {
+            server
+                .received_requests()
+                .await
+                .unwrap_or_default()
+                .iter()
+                .filter(|request| request.url.path().ends_with("/commits/HEAD"))
+                .count()
+        };
+        let before = head_reads().await;
+        let tags_only = list(
+            &server,
+            json_fixture(
+                r#"{"owner": "a", "repo": "b", "operation": "refs", "refKinds": ["tags"]}"#,
+            ),
+        )
+        .await
+        .expect("refs");
+        assert!(
+            tags_only.data.get("defaultBranchSha").is_none(),
+            "{}",
+            tags_only.data
+        );
+        assert_eq!(head_reads().await, before, "{}", tags_only.data);
     }
 }
 
@@ -724,8 +737,13 @@ async fn only_a_glob_listing_reads_and_names_the_commit_each_tag_points_at() {
         "{}",
         names.data
     );
-    // The names-only listing still pins the default branch.
-    assert_eq!(names.data["defaultBranchSha"], SHA, "{}", names.data);
+    // A tags-only listing reads no branch, so it states no default-branch
+    // commit.
+    assert!(
+        names.data.get("defaultBranchSha").is_none(),
+        "{}",
+        names.data
+    );
     let commit_reads = |asked: &[wiremock::Request]| {
         asked
             .iter()

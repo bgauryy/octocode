@@ -99,11 +99,11 @@ fn inventory_merges_a_directory_split_by_a_deeper_directory() {
     assert_eq!(pagination["files"]["total"], 6);
 }
 
-/// `include`/`status`/`minChanges` narrow the inventory by status, path glob or prefix and
-/// change count; totals count matches only. A file GitHub sent without
-/// line counts is not "small": it passes `minChanges`.
+/// `include`/`fileStatus` narrow the inventory by status and path glob or
+/// prefix, and together keep only files both match; totals count matches
+/// only.
 #[test]
-fn file_filter_narrows_by_status_path_and_change_count() {
+fn file_filter_narrows_by_status_and_path() {
     let files = || {
         vec![
             listed("src/a.ts", "modified", 3, 1, true),
@@ -158,11 +158,10 @@ fn file_filter_narrows_by_status_path_and_change_count() {
         names(json_fixture(
             r#"{
                 "include": ["**/*.ts"],
-                "fileStatus": ["modified"],
-                "minChanges": 10
+                "fileStatus": ["modified"]
             }"#
         )),
-        ["src/huge.ts"]
+        ["src/a.ts", "src/huge.ts"]
     );
     let invalid = inventory_request(json_fixture(r#"{"include": ["src/[a"]}"#));
     assert!(FileScope::from_query(&invalid).is_err());

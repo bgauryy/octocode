@@ -90,6 +90,12 @@ impl<'a> Projector<'a> {
                         external.declared,
                         external.line,
                     );
+                    // The edge's detail is how the package is declared; its
+                    // witness keeps how the import loads.
+                    let kind = self.strings.id(external.kind);
+                    if let Some(witness) = self.witnesses.last_mut() {
+                        witness.import_kind = kind;
+                    }
                 }
             }
         }

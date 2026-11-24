@@ -47,7 +47,9 @@ pub fn push_warning_front(value: &mut Value, warning: String) {
 }
 
 /// The one `fields` path of the search tools: picks `value[rows]` (each row
-/// keeps its `id` keys) and names picked keys no row carries.
+/// keeps its `id` keys) and names picked non-`id` keys no row carries. An
+/// `id` key is kept whenever a row has it, so a pick of one changes nothing,
+/// and one no row has is a flag at its default (`lineResolved`, `alsoAt`).
 pub fn pick_rows(value: &mut Value, rows: &str, id: &[&str], fields: &[String]) {
     if fields.is_empty() {
         return;
@@ -58,7 +60,9 @@ pub fn pick_rows(value: &mut Value, rows: &str, id: &[&str], fields: &[String]) 
     let carried = carried_keys(listed, id);
     let absent = fields
         .iter()
-        .filter(|key| !listed.iter().any(|row| row.get(key.as_str()).is_some()))
+        .filter(|key| {
+            !id.contains(&key.as_str()) && !listed.iter().any(|row| row.get(key.as_str()).is_some())
+        })
         .cloned()
         .collect::<Vec<_>>();
     for row in listed.iter_mut() {

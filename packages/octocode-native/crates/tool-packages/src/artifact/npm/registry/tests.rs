@@ -10,6 +10,24 @@ fn npm_query(registry: Option<&str>) -> ArtifactSearchQuery {
     )
 }
 
+/// The refusal of a host the network policy keeps out: no other input
+/// fixes it, so its class is `refused`, as the same policy's refusal of a
+/// page URL is; only the setting its message names permits the host.
+const REFUSED: ErrorCode = ErrorCode::SecurityValidationFailed;
+
+#[test]
+fn a_refused_registry_host_is_a_refusal_not_an_input_to_correct() {
+    use octocode_runtime_base::id::error_codes::{ErrorClass, class};
+    assert_eq!(class(REFUSED), ErrorClass::Refused);
+    let error = validate_registry(
+        &npm_query(Some("http://localhost:4873/")),
+        &test_registry("http://localhost:4873/"),
+        false,
+    )
+    .expect_err("refused");
+    assert_eq!(class(error.code), ErrorClass::Refused, "{}", error.message);
+}
+
 #[test]
 fn rejects_link_local_metadata_registry() {
     let registry = test_registry("http://169.254.169.254");
@@ -17,7 +35,7 @@ fn rejects_link_local_metadata_registry() {
     let err = validate_registry(&query, &registry, false).expect_err("must reject link-local host");
     // The opt-in escape hatch permits the same host.
     assert!(validate_registry(&query, &registry, true).is_ok());
-    assert_eq!(err.code, ErrorCode::InvalidInput);
+    assert_eq!(err.code, REFUSED);
 }
 
 /// A custom registry is held to the shared outbound-address policy
@@ -40,7 +58,7 @@ fn a_registry_must_resolve_to_a_public_address() {
         let url = format!("https://{internal}/");
         let error =
             validate_registry(&npm_query(Some(&url)), &test_registry(&url), false).expect_err(&url);
-        assert_eq!(error.code, ErrorCode::InvalidInput, "{url}");
+        assert_eq!(error.code, REFUSED, "{url}");
         let ip = internal.trim_matches(['[', ']']).parse().expect("address");
         assert!(
             validate_resolved_addresses("registry.example.org", &[SocketAddr::new(ip, 443)])
@@ -63,7 +81,7 @@ fn a_registry_named_localhost_is_refused_without_resolving_it() {
     ] {
         let error =
             validate_registry(&npm_query(Some(url)), &test_registry(url), false).expect_err(url);
-        assert_eq!(error.code, ErrorCode::InvalidInput, "{url}");
+        assert_eq!(error.code, REFUSED, "{url}");
         assert!(validate_registry(&npm_query(Some(url)), &test_registry(url), true).is_ok());
     }
 }
@@ -83,7 +101,7 @@ fn an_unresolvable_or_private_registry_gets_one_refusal_naming_the_host() {
         (&unresolvable, "registry.example.invalid"),
         (&private, "10.0.0.5"),
     ] {
-        assert_eq!(error.code, ErrorCode::InvalidInput, "{}", error.message);
+        assert_eq!(error.code, REFUSED, "{}", error.message);
         assert!(error.message.contains(host), "{}", error.message);
         assert!(
             error.message.contains("network.allowPrivateRegistry"),
@@ -108,7 +126,7 @@ fn rejects_mixed_public_private_dns_answers() {
     let host = "registry.example.org";
     let error = validate_resolved_addresses(host, &addresses)
         .expect_err("one blocked answer must reject the complete DNS result");
-    assert_eq!(error.code, ErrorCode::InvalidInput);
+    assert_eq!(error.code, REFUSED);
     assert!(error.message.contains(host), "{}", error.message);
     assert!(!error.message.contains("127.0.0.1"), "{}", error.message);
     assert_eq!(

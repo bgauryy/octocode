@@ -19,7 +19,6 @@ fn record(paths: Option<&[&str]>, root_files: bool) -> CloneRecord {
         commit_sha: "6ecc29b9c8c84d08a7e860f7f69c22b113b480ea".into(),
         paths: paths.map(|paths| paths.iter().map(|path| (*path).to_owned()).collect()),
         root_files,
-        history_depth: 1,
     }
 }
 
@@ -108,13 +107,12 @@ fn a_missing_path_is_excluded_only_outside_the_scope() {
 }
 
 /// The re-clone checks the missing path out beside the scope, at the same
-/// commit and depth, and is a runnable ghCloneRepo call.
+/// commit, and is a runnable ghCloneRepo call.
 #[test]
 fn the_reclone_adds_the_missing_path_at_the_same_commit() {
     let temp = tempfile::tempdir().expect("temp");
     let root = temp.path().join("c");
-    let mut recorded = record(Some(&["src"]), true);
-    recorded.history_depth = 3;
+    let recorded = record(Some(&["src"]), true);
     checkout(&root, &temp.path().join("a"), Some(&recorded));
     let scope = clone_scope(&root).expect("scope");
     let call = scope
@@ -125,7 +123,6 @@ fn the_reclone_adds_the_missing_path_at_the_same_commit() {
     assert_eq!(row["owner"], recorded.owner.as_str(), "{call}");
     assert_eq!(row["repo"], recorded.repo.as_str(), "{call}");
     assert_eq!(row["ref"], recorded.commit_sha.as_str(), "{call}");
-    assert_eq!(row["historyDepth"], 3, "{call}");
     assert_eq!(
         row["paths"],
         serde_json::json!(["src", "tests/integration_tests.rs"]),
@@ -138,6 +135,31 @@ fn the_reclone_adds_the_missing_path_at_the_same_commit() {
     for note in [scope.outside_message("tests"), scope.coverage_warning()] {
         assert!(note.contains("src"), "{note}");
     }
+}
+
+/// A checkout an earlier build recorded with its requested `historyDepth`
+/// keeps its scope: the record reads, and its re-clone is a runnable call at
+/// the same commit, with no field the contract no longer has.
+#[test]
+fn an_earlier_builds_record_keeps_its_scope_and_runnable_reclone() {
+    let temp = tempfile::tempdir().expect("temp");
+    let (root, admin) = (temp.path().join("c"), temp.path().join("a"));
+    checkout(&root, &admin, None);
+    let current = record(Some(&["src"]), true);
+    let mut earlier = serde_json::to_value(&current).expect("record");
+    earlier["historyDepth"] = serde_json::json!(5);
+    std::fs::write(
+        admin.join(super::RECORD_FILE),
+        serde_json::to_vec(&earlier).expect("earlier record"),
+    )
+    .expect("write");
+    assert_eq!(read_record(&admin), Some(current));
+    let scope = clone_scope(&root.join("tests")).expect("sparse scope");
+    let call = scope.reclone(&root.join("tests")).expect("call");
+    let row = &call["input"]["queries"][0];
+    assert_eq!(row.get("historyDepth"), None, "{call}");
+    octocode_runtime_base::contracts::validate_saved("ghCloneRepo", call["input"].clone())
+        .expect("runnable call");
 }
 
 /// The coverage note's verb agrees with what it lists: one path alone is

@@ -68,7 +68,8 @@ const GITHUB_COM_INDEX_MAX_FILE_BYTES: u64 = 384 * 1024;
 /// an Enterprise Server, files under 5 MB
 /// (<https://docs.github.com/en/enterprise-server@latest/search-github/searching-on-github/searching-code#considerations-for-code-search>).
 /// An Enterprise Server also searches only each file's first 500 KB: a fact of
-/// the deployment, not of a page, so the tool description states it once.
+/// the deployment, not of a page, so the output note for
+/// `coverage.indexLimit.maxFileBytes` states it once.
 pub(super) fn index_max_file_bytes(endpoint: &octocode_github::GitHubEndpoint) -> u64 {
     match endpoint.deployment() {
         octocode_github::Deployment::Cloud => GITHUB_COM_INDEX_MAX_FILE_BYTES,
@@ -238,16 +239,13 @@ pub(super) struct Part {
     pub(super) continues: bool,
 }
 
-/// A search GitHub reported incomplete: the row is partial, with its
-/// recovery hint.
+/// A search GitHub reported incomplete: the row is partial. The reason code
+/// and the page's `retry` ([`apply_partial`]) carry it; no sentence restates
+/// them.
 pub(super) fn disclose_incomplete(output: &mut ToolData, data: &SearchPage) {
     if data.incomplete {
         output.diagnostics.partial(
             octocode_runtime_base::response::paging::PartialReason::ProviderIncompleteResults,
-        );
-        octocode_runtime_base::response::paging::push_warnings(
-            &mut output.data,
-            ["GitHub reported an incomplete search index result; retry, narrow the scope, or verify locally before concluding absence.".to_owned()],
         );
     }
 }

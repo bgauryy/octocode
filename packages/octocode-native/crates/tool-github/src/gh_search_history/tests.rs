@@ -86,3 +86,41 @@ fn a_qualifier_keyword_points_to_its_filter() {
     assert_eq!(hints.len(), 1, "{hints:?}");
     assert!(hints[0].contains("filters.author"), "{hints:?}");
 }
+
+/// Every filter a qualifier hint names is one the contract declares: a hint
+/// that names a missing field sends the agent into a refusal. A request that
+/// sets the named filter validates for at least one operation.
+#[test]
+fn every_qualifier_hint_names_a_declared_filter() {
+    for qualifier in super::shape::QUALIFIER_FILTERS {
+        for name in qualifier.names {
+            let hints = super::shape::qualifier_keyword_hints(&[&format!("{name}:x")]);
+            let [hint] = hints.as_slice() else {
+                panic!("{name}: {hints:?}");
+            };
+            let field = hint
+                .split("`filters.")
+                .nth(1)
+                .and_then(|rest| rest.split('`').next())
+                .unwrap_or_else(|| panic!("{name}: {hint}"));
+            let value = if hint.contains("a list") {
+                json!(["x"])
+            } else {
+                json!("x")
+            };
+            let declared = ["pullRequest", "issue", "commit"]
+                .into_iter()
+                .any(|operation| {
+                    let input = json!({"queries": [{
+                        "operation": operation, "owner": "o", "repo": "r",
+                        "filters": {field: value.clone()}
+                    }]});
+                    octocode_runtime_base::contracts::validate("ghSearchHistory", input).is_ok()
+                });
+            assert!(
+                declared,
+                "{name} names filters.{field}, which no operation takes: {hint}"
+            );
+        }
+    }
+}

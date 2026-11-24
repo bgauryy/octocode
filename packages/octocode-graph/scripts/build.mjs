@@ -36,6 +36,9 @@ const COMMANDS = [
   'preflight',
   'link',
   'mcp',
+  'locate',
+  'cache',
+  'check',
 ];
 const BINS = new Set(COMMANDS.map(name => `runtime/${name}.js`));
 // Copied verbatim beside the bundles.

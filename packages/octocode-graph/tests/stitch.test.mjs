@@ -327,3 +327,59 @@ test('an imported Rust type binds its member in another file of its crate; a typ
   const rows = bindCalls({ chunks, datas, cross });
   assert.deepEqual(rows.map((e) => [e.target, e.lines, e.resolution[1]]), [['base/client/sync.rs#Client.open_doc', [3], 'import']]);
 });
+
+test('imports between chunks keep the kind each chunk recorded, and names taken stay with their files', () => {
+  const chunks = [{ id: 'lib', path: 'lib', package: '@x/lib' }, { id: 'app', path: 'app' }];
+  const datas = new Map([
+    ['lib', { files: [node('a.ts')], imports: [], symbols: [], calls: [], externals: [], uses: [{ source: 'a.ts', target: 'a.ts#f', line: 1, detail: 'import' }], insights: { findings: {}, issues: [], cycles: { all: [] } } }],
+    ['app', {
+      files: [node('m.ts'), node('n.ts')], imports: [], symbols: [], calls: [],
+      externals: [{ id: 'pkg:@x/lib', count: 2, files: ['m.ts', 'n.ts'], kinds: { 'm.ts': ['external', 'type-import'], 'n.ts': ['external', 'dynamic-import'] } }],
+      outsideRoot: [{ file: 'm.ts', line: 4, specifier: '../lib/a.js', importKind: 'type-import' }],
+      uses: [{ source: 'm.ts', target: 'n.ts#g', line: 2, detail: 'import' }],
+      insights: { findings: {}, issues: [], cycles: { all: [] } },
+    }],
+  ]);
+  const { whole } = stitch({ root: '/r', chunks, datas, files: ['lib/a.ts', 'app/m.ts', 'app/n.ts'] });
+  const kinds = Object.fromEntries(whole.imports.map((e) => [`${e.source}>${e.target}`, e.resolution.toSorted()]));
+  assert.deepEqual(kinds['app/m.ts>lib/a.ts'], ['relative', 'type-import']);
+  assert.deepEqual(kinds['app/m.ts>pkg:@x/lib'], ['external', 'package', 'type-import']);
+  assert.deepEqual(kinds['app/n.ts>pkg:@x/lib'], ['dynamic-import', 'external', 'package']);
+  assert.deepEqual(whole.uses.map((u) => `${u.source}>${u.target}`).toSorted(byText), ['app/m.ts>app/n.ts#g', 'lib/a.ts>lib/a.ts#f']);
+});
+
+test('a workspace package the engine reports as out of root stitches to that package, with its kind', () => {
+  const chunks = [{ id: 'lib', path: 'lib', package: '@x/lib' }, { id: 'app', path: 'app' }];
+  const empty = { imports: [], symbols: [], calls: [], externals: [], insights: { findings: {}, issues: [], cycles: { all: [] } } };
+  const datas = new Map([
+    ['lib', { ...empty, files: [node('a.ts')] }],
+    ['app', { ...empty, files: [node('m.ts')], outsideRoot: [
+      { file: 'm.ts', line: 1, specifier: '@x/lib/sub', importKind: 'type-import' },
+      { file: 'm.ts', line: 2, specifier: '@x/elsewhere' },
+    ] }],
+  ]);
+  const { cross, unresolved, whole } = stitch({ root: '/r', chunks, datas, files: ['lib/a.ts', 'app/m.ts'] });
+  assert.deepEqual(cross.map((e) => `${e.source}>${e.target}:${e.via}`), ['app/m.ts>pkg:@x/lib:package']);
+  assert.deepEqual(unresolved.map((u) => u.specifier), ['@x/elsewhere']);
+  const edge = whole.imports.find((e) => e.source === 'app/m.ts');
+  assert.deepEqual(edge.resolution.toSorted(), ['package', 'type-import']);
+  assert.ok(whole.files.some((f) => f.id === 'pkg:@x/lib' && f.kind === 'package'));
+});
+
+test('imports stitched between chunks carry the load the engine recorded for their kind', () => {
+  const chunks = [{ id: 'lib', path: 'lib', package: '@x/lib' }, { id: 'app', path: 'app' }];
+  const empty = { imports: [], symbols: [], calls: [], externals: [], insights: { findings: {}, issues: [], cycles: { all: [] } } };
+  const datas = new Map([
+    ['lib', { ...empty, files: [node('a.ts')] }],
+    ['app', {
+      ...empty,
+      files: [node('m.ts'), node('n.ts')],
+      outsideRoot: [{ file: 'm.ts', line: 4, specifier: '../lib/a.js', importKind: 'future-import', load: 'type' }],
+      externals: [{ id: 'pkg:@x/lib', count: 1, files: ['n.ts'], kinds: { 'n.ts': ['external', 'later-import'] }, loads: { 'later-import': 'deferred' } }],
+    }],
+  ]);
+  const { whole } = stitch({ root: '/r', chunks, datas, files: ['lib/a.ts', 'app/m.ts', 'app/n.ts'] });
+  const edge = (s) => whole.imports.find((e) => e.source === s);
+  assert.deepEqual(edge('app/m.ts').loads, { 'future-import': 'type' });
+  assert.deepEqual(edge('app/n.ts').loads, { 'later-import': 'deferred' });
+});

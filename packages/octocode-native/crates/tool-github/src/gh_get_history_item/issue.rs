@@ -12,7 +12,6 @@ use crate::gh_get_history_item::sections::Section;
 use octocode_github::{ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext};
 use octocode_runtime_base::response::result::ToolData;
 use octocode_tools_shared::gh_shared::dates::{utc_date, utc_value};
-use octocode_tools_shared::gh_shared::ensure_calls;
 use serde_json::{Map, Value, json};
 
 mod closing;
@@ -201,12 +200,9 @@ pub(super) async fn issue(
         }
     }
     let mut out = json!({"issues":[row]});
-    if let Some(warning) = dropped {
-        // Lossless recovery: the same read without the literal.
-        octocode_runtime_base::response::paging::push_warnings(&mut out, [warning]);
-        ensure_calls(&mut out);
-        out["calls"]["withoutMatchString"] = without_match_lead(query);
-    }
+    // What the literal dropped is counted; the row is evidence, so it offers
+    // no read without the literal.
+    octocode_runtime_base::response::paging::push_warnings(&mut out, dropped);
     promote_issue_continuations(&mut out, query, &remainder);
     let bounded = closed_by.as_ref().and_then(|references| {
         references
@@ -256,15 +252,6 @@ fn issue_header(raw: &Value) -> Value {
         // duplicate), so it needs no GraphQL.
         "stateReason":closed.then(|| str_at(raw, "/state_reason")).flatten()
     })
-}
-
-/// The issue read without its `matchString`, from its first comment page.
-fn without_match_lead(query: &HistoryItemRequest) -> Value {
-    let mut same = super::pr_menu::base_public_query(query, super::ItemOperation::Issue);
-    for key in ["offset", "page", "pageSize"] {
-        super::pr_menu::remove_key(&mut same, key);
-    }
-    super::pr_menu::without_match_string(same)
 }
 
 /// The closing-reference set ends at a bound: no cursor continues it, and the

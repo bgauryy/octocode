@@ -49,14 +49,16 @@ import {
 import type { RefreshedPayload, RunEvent, RunOptions } from './types.ts';
 import { writeServerInfo } from './lib/served.ts';
 import { errorMessage } from './lib.ts';
+import { graphCommand } from './invocation.ts';
 
-const USAGE = `usage: octocode-graph serve <file-or-directory> [--out <dir>] [--whole] [--lsp smart|all|off] [--jobs N] [--ingest-jobs N] [--exclude a,b]
+const usage =
+  () => `usage: ${graphCommand()} serve <file-or-directory> [--out <dir>] [--whole] [--lsp smart|all|off] [--jobs N] [--ingest-jobs N] [--exclude a,b]
                  [--port N] [--no-open] [--exit-when-done]
-       octocode-graph serve --replay <result-dir> [--port N] [--no-open]
+       ${graphCommand()} serve --replay <result-dir> [--port N] [--no-open]
   Builds <root> chunk by chunk and streams every graph, LSP and AST page to the viewer as it arrives.
   Run it from the target workspace. Prints the viewer URL; Ctrl-C stops it (results stay in <out>).
-  Chat from the viewer lands in <out>/chat-inbox.jsonl; answer with octocode-graph reply (references/chat.md).
-  Graph queries and the wiki: octocode-graph reply query|wiki <out> ... (references/query.md).`;
+  Chat from the viewer lands in <out>/chat-inbox.jsonl; answer with ${graphCommand()} reply (references/chat.md).
+  Graph queries and the wiki: ${graphCommand()} reply query|wiki <out> ... (references/query.md).`;
 
 const ASSETS = dirname(
   fileURLToPath(import.meta.resolve('#graph-assets/live.html'))
@@ -818,14 +820,14 @@ export type ViewerServer = Awaited<ReturnType<typeof startServer>>;
 
 export async function main(argv: string[]) {
   if (argv.includes('--help')) {
-    process.stdout.write(`${USAGE}\n`);
+    process.stdout.write(`${usage()}\n`);
     return;
   }
   let o: ReturnType<typeof runOptions>;
   try {
     o = runOptions(argv, true);
   } catch (error) {
-    process.stderr.write(`${errorMessage(error)}\n${USAGE}\n`);
+    process.stderr.write(`${errorMessage(error)}\n${usage()}\n`);
     process.exitCode = 2;
     return;
   }

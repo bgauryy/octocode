@@ -13,6 +13,8 @@ import {
   withStaleness,
 } from './query.ts';
 import { textOf } from './query-index.ts';
+import { withSearchIndex } from './search-sidecar.ts';
+import { withProvider } from './search-provider.ts';
 import type { RunEvent } from './types.ts';
 import type { LintIssue, WikiPage } from './wiki.ts';
 import { errorMessage } from './lib.ts';
@@ -124,7 +126,10 @@ export function dataLoader(ctx: LoaderContext): () => Promise<QueryData> {
     if (cached?.key !== key)
       cached = {
         key,
-        D: JSON.parse(await readFile(file, 'utf8')) as QueryData,
+        D: withSearchIndex(
+          JSON.parse(await readFile(file, 'utf8')) as QueryData,
+          file
+        ),
       };
     return cached.D;
   }
@@ -253,9 +258,11 @@ export function createAnswers(ctx: AnswerContext) {
     if (typeof text !== 'string' || !text.trim())
       throw new HttpError(400, 'query must be a non-empty string');
     const D = await data();
-    const r = withStaleness(
-      runQuery(D, text),
-      editedSince(D, join(ctx.out, 'data.json'))
+    const r = await withProvider(
+      withStaleness(
+        runQuery(D, text),
+        editedSince(D, join(ctx.out, 'data.json'))
+      )
     );
     return ctx.L.emit({ type: 'query', from, at: Date.now(), ...r }, true);
   }

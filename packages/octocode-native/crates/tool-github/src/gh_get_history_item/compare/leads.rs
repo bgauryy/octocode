@@ -1,5 +1,5 @@
-//! A comparison's scope and capped-file leads: the scoped path's own
-//! history and the range's commits that reach files past GitHub's cap.
+//! A capped comparison's leads: the scoped paths' own history and the
+//! range's commits that reach files past GitHub's cap.
 use super::pages::ListedCommits;
 use crate::gh_get_history_item::HistoryItemRequest;
 use crate::gh_get_history_item::file_page::{Lead, first_page, literal_prefix};
@@ -13,13 +13,15 @@ use octocode_runtime_base::response::result::Continuation;
 use octocode_runtime_base::response::result::wire_query;
 use serde_json::{Value, json};
 
-/// A scoped path's own history lists the commits of the range that touched
-/// it: `ghSearchHistory` at the pinned head, from the range's start (its
-/// merge base: the base commit's own date is the first it can list, never an
-/// older commit). When GitHub's compare file cap stands (the trees could
-/// not extend it) the scoped path may look unchanged when it is not; a file
-/// read warns and leads to the range's commits, whose touched files cover
-/// the net change (and more: a file changed and then reverted is touched).
+/// The leads of a comparison whose file list stops at GitHub's compare cap
+/// (the trees could not extend it): the scoped paths may look unchanged when
+/// they are not. Each scope's own history lists the range's commits that
+/// touched it: `ghSearchHistory` at the pinned head, from the range's start
+/// (its merge base: the base commit's own date is the first it can list,
+/// never an older commit). A file read also warns and leads to the range's
+/// commits, whose touched files cover the net change (and more: a file
+/// changed and then reverted is touched). Below the cap the file list is
+/// whole: no lead.
 pub(super) fn capped_file_leads(
     query: &HistoryItemRequest,
     out: &mut Value,
@@ -29,29 +31,10 @@ pub(super) fn capped_file_leads(
     commits: Option<&ListedCommits>,
 ) -> Vec<Lead> {
     let mut leads = Vec::new();
-    // The scope's literal prefix: a glob's directory, or the exact path.
-    if let Some(path) = gh_get_history_item_query::include_patterns(query)
-        .into_iter()
-        .find_map(literal_prefix)
-    {
-        let mut history = json!({"operation":"commit","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),"path":path,"ref":out["headCommitSha"]});
-        if let Some(date) = str_at(raw, "/merge_base_commit/commit/committer/date")
-            .or_else(|| str_at(raw, "/base_commit/commit/committer/date"))
-        {
-            history["filters"]["committedAt"] = json!({"from":date});
-        }
-        if let Some(history) = wire_query::<GhSearchHistoryQuery>(history) {
-            leads.push((
-                "narrowScope".to_owned(),
-                // The history of the scope's path reaches the changes a
-                // capped file list may leave out: the row needs it.
-                Continuation::related_query(history).required().build(),
-            ));
-        }
-    }
     if !file_limit {
         return leads;
     }
+    leads.extend(scope_histories(query, out, raw));
     if wants_files && first_page(query) {
         // The cap is stated once, on the comparison's first page, with what
         // it may hide.
@@ -72,6 +55,58 @@ pub(super) fn capped_file_leads(
         leads.extend(capped_files_reach(query, out, commits));
     }
     leads
+}
+
+/// `narrowScope`: the history of each `include` pattern's literal prefix (a
+/// glob's directory, or the exact path), one query per prefix that no other
+/// prefix already covers, in `include` order, in one call. `None` without a literal prefix, or
+/// when the prefixes need more queries than one call takes: the range's
+/// commits ([`capped_files_reach`]) reach every file then.
+fn scope_histories(query: &HistoryItemRequest, out: &Value, raw: &Value) -> Option<Lead> {
+    let mut prefixes = Vec::new();
+    for prefix in gh_get_history_item_query::include_patterns(query)
+        .into_iter()
+        .filter_map(literal_prefix)
+    {
+        if !prefixes.contains(&prefix) {
+            prefixes.push(prefix);
+        }
+    }
+    let covered = |path: &String| {
+        prefixes
+            .iter()
+            .any(|dir| dir != path && dir.ends_with('/') && path.starts_with(dir.as_str()))
+    };
+    let paths = prefixes
+        .iter()
+        .filter(|path| !covered(path))
+        .collect::<Vec<_>>();
+    if paths.is_empty()
+        || paths.len()
+            > octocode_runtime_base::response::result::rows_per_call(ToolId::GhSearchHistory)
+    {
+        return None;
+    }
+    let since = str_at(raw, "/merge_base_commit/commit/committer/date")
+        .or_else(|| str_at(raw, "/base_commit/commit/committer/date"));
+    let rows = paths
+        .into_iter()
+        .map(|path| {
+            let mut history = json!({"operation":"commit","owner":gh_get_history_item_query::owner(query),"repo":gh_get_history_item_query::repo(query),"path":path,"ref":out["headCommitSha"]});
+            if let Some(date) = since {
+                history["filters"]["committedAt"] = json!({"from":date});
+            }
+            wire_query::<GhSearchHistoryQuery>(history).and_then(|row| serde_json::to_value(row).ok())
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some((
+        "narrowScope".to_owned(),
+        // The history of the scope's paths reaches the changes a capped file
+        // list may leave out: the row needs it.
+        Continuation::related_input(ToolId::GhSearchHistory, json!({"queries": rows}))
+            .required()
+            .build(),
+    ))
 }
 
 /// The lead that reaches the changed files past GitHub's compare cap through

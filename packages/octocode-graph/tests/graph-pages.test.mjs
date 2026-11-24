@@ -9,6 +9,9 @@ import { RESPONSE_CHARS, readGraph, scopePaths } from '../src/runtime/graph-page
 import { requireCompleteToolResponse } from '../src/runtime/lib.ts';
 import { tempDir, fakeCatalog } from './test-tmp.mjs';
 
+// Builds register their result in the per-user graph registry: keep it in a temp home, never the real one.
+const HOME = tempDir('graph-home-');
+
 // A graphQuery response as the CLI prints it: one result row whose data carries the page and its continuations.
 const response = (data) => ({ results: [{ index: 0, data: { graph: { id: 'snapshot' }, ...data } }] });
 const more = (cursor) => ({ kind: 'continue', tool: 'graphQuery', input: { cursor } });
@@ -184,7 +187,7 @@ else if(tool==='graphBuild') {
 else out({graph:{id:'frozen'},rows:[],summary:{health:{},byDetector:{}}});`, { mode: 0o755 });
   const out = join(folder, '.octocode', 'result');
   const script = fileURLToPath(new URL('../src/runtime/commands/build.ts', import.meta.url));
-  const result = spawnSync(process.execPath, [script, folder, '--out', out, '--lsp', 'off'], { encoding: 'utf8', env: { ...process.env, OCTOCODE_CLI: `${process.execPath} ${fakeCli}` } });
+  const result = spawnSync(process.execPath, [script, folder, '--out', out, '--lsp', 'off'], { encoding: 'utf8', env: { ...process.env, OCTOCODE_HOME: HOME, OCTOCODE_CLI: `${process.execPath} ${fakeCli}` } });
   assert.equal(result.status, 0, result.stderr);
   const data = JSON.parse(gunzipSync(readFileSync(join(out, 'chunks', 'root', 'data.json.gz'))).toString('utf8'));
   assert.equal(data.frozen, true);

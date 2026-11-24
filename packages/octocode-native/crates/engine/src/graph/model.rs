@@ -72,6 +72,15 @@ pub struct GraphFactDeclaration {
     /// `A => B`, C# `Action`, C++ `std::function`): a call of it invokes it.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub function_typed: bool,
+    /// A callable's parameter list as written, whitespace collapsed
+    /// (`(graph: Graph, query: string)`); none where the grammar writes no
+    /// parameter list.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub params: Option<String>,
+    /// A callable's return type as written, whitespace collapsed; none where
+    /// none is written. Text only: no type is inferred.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub returns: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]

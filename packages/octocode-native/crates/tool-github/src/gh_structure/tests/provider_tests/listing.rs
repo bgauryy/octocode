@@ -328,6 +328,13 @@ fn a_paused_walk_page_resumes_after_its_reads() {
     assert!(data.get("files").is_none(), "{data}");
     assert!(data.get("summary").is_none(), "{data}");
     assert_eq!(data["partialReasons"], json!(["walkDeadline"]), "{data}");
+    assert_eq!(
+        data["warnings"],
+        json!([
+            "Walk paused at its time budget after 7 folder reads: nothing is listed until next ends the walk."
+        ]),
+        "{data}"
+    );
     let next = &data["next"]["nextPage"]["input"]["queries"][0];
     assert_eq!(next["walkOffset"], 7, "{data}");
     assert_eq!(next["ref"], SHA, "{data}");

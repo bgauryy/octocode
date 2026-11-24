@@ -1,4 +1,5 @@
 import { fileOf } from './ids.ts';
+import { loadOf, type Load } from './loads.ts';
 // The weighted file graph every metric reads: integer node ids and CSR adjacency (offsets + targets + weights).
 // One weight rule, documented here only:
 //   w(u→v) = [u imports v] + Σ call sites from u's symbols into v's symbols × evidence
@@ -7,6 +8,7 @@ import { fileOf } from './ids.ts';
 // An import is a structural dependency (1); calls measure how much of it is used. An edge is `strong` when an import
 // or a call with full evidence (LSP-resolved or high confidence) backs it: reachability questions walk strong edges.
 // Test-only edges (every witness is test code) are kept for display and left out of the production graph.
+// `load` (loads.ts) says when the strongest import of the pair takes effect: walks that ask what runs read it.
 export interface Witness {
   source: string;
   target: string;
@@ -14,6 +16,9 @@ export interface Witness {
   count?: number;
   via?: string;
   confidence?: string;
+  resolution?: string[];
+  /** The load the engine stated per kind (loads.ts reads it before its kind table). */
+  loads?: Record<string, Load>;
 }
 export interface FileEdge {
   source: string;
@@ -23,6 +28,8 @@ export interface FileEdge {
   calls: number;
   test: boolean;
   strong: boolean;
+  /** When the pair's strongest import takes effect; null when only calls join the pair. */
+  load: Load | null;
 }
 export interface Witnesses {
   imports: readonly Witness[];
@@ -53,17 +60,23 @@ export function fileEdges(D: Witnesses, includeTests = true) {
         calls: 0,
         test: true,
         strong: false,
+        load: null,
       });
     return by.get(k)!;
   };
+  const kinds = new Map<FileEdge, string[]>();
+  const recorded = new Map<FileEdge, Record<string, Load>>();
   for (const e of D.imports) {
     if (!includeTests && e.test) continue;
     const x = at(e.source, e.target);
+    x.weight += 1;
     x.imports = 1;
     x.strong = true;
-    x.weight += 1;
     x.test &&= Boolean(e.test);
+    kinds.set(x, [...(kinds.get(x) ?? []), ...(e.resolution ?? [])]);
+    if (e.loads) recorded.set(x, { ...recorded.get(x), ...e.loads });
   }
+  for (const [x, list] of kinds) x.load = loadOf(list, recorded.get(x));
   for (const c of D.calls) {
     if (!includeTests && c.test) continue;
     const [u, v] = [fileOf(c.source), fileOf(c.target)];

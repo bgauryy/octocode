@@ -102,7 +102,6 @@ impl<'a> Store<'a> {
         let read = LocalFetchQueryContentRanges {
             block: None,
             limit: None,
-            main_goal: None,
             path: file
                 .try_into()
                 .map_err(|error| unreadable(format!("{error}")))?,
@@ -111,7 +110,6 @@ impl<'a> Store<'a> {
                 end_line,
             }],
             read_progress: None,
-            reasoning: None,
             snapshot: Some(
                 snapshot
                     .parse()

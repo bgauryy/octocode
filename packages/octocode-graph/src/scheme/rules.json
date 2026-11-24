@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "octocode-graph/rules",
+  "title": "Graph dependency rules",
+  "description": "Rules `octocode-graph check` evaluates over a saved graph, in dependency-cruiser's vocabulary. Paths are JavaScript regular expressions over node ids: root-relative file paths, and pkg:<name> for packages (pkg:node:fs for a runtime module).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "forbidden": {
+      "type": "array",
+      "description": "Dependencies that must not exist: each match is a violation of its rule.",
+      "items": { "$ref": "#/$defs/forbiddenRule" }
+    },
+    "allowed": {
+      "type": "array",
+      "description": "Dependencies that may exist: a dependency no rule here matches is a `not-in-allowed` violation.",
+      "items": { "$ref": "#/$defs/allowedRule" }
+    },
+    "allowedSeverity": {
+      "$ref": "#/$defs/severity",
+      "description": "The severity of `not-in-allowed` violations; default warn."
+    },
+    "required": {
+      "type": "array",
+      "description": "Dependencies that must exist: each module matching `module` must depend on a module matching `to`.",
+      "items": { "$ref": "#/$defs/requiredRule" }
+    }
+  },
+  "$defs": {
+    "severity": {
+      "enum": ["error", "warn", "info"],
+      "description": "error fails the check (exit 1) unless the baseline lists the violation; warn and info are reported only."
+    },
+    "load": {
+      "enum": ["runtime", "eager", "all"],
+      "description": "Which imports count: runtime (default) the ones that run (no import type); eager also drops import(); all every import and compile-time dependency."
+    },
+    "pattern": {
+      "anyOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+      ],
+      "description": "A regular expression over node ids; an array matches when any of its items does."
+    },
+    "kinds": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Import kinds as the graph records them (static-import, type-import, dynamic-import, commonjs-require, rust-use, external-builtin, …): a dependency matches when one of its kinds is listed."
+    },
+    "modules": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": { "$ref": "#/$defs/pattern", "description": "Modules whose id matches." },
+        "pathNot": { "$ref": "#/$defs/pattern", "description": "Modules whose id does not match." }
+      }
+    },
+    "via": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A module of the cycle matches when its id matches path and not pathNot.",
+      "properties": {
+        "path": { "$ref": "#/$defs/pattern" },
+        "pathNot": { "$ref": "#/$defs/pattern" }
+      }
+    },
+    "forbiddenTo": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/pattern",
+          "description": "Targets whose id matches; $1…$9 stand for the groups from.path captured ($0 the whole match)."
+        },
+        "pathNot": { "$ref": "#/$defs/pattern", "description": "Targets whose id does not match; takes $1…$9 too." },
+        "reachable": {
+          "type": "boolean",
+          "description": "true: a target reached through any chain of imports is a violation; false: a target no from-module reaches is one."
+        },
+        "circular": { "type": "boolean", "description": "true: a dependency that leads back to its source." },
+        "via": { "$ref": "#/$defs/via", "description": "With circular: some module of the cycle matches." },
+        "viaOnly": { "$ref": "#/$defs/via", "description": "With circular: every module of the cycle matches." },
+        "dependencyTypes": { "$ref": "#/$defs/kinds" },
+        "dependencyTypesNot": { "$ref": "#/$defs/kinds" }
+      }
+    },
+    "allowedTo": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": { "$ref": "#/$defs/pattern" },
+        "pathNot": { "$ref": "#/$defs/pattern" },
+        "dependencyTypes": { "$ref": "#/$defs/kinds" },
+        "dependencyTypesNot": { "$ref": "#/$defs/kinds" }
+      }
+    },
+    "requiredTo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path"],
+      "properties": {
+        "path": { "$ref": "#/$defs/pattern", "description": "Takes $1…$9 from module.path." },
+        "reachable": { "type": "boolean", "description": "true: any chain of imports satisfies the rule, not only a direct one." }
+      }
+    },
+    "forbiddenRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "from", "to"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "description": "The rule's id in reports, baselines and SARIF." },
+        "severity": { "$ref": "#/$defs/severity" },
+        "comment": { "type": "string" },
+        "load": { "$ref": "#/$defs/load" },
+        "from": { "$ref": "#/$defs/modules" },
+        "to": { "$ref": "#/$defs/forbiddenTo" }
+      }
+    },
+    "allowedRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to"],
+      "properties": {
+        "comment": { "type": "string" },
+        "load": { "$ref": "#/$defs/load" },
+        "from": { "$ref": "#/$defs/modules" },
+        "to": { "$ref": "#/$defs/allowedTo" }
+      }
+    },
+    "requiredRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "module", "to"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "severity": { "$ref": "#/$defs/severity" },
+        "comment": { "type": "string" },
+        "load": { "$ref": "#/$defs/load" },
+        "module": { "$ref": "#/$defs/modules" },
+        "to": { "$ref": "#/$defs/requiredTo" }
+      }
+    }
+  }
+}

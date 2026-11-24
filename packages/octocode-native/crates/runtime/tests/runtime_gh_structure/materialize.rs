@@ -222,8 +222,10 @@ async fn materialize_sends_no_date_request() {
 }
 
 /// A credential-named file is never written to disk, and never read from the
-/// provider either; the row names it and stays complete (nothing a local
-/// tool may read is missing).
+/// provider either; the row names it in `location.skipped` and stays
+/// complete (nothing a local tool may read is missing). The
+/// `location.coverage` reference says a complete checkout skips only binary
+/// and credential-named files, so no warning restates it.
 #[tokio::test]
 async fn materialize_skips_credential_named_files_without_reading_them() {
     let server = MockServer::builder().start().await;
@@ -285,9 +287,8 @@ async fn materialize_skips_credential_named_files_without_reading_them() {
         "{data}"
     );
     assert_eq!(data["location"]["coverage"]["state"], "complete", "{data}");
-    let text = data.to_string();
-    assert!(text.contains("credential"), "the row says why: {data}");
-    assert!(!text.contains("hunter2"), "{data}");
+    assert!(data.get("warnings").is_none(), "{data}");
+    assert!(!data.to_string().contains("hunter2"), "{data}");
     server.verify().await;
     runtime.close().await;
 }

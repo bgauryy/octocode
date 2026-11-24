@@ -8,7 +8,7 @@ fn match_patch(
     context: usize,
     head: Option<&[String]>,
 ) -> Option<super::super::hunks::HunkMatch> {
-    let request = patch_request(json!({"matchString":[pattern],"caseMode":"insensitive"}));
+    let request = patch_request(json!({"matchString":[pattern]}));
     super::super::hunks::matching_hunks(
         patch,
         request.matcher.as_deref().expect("matcher"),
@@ -61,8 +61,7 @@ fn match_string_patch_view_keeps_only_match_patch() {
     );
     let query = patch_request(json_fixture(
         r#"{
-            "matchString": ["NEEDLE"],
-            "caseMode": "insensitive",
+            "matchString": ["needle"],
             "contextLines": {"before": 3, "after": 3}
         }"#,
     ));

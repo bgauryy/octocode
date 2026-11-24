@@ -286,7 +286,7 @@ async fn a_page_shown_in_parts_states_its_shift_once() {
             .sum::<usize>()
     };
     assert!(calls.len() > 3, "pages are shown in parts");
-    assert_eq!(stated("GitHub listed again"), 1, "the dropped file once");
+    // The dropped repeat loses no evidence: only the new count is worded.
     assert_eq!(stated("match count changed"), 1, "the new count once");
     runtime.close().await;
 }

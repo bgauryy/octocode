@@ -242,7 +242,7 @@ async fn a_list_page_fits_beside_repair_notes_and_rejected_rows() {
         row
     };
     for (window, input) in [
-        // A repaired `limit` is read as 7, and the read is a warning.
+        // A repaired `limit` is read as 7, silently: the reading changes no value.
         (
             1_200,
             json!({"queries":[symbols(json_fixture(r#"{"limit": "7"}"#))],"responseChars":1_200}),
@@ -274,9 +274,10 @@ async fn a_list_page_fits_beside_repair_notes_and_rejected_rows() {
         );
         assert!(output["next"].is_object(), "{text}");
         assert!(text.len() <= window, "{input}: {} chars", text.len());
+        let rejected = output["results"][1]["status"] == "error";
         assert!(
-            output.get("warnings").is_some() || output["results"][1]["status"] == "error",
-            "{text}"
+            rejected || output.get("warnings").is_none(),
+            "a lossless reading states nothing: {text}"
         );
     }
     runtime.close().await;

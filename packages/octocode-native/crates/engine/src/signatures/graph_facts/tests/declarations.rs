@@ -1,6 +1,7 @@
 //! Declarations: containers, keyword names, kinds and export visibility.
 
 use super::*;
+use serde_json::json;
 
 #[test]
 fn rust_macro_arms_do_not_declare_attribute_or_body_identifiers() {
@@ -672,5 +673,128 @@ fn function_typed_data_members_say_so() {
             row("n", false),
             row("other", false)
         ]
+    );
+}
+
+/// `(params, returns)` of the declaration `name` in `source`, as the graph
+/// build extracts it (oxc for JS/TS, tree-sitter for the rest).
+fn signature(source: &str, path: &str, name: &str) -> (Value, Value) {
+    let facts = serde_json::to_value(
+        crate::signatures::extract_graph_facts(source, path).expect("graph facts"),
+    )
+    .expect("facts JSON");
+    let declaration = facts["declarations"]
+        .as_array()
+        .expect("declarations")
+        .iter()
+        .find(|declaration| declaration["name"] == name)
+        .cloned()
+        .unwrap_or_else(|| panic!("{name} in {facts}"));
+    (
+        declaration.get("params").cloned().unwrap_or(Value::Null),
+        declaration.get("returns").cloned().unwrap_or(Value::Null),
+    )
+}
+
+/// A callable declaration keeps its parameter list and return type as
+/// written (whitespace collapsed, no inference); one written without a
+/// return type has none, and a declaration with no parameter list has
+/// neither.
+#[test]
+fn callable_declarations_keep_their_written_signature() {
+    let cases: &[(&str, &str, &str, &str, Option<&str>)] = &[
+        (
+            "run.ts",
+            "export function runQuery(graph: Graph,\n  query: string): QueryResult { return x; }\n",
+            "runQuery",
+            "(graph: Graph, query: string)",
+            Some("QueryResult"),
+        ),
+        (
+            "cls.ts",
+            "class Store { load(id: number): Promise<Row[]> { return q(); } }\n",
+            "load",
+            "(id: number)",
+            Some("Promise<Row[]>"),
+        ),
+        (
+            "iface.ts",
+            "interface Api { fetch(url: string): Response; }\n",
+            "fetch",
+            "(url: string)",
+            Some("Response"),
+        ),
+        (
+            "plain.js",
+            "function add(a, b) { return a + b; }\n",
+            "add",
+            "(a, b)",
+            None,
+        ),
+        (
+            "lib.rs",
+            "pub fn open(path: &Path) -> Result<Reader, Error> { todo() }\n",
+            "open",
+            "(path: &Path)",
+            Some("Result<Reader, Error>"),
+        ),
+        (
+            "m.py",
+            "def parse(text: str, strict=False) -> Node:\n    return 1\n",
+            "parse",
+            "(text: str, strict=False)",
+            Some("Node"),
+        ),
+        (
+            "m.go",
+            "package m\nfunc Open(path string) (*Reader, error) { return nil, nil }\n",
+            "Open",
+            "(path string)",
+            Some("(*Reader, error)"),
+        ),
+        (
+            "A.java",
+            "class A { List<Row> rows(int limit) { return null; } }\n",
+            "rows",
+            "(int limit)",
+            Some("List<Row>"),
+        ),
+        (
+            "A.cs",
+            "class A { public Task<int> Count(string key) { return null; } }\n",
+            "Count",
+            "(string key)",
+            Some("Task<int>"),
+        ),
+        (
+            "A.scala",
+            "object A { def fold[B](z: B)(f: (B, Int) => B): B = z }\n",
+            "fold",
+            "(z: B)(f: (B, Int) => B)",
+            Some("B"),
+        ),
+        (
+            "a.c",
+            "static char *dup(const char *s, size_t n) { return 0; }\n",
+            "dup",
+            "(const char *s, size_t n)",
+            Some("char *"),
+        ),
+    ];
+    for (path, source, name, params, returns) in cases {
+        assert_eq!(
+            signature(source, path, name),
+            (json!(params), returns.map_or(Value::Null, |r| json!(r))),
+            "{path}"
+        );
+    }
+    // A type and a field have no parameter list.
+    assert_eq!(
+        signature("class A { int size; }\n", "A.java", "size"),
+        (Value::Null, Value::Null)
+    );
+    assert_eq!(
+        signature("pub struct Row { id: u32 }\n", "lib.rs", "Row"),
+        (Value::Null, Value::Null)
     );
 }

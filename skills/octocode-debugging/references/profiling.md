@@ -20,7 +20,7 @@ flowchart LR
 1. State the question as a measurement: "where do the 800 ms of the search call go" or "heap after GC flat over 50 cycles". A diagnosis needs no target: it stops when attribution explains the cost. Ask for a target only before optimizing, and record the measured baseline it is compared with.
 2. Go from coarse to fine: OS counters first (CPU time, RSS, I/O bytes, context switches), then a sampler, then allocation tracking or instrumentation on the narrowed phase only. Each capture must shrink the set of rivals; if it does not, change what you measure.
 3. Change one variable per iteration. Keep build, input, warmup, concurrency and host load equal ([host usage](host-usage.md)). A change of two things explains neither.
-4. Prefer several equivalent cycles to one run: they show slope and spread. Keep a window long enough to include the event, since rare stalls and tail latency need it. Call a difference real only when it exceeds the run-to-run spread.
+4. Prefer several equivalent cycles to one run: they show slope and spread. Keep a window long enough to include the event, since rare stalls and tail latency need it. Call a difference real only when it exceeds the run-to-run spread. A cost that grows with input size shows only across sizes: measure at three (say 2, 10 and 40 KB) to tell linear from quadratic; one size shows constants.
 5. Compare captures with a diff tool: `go tool pprof -base`, `perf diff`, heap snapshot comparison, `tracemalloc` `compare_to`.
 6. Stop narrowing when the attributed frames, waits or bytes add up to most of the observed cost. By Amdahl's law, a frame with 5% of the time caps its fix at 5%.
 7. Account for the observer: instrumenting profilers inflate many small calls; allocation tracking and snapshots slow and pause the target. Confirm a final gain on an uninstrumented run.
@@ -28,6 +28,14 @@ flowchart LR
 9. When no available measurement can separate the remaining rivals, report them with the missing capability instead of looping.
 
 Memory questions (GC, heap, references, allocators, struct layout) follow the same loop with [memory profiling](memory-profiling.md).
+
+## Compare builds on a shared host
+
+Keep the old build runnable beside the new one, where it still resolves its dependencies, and alternate rounds (old, new, old, new) with the same driver and input. Other work on the host moves wall time and RSS between rounds more than many fixes do, so decide on per-process CPU time and on deterministic counters: bytes allocated or calls made per operation, file and bundle sizes. Report every round's numbers, not only the best. When a fix comes with a test, run that test against the base revision (a separate worktree, or the file from the base commit) to see it fail; an index that tooling stages on its own is not a baseline.
+
+## Drive an interactive program
+
+A terminal UI or REPL runs reproducibly in a private terminal server (`tmux -L <name>`, never the user's own server) with an isolated home and a scripted local backend in place of the network service (a fake model or API whose reply length and pacing the input chooses). End each operation with a unique marker in the output and wait for that marker plus the program's idle indicator before the next one; poll the screen (`tmux capture-pane -p`) rather than sleeping. Take process CPU and RSS (`ps -o time=,rss= -p "$pid"`) around each phase, and the runtime's own profiles from a separate run with the same script, since profilers inflate the counters. Stop the server and the backend when done.
 
 ## Identifying a live target
 

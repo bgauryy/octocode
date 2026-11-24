@@ -2,7 +2,7 @@
 //! row. Every operation builds its whole row first (the `details` view), so
 //! nothing here is computed twice and nothing the summary leaves out is lost:
 //! the `view` field of the same request returns it whole, and a record the
-//! row does not list (GitHub's word, a withdrawal) keeps the call that reads it.
+//! row does not list (GitHub's word) keeps the call that reads it.
 use octocode_contract_types::SecurityCheckView;
 use serde_json::{Map, Value, json};
 
@@ -79,8 +79,17 @@ fn summary(row: Value, target: Target<'_>) -> Value {
     // details view, which the tool description names.
     let on_row = listed_ids(&fields);
     // A version not evaluated, with no verdict, has no advisory of its own:
-    // the package's are not counted as its, and its sentence says what they are.
-    let unevaluated = fields.get("versionEvaluated") == Some(&Value::Bool(false))
+    // the package's are not counted as its, and its sentence says what they
+    // are. So is a target no source covers (a distribution release OSV does
+    // not name, or a version asked with no release): its empty list is no
+    // count of 0.
+    let not_covered = fields
+        .get("sources")
+        .and_then(Value::as_array)
+        .is_some_and(|sources| {
+            !sources.is_empty() && sources.iter().all(|entry| entry["status"] == "notCovered")
+        });
+    let unevaluated = (fields.get("versionEvaluated") == Some(&Value::Bool(false)) || not_covered)
         && lean.get("affected").is_none();
     if let Some(listed) = fields.get("advisories").and_then(Value::as_array)
         && !unevaluated
@@ -138,9 +147,6 @@ fn summary(row: Value, target: Target<'_>) -> Value {
     }
     if outdated {
         fields.shift_remove("outdated");
-    }
-    if let Some(Value::Array(warnings)) = fields.get_mut("warnings") {
-        super::global::collapse_withdrawn(warnings);
     }
     let sources = fields.shift_remove("sources");
     let related = fields.shift_remove("related");
@@ -265,7 +271,7 @@ fn listed_ids(fields: &Map<String, Value>) -> Vec<String> {
 /// dependencies whose advisories no field of this row counts, or a missing
 /// version's nearest published ones; and the advisory reads of records the
 /// row does not list (`on_row`: its advisories' ids, aliases and CVEs), such
-/// as one GitHub withdrew or one only GitHub matches, which its warnings name.
+/// as one only GitHub matches, which its warnings name.
 /// Chosen by id: a read of a listed advisory repeats the details view.
 fn leads(related: Option<Value>, on_row: &[String]) -> Value {
     related

@@ -14,6 +14,8 @@ const common = {
   lsp: string,
   exclude: string,
   whole: boolean,
+  'no-cache': boolean,
+  'explain-cache': boolean,
 };
 
 export const lspModes = ['smart', 'all', 'off'];
@@ -47,6 +49,8 @@ interface RunFlags {
   'no-open'?: boolean;
   'exit-when-done'?: boolean;
   progress?: boolean;
+  'no-cache'?: boolean;
+  'explain-cache'?: boolean;
 }
 
 export function runOptions(argv: string[], viewer = false) {
@@ -112,6 +116,11 @@ export function runOptions(argv: string[], viewer = false) {
     replay: Boolean(values.replay),
     port,
     progress: Boolean(values.progress),
+    /** The shared graph cache (graph-cache.ts): `--no-cache` bypasses it, `--explain-cache` prints each lookup. */
+    cache: {
+      enabled: !values['no-cache'],
+      explain: Boolean(values['explain-cache']),
+    },
     open: !values['no-open'],
     exitWhenDone: Boolean(values['exit-when-done']),
   };

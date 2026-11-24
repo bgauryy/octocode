@@ -123,7 +123,7 @@ impl Sections {
     }
 }
 
-/// The file filters (`include`, `fileStatus`, `minChanges`) narrow changed
+/// The file filters (`include`, `fileStatus`) narrow changed
 /// files only: a continuation whose named sections hold none (comments,
 /// reviews, a commit list) drops them, as the contract rejects them there.
 pub(crate) fn drop_idle_file_filters(query: &mut Value) {
@@ -137,7 +137,7 @@ pub(crate) fn drop_idle_file_filters(query: &mut Value) {
         None => true,
     };
     if !lists_files {
-        for key in ["include", "fileStatus", "minChanges"] {
+        for key in ["include", "fileStatus"] {
             fields.remove(key);
         }
     }

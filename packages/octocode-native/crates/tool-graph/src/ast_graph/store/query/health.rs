@@ -24,6 +24,13 @@ pub(super) fn diagnostics(g: &Graph, filter: Option<&str>) -> Page {
                 if diag.target != NONE {
                     row["target"] = json!(g.key(diag.target));
                 }
+                if diag.import_kind != NONE {
+                    let kind = g.t.str(diag.import_kind);
+                    row["importKind"] = json!(kind);
+                    if let Some(load) = crate::ast_graph::edges::load(kind).name() {
+                        row["load"] = json!(load);
+                    }
+                }
                 row
             })
             .collect::<Vec<_>>();

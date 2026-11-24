@@ -131,3 +131,40 @@ fn a_text_shorter_than_a_page_is_never_cut() {
     }
     assert!(moved, "some budget moves a text to a later part");
 }
+
+/// A row's `cautions` are evidence stated once, like its `answer`: a split
+/// row delivers each caution on one part, so walking every part reads each
+/// once, in order, and the parts join back to the row.
+#[test]
+fn a_split_row_repeats_no_caution() {
+    let mut data = details_row();
+    data["cautions"] = json!([
+        {"rule": "lowTraction", "level": "note", "basis": "heuristic",
+            "why": "12 weekly downloads and 3 dependents."},
+        {"rule": "unmaintained", "level": "review", "basis": "heuristic",
+            "why": "No release since 2020-08-13."},
+    ]);
+    let cautions = data["cautions"].as_array().expect("cautions").clone();
+    let whole = chars(&json!({"index": 0, "data": data}));
+    let largest = data["advisories"]
+        .as_array()
+        .expect("advisories")
+        .iter()
+        .map(chars)
+        .max()
+        .expect("advisories");
+    for budget in [largest + 400, (largest + whole) / 2] {
+        let (parts, joined) = walk_and_join(ToolId::SecurityCheck, &data, budget);
+        assert!(parts.len() > 1, "budget {budget}: the row is split");
+        assert_joins_to(&joined, &data, &format!("budget {budget}"));
+        let delivered = parts
+            .iter()
+            .flat_map(|part| part["data"]["cautions"].as_array().into_iter().flatten())
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(
+            delivered, cautions,
+            "budget {budget}: each caution arrives once"
+        );
+    }
+}

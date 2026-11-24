@@ -5,9 +5,18 @@ use super::*;
 #[test]
 fn a_recovered_parse_is_named_with_its_skipped_lines() {
     let flow = "// @flow\ntype Dispatch<A> = A => void;\nexport function useState<S>(init: S): [S, Dispatch<S>] {\n  return [init, () => {}];\n}\n";
-    let note = recovered_parse(flow, "Hooks.js").expect("Flow types force a recovered parse");
+    let note = recovered_parse(flow, "Hooks.js", None).expect("Flow types force a recovered parse");
     assert!(note.contains("could not parse lines"), "{note}");
-    assert!(recovered_parse(PY, "m.py").is_none());
+    assert!(recovered_parse(PY, "m.py", None).is_none());
+    // A span past the line it explains cannot hide what encloses that line.
+    assert!(
+        recovered_parse(flow, "Hooks.js", Some(1)).is_none(),
+        "{note}"
+    );
+    assert!(
+        recovered_parse(flow, "Hooks.js", Some(2)).is_some(),
+        "{note}"
+    );
     let warning = outline_recovery_warning(
         crate::declarations::file_document(flow, "Hooks.js").as_deref(),
         "Hooks.js",

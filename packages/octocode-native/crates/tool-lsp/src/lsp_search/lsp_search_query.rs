@@ -164,11 +164,9 @@ pub(crate) fn document_lead(
 ) -> Option<Q> {
     Some(Q::LspDocument(LspDocument {
         limit: None,
-        main_goal: None,
         operation,
         page: std::num::NonZeroU64::MIN,
         path: path.try_into().ok()?,
-        reasoning: None,
         snapshot: None,
         workspace_root: workspace
             .and_then(workspace_root)
@@ -184,11 +182,9 @@ pub(crate) fn document_lead(
 pub(crate) fn workspace_symbol_lead(term: &str, path: &str, workspace: Option<&Q>) -> Option<Q> {
     Some(Q::LspWorkspacePath(LspWorkspacePath {
         limit: None,
-        main_goal: None,
         operation: LspWorkspacePathOperation::WorkspaceSymbol,
         page: std::num::NonZeroU64::MIN,
         path: path.try_into().ok()?,
-        reasoning: None,
         snapshot: None,
         symbol_fuzzy: term.try_into().ok()?,
         workspace_root: workspace

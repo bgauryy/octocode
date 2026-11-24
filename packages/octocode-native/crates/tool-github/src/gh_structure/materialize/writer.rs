@@ -211,25 +211,6 @@ impl MaterializeSkips {
             .collect()
     }
 
-    /// Why `location.skipped` names files on a checkout that is complete:
-    /// binaries are not text, credential-named files are withheld.
-    pub(in crate::gh_structure) fn binary_hint(&self) -> Option<String> {
-        let mut parts = Vec::new();
-        if !self.binary.is_empty() {
-            parts.push(format!(
-                "{} binary file(s) are in location.skipped: not text, so not written.",
-                self.binary.len()
-            ));
-        }
-        if !self.withheld.is_empty() {
-            parts.push(format!(
-                "{} credential-named file(s) are in location.skipped: withheld, so neither read nor written.",
-                self.withheld.len()
-            ));
-        }
-        (!parts.is_empty()).then(|| parts.join(" "))
-    }
-
     pub(in crate::gh_structure) fn warnings(&self) -> Vec<String> {
         let mut warnings = Vec::new();
         let mut oversized_counts = std::collections::BTreeMap::<usize, usize>::new();

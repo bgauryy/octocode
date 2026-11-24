@@ -1,5 +1,6 @@
 import { delegateToNative, resolveNativeBin } from 'octocode/native';
 import { fileURLToPath } from 'node:url';
+import { graphCli } from './runtime/invocation.ts';
 
 // Saved-graph commands, each one line of help; the runtime ones run their entry under src/runtime/commands.
 const COMMANDS = {
@@ -22,12 +23,19 @@ const COMMANDS = {
     'Report what can run here (engine, language servers) and how to enable the rest',
   html: 'Export a saved run as one offline HTML page',
   enrich:
-    'Add provider evidence (coverage, traces, control flow, SCIP) to a data.json',
+    'Add provider evidence (coverage, traces, control flow, SCIP, bundler metafiles, CPU and heap profiles) to a data.json',
+  locate:
+    'Map bundled or minified positions (file:line:col) to source lines and graph symbols through source maps',
+  cache:
+    'Show or prune the shared graph cache of chunk results, LSP answers and package closures',
+  check:
+    'Check dependency rules (forbidden, allowed, required, reachable, circular) for CI: baseline, SARIF, --since <rev>',
 } as const;
 
+// Arguments of the commands this module runs itself; graphCli prefixes the invocation that works here.
 const usage = {
-  html: 'octocode-graph html <saved-run> <new.html>',
-  enrich: 'octocode-graph enrich <data.json> <manifest.json> <new-data.json>',
+  html: 'html <saved-run> <new.html>',
+  enrich: 'enrich <data.json> <manifest.json> <new-data.json>',
 } as const;
 
 // `mcp` runs this package's MCP server (saved-graph tools beside the engine's graph tools); the engine's help
@@ -45,7 +53,7 @@ export async function runGraphCli(args: readonly string[]): Promise<number> {
       (args[0] === 'help' || args.includes('--help') || args.includes('-h'))
     ) {
       process.stdout.write(
-        `Usage: octocode-graph channel\n  ${COMMANDS.channel}\n`
+        `Usage: ${graphCli('channel')}\n  ${COMMANDS.channel}\n`
       );
       return 0;
     }
@@ -60,17 +68,17 @@ export async function runGraphCli(args: readonly string[]): Promise<number> {
     args.length === 2 &&
     (args[0] === 'help' || args[1] === '--help' || args[1] === '-h')
   ) {
-    process.stdout.write(`Usage: ${usage[topic]}\n`);
+    process.stdout.write(`Usage: ${graphCli(usage[topic])}\n`);
     return 0;
   }
   if (args[0] === 'html') {
-    if (args.length !== 3) throw new Error(`Usage: ${usage.html}`);
+    if (args.length !== 3) throw new Error(`Usage: ${graphCli(usage.html)}`);
     const { exportHtml } = await import('./html.ts');
     await exportHtml(args[1], args[2]);
     return 0;
   }
   if (args[0] === 'enrich') {
-    if (args.length !== 4) throw new Error(`Usage: ${usage.enrich}`);
+    if (args.length !== 4) throw new Error(`Usage: ${graphCli(usage.enrich)}`);
     const { enrichExport } = await import('./enrich.ts');
     await enrichExport(args[1], args[2], args[3]);
     return 0;
@@ -85,7 +93,7 @@ export async function runGraphCli(args: readonly string[]): Promise<number> {
   ) {
     const width = Math.max(...Object.keys(COMMANDS).map(name => name.length));
     process.stdout.write(
-      `\nSaved graph commands (octocode-graph <command> --help):\n${Object.entries(
+      `\nSaved graph commands (${graphCli('<command> --help')}):\n${Object.entries(
         COMMANDS
       )
         .map(([name, what]) => `  ${name.padEnd(width)}  ${what}`)

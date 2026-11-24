@@ -3,6 +3,7 @@
 //! page.
 use super::axis::Axis;
 use super::file_page::{first_page, lead_first};
+use super::filter::FileScope;
 use super::patch_hop::{DiffCursors, attach_diff_continuations};
 use super::util::{str_at, usize_at};
 use super::window::COMPARE_FILE_LIMIT;
@@ -40,7 +41,7 @@ pub(super) async fn compare(
     // summary row: the range's identity and its counts, each list one
     // section away (`sectionPagination.files` and `.commits` state their
     // sizes with nothing shown, and continue to their first pages). A file
-    // filter (`include`, `fileStatus`, `minChanges`) or a `matchString`
+    // filter (`include`, `fileStatus`) or a `matchString`
     // asks about files: it answers with its file page. Neither scopes the
     // commits: a filtered read pages them apart, from their first page, by
     // `sectionPagination.commits` or `sections: ["commits"]`. A patch window
@@ -72,7 +73,17 @@ pub(super) async fn compare(
         None
     };
     let file_limit = capped && tree_files.is_none();
-    let tree_listed = tree_files.as_ref().is_some_and(|extra| !extra.is_empty());
+    // Whether the read's file scope keeps a tree-derived row (no line
+    // counts or patch): only then is the tree source the reader's concern.
+    let tree_listed = match tree_files.as_deref() {
+        Some(extra) if !extra.is_empty() => {
+            let scope = FileScope::from_query(query).map_err(|message| validation(&message))?;
+            extra
+                .iter()
+                .any(|file| scope.as_ref().is_none_or(|scope| scope.matches(file)))
+        }
+        _ => false,
+    };
     if let Some(extra) = tree_files.filter(|extra| !extra.is_empty())
         && let Some(files) = raw.get_mut("files").and_then(Value::as_array_mut)
     {
@@ -203,7 +214,7 @@ pub(super) async fn compare(
         );
     }
     // The tree source is a static fact of the comparison: stated once, on
-    // its first page.
+    // its first page, when the read's scope keeps a tree-derived row.
     if first_page(query) && tree_listed {
         push_warnings(
             &mut out,

@@ -58,13 +58,14 @@ fn live_lock_and_failed_sparse_clone_preserve_other_outputs() {
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let main = clone_pinned(&fixture, &query(), &context).expect("main clone");
     let main_path = PathBuf::from(&main.location.path);
-    // The tag names main's commit: a deeper history is another entry.
-    let deep_tag = GhCloneRepoQuery {
+    // The tag names main's commit: a sparse scope is another entry.
+    let scoped_tag = GhCloneRepoQuery {
         ref_: Some(reference("v1")),
-        history_depth: std::num::NonZeroU64::new(2).expect("depth"),
+        paths: one("src"),
         ..query()
     };
-    let tag = clone_pinned(&fixture, &deep_tag, &context).expect("tag clone");
+    let tag = clone_pinned(&fixture, &scoped_tag, &context).expect("tag clone");
+    assert_ne!(tag.location.path, main.location.path);
     assert!(main_path.exists(), "clone outputs are never cache-evicted");
     assert!(Path::new(&tag.location.path).is_dir());
 
@@ -83,7 +84,7 @@ fn live_lock_and_failed_sparse_clone_preserve_other_outputs() {
         deadline: Instant::now() + Duration::from_millis(300),
         ..setup(&runner, &config, &endpoint, &policy, &NeverCancel, None)
     };
-    let error = clone_pinned(&fixture, &deep_tag, &short).expect_err("live lock must time out");
+    let error = clone_pinned(&fixture, &scoped_tag, &short).expect_err("live lock must time out");
     assert_eq!(error.code, ErrorCode::Timeout);
     drop(held);
 

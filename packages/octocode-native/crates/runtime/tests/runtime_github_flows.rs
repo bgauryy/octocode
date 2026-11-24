@@ -266,8 +266,10 @@ async fn a_directory_at_the_contents_limit_keeps_the_identity_for_a_clone() {
     .await
     .expect("listing");
     let data = row_data(&out).clone();
+    // The limit's value alone: `partialReasons` names the reason.
     assert_eq!(
-        data["providerLimit"]["maxEntriesPerDirectory"], 1000,
+        data["providerLimit"],
+        json!({"maxEntriesPerDirectory": 1000}),
         "{data}"
     );
     assert_eq!(data["commitSha"], sha, "{data}");

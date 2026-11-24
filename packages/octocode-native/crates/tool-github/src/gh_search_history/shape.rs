@@ -125,17 +125,7 @@ pub(super) fn shape(
     let mut value = match gh_search_history_query::operation(query) {
         HistoryOperation::PullRequest => pull_requests(query, &items, paging, terms),
         HistoryOperation::Issue => issues(query, &items, paging, terms),
-        HistoryOperation::Commit => {
-            let mut value = commits(query, items, paging);
-            value["commitSelection"] = json!(if super::query::uses_search(query) {
-                "messageSearch"
-            } else if gh_search_history_query::path(query).is_some() {
-                "pathChanges"
-            } else {
-                "revisionHistory"
-            });
-            value
-        }
+        HistoryOperation::Commit => commits(query, items, paging),
     };
     if !warnings.is_empty() {
         value["warnings"] = json!(warnings);
@@ -162,15 +152,12 @@ pub(super) fn shape(
     mark_empty(&mut value, paging.more);
     // A page past the end is restarted by the shared response stage, not
     // broadened: the search has results.
-    if value["status"] == "empty" && !paging.past_end {
-        match leads::broaden_search(query) {
-            Some(lead) => octocode_tools_shared::leads::broaden::set_broadened(
-                &mut value,
-                &octocode_runtime_base::response::result::query_row(&**query, &[]),
-                lead,
-            ),
-            None => octocode_tools_shared::leads::broaden::set_no_broader(&mut value),
-        }
+    if value["status"] == "empty"
+        && !paging.past_end
+        && let Some(lead) = leads::broaden_search(query)
+    {
+        octocode_runtime_base::response::result::attach_related(&mut value, lead);
+        octocode_runtime_base::response::result::add_hints(&mut value, [leads::DROP_ONE_FILTER]);
     }
     // A path scope that listed nothing may name no path at all: its
     // parent's listing checks it.
@@ -194,15 +181,19 @@ pub(super) fn shape(
         octocode_runtime_base::response::result::add_hints(
             &mut value,
             [format!(
-                "No commit touches `{path}` on {at} of GitHub: history covers only what was pushed there, so a file or commit that exists only in your checkout (never pushed, or on an unpushed branch) has none here; read it with local git history, or retry with the ref that holds it. The related[] ghStructure request lists the path's parent to check it exists at that ref."
+                "No commit touches `{path}` on {at} of GitHub (pushed history only): use local git for unpushed work, or retry with the ref that holds it."
             )],
         );
     }
+    // Terms that matched nothing: a keyword spelled as a qualifier names its
+    // filter; plain terms are ANDed.
     if value["status"] == "empty" && !paging.past_end {
-        octocode_runtime_base::response::result::add_hints(
-            &mut value,
-            qualifier_keyword_hints(&gh_search_history_query::keywords(query)),
-        );
+        let keywords = gh_search_history_query::keywords(query);
+        let qualifiers = qualifier_keyword_hints(&keywords);
+        if qualifiers.is_empty() && !keywords.is_empty() {
+            octocode_runtime_base::response::result::add_hints(&mut value, [leads::TERMS_ANDED]);
+        }
+        octocode_runtime_base::response::result::add_hints(&mut value, qualifiers);
     }
     disclose_provider_limits(&mut value, query, paging, narrow);
     // `effectiveQuery` is the request in GitHub's search syntax: it explains
@@ -221,17 +212,16 @@ pub(super) fn shape(
 /// The search qualifiers a keyword can spell, with the `filters` field that
 /// carries each: a keyword matches text, so `author:ada` finds nothing a
 /// filter would.
-const QUALIFIER_FILTERS: &[Qualifier] = &[
+pub(super) const QUALIFIER_FILTERS: &[Qualifier] = &[
     qualifier!(["author"] => "filters.author"),
     qualifier!(["committer"] => "filters.committer"),
     qualifier!(["assignee"] => "filters.assignee"),
     qualifier!(["mentions"] => "filters.mentions"),
     qualifier!(["commenter"] => "filters.commenter"),
     qualifier!(["reviewed-by"] => "filters.reviewedBy"),
-    qualifier!(["review-requested"] => "filters.reviewRequested"),
-    qualifier!(["label"] => "filters.label"),
-    qualifier!(["base"] => "filters.base"),
-    qualifier!(["head"] => "filters.head"),
+    qualifier!(["label"] => "filters.labels" ("a list")),
+    qualifier!(["base"] => "filters.baseRef"),
+    qualifier!(["head"] => "filters.headRef"),
 ];
 
 /// A hint per keyword spelled as a qualifier (`author:sharkdp`) that names
@@ -295,14 +285,10 @@ fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms:
     let fields = gh_search_history_query::fields(query);
     let state = query.state();
     let keep_created = keeps_created(query);
-    let by_update = gh_search_history_query::sort(query).as_deref() == Some("updated");
     let rows = items
         .iter()
         .map(|item| {
             let mut row = rows::map_pr(item.clone());
-            if by_update {
-                rows::state_updated(&mut row, item);
-            }
             rows::drop_implied(&mut row, state.as_deref(), keep_created, &fields);
             rows::name_repository(
                 &mut row,
@@ -344,13 +330,12 @@ fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms:
 }
 
 fn issues(query: &HistorySearch, items: &[Value], paging: &Paging, terms: String) -> Value {
-    let by_update = gh_search_history_query::sort(query).as_deref() == Some("updated");
     let fields = gh_search_history_query::fields(query);
     let state = query.state();
     let issues = items
         .iter()
         .map(|item| {
-            let mut row = rows::map_issue(item.clone(), by_update);
+            let mut row = rows::map_issue(item.clone());
             rows::drop_implied(&mut row, state.as_deref(), true, &fields);
             rows::name_repository(
                 &mut row,
@@ -383,35 +368,15 @@ fn issues(query: &HistorySearch, items: &[Value], paging: &Paging, terms: String
     v
 }
 
+/// A commit page: a listing's and a keyword search's items carry the same
+/// committer and parents, so both rows state a different committer and the
+/// merge mark.
 fn commits(query: &HistorySearch, items: Vec<Value>, paging: &Paging) -> Value {
     let fields = gh_search_history_query::fields(query);
-    if gh_search_history_query::keywords(query).is_empty() {
-        let commits = items
-            .iter()
-            .map(|item| {
-                let mut row = rows::map_commit_list(item.clone());
-                rows::name_repository(
-                    &mut row,
-                    item,
-                    gh_search_history_query::owner(query),
-                    gh_search_history_query::repo(query),
-                );
-                row
-            })
-            .collect::<Vec<_>>();
-        let mut v = json!({"commits":commits});
-        shape_commit_rows(&mut v, &items, &fields);
-        // `shape` adds the reachable `next.nextPage`. A complete list says
-        // so too (`hasMore:false`): the REST list has no total, so a missing
-        // block would leave the end of the history unstated.
-        // Commit search needs keywords: a commit list offers no count call.
-        v["pagination"] = paging.pagination();
-        return v;
-    }
     let commits = items
         .iter()
         .map(|item| {
-            let mut row = commit::row(item);
+            let mut row = rows::map_commit_list(item.clone());
             rows::name_repository(
                 &mut row,
                 item,
@@ -421,8 +386,12 @@ fn commits(query: &HistorySearch, items: Vec<Value>, paging: &Paging) -> Value {
             row
         })
         .collect::<Vec<_>>();
-    let mut v = json!({"commits":commits,"pagination":paging.pagination()});
+    let mut v = json!({"commits":commits});
     shape_commit_rows(&mut v, &items, &fields);
+    // `shape` adds the reachable `next.nextPage`. A complete list says so
+    // too (`hasMore:false`): the REST list has no total, so a missing block
+    // would leave the end of the history unstated.
+    v["pagination"] = paging.pagination();
     v
 }
 

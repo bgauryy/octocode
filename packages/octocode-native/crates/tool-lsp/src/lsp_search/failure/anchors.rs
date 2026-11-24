@@ -18,16 +18,13 @@ fn symbol_read(path: &str, symbol: &str, case_mode: CaseMode) -> Option<LocalFet
                 before: 3,
             }),
             limit: None,
-            main_goal: None,
             match_string: vec![symbol.try_into().ok()?].into(),
             path: path.try_into().ok()?,
             ranges: Vec::new(),
             read_progress: None,
-            reasoning: None,
             regex_engine: RegexEngine::Literal,
             snapshot: None,
             view: ContentView::Content,
-            whole_word: false,
         }
         .into(),
     )

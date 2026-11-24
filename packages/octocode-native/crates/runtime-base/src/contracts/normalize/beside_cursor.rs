@@ -121,7 +121,7 @@ pub fn read_beside_cursor(tool_name: &str, input: &mut Value, saved: &Value) -> 
     )];
     let (alone, size) = super::cursor_alone(input.take());
     *input = alone;
-    notes.extend(size);
+    notes.extend(size.map(|(note, _)| note));
     BesideCursor::Held(notes)
 }
 

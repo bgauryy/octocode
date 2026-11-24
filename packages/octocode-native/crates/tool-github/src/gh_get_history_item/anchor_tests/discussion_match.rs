@@ -1,7 +1,7 @@
 //! `matchString` over discussion bodies: an issue's comments and a pull
 //! request's comments, reviews and review comments keep the entries whose
-//! body holds it, scanned in concurrent waves, disclosed once, recoverable
-//! through `withoutMatchString`.
+//! body holds it, scanned in concurrent waves, the drop disclosed once. The
+//! narrowed row is evidence: it offers no read without the literal.
 use super::*;
 use octocode_test_support::json_fixture;
 
@@ -57,8 +57,8 @@ fn issue_query(extra: Value) -> Value {
     row
 }
 
-/// The lossless recovery: the read without its literal, which every lead of
-/// the read lacks otherwise.
+/// A read without the literal, which no lead of a narrowed discussion
+/// offers: the row is evidence.
 fn without_match_read(data: &Value) -> Option<&Value> {
     octocode_runtime_base::test_support::checks::find_related_call(
         data,
@@ -94,8 +94,8 @@ fn ids(data: &Value) -> Vec<String> {
 }
 
 /// 250 comments over three provider batches, the needle in #217: one comment,
-/// the drop disclosed, the lossless recovery offered, and the scan is the
-/// three comment batches plus the one issue read, never a page walk.
+/// the drop disclosed, and the scan is the three comment batches plus the
+/// one issue read, never a page walk.
 #[tokio::test]
 async fn a_match_string_finds_one_comment_among_three_batches() {
     let server = MockServer::builder().start().await;
@@ -129,24 +129,14 @@ async fn a_match_string_finds_one_comment_among_three_batches() {
     assert_eq!(page["total"], 1, "{out}");
     assert_eq!(page["hasMore"], false, "{out}");
     assert_without_match_served(&out);
-    let lead = without_match_read(&out).unwrap_or_else(|| panic!("no recovery lead: {out}"));
-    assert_eq!(lead["operation"], "issue", "{out}");
-    assert_eq!(lead["sections"], json_fixture(r#"["comments"]"#), "{out}");
-    for key in [
-        "matchString",
-        "caseMode",
-        "regexEngine",
-        "wholeWord",
-        "page",
-    ] {
-        assert!(lead.get(key).is_none(), "{key}: {out}");
-    }
+    assert!(without_match_read(&out).is_none(), "{out}");
     assert_eq!(requests_to(&server, COMMENTS_PATH).await, 3);
     assert_eq!(requests_to(&server, ISSUE_PATH).await, 1);
 }
 
-/// The case, regex and whole-word options of `matchString` apply to a
-/// comment body as they do to a patch.
+/// `matchString` matches a comment body as it does a patch: smart case (a
+/// lowercase term ignores case, an uppercase letter makes it exact), no
+/// whole-word cut, and the stated regex engine.
 #[tokio::test]
 async fn match_string_options_apply_to_comment_bodies() {
     let server = MockServer::builder().start().await;
@@ -161,32 +151,17 @@ async fn match_string_options_apply_to_comment_bodies() {
     )
     .await;
     for (options, expected) in [
+        (json_fixture(r#"{"matchString": ["Needle"]}"#), vec!["1"]),
         (
-            json_fixture(r#"{"matchString": ["needle"], "caseMode": "sensitive"}"#),
-            vec!["2", "3"],
-        ),
-        (
-            json_fixture(r#"{"matchString": ["needle"], "caseMode": "insensitive"}"#),
+            json_fixture(r#"{"matchString": ["needle"]}"#),
             vec!["1", "2", "3"],
         ),
         (
-            json_fixture(
-                r#"{
-                    "matchString": ["needle"],
-                    "caseMode": "insensitive",
-                    "wholeWord": true
-                }"#,
-            ),
+            json_fixture(r#"{"matchString": ["\\bneedle\\b"], "regexEngine": "rust"}"#),
             vec!["1", "2"],
         ),
         (
-            json_fixture(
-                r#"{
-                    "matchString": ["need.e\\b"],
-                    "caseMode": "insensitive",
-                    "regexEngine": "rust"
-                }"#,
-            ),
+            json_fixture(r#"{"matchString": ["need.e\\b"], "regexEngine": "rust"}"#),
             vec!["1", "2"],
         ),
         (
@@ -200,7 +175,7 @@ async fn match_string_options_apply_to_comment_bodies() {
 }
 
 /// 30 matching comments on a response page that holds a few: the walk
-/// follows the continuations, which keep the literal and its options, and
+/// follows the continuations, which keep the pattern and its regex engine, and
 /// every match arrives once in order.
 #[tokio::test]
 async fn a_filtered_comment_walk_keeps_the_filter_and_repeats_nothing() {
@@ -217,7 +192,7 @@ async fn a_filtered_comment_walk_keeps_the_filter_and_repeats_nothing() {
         .collect();
     mount_issue(&server, comments).await;
     let mut query = issue_query(json_fixture(
-        r#"{"matchString": ["HIT"], "caseMode": "insensitive"}"#,
+        r#"{"matchString": ["hit \\d+"], "regexEngine": "rust"}"#,
     ));
     let (mut seen, mut pages) = (Vec::new(), 0);
     loop {
@@ -232,16 +207,20 @@ async fn a_filtered_comment_walk_keeps_the_filter_and_repeats_nothing() {
             octocode_runtime_base::contracts::validate_saved("ghGetHistoryItem", next.clone())
                 .expect("executable comment page");
         query = normalized["queries"][0].clone();
-        assert_eq!(query["matchString"], json_fixture(r#"["HIT"]"#), "{query}");
-        assert_eq!(query["caseMode"], "insensitive", "{query}");
+        assert_eq!(
+            query["matchString"],
+            json_fixture(r#"["hit \\d+"]"#),
+            "{query}"
+        );
+        assert_eq!(query["regexEngine"], "rust", "{query}");
     }
     assert!(pages >= 2, "{pages} pages");
     let expected = (1..=30).map(|n| (n * 3).to_string()).collect::<Vec<_>>();
     assert_eq!(seen, expected);
 }
 
-/// No comment holds the literal: an empty, stated list, the warning and the
-/// recovery lead, not an error.
+/// No comment holds the literal: an empty, stated list and the warning, not
+/// an error.
 #[tokio::test]
 async fn a_match_string_that_hits_no_comment_is_an_empty_list_with_a_lead() {
     let server = MockServer::builder().start().await;
@@ -258,7 +237,7 @@ async fn a_match_string_that_hits_no_comment_is_an_empty_list_with_a_lead() {
             .is_some_and(|w| w.contains("dropped 5 of 5 comments")),
         "{out}"
     );
-    assert!(without_match_read(&out).is_some(), "{out}");
+    assert!(without_match_read(&out).is_none(), "{out}");
     assert!(out.get("status").is_none(), "{out}");
 }
 
@@ -403,7 +382,7 @@ async fn a_pull_request_match_string_filters_each_discussion_section() {
     ] {
         assert!(warnings.contains(dropped), "{dropped}: {out}");
     }
-    assert!(without_match_read(&out).is_some(), "{out}");
+    assert!(without_match_read(&out).is_none(), "{out}");
     assert_without_match_served(&out);
     // The needle searches bodies: no file list or patch is read.
     assert_eq!(
@@ -517,7 +496,7 @@ async fn a_matched_comment_shows_its_hit_lines_and_whole_size() {
     assert_eq!(shown["body"], lines(349..=351), "{out}");
     assert_eq!(shown["fullBodyChars"], long.chars().count(), "{out}");
     assert!(shown.get("bodyPagination").is_none(), "{out}");
-    assert!(without_match_read(&out).is_some(), "{out}");
+    assert!(without_match_read(&out).is_none(), "{out}");
 }
 
 /// Every comment holds the literal, so none is dropped and no note is

@@ -12,6 +12,11 @@ pub(crate) trait LinkerGraph {
     fn label(self) -> &'static str;
     /// The edge kind of an import fact of `kind`.
     fn import_edge(self, kind: &str) -> &'static str;
+    /// Whether the grammar invokes a macro with syntax of its own (Rust
+    /// `name!(..)`), so a macro and a function are separate namespaces. A
+    /// C-family function-like macro is invoked with call syntax
+    /// (`listLength(l)`): a call reaches it as it reaches a function.
+    fn invokes_macros(self) -> bool;
 }
 
 impl LinkerGraph for Linker {
@@ -46,6 +51,10 @@ impl LinkerGraph for Linker {
             (Self::CFamily, _) => "c-include",
             (Self::JsTs | Self::Unsupported, _) => "static-import",
         }
+    }
+
+    fn invokes_macros(self) -> bool {
+        matches!(self, Self::Rust)
     }
 }
 

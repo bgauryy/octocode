@@ -283,3 +283,32 @@ fn a_merged_row_names_who_merged_it() {
         &json!({"pullRequests": [merged]}),
     );
 }
+
+/// A literal that hit no changed file recovers by the same read without it;
+/// the whole-inventory read joins only beside an `include` or `fileStatus`
+/// scope (without one it is the first read less its patches), and a scope
+/// that matched nothing leads to the inventory alone.
+#[test]
+fn an_unmatched_read_offers_the_inventory_only_beside_a_file_scope() {
+    let leads = |selection: Value, literal_missed: bool| {
+        let row = merge(
+            json!({"operation":"pullRequest","owner":"o","repo":"r","number":1,
+                "sections":["files","patches"]}),
+            selection,
+        );
+        let query = HistoryItemRequest::from_row(row).expect("query");
+        unmatched_leads(&query, literal_missed)
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        leads(json!({"matchString":["zzqx"]}), true),
+        ["withoutMatchString"]
+    );
+    assert_eq!(
+        leads(json!({"matchString":["zzqx"],"include":["src/**"]}), true),
+        ["withoutMatchString", "readFiles"]
+    );
+    assert_eq!(leads(json!({"fileStatus":["added"]}), false), ["readFiles"]);
+}

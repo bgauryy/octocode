@@ -1,6 +1,6 @@
 //! Persist occurrence evidence independently from compact adjacency.
 use super::*;
-use writer::{Encoder, put};
+use writer::{Encoder, put, put_opt};
 
 impl Encoder<'_> {
     fn provenance(&self, out: &mut Vec<u8>, provenance: ProvenanceRec) {
@@ -34,6 +34,9 @@ impl Encoder<'_> {
             ] {
                 put(&mut out, u64::from(value));
             }
+            for text in [decl.params, decl.returns] {
+                put_opt(&mut out, if text == NONE { NONE } else { self.sid(text) });
+            }
         }
         out
     }
@@ -62,6 +65,14 @@ impl Encoder<'_> {
                 } else {
                     self.sid(witness.argument)
                 }),
+            );
+            put_opt(
+                &mut out,
+                if witness.import_kind == NONE {
+                    NONE
+                } else {
+                    self.sid(witness.import_kind)
+                },
             );
         }
         out
@@ -164,10 +175,12 @@ pub(super) fn witness_records(
         let occurrence = r.var_u32()?;
         let provenance = read_provenance(r, t, strings, checks)?;
         let argument = r.var_u32()?;
+        let import_kind = r.var_opt()?;
         if src as usize >= t.nodes.len()
             || dst as usize >= t.nodes.len()
             || detail >= strings
             || occurrence >= strings
+            || import_kind != NONE && import_kind >= strings
             || test > 1
             || !source_node(t, src)
             || line == 0
@@ -185,6 +198,9 @@ pub(super) fn witness_records(
         if kind == EdgeKind::Passes && line == NONE {
             return Err("passes witness has no source line".into());
         }
+        if import_kind != NONE && kind != EdgeKind::Imports {
+            return Err("graph witness import kind is not on an import".into());
+        }
         if checks == Checks::Semantic {
             arguments::validate(t, argument, kind, provenance, None)?;
         } else if (kind == EdgeKind::Passes) != (argument != NONE)
@@ -196,6 +212,7 @@ pub(super) fn witness_records(
             argument,
             provenance,
             occurrence,
+            import_kind,
             edge: EdgeRec {
                 src,
                 dst,
@@ -361,8 +378,12 @@ pub(super) fn read_declaration_records(
             selection_end: r.var_u32()?,
             selection_origin: r.var_u32()?,
             assessment: r.var_u32()?,
+            params: r.var_opt()?,
+            returns: r.var_opt()?,
         };
         if decl.test_identity >= strings
+            || decl.params != NONE && decl.params >= strings
+            || decl.returns != NONE && decl.returns >= strings
             || decl.node as usize >= t.nodes.len()
             || decl.occurrence >= strings
             || decl.source_digest >= strings

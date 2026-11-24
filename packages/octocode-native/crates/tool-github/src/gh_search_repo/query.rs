@@ -18,8 +18,6 @@ pub(super) fn repositories(query: &GhSearchRepoQuery) -> String {
             ("size", &filters.size_ki_b),
             ("good-first-issues", &filters.good_first_issue_count),
             ("help-wanted-issues", &filters.help_wanted_issue_count),
-            ("topics", &filters.topic_count),
-            ("followers", &filters.follower_count),
         ] {
             terms.text(key, value.as_ref().and_then(ranges::numeric).as_deref());
         }

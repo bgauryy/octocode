@@ -1,4 +1,5 @@
 // Check graph pages, links, source citations and the freshness of any authored notes.
+import { graphCli } from './invocation.ts';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import {
   ISOLATED,
@@ -132,8 +133,8 @@ function missingPages(
         p.e.members.every((id, i) => id === c.members[i]);
       if (same) return [];
       const detail = p
-        ? `community ${c.id} (${c.label}) changed since [[${p.slug}]] was built: run octocode-graph wiki build`
-        : `community ${c.id} (${c.label}, ${c.size} files) has no page: run octocode-graph wiki build`;
+        ? `community ${c.id} (${c.label}) changed since [[${p.slug}]] was built: run ${graphCli('wiki build')}`
+        : `community ${c.id} (${c.label}, ${c.size} files) has no page: run ${graphCli('wiki build')}`;
       return [{ slug: p?.slug ?? '-', kind: 'missing-page', detail }];
     });
 }
@@ -149,7 +150,7 @@ function pageIssues(
       {
         slug,
         kind: 'missing-file',
-        detail: `${pageFile(out, slug)} is missing: run octocode-graph wiki build`,
+        detail: `${pageFile(out, slug)} is missing: run ${graphCli('wiki build')}`,
       },
     ];
   const issues = [
@@ -191,7 +192,7 @@ export function lintWiki({
         {
           slug: 'map.json',
           kind: 'missing-file',
-          detail: 'wiki/map.json is unavailable: run octocode-graph wiki build',
+          detail: `wiki/map.json is unavailable: run ${graphCli('wiki build')}`,
         },
       ],
     };
@@ -209,7 +210,7 @@ export function lintWiki({
     issues.push({
       slug: 'index',
       kind: 'missing-file',
-      detail: 'wiki/index.md is unavailable: run octocode-graph wiki build',
+      detail: `wiki/index.md is unavailable: run ${graphCli('wiki build')}`,
     });
   else
     issues.push(
