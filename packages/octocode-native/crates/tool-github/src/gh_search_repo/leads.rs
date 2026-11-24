@@ -46,6 +46,17 @@ pub(super) fn broaden_search(query: &GhSearchRepoQuery) -> Option<Value> {
 /// here (that half itself stays open below).
 const FIRST_REPOSITORY_SECS: i64 = 1_191_196_800;
 
+/// The route [`split_by_created`] adds to the provider-cap warning.
+const SPLIT_ROUTE: &str = "The related createdAt split reaches the rest.";
+
+/// The shared provider-cap warning (`gh_shared::search`): the match count
+/// and the reachable window, the sentence the split's route joins.
+fn is_cap_warning(warning: &Value) -> bool {
+    warning
+        .as_str()
+        .is_some_and(|w| w.starts_with("GitHub matched ") && w.ends_with(" are reachable."))
+}
+
 /// A search past GitHub's 1,000-result window, split in two by when the
 /// repositories were created: the same search before and after the middle
 /// of its creation window (its own `createdAt` bounds, else GitHub's first
@@ -99,12 +110,22 @@ pub(super) fn repository_output(
     let mut output = ToolData::from(value);
     // The matches past the window are reached by splitting the search: the
     // lead rides the first page, where the cap is first stated. The cap
-    // warning states the count; the required call is the route, unexplained.
+    // warning states the count and names that route once: related[] is
+    // otherwise optional, and this call is the only way to the rest.
     if provider_capped
         && super::access::page(query) == 1
         && let Some(split) = split_by_created(query, octocode_runtime_base::civil_date::unix_secs())
     {
         output.data["calls"]["splitByCreated"] = split;
+        if let Some(cap) = output.data["warnings"]
+            .as_array_mut()
+            .and_then(|warnings| warnings.iter_mut().find(|w| is_cap_warning(w)))
+        {
+            *cap = Value::String(format!(
+                "{} {SPLIT_ROUTE}",
+                cap.as_str().unwrap_or_default()
+            ));
+        }
     }
     // No rows is empty whether or not GitHub finished the search, as
     // ghSearchCode reports it: an incomplete page keeps its retry (the CLI

@@ -39,7 +39,7 @@ fn each_output_view_lists_only_the_reasons_its_tool_emits() {
             .clone()
     };
     let (repo, lsp, search) = (
-        reasons("ghSearchRepo"),
+        reasons("ghSearchCode"),
         reasons("lspSearch"),
         reasons("localSearch"),
     );

@@ -52,12 +52,18 @@ fn write_sources(workspace: &Workspace) {
         "src/a.ts",
         "// first module\nexport function needleA(): number {\n  return 1;\n}\n",
     );
-    for (name, from) in [("b", "a"), ("c", "b"), ("d", "c")] {
+    // Each module's function has its own signature, as real code does: a field every row shares only by a fixture's
+    // accident (`params`, `returns`) is not a hoisting candidate.
+    for (name, from, signature) in [
+        ("b", "a", "(step: number): number"),
+        ("c", "b", "(step: number, label: string): string"),
+        ("d", "c", "(items: string[]): boolean"),
+    ] {
         let (upper, from_upper) = (name.to_uppercase(), from.to_uppercase());
         workspace.write(
             &format!("src/{name}.ts"),
             format!(
-                "import {{ needle{from_upper} }} from \"./{from}\";\n// module {name}\nexport function needle{upper}(): number {{\n  return needle{from_upper}() + 1;\n}}\n"
+                "import {{ needle{from_upper} }} from \"./{from}\";\n// module {name}\nexport function needle{upper}{signature} {{\n  return needle{from_upper}() + 1;\n}}\n"
             ),
         );
     }

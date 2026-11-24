@@ -19,6 +19,7 @@ mod scan;
 /// One `tool code: reason` per line.
 const OVERRIDES: &str = "\
 artifactSearch notFound: names packageName and ecosystem as the registry spells them; the shared hint is about paths
+artifactSearch securityValidationFailed: the message names the refused registryUrl host and the setting that permits it
 astSearch fileTooLarge: the row's own hint and lead name only readers that serve the file's length
 astSearch languageUnsupported: names when parser applies, beside the text fallbacks
 ghGetFileContent languageUnsupported: the shared hint names local tools; the related[] plain read is the recovery

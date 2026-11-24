@@ -20,6 +20,7 @@ const NOT_CONFIGURATION = new Map([
   ['OCTOCODE_NATIVE_BIN', 'dev-only launcher override, gated by devOverridesAllowed'],
   ['OCTOCODE_NET_GUARD_TEST_LOOPBACK', 'lets skill tests reach a loopback server'],
   ['OCTOCODE_CLI', 'skill scripts: which local CLI to run'],
+  ['OCTOCODE_LANE', 'the dev task runner names its lane with it; the graph cache leaves it out of its settings key'],
   ['OCTOCODE_ASKPASS_USERNAME_PROMPT', 'private Git helper prompt, set for one child by AskPass'],
   ['OCTOCODE_ASKPASS_PASSWORD_PROMPT', 'private Git helper prompt, set for one child by AskPass'],
   ['OCTOCODE_ASKPASS_TOKEN', 'private Git helper credential, set for one child by AskPass'],

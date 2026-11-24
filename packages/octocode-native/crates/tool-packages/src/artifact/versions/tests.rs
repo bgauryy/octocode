@@ -182,7 +182,10 @@ fn fewer_versions_than_one_call_are_all_suggested() {
         suggested(ArtifactType::Crates, &error, 5),
         ["1.1.0", "1.0.0"]
     );
-    assert_eq!(suggested(ArtifactType::Crates, &error, 2), ["1.1.0", "1.0.0"]);
+    assert_eq!(
+        suggested(ArtifactType::Crates, &error, 2),
+        ["1.1.0", "1.0.0"]
+    );
 }
 
 #[test]

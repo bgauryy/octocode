@@ -356,7 +356,7 @@ impl octocode_runtime_base::response::output::ToolOutput for Output {
 /// The recovery of a package the registry does not know. The schema already
 /// refuses a Maven name that is not `group:artifact`.
 const NOT_FOUND_HINT: &str =
-    "Check packageName as the registry spells it (an npm scope, a Go module path).";
+    "Check packageName and ecosystem as the registry spells them (an npm scope, a Go module path).";
 
 /// The generated query for a test's JSON row. These tests read the whole
 /// row, so a row that states no view asks for `details`; a test of the
