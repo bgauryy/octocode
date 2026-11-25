@@ -15,6 +15,7 @@ const SECTION_HEADER: &[&str] = &[
     "headCommitSha",
     "baseCommitSha",
     "mergeCommitSha",
+    "mergedAt",
 ];
 
 /// The raw pull request's key for GitHub's whole comment count, set when a

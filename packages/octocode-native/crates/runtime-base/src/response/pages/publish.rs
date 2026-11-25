@@ -11,9 +11,6 @@ const COMPLETE_KEYS: [&str; 6] = ["unit", "offset", "length", "total", "countSco
 /// `length` from the rows listed, so such a block keeps `unit` and `length`.
 const TEXT_UNITS: [&str; 4] = ["bytes", "chars", "characters", "lines"];
 /// A block on a row or nested row: `pagination`, or one file's patch window.
-/// What a block says only about where its page sits; any other key is
-/// evidence the block must keep stating.
-const POSITION_KEYS: [&str; 4] = ["offset", "length", "hasMore", "countScope"];
 const BLOCKS: [&str; 2] = ["pagination", "patchPagination"];
 /// A map of named blocks: one collection's page each.
 const BLOCK_MAP: &str = "sectionPagination";
@@ -64,7 +61,7 @@ fn serve_blocks(value: &mut Value) {
                 }
             }
             if let Some(Value::Object(blocks)) = fields.get_mut(BLOCK_MAP) {
-                blocks.retain(|_, block| block.as_object_mut().is_none_or(served_block_states));
+                blocks.retain(|_, block| block.as_object_mut().is_none_or(served_section_states));
                 if blocks.is_empty() {
                     fields.remove(BLOCK_MAP);
                 }
@@ -81,8 +78,7 @@ fn serve_blocks(value: &mut Value) {
 }
 
 /// Strips what a served block never states and says whether it still states
-/// anything: a text window's place, an exact count, or evidence the block
-/// carries beside its position (a provider limit, a cursor).
+/// anything: a text window's place or an exact count.
 fn served_block_states(block: &mut Map<String, Value>) -> bool {
     block.remove("hasMore");
     let exact = block
@@ -91,12 +87,16 @@ fn served_block_states(block: &mut Map<String, Value>) -> bool {
     if !exact {
         block.remove("total");
     }
-    block.contains_key("unit")
-        || block.contains_key("total")
-        || block.contains_key("oversized")
-        || block
-            .keys()
-            .any(|key| !POSITION_KEYS.contains(&key.as_str()))
+    block.contains_key("unit") || block.contains_key("total") || block.contains_key("oversized")
+}
+
+/// A named section's block, served: what [`served_block_states`] strips, and
+/// it stays while anything is left. A block whose count is a floor (the
+/// provider capped the list) has no `unit` or `total` to state, yet its
+/// place is the section's evidence: only a block that published complete is
+/// absent ([`published_block_is_complete`], run before this).
+fn served_section_states(block: &mut Map<String, Value>) -> bool {
+    served_block_states(block) || !block.is_empty()
 }
 
 /// `enclosing` says a holder around `value` carries a listing walk.

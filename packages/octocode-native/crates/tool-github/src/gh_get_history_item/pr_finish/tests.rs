@@ -153,6 +153,7 @@ fn every_pr_view_keeps_source_target_and_merge_commits() {
             ("headCommitSha", "h1"),
             ("baseCommitSha", "b1"),
             ("mergeCommitSha", "m1"),
+            ("mergedAt", "2026-01-04T00:00:00Z"),
         ] {
             assert_eq!(row[field], value, "{fields}: {row}");
         }

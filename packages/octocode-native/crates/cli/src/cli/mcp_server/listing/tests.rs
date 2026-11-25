@@ -235,3 +235,29 @@ fn no_listed_tool_repeats_the_instructions() {
         }
     }
 }
+
+/// When local tools are disabled, `ghStructure` never advertises `materialize`
+/// or points to disabled local tools in its MCP schema or description.
+#[test]
+fn gh_structure_omits_materialize_when_local_tools_are_disabled() {
+    let catalog = catalog(
+        &["ghSearchRepo", "ghStructure", "ghGetFileContent"],
+        json!({"selection": false}),
+        json!([]),
+    );
+    let listing = build(presentation(), &catalog).expect("listing");
+    let gh_structure = listing
+        .tools
+        .iter()
+        .find(|tool| tool["name"] == "ghStructure")
+        .expect("ghStructure");
+    let serialized = serde_json::to_string(gh_structure).expect("json");
+    assert!(
+        !serialized.contains("materialize"),
+        "materialize leaked: {serialized}"
+    );
+    assert!(
+        !serialized.contains("local tools"),
+        "local tools leaked: {serialized}"
+    );
+}

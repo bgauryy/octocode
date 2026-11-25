@@ -62,8 +62,66 @@ pub(crate) fn drop_answered_leads(tool: ToolId, structured: &mut Value, response
         related.retain(|call| !answered(call));
         if related.is_empty() {
             data.remove("related");
+            strip_dangling_related_hints(data);
         }
     }
+}
+
+/// Removes dangling `related[]` clauses from `data["hints"]` after the row's
+/// last `related[]` call has been dropped: factual prefixes stay, pure
+/// `related[]` hints are removed, and an empty `hints` array is dropped.
+fn strip_dangling_related_hints(data: &mut serde_json::Map<String, Value>) {
+    let Some(Value::Array(hints)) = data.get_mut("hints") else {
+        return;
+    };
+    let mut kept = Vec::with_capacity(hints.len());
+    for hint in hints.drain(..) {
+        match hint {
+            Value::String(text) => {
+                if let Some(cleaned) = strip_related_reference(&text) {
+                    kept.push(Value::String(cleaned));
+                }
+            }
+            other => kept.push(other),
+        }
+    }
+    if kept.is_empty() {
+        data.remove("hints");
+    } else {
+        *hints = kept;
+    }
+}
+
+/// Strips every clause or sentence mentioning `related[]` from `hint`, keeping
+/// any factual text before or after it. Returns `None` when nothing remains.
+fn strip_related_reference(hint: &str) -> Option<String> {
+    let mut text = hint.to_owned();
+    while let Some((prefix, suffix)) = text.split_once("related[]") {
+        let before = [". ", "; ", ": "]
+            .into_iter()
+            .filter_map(|sep| prefix.rsplit_once(sep).map(|(head, _)| head))
+            .max_by_key(|head| head.len())
+            .map_or("", str::trim_end);
+        let after = suffix
+            .split_once(". ")
+            .map_or("", |(_, tail)| tail.trim_start());
+        let mut combined = String::with_capacity(before.len() + after.len() + 2);
+        if !before.is_empty() {
+            combined.push_str(before);
+            if !before.ends_with(['.', '!', '?']) {
+                combined.push('.');
+            }
+        }
+        if !after.is_empty() {
+            if !combined.is_empty() {
+                combined.push(' ');
+            }
+            combined.push_str(after);
+        }
+        text = combined;
+    }
+    let trimmed = text.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
 }
 
 #[cfg(test)]

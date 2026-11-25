@@ -91,3 +91,79 @@ fn an_own_retry_survives_an_identical_sibling_query() {
         "neither failed row replaces the other's retry"
     );
 }
+
+/// When every `related[]` call of a row is dropped because sibling rows
+/// already answered it, any hint pointing to `related[]` is trimmed of its
+/// dangling `related[]` clause (preserving factual prefixes) or removed if
+/// nothing remains.
+#[test]
+fn dropping_all_related_trims_dangling_related_hints() {
+    let empty_read = json_fixture(r#"{"path": "src/index.ts", "matchString": ["main"]}"#);
+    let symbols_read = json_fixture(r#"{"path": "src/index.ts", "view": "symbols"}"#);
+    let lead = json!({
+        "kind": "related",
+        "tool": "localFetch",
+        "input": {"queries": [symbols_read]},
+    });
+    let request = json!({"queries": [empty_read, symbols_read]});
+    let mut output = json!({"results": [
+        {
+            "index": 0,
+            "status": "empty",
+            "data": {
+                "content": "",
+                "hints": [
+                    "No line of this file holds it; the related[] call lists what the file declares.",
+                    "The localFetch call in related[] reads the outline.",
+                    "Check another file if needed.",
+                ],
+                "related": [lead],
+            }
+        },
+        {
+            "index": 1,
+            "data": {"content": "1\texport const x = 1;"}
+        }
+    ]});
+    drop_answered_leads(ToolId::LocalFetch, &mut output, &request);
+    assert!(output["results"][0]["data"].get("related").is_none());
+    assert_eq!(
+        output["results"][0]["data"]["hints"],
+        json!([
+            "No line of this file holds it.",
+            "Check another file if needed.",
+        ]),
+    );
+}
+
+/// When the only hint on a row was a dangling `related[]` pointer, removing
+/// the last `related[]` call also removes the empty `hints` field.
+#[test]
+fn dropping_all_related_removes_empty_hints_array() {
+    let empty_read = json_fixture(r#"{"path": "src/index.ts", "matchString": ["main"]}"#);
+    let symbols_read = json_fixture(r#"{"path": "src/index.ts", "view": "symbols"}"#);
+    let lead = json!({
+        "kind": "related",
+        "tool": "localFetch",
+        "input": {"queries": [symbols_read]},
+    });
+    let request = json!({"queries": [empty_read, symbols_read]});
+    let mut output = json!({"results": [
+        {
+            "index": 0,
+            "status": "empty",
+            "data": {
+                "content": "",
+                "hints": ["The localFetch call in related[] lists what the file declares."],
+                "related": [lead],
+            }
+        },
+        {
+            "index": 1,
+            "data": {"content": "1\texport const x = 1;"}
+        }
+    ]});
+    drop_answered_leads(ToolId::LocalFetch, &mut output, &request);
+    assert!(output["results"][0]["data"].get("related").is_none());
+    assert!(output["results"][0]["data"].get("hints").is_none());
+}

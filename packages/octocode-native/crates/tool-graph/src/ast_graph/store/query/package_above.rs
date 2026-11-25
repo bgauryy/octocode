@@ -35,6 +35,15 @@ pub(super) fn package_root(
         .skip(1)
         .take_while(|dir| dir.starts_with(workspace))
         .find_map(|dir| {
+            let rel = root.strip_prefix(dir).ok()?;
+            let crosses_hidden = rel.components().any(|part| {
+                part.as_os_str()
+                    .to_str()
+                    .is_some_and(|name| name.starts_with('.') && name != "." && name != "..")
+            });
+            if crosses_hidden {
+                return None;
+            }
             super::super::workspace::MANIFEST_FILES
                 .iter()
                 .find(|file| dir.join(file).is_file())

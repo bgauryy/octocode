@@ -1010,3 +1010,86 @@ fn answers_name_files_and_symbol_ids_from_the_workspace() {
     let (file, _) = mention.rsplit_once(':').expect("path:line");
     assert!(root.join(file).is_file(), "{mention}");
 }
+
+/// When the caller explicitly overrides `entries` on a subfolder snapshot
+/// below an ancestor `package.json`, dead-code findings keep their tier
+/// (`>= 90`) instead of being capped to 60, and hidden dot-directories (like
+/// `.octocode/...`) never treat an ancestor `package.json` as their package root.
+#[test]
+fn explicit_entries_and_hidden_scratch_dirs_keep_dead_code_tier() {
+    let dir = Fixture::new();
+    std::fs::create_dir_all(dir.0.as_path().join(".git")).expect("git marker");
+    dir.write("package.json", r#"{"name":"repo"}"#);
+    dir.write(
+        "app/b.ts",
+        "import { used } from './a';\nexport const run = () => used();\n",
+    );
+    dir.write("app/a.ts", "export const used = () => 1;\n");
+    dir.write("app/unused.ts", "export const neverCalled = () => 2;\n");
+    let built_sub = ingest(
+        &IngestOptions {
+            path: dir.0.join("app"),
+            workspace: Some(dir.0.to_path_buf()),
+            ..Default::default()
+        },
+        &workspace_policy(dir.0.as_path()),
+        &ContentSecurity::new(),
+        &NeverCancel,
+        None,
+    );
+    assert_eq!(built_sub.class, ExitClass::Success, "{}", built_sub.value);
+
+    // Explicit `entries` surfaces `app/unused.ts` at default `minTier` (90) on page 1.
+    let with_entries = ask(dir.0.as_path(), "issues", None, |o| {
+        o.entries = vec!["b.ts".into()];
+    });
+    assert_eq!(
+        with_entries.value["summary"]["hiddenBelowTier"],
+        json!(0),
+        "{}",
+        with_entries.value
+    );
+    assert!(
+        with_entries.value["rows"]
+            .as_array()
+            .is_some_and(|rows| rows.iter().any(|r| r["subject"] == "app/unused.ts")),
+        "{}",
+        with_entries.value
+    );
+
+    // A snapshot inside a hidden dot-directory (`.scratch/sub`) does not
+    // inherit the ancestor `package.json` even without explicit `entries`.
+    dir.write(".scratch/sub/main.ts", "export const main = () => 1;\n");
+    dir.write(".scratch/sub/dead.ts", "export const dead = () => 2;\n");
+    let scratch = dir.0.join(".scratch/sub");
+    let built_scratch = ingest(
+        &IngestOptions {
+            path: scratch,
+            workspace: Some(dir.0.to_path_buf()),
+            ..Default::default()
+        },
+        &workspace_policy(dir.0.as_path()),
+        &ContentSecurity::new(),
+        &NeverCancel,
+        None,
+    );
+    assert_eq!(
+        built_scratch.class,
+        ExitClass::Success,
+        "{}",
+        built_scratch.value
+    );
+    let scratch_id = built_scratch.value["graph"]
+        .as_str()
+        .expect("graph id")
+        .to_owned();
+    let scratch_issues = ask(dir.0.as_path(), "issues", None, |o| {
+        o.graph = Some(scratch_id);
+    });
+    assert_eq!(
+        scratch_issues.value["summary"]["hiddenBelowTier"],
+        json!(0),
+        "{}",
+        scratch_issues.value
+    );
+}

@@ -241,13 +241,17 @@ impl Query<'_> {
             .map_err(|message| GraphOutput::error(ErrorCode::Cancelled, message))?;
         let report = report.map_err(invalid)?;
         let min_tier = options.min_tier.unwrap_or(DEFAULT_MIN_TIER);
-        let above = package_above(
-            &root,
-            g.manifest["workspace"].as_str(),
-            g.t.components.is_empty(),
-            &detectors,
-            &g.manifest["scan"],
-        );
+        let above = if entries.is_some() {
+            None
+        } else {
+            package_above(
+                &root,
+                g.manifest["workspace"].as_str(),
+                g.t.components.is_empty(),
+                &detectors,
+                &g.manifest["scan"],
+            )
+        };
         // Below its package root a dead-code finding claims at most tier 60.
         let tier = |f: &super::super::detect::Finding| {
             if above.is_some() && SCOPE_JUDGED.contains(&f.detector) {
