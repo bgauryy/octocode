@@ -35,10 +35,7 @@ var CONFIG_FIELDS = [
     "env": {
       "name": "OCTOCODE_ENABLE_LOCAL",
       "dotenv": "home",
-      "workspaceNarrowsTo": "false",
-      "legacyNames": [
-        "ENABLE_LOCAL"
-      ]
+      "workspaceNarrowsTo": "false"
     },
     "defaultValue": true
   },
@@ -140,15 +137,9 @@ var CONFIG_FIELDS = [
     "env": {
       "name": "OCTOCODE_ENABLE_CLONE",
       "dotenv": "home",
-      "workspaceNarrowsTo": "false",
-      "legacyNames": [
-        "ENABLE_CLONE"
-      ]
+      "workspaceNarrowsTo": "false"
     },
-    "defaultValue": false,
-    "legacyPaths": [
-      "local.enableClone"
-    ]
+    "defaultValue": false
   },
   {
     "path": "tools.enableSecurityCheck",
@@ -341,6 +332,22 @@ var CONFIG_FIELDS = [
     ]
   },
   {
+    "path": "storage.cloneCacheLimit",
+    "section": "storage",
+    "key": "cloneCacheLimit",
+    "type": "string",
+    "resolved": true,
+    "credential": false,
+    "description": 'Byte cap for the clean ghCloneRepo checkouts under the Octocode home, as a whole number with an optional binary unit (B, KiB, MiB, GiB, TiB; K, M, G, T, KB, MB, GB and TB mean the same): "5GiB", "512MiB", "1073741824". After a new checkout is published, the least recently used checkouts are removed until the total fits. A checkout in use, one with local changes, and the one just published stay. 0 means no cap. An invalid value is reported and the default applies. The shared object stores behind the checkouts are not counted.',
+    "notes": "Home-only, so a repository cannot make Octocode discard your checkouts.",
+    "env": {
+      "name": "OCTOCODE_CLONE_CACHE_LIMIT",
+      "dotenv": "home",
+      "normalize": "trim"
+    },
+    "defaultValue": "5GiB"
+  },
+  {
     "path": "classification.api",
     "section": "classification",
     "key": "api",
@@ -389,7 +396,6 @@ var CONFIG_FIELDS = [
     "defaultValue": null
   }
 ];
-var ENV_TOKEN_VARS = ["GH_TOKEN", "GITHUB_TOKEN"];
 var API_KEYS = [
   {
     "name": "TAVILY_API_KEY",
@@ -446,10 +452,9 @@ var API_KEYS = [
     "docsUrl": "https://docs.typesafe.ai/introduction"
   }
 ];
-var PROTECTED_KEY_NAMES = ["PATH", "HOME", "SHELL", "USER", "LOGNAME", "PWD", "TMPDIR", "NODE_OPTIONS", "PYTHON", "TAVILY_BASE_URL", "EXA_BASE_URL", "SERPER_BASE_URL", "DEEPSEEK_BASE_URL", "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR", "GIT_SSL_CAINFO", "GIT_SSL_CAPATH", "CURL_CA_BUNDLE", "OCTOCODE_GITHUB_CLIENT_ID", "OCTOCODE_HOME", "OCTOCODE_CARGO", "GITHUB_API_URL", "OCTOCODE_ENABLE_LOCAL", "OCTOCODE_BETA", "ALLOWED_PATHS", "WORKSPACE_ROOT", "OCTOCODE_GRAPH_HOME", "OCTOCODE_ENABLE_CLONE", "OCTOCODE_SECURITY_CHECKS", "OCTOCODE_ALLOW_PRIVATE_REGISTRY", "OCTOCODE_LSP_AUTO_INSTALL", "OCTOCODE_TRUST_PROJECT_LSP_CONFIG", "OCTOCODE_LSP_TRUST_FETCHED_CODE", "OCTOCODE_REDACT_EMAILS", "OCTOCODE_REDACT_UUID", "OCTOCODE_MCP_RESULT", "OCTOCODE_CREDENTIAL_FILES", "OCTOCODE_STORAGE_MODE", "OCTOCODE_CLASSIFICATION_API", "OCTOCODE_CLASSIFICATION_API_HOST", "ENABLE_LOCAL", "ENABLE_CLONE"];
-var HOME_TRUSTED_ENV_KEYS = ["TAVILY_BASE_URL", "EXA_BASE_URL", "SERPER_BASE_URL", "DEEPSEEK_BASE_URL", "OCTOCODE_GITHUB_CLIENT_ID", "OCTOCODE_CARGO", "GITHUB_API_URL", "OCTOCODE_ENABLE_LOCAL", "OCTOCODE_BETA", "ALLOWED_PATHS", "WORKSPACE_ROOT", "OCTOCODE_GRAPH_HOME", "OCTOCODE_ENABLE_CLONE", "OCTOCODE_SECURITY_CHECKS", "OCTOCODE_ALLOW_PRIVATE_REGISTRY", "OCTOCODE_LSP_AUTO_INSTALL", "OCTOCODE_TRUST_PROJECT_LSP_CONFIG", "OCTOCODE_LSP_TRUST_FETCHED_CODE", "OCTOCODE_REDACT_EMAILS", "OCTOCODE_REDACT_UUID", "OCTOCODE_MCP_RESULT", "OCTOCODE_CREDENTIAL_FILES", "OCTOCODE_STORAGE_MODE", "OCTOCODE_CLASSIFICATION_API", "OCTOCODE_CLASSIFICATION_API_HOST", "ENABLE_LOCAL", "ENABLE_CLONE"];
-var LEGACY_ENV_NAMES = { "OCTOCODE_TOKEN": "GH_TOKEN", "GITHUB_PERSONAL_ACCESS_TOKEN": "GITHUB_TOKEN", "ENABLE_LOCAL": "OCTOCODE_ENABLE_LOCAL", "ENABLE_CLONE": "OCTOCODE_ENABLE_CLONE" };
-var DEFAULT_CONFIG_VALUE = { "github": { "apiUrl": "https://api.github.com" }, "local": { "enabled": true, "beta": false, "allowedPaths": [], "workspaceRoot": void 0, "graphHome": void 0 }, "tools": { "enabled": null, "disabled": null, "enableClone": false, "enableSecurityCheck": false }, "network": { "allowPrivateRegistry": false }, "lsp": { "autoInstall": "prompt", "trustProjectConfig": false, "trustFetchedCode": false, "prewarm": "targeted" }, "output": { "redactEmails": false, "redactUuid": false, "mcpResult": "json" }, "security": { "credentialFiles": "withhold" }, "storage": { "mode": "persistent" }, "classification": { "apiHost": void 0, "model": void 0 } };
+var PROTECTED_KEY_NAMES = ["PATH", "HOME", "SHELL", "USER", "LOGNAME", "PWD", "TMPDIR", "NODE_OPTIONS", "PYTHON", "TAVILY_BASE_URL", "EXA_BASE_URL", "SERPER_BASE_URL", "DEEPSEEK_BASE_URL", "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR", "GIT_SSL_CAINFO", "GIT_SSL_CAPATH", "CURL_CA_BUNDLE", "OCTOCODE_GITHUB_CLIENT_ID", "OCTOCODE_HOME", "OCTOCODE_CARGO", "GITHUB_API_URL", "OCTOCODE_ENABLE_LOCAL", "OCTOCODE_BETA", "ALLOWED_PATHS", "WORKSPACE_ROOT", "OCTOCODE_GRAPH_HOME", "OCTOCODE_ENABLE_CLONE", "OCTOCODE_SECURITY_CHECKS", "OCTOCODE_ALLOW_PRIVATE_REGISTRY", "OCTOCODE_LSP_AUTO_INSTALL", "OCTOCODE_TRUST_PROJECT_LSP_CONFIG", "OCTOCODE_LSP_TRUST_FETCHED_CODE", "OCTOCODE_REDACT_EMAILS", "OCTOCODE_REDACT_UUID", "OCTOCODE_MCP_RESULT", "OCTOCODE_CREDENTIAL_FILES", "OCTOCODE_STORAGE_MODE", "OCTOCODE_CLONE_CACHE_LIMIT", "OCTOCODE_CLASSIFICATION_API", "OCTOCODE_CLASSIFICATION_API_HOST"];
+var HOME_TRUSTED_ENV_KEYS = ["TAVILY_BASE_URL", "EXA_BASE_URL", "SERPER_BASE_URL", "DEEPSEEK_BASE_URL", "OCTOCODE_GITHUB_CLIENT_ID", "OCTOCODE_CARGO", "GITHUB_API_URL", "OCTOCODE_ENABLE_LOCAL", "OCTOCODE_BETA", "ALLOWED_PATHS", "WORKSPACE_ROOT", "OCTOCODE_GRAPH_HOME", "OCTOCODE_ENABLE_CLONE", "OCTOCODE_SECURITY_CHECKS", "OCTOCODE_ALLOW_PRIVATE_REGISTRY", "OCTOCODE_LSP_AUTO_INSTALL", "OCTOCODE_TRUST_PROJECT_LSP_CONFIG", "OCTOCODE_LSP_TRUST_FETCHED_CODE", "OCTOCODE_REDACT_EMAILS", "OCTOCODE_REDACT_UUID", "OCTOCODE_MCP_RESULT", "OCTOCODE_CREDENTIAL_FILES", "OCTOCODE_STORAGE_MODE", "OCTOCODE_CLONE_CACHE_LIMIT", "OCTOCODE_CLASSIFICATION_API", "OCTOCODE_CLASSIFICATION_API_HOST"];
+var DEFAULT_CONFIG_VALUE = { "github": { "apiUrl": "https://api.github.com" }, "local": { "enabled": true, "beta": false, "allowedPaths": [], "workspaceRoot": void 0, "graphHome": void 0 }, "tools": { "enabled": null, "disabled": null, "enableClone": false, "enableSecurityCheck": false }, "network": { "allowPrivateRegistry": false }, "lsp": { "autoInstall": "prompt", "trustProjectConfig": false, "trustFetchedCode": false, "prewarm": "targeted" }, "output": { "redactEmails": false, "redactUuid": false, "mcpResult": "json" }, "security": { "credentialFiles": "withhold" }, "storage": { "mode": "persistent", "cloneCacheLimit": "5GiB" }, "classification": { "apiHost": void 0, "model": void 0 } };
 function getOctocodeHome(env = process.env) {
   const override = env["OCTOCODE_HOME"];
   if (override && override.trim()) return path.resolve(override.trim());
@@ -496,26 +501,11 @@ function readTextIfExists(filePath) {
 }
 function fileEnv(filePath) {
   const entries = Object.entries(parseEnv(readTextIfExists(filePath))).filter(([, v]) => v.trim());
-  const map = Object.fromEntries(entries);
-  for (const [legacy, current] of Object.entries(LEGACY_ENV_NAMES)) {
-    const value = map[legacy];
-    if (value === void 0) continue;
-    delete map[legacy];
-    if (!map[current]) map[current] = value;
-  }
-  return map;
+  return Object.fromEntries(entries);
 }
 var CLASSIFICATION_KILL_SWITCH = CONFIG_FIELDS.find(
   (field) => field.path === "classification.api"
 )?.env?.name;
-function namesOf(key) {
-  const current = LEGACY_ENV_NAMES[key] ?? key;
-  return [
-    current,
-    ...Object.keys(LEGACY_ENV_NAMES).filter((legacy) => LEGACY_ENV_NAMES[legacy] === current)
-  ];
-}
-var TOKEN_NAMES = ENV_TOKEN_VARS.flatMap(namesOf);
 var HOME_TRUSTED = new Set(HOME_TRUSTED_ENV_KEYS);
 function context(options) {
   const env = options.env ?? process.env;
@@ -528,7 +518,7 @@ function keyFiles(options = {}) {
 }
 function getKey(name, options = {}) {
   const { env, files } = context(options);
-  const fromProcess = namesOf(name).map((candidate) => env[candidate]).find((value) => value?.trim());
+  const fromProcess = env[name]?.trim() ? env[name] : void 0;
   if (fromProcess) return { name, value: fromProcess.trim(), source: "process", files };
   if (name === CLASSIFICATION_KILL_SWITCH && env[name] !== void 0) return { name, files };
   if (isProtectedKey(name) && !HOME_TRUSTED.has(name)) return { name, files };
@@ -557,7 +547,7 @@ function setKey(name, value, { scope = "home", ...options } = {}) {
   const files = keyFiles(options);
   const file = files[scope];
   fs2.mkdirSync(path3.dirname(file), { recursive: true, mode: 448 });
-  const names = new Set(namesOf(name));
+  const names = /* @__PURE__ */ new Set([name]);
   let existing = "";
   try {
     existing = fs2.readFileSync(file, "utf8");

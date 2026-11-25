@@ -1,4 +1,3 @@
-use super::legacy::{LegacyUse, read_legacy_env};
 use super::types::{
     ENV_TOKEN_VARS, EnvApplyReport, HOME_TRUSTED_ENV_KEYS, KNOWN_ENV, PROTECTED_KEYS,
     WORKSPACE_NARROW_ONLY,
@@ -73,9 +72,6 @@ pub(crate) struct MergedEnv {
     /// Workspace keys dropped because the key is protected and the home file
     /// sets it: the home value stands and the workspace value is reported.
     pub(crate) workspace_protected: Vec<String>,
-    /// The legacy names each file set, read as their current names.
-    pub(crate) legacy_home: Vec<LegacyUse>,
-    pub(crate) legacy_workspace: Vec<LegacyUse>,
 }
 
 pub(crate) fn apply_env(
@@ -153,24 +149,20 @@ fn is_protected_key(key: &str) -> bool {
                 .any(|protected| protected.eq_ignore_ascii_case(key)))
 }
 
-/// One `.env` file's nonblank entries, its legacy names read as their
-/// current names.
-fn file_env(text: Option<&str>) -> (BTreeMap<String, String>, Vec<LegacyUse>) {
+/// One `.env` file's nonblank entries.
+fn file_env(text: Option<&str>) -> BTreeMap<String, String> {
     let mut env = parse_env(text);
     env.retain(|_, value| !value.trim().is_empty());
-    let legacy = read_legacy_env(&mut env);
-    (env, legacy)
+    env
 }
 
 pub(crate) fn merged_env(global: Option<&str>, project: Option<&str>) -> MergedEnv {
-    let (global, legacy_home) = file_env(global);
-    let (project, legacy_workspace) = file_env(project);
+    let global = file_env(global);
+    let project = file_env(project);
     let mut merged = MergedEnv {
         map: BTreeMap::new(),
         sources: BTreeMap::new(),
         workspace_protected: vec![],
-        legacy_home,
-        legacy_workspace,
     };
     for (k, v) in global {
         merged.sources.insert(k.clone(), "global".into());

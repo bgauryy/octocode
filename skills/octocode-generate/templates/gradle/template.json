@@ -1,0 +1,5 @@
+{
+  "description": "Gradle (Android, Spring Boot, Ktor, Kotlin Multiplatform): CI with setup-java, setup-gradle, check and assemble",
+  "scripts": {},
+  "notes": "check runs tests and every verification plugin the build applies; add Spotless (format) and detekt or Checkstyle (lint), or Android lint applies. Set --java to the toolchain the build declares. Commit the Gradle wrapper (gradlew, gradle/wrapper)."
+}

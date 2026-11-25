@@ -29,7 +29,7 @@ Highest priority first: process environment → project `.env` → home `.env` �
 
 ## GitHub credential selection
 
-For the configured host, Octocode checks process tokens, project `.env`, home `.env`, the encrypted Octocode login, the OS credential store, then the host’s GitHub CLI login. Within a single environment layer the order is `GH_TOKEN`, legacy `OCTOCODE_TOKEN`, `GITHUB_TOKEN`, legacy `GITHUB_PERSONAL_ACCESS_TOKEN`. Public endpoints that allow anonymous access work without a login.
+For the configured host, Octocode checks process tokens, project `.env`, home `.env`, the encrypted Octocode login, the OS credential store, then the host’s GitHub CLI login. Within a single environment layer the order is `GH_TOKEN`, then `GITHUB_TOKEN`. Public endpoints that allow anonymous access work without a login.
 
 - **Device login** — Use `npx -y octocode auth login` and check the account with `npx -y octocode auth status --json`. To remove the saved login for that host, use `npx -y octocode auth logout`.
 - **CI or personal token** — Pass `GH_TOKEN` or `GITHUB_TOKEN` as a process secret. To save a personal token in the home `.env`, have the user enter it through `npx -y octocode config set GH_TOKEN --stdin`. This file stores the token in plain text.

@@ -78,12 +78,6 @@ fn local_switch_turns_local_tools_off() {
         &BTreeMap::from([("OCTOCODE_ENABLE_LOCAL".into(), "false".into())]),
     );
     assert!(!off.unwrap_or_default().local.enabled);
-    // The legacy `ENABLE_LOCAL` spelling: see `config::legacy` tests.
-    let legacy = resolve_config(&input(
-        BTreeMap::from([("ENABLE_LOCAL".into(), "false".into())]),
-        None,
-    ));
-    assert!(!legacy.resolved.local.enabled);
 }
 #[test]
 fn classification_key_falls_back_to_config_file_without_leaking() {

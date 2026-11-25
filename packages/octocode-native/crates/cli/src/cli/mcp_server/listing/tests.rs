@@ -261,3 +261,28 @@ fn gh_structure_omits_materialize_when_local_tools_are_disabled() {
         "local tools leaked: {serialized}"
     );
 }
+
+/// Materialize writes under the home, so a catalog that reports memory
+/// storage lists `ghStructure` without it even when local tools are listed.
+#[test]
+fn memory_storage_strips_materialize_from_ghstructure() {
+    let names = presentation_tools();
+    let names = names.iter().map(String::as_str).collect::<Vec<_>>();
+    let property = |catalog: &Value| {
+        let listing = build(presentation(), catalog).unwrap();
+        let tool = listing
+            .tools
+            .into_iter()
+            .find(|tool| tool["name"] == "ghStructure")
+            .unwrap();
+        tool["inputSchema"]["properties"]["queries"]["items"]["properties"]
+            .get("materialize")
+            .is_some()
+    };
+    let mut catalog = catalog(&names, json_fixture(r#"{"selection": false}"#), json!([]));
+    assert!(property(&catalog));
+    catalog["persistentStorage"] = json!(true);
+    assert!(property(&catalog));
+    catalog["persistentStorage"] = json!(false);
+    assert!(!property(&catalog));
+}

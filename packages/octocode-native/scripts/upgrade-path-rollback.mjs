@@ -30,10 +30,10 @@ export async function survives(ctx, session) {
 
 /**
  * The new server under settings the previous octocode-mcp documented. Renamed
- * ones are honored as legacy names (ENABLE_LOCAL, ENABLE_CLONE, OCTOCODE_TOKEN,
- * .octocoderc local.enableClone) and named by `config`; removed ones
- * (OCTOCODE_OUTPUT_FORMAT, .octocoderc output.format) and renamed tool names in
- * TOOLS_TO_RUN are reported.
+ * ones (ENABLE_LOCAL, ENABLE_CLONE, OCTOCODE_TOKEN, .octocoderc
+ * local.enableClone) are no longer read: local tools stay listed and cloning
+ * stays off. Removed ones (OCTOCODE_OUTPUT_FORMAT, .octocoderc output.format)
+ * and renamed tool names in TOOLS_TO_RUN are reported.
  */
 export async function legacySettings(ctx, mcp) {
   const home = join(ctx.root, 'legacy-home');
@@ -44,24 +44,21 @@ export async function legacySettings(ctx, mcp) {
   const homeEnv = { HOME: home, USERPROFILE: home, OCTOCODE_HOME: octocodeHome };
   const view = parseJson(ctx.exec(ctx.nativeBinary(mcp, 'project'), ['config', '--json'], { env: homeEnv }).stdout);
   const diagnostics = (view?.diagnostics ?? []).map(entry => entry.message).join('\n');
-  const legacyNamed = ['OCTOCODE_TOKEN', 'ENABLE_LOCAL', 'local\\.enableClone']
-    .every(name => new RegExp(`^${name} .*legacy`, 'm').test(diagnostics));
   const removedReported = /output\.format/.test(diagnostics);
-  const legacy = await listTools(ctx, mcp, {
+  const old = await listTools(ctx, mcp, {
     ...homeEnv, ENABLE_LOCAL: 'false', ENABLE_CLONE: 'true', OCTOCODE_TOKEN: ctx.DUMMY_TOKEN, OCTOCODE_OUTPUT_FORMAT: 'yaml',
   });
-  const localHidden = !legacy.names.includes('localSearch');
-  const cloneListed = legacy.names.includes('ghCloneRepo');
+  const localListed = old.names.includes('localSearch');
+  const cloneHidden = !old.names.includes('ghCloneRepo');
   // Tool names the previous server listed, in the tool-list settings.
   const renamed = await listTools(ctx, mcp, { ...homeEnv, TOOLS_TO_RUN: 'localSearch,localGetFileContent,ghSearch' });
   const renamedReported = /localGetFileContent/.test(renamed.stderr) && /ghSearch\b/.test(renamed.stderr);
   ctx.current.commands[0].diagnostics = diagnostics;
   return {
-    ok: legacyNamed && removedReported && localHidden && cloneListed && renamedReported,
-    note: `config names OCTOCODE_TOKEN/ENABLE_LOCAL/local.enableClone as legacy: ${legacyNamed ? 'yes' : 'no'}; ` +
-      `.octocoderc output.format ${removedReported ? 'reported' : 'silent'}; ` +
-      `ENABLE_LOCAL=false → localSearch ${localHidden ? 'hidden' : 'still listed'}; ` +
-      `ENABLE_CLONE=true → ghCloneRepo ${cloneListed ? 'listed' : 'not listed'}; ` +
+    ok: removedReported && localListed && cloneHidden && renamedReported,
+    note: `.octocoderc output.format ${removedReported ? 'reported' : 'silent'}; ` +
+      `ENABLE_LOCAL=false (no longer read) → localSearch ${localListed ? 'listed' : 'hidden'}; ` +
+      `ENABLE_CLONE=true (no longer read) → ghCloneRepo ${cloneHidden ? 'not listed' : 'listed'}; ` +
       `TOOLS_TO_RUN=localSearch,localGetFileContent,ghSearch → [${renamed.names.join(',')}], old names ${renamedReported ? 'reported' : 'not reported'}`,
   };
 }

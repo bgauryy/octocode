@@ -23,6 +23,7 @@ import { postServer, serverOf, ServedError } from './lib/served.ts';
 import { graphCli, graphCommand, shellArg } from './invocation.ts';
 import { canonicalDir, registeredRuns, registryHome } from './registry.ts';
 import { withSearchIndex } from './search-sidecar.ts';
+import { errorMessage, isRecord } from './lib.ts';
 import { withProvider } from './search-provider.ts';
 import type { SavedGraph } from './api.ts';
 export * from './query-api.ts';
@@ -93,8 +94,13 @@ export interface FoundGraph {
  */
 export function graphPath(arg: string, home = registryHome()): FoundGraph {
   const p = resolve(arg);
-  if (!statSync(p, { throwIfNoEntry: false })?.isDirectory())
-    return { path: p, chosen: null };
+  const s = statSync(p, { throwIfNoEntry: false });
+  // A path that names nothing is refused: its parent directory is never read in its place.
+  if (!s)
+    throw new Error(
+      `no graph at ${p}: name a result directory, its data.json or a project directory`
+    );
+  if (!s.isDirectory()) return { path: p, chosen: null };
   const own = resultGraph(p);
   if (own) return { path: own, chosen: null };
   const run = newestRun(p, home);
@@ -113,6 +119,29 @@ export function resultDir(arg: string, home = registryHome()) {
   if (RUN_FILES.some(name => isFile(join(p, name)))) return p;
   const found = graphPath(p, home);
   return found.chosen ?? dirname(found.path);
+}
+
+/** A graph file that could not be read as one: the CLI reports it as a usage error. */
+export class GraphFileError extends Error {}
+
+/**
+ * A saved graph file read and indexed for queries. A file that is not JSON, or not a graph object, is a
+ * GraphFileError naming it. data.json is this package's own output: the query engine tolerates any missing field.
+ */
+export function readGraphFile(path: string): QueryData {
+  let data: unknown;
+  try {
+    data = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (error) {
+    throw new GraphFileError(
+      `${path} is not a saved graph (a data.json written by build): ${errorMessage(error)}`
+    );
+  }
+  if (!isRecord(data))
+    throw new GraphFileError(
+      `${path} is not a saved graph (a data.json written by build): it holds no JSON object`
+    );
+  return withSearchIndex(data, path);
 }
 
 /** Graph files whose content may have changed since `graph` was written (a later modification time). */
@@ -161,11 +190,7 @@ async function answerer(
     ? q => withStaleness(opened.query(q), opened.edited)
     : null;
   const read = () => {
-    // data.json is this package's own output: the query engine tolerates any missing field.
-    const D = withSearchIndex(
-      JSON.parse(readFileSync(path, 'utf8')) as QueryData,
-      path
-    );
+    const D = readGraphFile(path);
     const edited = editedSince(D, path);
     return (q: string) => withStaleness(runQuery(D, q), edited);
   };
@@ -245,7 +270,15 @@ export async function main(argv: string[]) {
     : [rest.slice(1).join(' ')];
   for await (const query of queries) {
     if (stdin && !query.trim()) continue;
-    const r = await ask(query);
+    let r: QueryResult;
+    try {
+      r = await ask(query);
+    } catch (error) {
+      if (!(error instanceof GraphFileError)) throw error;
+      process.stderr.write(`octocode-graph query: ${error.message}\n`);
+      process.exitCode = 2;
+      return;
+    }
     if (
       !process.stdout.write(`${json ? JSON.stringify(r) : formatResult(r)}\n`)
     )

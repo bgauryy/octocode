@@ -10,7 +10,7 @@ Choose a skill by the task you want your agent to complete. Run `npx -y octocode
 | [octocode-graph](../packages/octocode-graph/skills/octocode-graph/SKILL.md) | Query dependencies, callers and change impact, build a stitched graph or explore a repository in the viewer. |
 | [octocode-brainstorming](octocode-brainstorming/SKILL.md) | Compare ideas or challenge a proposal using verified evidence from the web and GitHub. |
 | [octocode-engineer](octocode-engineer/SKILL.md) | Choose an implementation or architecture by comparing trade-offs against the workload. |
-| [octocode-generate](octocode-generate/SKILL.md) | Scaffold a new app, service or library: interview, approved plan, version-checked stack, lint/test/CI templates and green quality gates. |
+| [octocode-generate](octocode-generate/SKILL.md) | Scaffold a new web, mobile, desktop, API, CLI, library or AI project: asks what first, researches current CLIs with Octocode, one approved plan, version-checked stack, SHA-pinned CI templates and green quality gates across 12 ecosystems. |
 | [octocode-rfc-generator](octocode-rfc-generator/SKILL.md) | Write, revise, or review an RFC, design proposal, or migration plan, with each decision traced to tasks and checks. |
 | [octocode-pr-review](octocode-pr-review/SKILL.md) | Review a GitHub pull request and trace each finding to the changed code. |
 | [octocode-roast](octocode-roast/SKILL.md) | Get an explicitly requested blunt critique of code or design, with concrete fixes. |

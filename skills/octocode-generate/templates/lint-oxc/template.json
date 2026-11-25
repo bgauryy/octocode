@@ -5,6 +5,18 @@
     "format": "oxfmt",
     "format:check": "oxfmt --check"
   },
-  "devDependencies": ["oxlint", "oxlint-tsgolint", "oxfmt"],
-  "notes": "Oxfmt is pre-1.0: pin its exact version and review formatter diffs on upgrade."
+  "devDependencies": [
+    "oxlint",
+    "oxlint-tsgolint",
+    "oxfmt"
+  ],
+  "notes": "Oxfmt is pre-1.0: pin its exact version and review formatter diffs on upgrade.",
+  "alternatives": {
+    ".oxlintrc.json": [
+      "oxlint.config.ts"
+    ],
+    ".oxfmtrc.json": [
+      ".oxfmtrc.jsonc"
+    ]
+  }
 }

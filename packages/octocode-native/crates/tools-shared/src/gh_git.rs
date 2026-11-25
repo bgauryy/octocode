@@ -7,6 +7,7 @@
 //! pinning belong to ghCloneRepo, listings and the writer to ghStructure.
 pub mod admission;
 pub mod blobs;
+pub mod cap;
 pub mod clone_scope;
 pub mod endpoint;
 pub mod process;
@@ -41,6 +42,8 @@ pub struct GitConfig {
     pub persistent: bool,
     /// The runtime's network timeout: git's network steps are sized from it.
     pub network_timeout: Duration,
+    /// Byte cap on the clean checkouts under the clones root; 0 is no cap.
+    pub clone_cap_bytes: u64,
 }
 
 impl GitConfig {
@@ -51,8 +54,16 @@ impl GitConfig {
             home: home.into(),
             persistent: true,
             network_timeout: Duration::ZERO,
+            clone_cap_bytes: 0,
         }
         .with_network_timeout(defaults.network_timeout)
+    }
+
+    /// Apply the checkout byte cap (0: no cap).
+    #[must_use]
+    pub fn with_clone_cap(mut self, bytes: u64) -> Self {
+        self.clone_cap_bytes = bytes;
+        self
     }
 
     /// Apply the runtime's network timeout.

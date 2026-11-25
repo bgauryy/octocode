@@ -262,7 +262,9 @@ async fn dispatch(
                 .map_err(|message| schema::SchemaError { message, exit: 5 })
                 .and_then(|machine| match tool.as_deref() {
                     None => schema::package_catalog(&machine, view.as_deref(), package),
-                    Some(name) if !package.owns(name) => Err(schema::unknown_tool(&machine, name)),
+                    Some(name) if !package.owns(name) => {
+                        Err(schema::unknown_tool(&machine, package, name))
+                    }
                     Some(name) => {
                         schema::tool_view(&machine, name, view.as_deref(), select.as_deref())
                     }

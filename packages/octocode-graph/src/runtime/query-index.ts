@@ -452,9 +452,23 @@ export function evidenceLine(I: QueryIndex, u: string, v: string) {
   return earliest === Infinity ? 1 : earliest;
 }
 
+// A path written from a directory above the root (`src/cli.ts` from the package of a `src` build): led by the
+// root's own trailing directories, the rest is the graph file it names. Never a guess: the same file on disk.
+function underRoot(I: QueryIndex, path: string) {
+  const parts = I.root.split(/[\\/]/).filter(Boolean);
+  for (let k = parts.length; k > 0; k--) {
+    const lead = `${parts.slice(-k).join('/')}/`;
+    const rest = path.slice(lead.length);
+    if (path.startsWith(lead) && I.file.has(rest)) return rest;
+  }
+  return undefined;
+}
+
 function matchFile(I: QueryIndex, path: string, raw: string, anchor = '') {
   if (I.file.has(path)) return path;
   if (path.startsWith('/')) return I.byAbsolutePath().get(path);
+  const rooted = underRoot(I, path);
+  if (rooted) return rooted;
   const sameName =
     I.byBasename().get(path.slice(path.lastIndexOf('/') + 1)) ?? [];
   const hits = sameName.filter(id => id.endsWith(`/${path}`));

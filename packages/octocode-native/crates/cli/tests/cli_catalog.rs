@@ -19,7 +19,7 @@ async fn schema_availability_is_independent_of_invocation_prerequisites() {
                 .env("OCTOCODE_CLASSIFICATION_API_HOST", server.uri())
                 .env("OCTOCODE_ENABLE_LOCAL", "false")
                 .env("OCTOCODE_ENABLE_CLONE", "false")
-                .env("OCTOCODE_STORAGE_MODE", "memory")
+                .env("OCTOCODE_STORAGE_MODE", "persistent")
                 .env("TOOLS_TO_RUN", "localFetch")
                 .env("DISABLE_TOOLS", "localFetch,clasify")
                 .env("OCTOCODE_BETA", if beta { "true" } else { "false" })

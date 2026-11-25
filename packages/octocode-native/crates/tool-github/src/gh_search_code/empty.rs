@@ -69,9 +69,10 @@ pub(super) async fn page(
 /// The empty page of a row answered from the file its `path` names: the
 /// file was read whole at its commit, so the answer is complete over it, not
 /// over an index; keywords spelled as OR keep their repair. A path the
-/// default branch's head does not hold in any case of its name is complete
-/// over that commit too: its folder's listing is the one route on, and no
-/// lead reads or searches the missing path again.
+/// default branch's head does not hold in any case of its parts is complete
+/// over that commit too: the listing of the deepest folder on its path the
+/// commit holds, at that commit, is the one route on, and no lead reads or
+/// searches the missing path again.
 pub(super) fn read_file(query: &GhSearchCodeQuery, read: &FileRead, output: &mut ToolData) {
     let (path, commit) = (read.path.as_str(), read.commit.as_str());
     if !read.found {
@@ -79,14 +80,13 @@ pub(super) fn read_file(query: &GhSearchCodeQuery, read: &FileRead, output: &mut
             "state": "complete",
             "reason": format!("{path} is not at {commit}"),
         });
-        let parent = path.rsplit_once('/').map_or("", |(parent, _)| parent);
-        let tree = json!({
-            "operation": "tree",
-            "owner": query.owner,
-            "repo": query.repo,
-            "path": parent,
-        });
-        output.data["calls"]["viewTree"] = Continuation::related(ToolId::GhStructure, tree).build();
+        let folder = octocode_tools_shared::gh_shared::RepoPath {
+            owner: query.owner.as_str(),
+            repo: query.repo.as_deref().map_or("", String::as_str),
+            path: &read.directory,
+            reference: Some(commit),
+        };
+        output.data["calls"]["viewTree"] = folder.lead(ToolId::GhStructure).build();
         return;
     }
     output.data["coverage"] = json!({

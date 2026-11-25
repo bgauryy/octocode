@@ -9,9 +9,7 @@ use config_fields::{
     Field, default_literal, direct_children, enum_type_name, enum_values, field_type, fields,
     own_default, rust_field_type, rust_type_name, write_string_slice,
 };
-use config_render_metadata::{
-    EnvironmentArrays, environment_arrays, legacy_paths, render_field_metadata,
-};
+use config_render_metadata::{EnvironmentArrays, environment_arrays, render_field_metadata};
 use config_render_types::{render_enums, render_structs};
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -52,7 +50,6 @@ fn render(contract: &Value) -> Result<String, Box<dyn Error>> {
         bound,
         credentials,
         narrow,
-        legacy_names,
     } = environment_arrays(contract, &all_fields)?;
 
     let mut output = String::from(
@@ -145,32 +142,10 @@ fn render(contract: &Value) -> Result<String, Box<dyn Error>> {
         writeln!(output, "    ({name:?}, {value:?}),")?;
     }
     writeln!(output, "];\n")?;
-    write_pairs(
-        &mut output,
-        "/// Each legacy variable name and the current one it is read as, in a source\n/// that does not set that one, in declaration order.\npub const LEGACY_ENV_NAMES",
-        &legacy_names,
-    )?;
-    write_pairs(
-        &mut output,
-        "/// Each legacy `.octocoderc` path and the current one it is read as, in a\n/// file that does not set that one, in declaration order.\npub const LEGACY_CONFIG_PATHS",
-        &legacy_paths(&all_fields)?,
-    )?;
     render_field_metadata(&mut output, &all_fields)?;
     render_enums(&mut output, &all_fields)?;
     render_structs(&mut output, contract, &all_fields)?;
     Ok(output)
-}
-
-fn write_pairs(
-    output: &mut String,
-    declaration: &str,
-    pairs: &[(String, String)],
-) -> Result<(), std::fmt::Error> {
-    writeln!(output, "{declaration}: &[(&str, &str)] = &[")?;
-    for (left, right) in pairs {
-        writeln!(output, "    ({left:?}, {right:?}),")?;
-    }
-    writeln!(output, "];\n")
 }
 
 pub(super) fn generate_config_contract() -> Result<(), Box<dyn Error>> {

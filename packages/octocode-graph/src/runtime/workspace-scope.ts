@@ -5,7 +5,8 @@
 // (package.json `workspaces`, pnpm-workspace.yaml, a Cargo `[workspace]`, go.work), its members outside the build
 // root, and the build's imports that name one of them. The build records them in data.json
 // `coverage.workspaceExternals`, brief.txt and its stderr summary, with the command that builds the workspace root,
-// where those packages are chunks and their imports stitch.
+// where those packages are chunks and their imports stitch. The member holding the build root is the build's own
+// package: its imports into the rest of it name the build of that package's root instead.
 import { globSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { graphCommand, shellArg } from './invocation.ts';
@@ -240,89 +241,120 @@ export interface ScopeOptions {
   exclude?: string[];
 }
 
-/**
- * The workspaces enclosing `root` (nearest first) whose members outside `root` the build imported as external
- * packages, with each package's import count and the command that builds the workspace root.
- */
-export function workspaceExternals(
-  root: string,
+// The build's imports that name these members, one row per package name: a package node's counts, joined by the
+// unresolved imports naming the same member; most imported first.
+function importRows(
+  members: Member[],
   { externals = [], unresolved = [] }: ScopeImports,
-  { env, lsp, exclude = [] }: ScopeOptions = {}
-): WorkspaceExternals[] {
-  const base = resolve(root);
-  const inside = (dir: string) => dir === base || dir.startsWith(base + sep);
-  const found: WorkspaceExternals[] = [];
-  if (!externals.length && !unresolved.length) return found;
-  for (let ws = dirname(base); ; ws = dirname(ws)) {
-    const manifests: string[] = [];
-    const members: Member[] = [];
-    for (const [manifest, readMembers] of READERS) {
-      const listed = readMembers(ws);
-      if (!listed) continue;
-      manifests.push(manifest);
-      members.push(...listed.filter(m => !inside(resolve(ws, m.dir))));
-    }
-    // One row per package name: a package node's counts, joined by the unresolved imports naming the same member.
-    const rows = new Map<
-      string,
-      { id?: string; paths: Set<string>; imports: number; files: Set<string> }
-    >();
-    const add = (
-      name: string,
-      named: Member[],
-      imports: number,
-      files: readonly string[],
-      id?: string
-    ) => {
-      const row = rows.get(name) ?? {
-        paths: new Set<string>(),
-        imports: 0,
-        files: new Set<string>(),
-      };
-      if (id) row.id = id;
-      for (const m of named) row.paths.add(m.dir);
-      row.imports += imports;
-      for (const f of files) row.files.add(f);
-      rows.set(name, row);
+  base: string,
+  ws: string
+) {
+  const rows = new Map<
+    string,
+    { id?: string; paths: Set<string>; imports: number; files: Set<string> }
+  >();
+  const add = (
+    name: string,
+    named: Member[],
+    imports: number,
+    files: readonly string[],
+    id?: string
+  ) => {
+    const row = rows.get(name) ?? {
+      paths: new Set<string>(),
+      imports: 0,
+      files: new Set<string>(),
     };
-    if (members.length) {
-      for (const x of externals) {
-        const name = x.id.replace(/^pkg:/, '');
-        const named = membersNamed(name, members);
-        if (named.length) add(name, named, x.count, x.files, x.id);
-      }
-      for (const u of unresolved) {
-        const named = membersImported(u, base, ws, members);
-        if (!named.length) continue;
-        const external = [...rows].find(([, r]) =>
-          named.every(m => r.paths.has(m.dir))
-        )?.[0];
-        add(external ?? named[0].name, named, 1, [u.source]);
-      }
+    if (id) row.id = id;
+    for (const m of named) row.paths.add(m.dir);
+    row.imports += imports;
+    for (const f of files) row.files.add(f);
+    rows.set(name, row);
+  };
+  if (members.length) {
+    for (const x of externals) {
+      const name = x.id.replace(/^pkg:/, '');
+      const named = membersNamed(name, members);
+      if (named.length) add(name, named, x.count, x.files, x.id);
     }
-    const packages = [...rows].map(([name, r]) => ({
+    for (const u of unresolved) {
+      const named = membersImported(u, base, ws, members);
+      if (!named.length) continue;
+      const external = [...rows].find(([, r]) =>
+        named.every(m => r.paths.has(m.dir))
+      )?.[0];
+      add(external ?? named[0].name, named, 1, [u.source]);
+    }
+  }
+  return [...rows]
+    .map(([name, r]) => ({
       ...(r.id && { id: r.id }),
       name,
       paths: [...r.paths].toSorted(),
       imports: r.imports,
       files: r.files.size,
-    }));
+    }))
+    .toSorted((a, b) => b.imports - a.imports || a.name.localeCompare(b.name));
+}
+
+/**
+ * The workspaces enclosing `root` (nearest first) whose members outside `root` the build imported as external
+ * packages, with each package's import count and the command that builds the workspace root. A member holding
+ * `root` is the build's own package, never a sibling: imports into the rest of it come first, as an entry of
+ * scope `package` whose command builds that package's root, the smaller build that stitches them.
+ */
+export function workspaceExternals(
+  root: string,
+  imports: ScopeImports,
+  { env, lsp, exclude = [] }: ScopeOptions = {}
+): WorkspaceExternals[] {
+  const base = resolve(root);
+  const inside = (dir: string) => dir === base || dir.startsWith(base + sep);
+  const holds = (dir: string) => base.startsWith(dir + sep);
+  const found: WorkspaceExternals[] = [];
+  if (!imports.externals?.length && !imports.unresolved?.length) return found;
+  const build = (dir: string) =>
+    [
+      graphCommand(env),
+      'build',
+      shellArg(dir),
+      ...(lsp ? ['--lsp', lsp] : []),
+      ...(exclude.length ? ['--exclude', shellArg(exclude.join(','))] : []),
+    ].join(' ');
+  const own: WorkspaceExternals[] = [];
+  for (let ws = dirname(base); ; ws = dirname(ws)) {
+    const manifests: string[] = [];
+    const members: Member[] = [];
+    const holding: Member[] = [];
+    for (const [manifest, readMembers] of READERS) {
+      const listed = readMembers(ws);
+      if (!listed) continue;
+      manifests.push(manifest);
+      for (const m of listed) {
+        const dir = resolve(ws, m.dir);
+        if (holds(dir)) holding.push(m);
+        else if (!inside(dir)) members.push(m);
+      }
+    }
+    // The deepest member holding the root is its package; a package already reported by a nearer workspace stays.
+    const deepest = Math.max(...holding.map(m => m.dir.length));
+    const pkg = holding.filter(m => m.dir.length === deepest);
+    const pkgRoot = pkg.length ? resolve(ws, pkg[0].dir) : null;
+    if (pkgRoot && !own.some(w => w.root === pkgRoot)) {
+      const packages = importRows(pkg, imports, base, ws);
+      if (packages.length)
+        own.push({
+          root: pkgRoot,
+          scope: 'package',
+          manifests,
+          packages,
+          command: build(pkgRoot),
+        });
+    }
+    const packages = importRows(members, imports, base, ws);
     if (packages.length)
-      found.push({
-        root: ws,
-        manifests,
-        packages: packages.toSorted(
-          (a, b) => b.imports - a.imports || a.name.localeCompare(b.name)
-        ),
-        command: [
-          graphCommand(env),
-          'build',
-          shellArg(ws),
-          ...(lsp ? ['--lsp', lsp] : []),
-          ...(exclude.length ? ['--exclude', shellArg(exclude.join(','))] : []),
-        ].join(' '),
-      });
-    if (ws === dirname(ws)) return found;
+      found.push({ root: ws, manifests, packages, command: build(ws) });
+    if (ws === dirname(ws)) return [...own, ...found];
   }
 }
 
@@ -330,6 +362,10 @@ const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /** One line naming a workspace's packages the build treated as externals and the build that stitches them. */
 export function workspaceNote(w: WorkspaceExternals) {
+  if (w.scope === 'package') {
+    const imports = w.packages.reduce((sum, p) => sum + p.imports, 0);
+    return `the build root lies inside package ${w.packages.map(p => p.name).join(', ')} at ${w.root}: ${count(imports, 'import')} leave it into the rest of that package and end there, not stitched. To follow them, build the package root: ${w.command}`;
+  }
   const n = w.packages.length;
   const kinds = [...new Set(w.manifests.map(m => KIND[m] ?? m))].join(' and ');
   return `${count(n, 'package')} of the ${kinds} workspace at ${w.root} ${n === 1 ? 'was treated as an external' : 'were treated as externals'}, not stitched: ${w.packages.map(p => `${p.name} (${count(p.imports, 'import')})`).join(', ')}; their imports end at a package node. To follow them into those packages, build the workspace root (a larger build): ${w.command}`;

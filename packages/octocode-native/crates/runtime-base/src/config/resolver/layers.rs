@@ -1,4 +1,3 @@
-use super::super::legacy::{legacy_diagnostic, read_legacy_paths};
 use super::super::loader::load_config;
 use super::super::types::*;
 use super::super::validation::{config_issues, get_path};
@@ -69,9 +68,6 @@ pub(super) fn load_layer(
         return (None, LayerState::Invalid);
     }
     let mut value = load.config.unwrap_or_else(|| json!({}));
-    for found in read_legacy_paths(&mut value) {
-        diagnostics.push(legacy_diagnostic(&found, true, Some(load.path.clone())));
-    }
     let (issues, warnings) = config_issues(&value);
     for m in warnings {
         diagnostics.push(warning(UNKNOWN_CONFIG_CODE, None, m, &load.path));

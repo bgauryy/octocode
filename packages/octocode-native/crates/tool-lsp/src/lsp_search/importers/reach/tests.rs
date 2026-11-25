@@ -561,3 +561,20 @@ fn a_namespace_read_through_the_built_entry_reaches_the_anchor() {
         "import { ready } from './private.ts';\nconst item = { asObject: ready };\nitem.asObject;\n"
     ));
 }
+
+/// A member read is judged with the request's one compiled pattern, for as
+/// many files and bindings as the request visits.
+#[test]
+fn one_compiled_member_pattern_judges_every_file_and_binding() {
+    let reads = member_reads("errorMessage");
+    let reads = reads.as_ref();
+    assert!(reads_member_of("api.errorMessage(e)", "api", reads));
+    assert!(!reads_member_of("other.errorMessage(e)", "api", reads));
+    assert!(reads_member_of(
+        "const { ns } = api;\nns.errorMessage(e)",
+        "api",
+        reads
+    ));
+    assert!(reads_member_of("load().errorMessage", "api", reads));
+    assert!(!reads_member_of("api.errorMessages(e)", "api", reads));
+}

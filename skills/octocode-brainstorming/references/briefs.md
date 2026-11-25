@@ -25,7 +25,7 @@ A research question is useful when its answer can change the recommendation and 
 
 The plan is the research tree as rows: each row is one claim, a leaf of decision → sub-question → claim → queries, with the slots above. `node <skill-folder>/scripts/research-tree.mjs --help` lists the fields; one row:
 
-```json
+```text
 {"id":"C1","question":"Does Redis Streams meet our latency target?","claim":"Redis Streams keeps p99 under 50 ms at 5k msg/s","rival":"Kafka keeps p99 lower at the same rate","refutedBy":"A benchmark at 5k msg/s or more reporting p99 over 50 ms","worker":"W1","queries":[{"direction":"supports","surface":"web","text":"redis streams p99 latency benchmark"},{"direction":"refutes","surface":"github","text":"redis streams latency regression"}]}
 ```
 

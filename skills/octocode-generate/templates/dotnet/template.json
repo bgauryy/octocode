@@ -1,0 +1,6 @@
+{
+  "description": ".NET: CI with dotnet format, warnings-as-errors build and dotnet test, SDK pinned by global.json",
+  "scripts": {},
+  "install": ["dotnet new globaljson --sdk-version <installed SDK from detect-workspace probes.dotnet> --roll-forward latestFeature"],
+  "notes": "Layout: the solution at the root, apps under src/<Name>, tests under tests/<Name>.Tests (a test project inside an app folder is compiled into the app). dotnet new sln writes .slnx."
+}

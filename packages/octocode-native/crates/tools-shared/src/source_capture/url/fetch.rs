@@ -13,6 +13,7 @@ use octocode_io::budget::{BudgetStop, RequestBudget};
 use octocode_io::http::{ClientPolicy, Proxy};
 use octocode_io::retry::{BodyError, read_bounded};
 use octocode_runtime_base::policy::network::{is_public, not_public_refusal};
+use octocode_runtime_base::providers::RuntimeClients;
 use reqwest::header::{ACCEPT, CONTENT_TYPE, LOCATION};
 use std::net::{IpAddr, SocketAddr};
 use url::{Host, Url};
@@ -66,14 +67,7 @@ impl Network<'_> {
         host: &Host<String>,
         addresses: Vec<SocketAddr>,
     ) -> Result<Reply, ClassificationError> {
-        let policy = page_policy(host, addresses);
-        let client = octocode_io::http::client(&policy).map_err(|_| {
-            ClassificationError::new(
-                ErrorCode::ClassificationContextFailed,
-                "The page request could not be prepared.",
-                "Retry; supply the page text as content if it keeps failing.",
-            )
-        })?;
+        let client = page_client(host, addresses)?;
         let mut target = url.clone();
         target.set_fragment(None);
         let response = self
@@ -169,6 +163,53 @@ fn stopped(stop: BudgetStop) -> ClassificationError {
             octocode_runtime_base::response::rows::CANCELLED_HINT,
         ),
     }
+}
+
+/// Clients kept for reuse per runtime; the oldest is dropped past this count.
+const MAX_PAGE_CLIENTS: usize = 16;
+
+/// What a page client is pinned to: its proxy mode, host and checked addresses.
+type PageClientKey = (Proxy, String, Vec<SocketAddr>);
+
+/// The client for a page on `host`, pinned to exactly `addresses`, reused
+/// across fetches on one runtime so a later page of the same host keeps its
+/// pooled connection and TLS session. A different address set (a new DNS
+/// answer) is a different key, so a reused client never connects anywhere
+/// this call did not check.
+fn page_client(
+    host: &Host<String>,
+    addresses: Vec<SocketAddr>,
+) -> Result<reqwest::Client, ClassificationError> {
+    static CLIENTS: RuntimeClients<PageClientKey> = RuntimeClients::new(MAX_PAGE_CLIENTS);
+    cached_page_client(&CLIENTS, host, addresses, |policy| {
+        octocode_io::http::client(&policy)
+    })
+}
+
+/// [`page_client`] through `clients`, building a miss with `build`.
+fn cached_page_client<E>(
+    clients: &RuntimeClients<PageClientKey>,
+    host: &Host<String>,
+    addresses: Vec<SocketAddr>,
+    build: impl FnOnce(ClientPolicy) -> Result<reqwest::Client, E>,
+) -> Result<reqwest::Client, ClassificationError> {
+    let mut key_addresses = addresses.clone();
+    key_addresses.sort_unstable();
+    key_addresses.dedup();
+    let key = (
+        Proxy::Direct,
+        host.to_string().to_ascii_lowercase(),
+        key_addresses,
+    );
+    clients
+        .get(key, || build(page_policy(host, addresses)))
+        .map_err(|_| {
+            ClassificationError::new(
+                ErrorCode::ClassificationContextFailed,
+                "The page request could not be prepared.",
+                "Retry; supply the page text as content if it keeps failing.",
+            )
+        })
 }
 
 /// The client policy of a page fetch: direct to `host`'s validated

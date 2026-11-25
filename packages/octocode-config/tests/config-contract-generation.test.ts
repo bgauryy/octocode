@@ -83,20 +83,19 @@ describe('generated config contract', () => {
   });
 
   it('generates credential-name metadata for every contract-declared credential', () => {
-    type Names = { name?: string; legacyNames?: string[] };
+    type Names = { name?: string };
     const contract = loadJson(contractPath) as {
-      environment: Record<string, { credential?: boolean; legacyNames?: string[] }>;
+      environment: Record<string, { credential?: boolean }>;
       sections: Record<string, { fields: Record<string, { credential?: boolean; env?: Names }> }>;
     };
-    // A legacy name is masked like the current name it is read as.
     const declared = [
       ...Object.entries(contract.environment)
         .filter(([, definition]) => definition.credential === true)
-        .flatMap(([name, definition]) => [name, ...(definition.legacyNames ?? [])]),
+        .map(([name]) => name),
       ...Object.values(contract.sections).flatMap(section =>
         Object.values(section.fields).flatMap(field =>
           field.credential === true && field.env?.name
-            ? [field.env.name, ...(field.env.legacyNames ?? [])]
+            ? [field.env.name]
             : []
         )
       ),

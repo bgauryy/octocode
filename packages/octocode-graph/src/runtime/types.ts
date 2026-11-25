@@ -181,6 +181,8 @@ export interface WorkspaceExternal {
 /** A workspace enclosing the build root whose packages the build imported as externals. */
 export interface WorkspaceExternals {
   root: string;
+  /** `package`: `root` is the build's own package, holding the build root; its imports into the rest of it. */
+  scope?: 'package';
   /** What declares the workspace: `package.json workspaces`, `pnpm-workspace.yaml`, `Cargo.toml [workspace]`, `go.work`. */
   manifests: string[];
   packages: WorkspaceExternal[];

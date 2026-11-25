@@ -338,7 +338,57 @@ async fn a_file_path_missing_at_the_default_branch_is_answered_with_no_code_sear
             "a lead repeats the missing path: {text}"
         );
     }
-    assert!(text.contains("ghStructure"), "{text}");
+    let tree = &out.data["related"][0];
+    assert_eq!(tree["tool"], "ghStructure", "{text}");
+    assert_eq!(
+        tree["input"]["queries"][0],
+        json!({"operation": "tree", "owner": "a", "repo": "b", "path": "lib", "ref": TREE_SHA}),
+        "the listing is the folder that holds the miss, at the commit read: {text}"
+    );
+}
+
+/// A file path whose folders are missing too lists the nearest folder the
+/// commit holds, at that commit: a listing of a missing parent would only
+/// fail again.
+#[tokio::test]
+async fn a_file_path_under_missing_folders_lists_the_nearest_folder() {
+    let server = MockServer::builder().start().await;
+    no_code_search(&server).await;
+    mount_ref(&server, "HEAD").await;
+    mount_read(&server, "lib/request.js", "var trust = 1;\n").await;
+    let out = search(
+        &server,
+        json_fixture(
+            r#"{"owner": "a", "repo": "b", "keywords": ["trust"], "path": "lib/gone/deeper/nope.js"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(out.status, Some("empty"), "{}", out.data);
+    assert_eq!(out.data["coverage"]["state"], "complete", "{}", out.data);
+    assert_eq!(
+        out.data["related"][0]["input"]["queries"][0],
+        json!({"operation": "tree", "owner": "a", "repo": "b", "path": "lib", "ref": TREE_SHA}),
+        "{}",
+        out.data
+    );
+}
+
+/// The code index matches a path in any case, folders included: a file
+/// path whose folder differs only in case reads the file the commit holds.
+#[tokio::test]
+async fn a_file_path_in_another_case_of_its_folder_reads_that_file() {
+    let server = MockServer::builder().start().await;
+    no_code_search(&server).await;
+    mount_ref(&server, "HEAD").await;
+    mount_read(&server, "lib/request.js", "var trust = 1;\n").await;
+    let out = search(
+        &server,
+        json_fixture(
+            r#"{"owner": "a", "repo": "b", "keywords": ["trust"], "path": "LIB/request.js"}"#,
+        ),
+    )
+    .await;
+    assert_eq!(paths_of(&out), ["lib/request.js"], "{}", out.data);
 }
 
 /// GitHub's code search matches a path's case loosely: a file path missing

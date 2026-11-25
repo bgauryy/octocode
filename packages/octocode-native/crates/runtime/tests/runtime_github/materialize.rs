@@ -208,7 +208,7 @@ async fn github_tree_materialize_with_unwritten_folders_is_not_complete() {
 }
 
 #[tokio::test]
-async fn clone_mcp_opt_in_is_independent_of_storage_and_cli_host() {
+async fn clone_is_unavailable_under_memory_storage_on_every_surface() {
     let server = MockServer::start().await;
     for surface in [
         octocode_runtime_base::config::RuntimeSurface::Cli,
@@ -227,10 +227,7 @@ async fn clone_mcp_opt_in_is_independent_of_storage_and_cli_host() {
                 crate::support::FIXTURE_LIMITS,
             )
             .expect("runtime");
-            assert_eq!(
-                runtime.is_available("ghCloneRepo"),
-                surface == octocode_runtime_base::config::RuntimeSurface::Cli || enabled == "true"
-            );
+            assert!(!runtime.is_available("ghCloneRepo"));
             let result = runtime
                 .run_mcp(
                     "mcp-clone".into(),
@@ -239,26 +236,15 @@ async fn clone_mcp_opt_in_is_independent_of_storage_and_cli_host() {
                 )
                 .await
                 .expect("MCP response");
-            if enabled == "false" {
-                assert_eq!(
-                    crate::support::mcp_payload(&result)["errorCode"],
-                    "toolUnavailable",
-                    "{result}"
-                );
-                assert!(
-                    result.to_string().contains("OCTOCODE_ENABLE_CLONE"),
-                    "{result}"
-                );
-            } else {
-                assert_eq!(result["isError"], true, "{result}");
-                assert_eq!(
-                    crate::support::mcp_payload(&result)["errorCode"],
-                    "persistentStorageDisabled",
-                    "{result}"
-                );
-                assert!(result.to_string().contains("persistent"), "{result}");
-                assert!(!result.to_string().contains("toolUnavailable"), "{result}");
-            }
+            assert_eq!(
+                crate::support::mcp_payload(&result)["errorCode"],
+                "toolUnavailable",
+                "{result}"
+            );
+            assert!(
+                result.to_string().contains("OCTOCODE_STORAGE_MODE"),
+                "{result}"
+            );
             runtime.close().await;
         }
     }

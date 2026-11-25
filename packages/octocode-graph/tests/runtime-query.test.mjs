@@ -414,3 +414,16 @@ test('each chain hop names the load its import kinds amount to, so a mixed hop s
   assert.equal(lazy.violations[0].chain[0].load, 'deferred');
   assert.match(formatResult(lazy), /\[dynamic-import → deferred\]/);
 });
+
+test('a file path written from a directory above the build root names the same graph file; a literal id still wins', () => {
+  const data = { section: '/home/me/pkg/src', files: ['cli.ts', 'lib/a.ts', 'src/x.ts'].map(file), imports: [], symbols: [], calls: [] };
+  computeMetrics(data);
+  const named = (q) => runQuery(data, q).nodes?.[0];
+  assert.equal(named('files src/cli.ts'), 'cli.ts');
+  assert.equal(named('files pkg/src/lib/a.ts'), 'lib/a.ts');
+  assert.equal(named('files src/cli.ts:3'), 'cli.ts');
+  assert.equal(named('files src/x.ts'), 'src/x.ts', 'a graph file spelled that way is taken first');
+  // A path whose leading directories are not the root's own is never trimmed to a file of the same name.
+  assert.equal(runQuery(data, 'files other/cli.ts').ok, false);
+  assert.equal(runQuery(data, 'about other/src/cli.ts').ok, false);
+});

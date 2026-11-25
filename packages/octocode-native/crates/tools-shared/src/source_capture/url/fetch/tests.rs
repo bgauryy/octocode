@@ -305,3 +305,41 @@ fn a_page_fetch_is_bounded_only_by_its_read_stall() {
     assert_eq!(policy.read_timeout, Some(octocode_io::http::READ_STALL));
     assert_eq!(policy.timeout, None);
 }
+
+/// Page fetches of one host reuse a client; a different checked address set
+/// gets its own, so a reused client never connects to an unchecked address.
+#[tokio::test]
+async fn a_client_is_reused_only_for_the_same_host_and_checked_addresses() {
+    let clients = RuntimeClients::new(MAX_PAGE_CLIENTS);
+    let built = std::cell::Cell::new(0);
+    let get = |host: &str, addresses: &[&str]| {
+        cached_page_client(
+            &clients,
+            &Host::Domain(host.to_owned()),
+            addresses.iter().map(|a| a.parse().unwrap()).collect(),
+            |policy| {
+                built.set(built.get() + 1);
+                octocode_io::http::client(&policy)
+            },
+        )
+        .unwrap();
+        built.get()
+    };
+    assert_eq!(get("docs.example.org", &["93.184.216.34:443"]), 1);
+    assert_eq!(get("docs.example.org", &["93.184.216.34:443"]), 1, "reused");
+    assert_eq!(get("DOCS.example.org", &["93.184.216.34:443"]), 1, "case");
+    assert_eq!(
+        get("docs.example.org", &["93.184.216.35:443"]),
+        2,
+        "another address is another client"
+    );
+    assert_eq!(
+        get(
+            "docs.example.org",
+            &["93.184.216.35:443", "93.184.216.34:443"]
+        ),
+        3,
+        "a wider set is another client"
+    );
+    assert_eq!(get("other.example.org", &["93.184.216.34:443"]), 4);
+}

@@ -39,7 +39,7 @@ pub use fields::{ensure_calls, field_names, lean_rows, pick_rows, push_warning_f
 pub(crate) use paths::repo_path;
 pub use paths::{
     CONTENTS_LIMIT, LISTING_MAY_BE_CUT_HINT, PathRecovery, RepoPath, is_repo_relative,
-    listing_path, locate_path, missing_path, parent_dir, tree_recovery,
+    listing_path, locate_path, locate_path_at, missing_path, parent_dir, tree_recovery,
 };
 pub use rename::{
     RenameCheck, Rerun, Rescope, canonical_query, canonical_repo, name_canonically,

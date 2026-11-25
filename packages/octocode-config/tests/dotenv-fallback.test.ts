@@ -6,7 +6,6 @@ import {
   CONFIG_FIELDS,
   ENV_TOKEN_VARS,
   HOME_TRUSTED_ENV_KEYS,
-  LEGACY_ENV_NAMES,
 } from '../src/config/contract.generated.js';
 import { propagateOctocodeEnv } from '../src/index.js';
 
@@ -59,19 +58,17 @@ describe('trusted dotenv credential fallbacks', () => {
   it.each([...homeOnly])(
     '%s is honored from the home .env but never from a workspace .env',
     key => {
-      // A legacy name arrives under the current name it is read as.
-      const current = LEGACY_ENV_NAMES[key] ?? key;
       writeFileSync(join(home, '.env'), `${key}=home-value`);
       writeFileSync(join(cwd, '.octocode', '.env'), `${key}=workspace-value`);
       for (const trusted of [undefined, true, false]) {
         const env: Record<string, string | undefined> = {};
         propagateOctocodeEnv({ home, cwd, trusted, env });
-        expect(env[current]).toBe('home-value');
+        expect(env[key]).toBe('home-value');
       }
       rmSync(join(home, '.env'));
       const env: Record<string, string | undefined> = {};
       propagateOctocodeEnv({ home, cwd, trusted: true, env });
-      expect(env[current]).toBeUndefined();
+      expect(env[key]).toBeUndefined();
     }
   );
 
@@ -201,58 +198,4 @@ describe('classification key from dotenv files', () => {
       'PATH',
     ]);
   });
-});
-
-describe('legacy variable names', () => {
-  let root: string;
-  let home: string;
-  let cwd: string;
-
-  beforeEach(() => ({ root, home, cwd } = makeDirs()));
-  afterEach(() => rmSync(root, { recursive: true, force: true }));
-
-  const legacyPairs = Object.entries(LEGACY_ENV_NAMES);
-
-  it('declares legacy names', () => {
-    expect(legacyPairs.length).toBeGreaterThan(0);
-  });
-
-  it.each(legacyPairs)('%s in a .env file arrives as %s', (legacy, current) => {
-    writeFileSync(join(home, '.env'), `${legacy}=home-value`);
-    const env: Record<string, string | undefined> = {};
-    const result = propagateOctocodeEnv({ home, cwd, env });
-    expect(env[current]).toBe('home-value');
-    expect(env[legacy]).toBeUndefined();
-    expect(result.keys).toEqual([current]);
-  });
-
-  it.each(legacyPairs)('the current name beats %s in the same file', (legacy, current) => {
-    writeFileSync(join(home, '.env'), `${legacy}=legacy-value\n${current}=current-value`);
-    const env: Record<string, string | undefined> = {};
-    propagateOctocodeEnv({ home, cwd, env });
-    expect(env[current]).toBe('current-value');
-    expect(env[legacy]).toBeUndefined();
-  });
-
-  it.each(legacyPairs)('%s in the process keeps a file from setting %s', (legacy, current) => {
-    writeFileSync(join(home, '.env'), `${current}=file-value`);
-    const env: Record<string, string | undefined> = { [legacy]: 'process-value' };
-    const result = propagateOctocodeEnv({ home, cwd, env });
-    expect(env[current]).toBeUndefined();
-    expect(result.skippedExisting).toContain(current);
-  });
-
-  it.each(legacyPairs.filter(([, current]) => (ENV_TOKEN_VARS as readonly string[]).includes(current)))(
-    'a home %s shadows every workspace token',
-    (legacy, current) => {
-      writeFileSync(join(home, '.env'), `${legacy}=home-secret`);
-      for (const workspaceToken of ENV_TOKEN_VARS) {
-        writeFileSync(join(cwd, '.octocode', '.env'), `${workspaceToken}=workspace-secret`);
-        const env: Record<string, string | undefined> = {};
-        propagateOctocodeEnv({ home, cwd, env });
-        const set = Object.entries(env).filter(([, value]) => value !== undefined);
-        expect(set).toEqual([[current, 'home-secret']]);
-      }
-    }
-  );
 });

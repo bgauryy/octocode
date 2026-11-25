@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { API_KEYS, HOME_TRUSTED_ENV_KEYS, type ApiKeySpec } from './config/contract.generated.js';
-import { CLASSIFICATION_KILL_SWITCH, fileEnv, isProtectedKey, namesOf, sameFile } from './dotenv.js';
+import { CLASSIFICATION_KILL_SWITCH, fileEnv, isProtectedKey, sameFile } from './dotenv.js';
 import { getOctocodeHome } from './home.js';
 
 export type KeySource = 'process' | 'home' | 'workspace';
@@ -57,7 +57,7 @@ export function keyFiles(options: KeyOptions = {}): KeyFiles {
 /** The value of `name` and where it came from: process, then home `.env`, then workspace `.env`. */
 export function getKey(name: string, options: KeyOptions = {}): KeyLookup {
   const { env, files } = context(options);
-  const fromProcess = namesOf(name).map(candidate => env[candidate]).find(value => value?.trim());
+  const fromProcess = env[name]?.trim() ? env[name] : undefined;
   if (fromProcess) return { name, value: fromProcess.trim(), source: 'process', files };
   // A present-but-blank classification key is the user's opt-out: no file refills it.
   if (name === CLASSIFICATION_KILL_SWITCH && env[name] !== undefined) return { name, files };
@@ -103,7 +103,7 @@ export function setKey(
   const files = keyFiles(options);
   const file = files[scope];
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  const names = new Set(namesOf(name));
+  const names = new Set([name]);
   let existing = '';
   try {
     existing = fs.readFileSync(file, 'utf8');

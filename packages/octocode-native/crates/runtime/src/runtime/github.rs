@@ -49,6 +49,8 @@ pub(super) struct GitHubServices {
     /// `storage.mode` allows writing under the home: materialize needs it.
     persistent: bool,
     lsp_trust_fetched_code: bool,
+    /// `storage.cloneCacheLimit` in bytes (0: no cap).
+    clone_cap_bytes: u64,
     /// ghCloneRepo's git, keeping the runtime env's PATH, proxy and CA names.
     git: std::sync::Arc<SystemGit>,
     /// The automatic response page: file and patch pages are sized to fit
@@ -122,6 +124,9 @@ impl GitHubServices {
         let persistent =
             octocode_runtime_base::config::is_persistent_storage_enabled(&config.resolved);
         let lsp_trust_fetched_code = config.resolved.lsp.trust_fetched_code;
+        let clone_cap_bytes = octocode_tools_shared::gh_git::cap::clone_cap_from_setting(
+            &config.resolved.storage.clone_cache_limit,
+        );
         let credentials = Authentication::new(config);
         Ok(Self {
             credentials,
@@ -130,6 +135,7 @@ impl GitHubServices {
             home,
             persistent,
             lsp_trust_fetched_code,
+            clone_cap_bytes,
             git,
             auto_page_chars: limits.auto_page_chars,
         })

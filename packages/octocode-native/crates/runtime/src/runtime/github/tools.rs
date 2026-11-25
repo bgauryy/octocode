@@ -159,7 +159,9 @@ impl GitHubServices {
         context: &ExecutionContext,
         paths: &PathPolicy,
     ) -> std::sync::Arc<GitSetup> {
-        let config = GitConfig::persistent(self.home.clone()).with_network_timeout(self.timeout);
+        let config = GitConfig::persistent(self.home.clone())
+            .with_network_timeout(self.timeout)
+            .with_clone_cap(self.clone_cap_bytes);
         std::sync::Arc::new(GitSetup {
             config,
             endpoint: self.provider.transport.endpoint().clone(),

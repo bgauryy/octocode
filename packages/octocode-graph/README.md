@@ -38,7 +38,7 @@ To connect an MCP client, add a stdio server entry.
 }
 ```
 
-This one server carries everything: `build_graph`, `query_graph`, `refresh_graph`, `diff_graph` and `link_graph` for saved graphs, and the engine's own `graphBuild` and `graphQuery` passed through unchanged (cursors and errors included). Local access and tool filters still apply. `octocode-graph channel` is the same server plus the live viewer, its chat and its wiki, as a Claude Code channel.
+This one server carries everything: `build_graph`, `query_graph`, `refresh_graph`, `diff_graph`, `check_graph` and `link_graph` for saved graphs, and the engine's own `graphBuild` and `graphQuery` passed through unchanged (cursors and errors included). Local access and tool filters still apply. `octocode-graph channel` is the same server plus the live viewer, its chat and its wiki, as a Claude Code channel.
 
 In JavaScript, the saved-graph API and the native tools come from `@octocodeai/octocode-graph`:
 
@@ -61,7 +61,7 @@ Each new build needs a fresh result directory. Omit `--out` to allocate one auto
 
 | Command | Result |
 | --- | --- |
-| `octocode-graph build <directory> [--out <result-dir>]` | Build a stitched graph, evidence and briefs, and register the result for its root. A directory inside a workspace names the workspace packages it left as externals and the build of the workspace root that stitches them. |
+| `octocode-graph build <directory> [--out <result-dir>]` | Build a stitched graph, evidence and briefs, and register the result for its root. A directory inside a workspace names the workspace packages it left as externals and the build of the workspace root that stitches them; a directory inside one package names its imports into the rest of that package and the build of the package root. |
 | `octocode-graph query <result-dir> "deps src/main.ts" [--refresh]` | Query a saved graph or a live checkpoint. A project directory selects its newest saved graph under `.octocode/octocode-graph`, else the newest one registered for it (built with `--out` elsewhere). `--refresh` refreshes edited chunks first. |
 | `octocode-graph refresh <result-dir>` | After edits, rebuild only the chunks holding a change, ask the language server again only about code an edit could change, and measure the whole graph again. The replaced graph stays as `previous.json`. |
 | `octocode-graph diff <result-dir>` or `diff <before> <after>` | Review a change by structure: new or grown cycles, new package dependencies (flagged against stability), files with more dependents, new hotspots, then every dependency added or removed. |
@@ -69,6 +69,14 @@ Each new build needs a fresh result directory. Omit `--out` to allocate one auto
 | `octocode-graph serve <directory>` | Open an interactive graph. |
 | `octocode-graph serve --replay <result-dir>` | Reopen a saved run, including runs created by the former viewer skill. |
 | `octocode-graph events <result-dir>` | Summarize the run's `events.jsonl`: tool calls, cursor pages, errors, rows, bytes and time per tool; wall time and phases per build and refresh. |
+| `octocode-graph check [<result-dir\|project-dir>] [--rules <file>] [--format text\|json\|sarif]` | Check dependency rules (forbidden, allowed, required, reachable, circular) for CI, with `--baseline`, `--write-baseline` and `--since <git-rev>`. Rules default to `.octocode/graph-rules.json`: [rules](skills/octocode-graph/references/rules.md). |
+| `octocode-graph link <result-dir> add\|remove\|review\|list` | Store an agent's link between files, kept only while each quote sits at its cited lines: [links](skills/octocode-graph/references/links.md). |
+| `octocode-graph wiki build\|read\|note\|promote\|lint <result-dir> …` | Build, read, annotate or lint the code wiki of a saved graph: [wiki](skills/octocode-graph/references/wiki.md). |
+| `octocode-graph locate <bundle.js:line:col>… [--graph <result-dir>]` | Map bundled or minified positions to source lines through source maps, and with `--graph` to the graph symbol holding them. |
+| `octocode-graph cache stats` or `cache prune --max-bytes N` | Show or prune the shared cache of chunk results, LSP answers and derived data. |
+| `octocode-graph preflight [--json]` | Report what can run here (engine, language servers) and how to enable the rest. |
+| `octocode-graph render --data <data.json>` | Write `brief.txt` beside a `data.json`. |
+| `octocode-graph reply <result-dir> "text"` | Answer a viewer chat, query or wiki request through the viewer serving the run. |
 
 See the [viewer commands](skills/octocode-graph/references/commands.md) for scope, LSP options and progress.
 

@@ -1,0 +1,5 @@
+{
+  "description": "Flutter or Dart: CI with dart format, flutter analyze --fatal-infos, flutter test and a web build",
+  "scripts": {},
+  "notes": "CI builds web, which needs no SDK; change the build step to apk, appbundle or ios --no-codesign (macOS runner) for the platforms you ship. A pure Dart package swaps flutter for dart and drops the build step."
+}

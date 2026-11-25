@@ -5,6 +5,34 @@
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
-  "devDependencies": ["eslint", "@eslint/js", "typescript-eslint", "prettier"],
-  "notes": "typescript-eslint declares a typescript peer range: run check-versions.mjs with typescript in the set. When it excludes TypeScript 7, pin typescript to the range's highest version or alias typescript to @typescript/typescript6 and add @typescript/native for tsc."
+  "devDependencies": [
+    "eslint",
+    "@eslint/js",
+    "typescript-eslint",
+    "prettier"
+  ],
+  "notes": "typescript-eslint declares a typescript peer range: run check-versions.mjs with typescript in the set. While the range excludes TypeScript 7, pin typescript to its fixPeer (the highest 6.x), which also runs tsc. typescript-eslint's tsgo backend for TypeScript 7.1 is experimental.",
+  "alternatives": {
+    "eslint.config.mjs": [
+      "eslint.config.js",
+      "eslint.config.cjs",
+      "eslint.config.ts",
+      "eslint.config.mts",
+      "eslint.config.cts"
+    ],
+    ".prettierrc.json": [
+      ".prettierrc",
+      ".prettierrc.js",
+      ".prettierrc.cjs",
+      ".prettierrc.mjs",
+      ".prettierrc.yaml",
+      ".prettierrc.yml",
+      ".prettierrc.toml",
+      ".prettierrc.json5",
+      "prettier.config.js",
+      "prettier.config.cjs",
+      "prettier.config.mjs",
+      "prettier.config.ts"
+    ]
+  }
 }

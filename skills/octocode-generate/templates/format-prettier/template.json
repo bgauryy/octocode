@@ -1,0 +1,12 @@
+{
+  "description": "Prettier only: format and format:check scripts for a framework app whose scaffold already lints (Next.js, Expo, Angular, Nuxt)",
+  "scripts": {
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": ["prettier"],
+  "alternatives": {
+    ".prettierrc.json": [".prettierrc", ".prettierrc.js", ".prettierrc.cjs", ".prettierrc.mjs", ".prettierrc.yaml", ".prettierrc.yml", ".prettierrc.toml", ".prettierrc.json5", "prettier.config.js", "prettier.config.cjs", "prettier.config.mjs", "prettier.config.ts"]
+  },
+  "notes": "Leaves the scaffold's linter and its version pins alone. Prettier reads .gitignore and .prettierignore."
+}

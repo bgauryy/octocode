@@ -53,7 +53,7 @@ fn a_materialized_snapshot_refreshed_before_maintenance_locks_it_is_kept() {
                 .unwrap();
         })));
     });
-    sweep_materialized(&root, INTERVAL);
+    sweep_materialized(&root, INTERVAL, SystemTime::now());
     assert_eq!(
         fs::read_to_string(snapshot.join("refreshed.txt")).unwrap(),
         "fresh evidence"
@@ -348,4 +348,42 @@ fn existing_tmp_is_swept_once_and_writes_only_the_marker() {
     assert!(home.path().join(MARKER).is_file());
     assert!(!tmp.join("session-stats.json").exists());
     assert!(!run_if_due(home.path(), INTERVAL));
+}
+
+/// A server that stays up sweeps again once the 24 h gate reopens, with no
+/// restart; closing it stops the task.
+#[tokio::test]
+async fn a_live_runtime_sweeps_a_stale_snapshot_when_the_gate_reopens() {
+    let home = tempfile::tempdir().unwrap();
+    let repo = octocode_tool_github::gh_structure::materialize::materialize_root(home.path())
+        .join("owner/repo");
+    let snapshot = repo.join("abc");
+    fs::create_dir_all(&snapshot).unwrap();
+    fs::write(snapshot.join("lib.rs"), "x").unwrap();
+    // The start-of-process sweep records its marker and keeps the fresh snapshot.
+    let start = SystemTime::now();
+    assert!(run_if_due_at(home.path(), INTERVAL, start));
+    assert!(snapshot.is_dir());
+
+    let later = start + INTERVAL + Duration::from_secs(60);
+    let periodic = Periodic::default();
+    periodic.start(
+        home.path().to_path_buf(),
+        INTERVAL,
+        Duration::from_millis(5),
+        Arc::new(move || later),
+    );
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while snapshot.exists() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("the periodic sweep removed the stale snapshot");
+
+    periodic.close().await;
+    assert!(
+        periodic.task.lock().unwrap().is_none(),
+        "close ends the sweep task"
+    );
 }

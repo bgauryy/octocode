@@ -1,13 +1,14 @@
 // The saved-graph API, the one implementation behind the CLI commands (build, refresh, query, diff), the MCP
 // channel and library callers: build a stitched graph with the native engine, refresh it after edits, open it and
 // ask it questions, and compare two of its states.
-import { appendFileSync, readFileSync, statSync } from 'node:fs';
+import { appendFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { diffGraphs, type GraphDiff } from './diff.ts';
 import { defaults, logLine, readEvents, runPipeline } from './pipeline.ts';
 import {
   editedSince,
   graphPath,
+  readGraphFile,
   resultDir,
   runQuery,
   type QueryResult,
@@ -19,7 +20,6 @@ import { refreshRun } from './refresh.ts';
 import { graphInput, lspMode } from './lib/run-options.ts';
 import { beginRun, freshOut } from './lib/run-output.ts';
 import { postServer, serverOf, type ServerAnswer } from './lib/served.ts';
-import { withSearchIndex } from './search-sidecar.ts';
 import type { RefreshedPayload, RunEvent, RunOptions } from './types.ts';
 import type { CacheEvent } from './graph-cache.ts';
 
@@ -209,11 +209,7 @@ export interface SavedGraph {
  */
 export function openGraph(path: string): SavedGraph {
   const found = graphPath(path);
-  // data.json is this package's own output: the query engine tolerates any missing field.
-  const data = withSearchIndex(
-    JSON.parse(readFileSync(found.path, 'utf8')) as QueryData,
-    found.path
-  );
+  const data = readGraphFile(found.path);
   return {
     path: found.path,
     run: found.chosen,

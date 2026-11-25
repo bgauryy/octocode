@@ -63,6 +63,9 @@ pub(super) struct AnchorModule {
     /// Canonical anchor file.
     path: PathBuf,
     symbol: String,
+    /// [`member_reads`] of `symbol`, compiled once with it; `None` when the
+    /// pattern did not compile.
+    member_reads: Option<regex::Regex>,
     /// The project's placement of bare specifiers ([`Self::within`]);
     /// without it a bare specifier that binds the name stays a candidate.
     /// A relay of this module's export ([`Self::relay`]) shares it.
@@ -128,8 +131,8 @@ static DERIVED_BINDING: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock:
 /// declaration binds from `local` (one step: `const { ns } = local`,
 /// `const ns = local.entry`), or off a call or an index result. A receiver
 /// rooted elsewhere (a global, a parameter) reads nothing off `local`.
-fn reads_member_of(content: &str, local: &str, symbol: &str) -> bool {
-    let Some(reads) = member_reads(symbol) else {
+fn reads_member_of(content: &str, local: &str, reads: Option<&regex::Regex>) -> bool {
+    let Some(reads) = reads else {
         return true;
     };
     let mut derived = None::<Vec<&str>>;
@@ -258,6 +261,7 @@ impl AnchorModule {
         (exported || common_js()).then(|| Self {
             path: PathBuf::from(canonical(path)),
             symbol: symbol.to_owned(),
+            member_reads: member_reads(symbol),
             project: None,
             output: None,
         })
@@ -288,6 +292,7 @@ impl AnchorModule {
     fn relay(&self, relay: &str, alias: String) -> Self {
         Self {
             path: PathBuf::from(relay),
+            member_reads: member_reads(&alias),
             symbol: alias,
             project: self.project.clone(),
             output: self.output.clone(),
@@ -441,7 +446,7 @@ impl AnchorModule {
             // import binds nothing.
             let qualified = || {
                 import.local_name.as_deref().is_some_and(|local| {
-                    member && reads_member_of(content, local, &self.symbol)
+                    member && reads_member_of(content, local, self.member_reads.as_ref())
                         || passes_objects && exports_binding(content, facts, local)
                 })
             };

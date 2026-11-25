@@ -1,0 +1,5 @@
+{
+  "description": "Any JavaScript or TypeScript project (Next.js, Expo, Angular, Nuxt, Vite, Node.js): a CI workflow with one step per gate script package.json has",
+  "scripts": {},
+  "notes": "Steps come from the package.json scripts after the other templates in the same run merge theirs; a gate with no script becomes a comment naming what to add. Apply it after the scaffold, with a lint lane only when the scaffold set up none."
+}

@@ -135,3 +135,29 @@ test('brief.txt names the workspace packages treated as externals and the comman
   assert.match(text, /^SCOPE 1 package of the npm workspace at \/ws was treated as an external, not stitched: @s\/c \(684 imports\)/m);
   assert.match(text, /build the workspace root \(a larger build\): octocode-graph build \/ws$/m);
 });
+
+test('a build of a directory inside a member names imports into the rest of that package and the build of its root, not the workspace', () => {
+  const ws = tree({
+    'package.json': JSON.stringify({ workspaces: ['packages/*'] }),
+    'packages/app/package.json': JSON.stringify({ name: '@demo/app' }),
+    'packages/kit/package.json': JSON.stringify({ name: 'kit' }),
+  });
+  const pkg = join(ws, 'packages/app');
+  const unresolved = [
+    { source: 'a.ts', specifier: '../ids' },
+    { source: 'b.ts', specifier: '@demo/app/util' },
+    { source: 'a.ts', specifier: 'kit' },
+  ];
+  const found = workspaceExternals(join(pkg, 'src/lib'), { unresolved }, { env });
+  assert.deepEqual(found.map((w) => [w.root, w.scope, w.packages.map((p) => [p.name, p.paths, p.imports, p.files])]), [
+    [pkg, 'package', [['@demo/app', ['packages/app'], 2, 2]]],
+    [ws, undefined, [['kit', ['packages/kit'], 1, 1]]],
+  ]);
+  assert.equal(found[0].command, `npx -y @octocodeai/octocode-graph build ${pkg}`);
+  const note = workspaceNote(found[0]);
+  assert.match(note, /^the build root lies inside package @demo\/app at .*: 2 imports leave it into the rest of that package/);
+  assert.ok(note.endsWith(`build the package root: ${found[0].command}`), note);
+  // Only own-package imports: no workspace row, and never the workspace build.
+  const own = workspaceExternals(join(pkg, 'src/lib'), { unresolved: unresolved.slice(0, 2) }, { env });
+  assert.deepEqual(own.map((w) => w.root), [pkg]);
+});

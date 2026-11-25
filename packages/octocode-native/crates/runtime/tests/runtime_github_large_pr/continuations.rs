@@ -165,9 +165,8 @@ async fn pr_views_are_verbatim_by_default() {
 
 /// A merged PR's merge state rides every PR row, whatever the content
 /// selection: summary, body + inventory, inventory, patch read and a later
-/// file page all carry `state:"merged"` and the `mergeCommitSha`; a read that
-/// names no section (the summary, a bare `matchString`) also carries
-/// `mergedAt`, `baseRef` and the labels (never `closedAt`).
+/// file page all carry `state:"merged"`, the `mergeCommitSha` and `mergedAt`;
+/// only the summary also carries `baseRef` and the labels (never `closedAt`).
 #[tokio::test]
 async fn merged_pr_rows_keep_merge_state_on_every_read() {
     let server = MockServer::builder().start().await;
@@ -208,8 +207,8 @@ async fn merged_pr_rows_keep_merge_state_on_every_read() {
         );
         // The summary is the whole header; a section read names the pull
         // request and its commits, and leaves the rest to the summary.
+        assert_eq!(row["mergedAt"], "2024-01-03T00:00:00Z", "{label}: {row}");
         if full_header {
-            assert_eq!(row["mergedAt"], "2024-01-03T00:00:00Z", "{label}: {row}");
             assert_eq!(row["baseRef"], "main", "{label}: {row}");
             assert_eq!(
                 row["labels"],
@@ -217,7 +216,7 @@ async fn merged_pr_rows_keep_merge_state_on_every_read() {
                 "{label}: {row}"
             );
         } else {
-            for summary_only in ["mergedAt", "baseRef", "labels", "title", "author"] {
+            for summary_only in ["baseRef", "labels", "title", "author"] {
                 assert!(row.get(summary_only).is_none(), "{label}: {row}");
             }
         }

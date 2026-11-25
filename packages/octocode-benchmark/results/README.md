@@ -5,7 +5,7 @@ The version timeline of Octocode's benchmark and the index of every stored round
 and transcripts in `campaigns/` are local and gitignored. Keep raw records immutable: these
 are what new versions are compared against ([METHOD.md](../METHOD.md#compare-a-new-version)). Folder names
 are relative to `results/` unless they start with `campaigns/` (relative to the benchmark package).
-Raw evidence of every round (answers, verdicts, transcripts, receipts) lives in `campaigns/<version>-<date>-<purpose>/`; older skill-output archives sit in `campaigns/legacy/`. New rounds follow [METHOD.md](../METHOD.md#record) and the setup in [TESTING_ENV.md](../TESTING_ENV.md).
+Raw evidence of every round (answers, verdicts, transcripts, receipts) lives in `campaigns/<version>-<date>-<purpose>/`. New rounds follow [METHOD.md](../METHOD.md#record) and the setup in [TESTING_ENV.md](../TESTING_ENV.md).
 
 ## Version timeline
 
@@ -101,16 +101,6 @@ headlines stay in the timeline above and the files stay in git history: `git sho
 | `local-native-terra-2026-10-17` (raw: `campaigns/terra-cli-ab-20261017T094616Z`) | 2026-10-17 | local-scenarios | native CLI vs shell | exploratory, not one fresh agent per question |
 | `local40-terra-goals-2026-10-13`, `LOCAL_MATRIX`, `local-goals`, `local-overview` | 2026-10-13 | local-goals | local MCP ± clasify | goals ablation |
 | `local-ranking-2026-10-13`, `read-tool-ranking-2026-10-13` | 2026-10-13 | local | read and ranking variants | context savings by ranking |
-
-## Local tools against rg and ast-grep (package `campaigns/legacy/octocode-eval-benchmark/`)
-
-| Folder | Date | What it holds |
-|---|---|---|
-| `campaigns/legacy/octocode-eval-benchmark/2026-10-20-release-localsearch-vs-rg` | 2026-10-20 | localSearch vs rg 15.2.0: all 21 lexical cases agree; rg faster |
-| `campaigns/legacy/octocode-eval-benchmark/2026-10-15-native-vs-rg` | 2026-10-15 | all local tools vs rg, development build |
-| `campaigns/legacy/octocode-eval-benchmark/2026-10-20-release-astsearch-vs-ast-grep` | 2026-10-20 | astSearch vs ast-grep 0.51.0: all 41 shared and 17 edge cases agree |
-| `campaigns/legacy/octocode-eval-benchmark/2026-10-19-owned-core-vs-ast-grep` | 2026-10-19 | owned structural matcher vs ast-grep |
-| `campaigns/legacy/octocode-eval-benchmark/2026-10-15-native-vs-ast-grep` | 2026-10-15 | AST and LSP vs ast-grep |
 
 ## Classification (clasify, JEV)
 

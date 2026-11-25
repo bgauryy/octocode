@@ -7,8 +7,8 @@ Load when the workspace has no package manager or the user asks which to use. An
 | Manager | Use when | Watch out |
 |---|---|---|
 | npm | Zero setup, ships with Node, simplest CI; small single-package projects | Slower installs; hoisted `node_modules` hides undeclared imports |
-| pnpm | Default for new projects and monorepos: strict isolated `node_modules`, content-addressed store, workspaces with catalogs, `minimumReleaseAge` supply-chain delay (1 day by default) | A tool that assumes hoisting may need `public-hoist-pattern`; pnpm 12 reports unknown settings |
-| Yarn (Berry, 4.x) | The repository already uses it; Plug'n'Play zero-installs or constraints are wanted | Needs Corepack, which Node.js stopped bundling in v25: `npm install --global corepack && corepack enable` |
+| pnpm | Default for new projects and monorepos: strict isolated `node_modules`, content-addressed store, workspaces with catalogs, `minimumReleaseAge` to hold back freshly published versions | A tool that assumes hoisting may need `public-hoist-pattern`; pnpm 12 reports unknown settings |
+| Yarn (Berry, 4.x) | The repository already uses it; Plug'n'Play zero-installs or constraints are wanted | Needs Corepack, which Node.js stopped distributing in v25: `npm install --global corepack && corepack enable` |
 | Bun | The app runs on Bun (`Bun.serve`, `bun test`), or install speed dominates; workspaces, catalogs, isolated installs for new workspaces | Runtime gaps for some Node APIs and native addons: check each dependency; pin the Bun version in CI |
 
 Pin the manager: `"packageManager": "<name>@<version>"` in package.json (read by pnpm, Yarn and `pnpm/action-setup`), and the Node version in `.nvmrc` or the `engines` field of package.json. Commit exactly one lockfile.
@@ -29,5 +29,13 @@ Pin the manager: `"packageManager": "<name>@<version>"` in package.json (read by
 | Rust | Cargo | `Cargo.lock` (commit it for apps and libraries); toolchain in `rust-toolchain.toml` | `[workspace]` members and `[workspace.dependencies]` |
 | Python | uv (manages Python too) | `uv.lock`; Python in `.python-version`; `uv sync --locked` in CI | `[tool.uv.workspace]` |
 | Go | Go modules | `go.sum`; Go version in `go.mod` (`go` and `toolchain` lines) | `go.work` |
+| Deno | Deno (npm and JSR packages) | `deno.lock`; CI `deno ci` | `workspace` in `deno.json` |
+| Dart, Flutter | pub | `pubspec.lock`; SDK constraint in `pubspec.yaml` | `workspace:` in the root `pubspec.yaml` |
+| .NET | NuGet through `dotnet` | `packages.lock.json` when `RestorePackagesWithLockFile` is on; SDK in `global.json` | `.slnx` solution; `Directory.Packages.props` for central versions |
+| JVM | Gradle (Kotlin DSL) or Maven | Commit the wrapper (`gradlew`, `mvnw`); versions in `gradle/libs.versions.toml` | `settings.gradle.kts` `include(...)`; Maven modules |
+| Swift | Swift Package Manager | `Package.resolved` | Local packages in `Package.swift` |
+| Ruby | Bundler | `Gemfile.lock`; Ruby in `.ruby-version` | — |
+| PHP | Composer | `composer.lock` | Path repositories |
+| Elixir | Mix (Hex) | `mix.lock` | Umbrella apps |
 
 Poetry, pip-tools and Conda remain valid where a repository already uses them; do not migrate unasked.

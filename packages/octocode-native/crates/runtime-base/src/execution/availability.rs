@@ -47,7 +47,7 @@ impl Availability {
                 "it needs {}.",
                 settings
                     .iter()
-                    .map(|setting| setting.display_name())
+                    .map(needed_text)
                     .collect::<Vec<_>>()
                     .join(" and ")
             ),
@@ -67,6 +67,15 @@ impl Availability {
                 .collect(),
         }
     }
+}
+
+/// A missing setting as the user must set it: storage names the value it needs.
+fn needed_text(setting: &&'static ConfigFieldSpec) -> String {
+    if setting.path == field::STORAGE_MODE.path {
+        let env = setting.env_name().map(|env| format!(" ({env})"));
+        return format!("{}=persistent{}", setting.path, env.unwrap_or_default());
+    }
+    setting.display_name()
 }
 
 /// Every tool's [`Availability`] on one runtime, in contract order.
@@ -130,6 +139,7 @@ pub fn classification_key(config: &ConfigOutput) -> Option<&str> {
 const fn required_setting(id: ToolId) -> Option<&'static ConfigFieldSpec> {
     match id {
         ToolId::Clasify => Some(field::CLASSIFICATION_API),
+        ToolId::GhCloneRepo => Some(field::STORAGE_MODE),
         _ => None,
     }
 }
@@ -168,6 +178,9 @@ fn is_met(config: &ConfigOutput, setting: &ConfigFieldSpec) -> bool {
             resolved.tools.enable_security_check
         }
         path if path == field::CLASSIFICATION_API.path => classification_key(config).is_some(),
+        path if path == field::STORAGE_MODE.path => {
+            crate::config::is_persistent_storage_enabled(resolved)
+        }
         _ => false,
     }
 }

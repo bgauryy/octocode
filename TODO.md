@@ -102,9 +102,6 @@ Prefixes seen in the user temp dir that come from sibling repos; tell their owne
   (`crates/engine/src/search/declaration.rs:242-246`), but `rank` is written into the stored scan format
   (`crates/tool-local/src/local_search/packed/write.rs:136`). Removing it changes that format: decide, then remove
   with the format version bump.
-- [ ] **Benchmark docs cite deleted evidence.** `packages/octocode-benchmark/results/README.md:105-113` and
-  `COMPARISONS.md:82,122` name `campaigns/legacy/` folders that were deleted on 2026-11-24. Mark them removed or
-  drop the rows.
 - [ ] **Large benchmark clones were deleted** (`local/repos/huge-*`). `questions/local-core` Q17, Q24 and Q25 need
   them: re-clone per `packages/octocode-benchmark/local/README.md` before a local-core round.
 - [ ] **A CLI call once failed `ghCloneRepo` with "git is not installed or not on PATH"**; the next identical call

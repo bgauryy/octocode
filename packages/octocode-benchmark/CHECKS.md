@@ -212,8 +212,7 @@ Behavior, judged by reading, on both surfaces. The per-tool sections below list 
 - [ ] The same calls on the published release (`npx -y octocode@latest`): any answer that got worse names
   its call.
 - [ ] Settings: each of `OCTOCODE_BETA`, `OCTOCODE_ENABLE_CLONE`, `OCTOCODE_SECURITY_CHECKS`, a classification
-  key, `TOOLS_TO_RUN` and `DISABLE_TOOLS` changes exactly its tools in MCP `tools/list` (the CLI lists all), and
-  so do the legacy `ENABLE_LOCAL` and `ENABLE_CLONE`;
+  key, `TOOLS_TO_RUN` and `DISABLE_TOOLS` changes exactly its tools in MCP `tools/list` (the CLI lists all);
   listing makes no provider request; a call to a missing key's `clasify` gives `missingConfiguration`.
 - [ ] Launcher (`node packages/octocode/out/octocode.js`): argv, stdin (`--input -`), the exit code, SIGTERM
   (signal death as 128+N) and `--version` pass through to the native binary; with the platform package

@@ -7,6 +7,7 @@ use super::*;
 use std::fs;
 use std::path::PathBuf;
 mod acquisition;
+mod clone_cache_limit;
 mod diagnostics;
 mod hardening;
 mod precedence;

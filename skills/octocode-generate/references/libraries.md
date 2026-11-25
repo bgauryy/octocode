@@ -1,58 +1,62 @@
 # Libraries
 
-Load when the intake names a feature that needs a library. Add a library only for a feature in scope; prefer the framework's built-in or the platform (`fetch`, `node --env-file`, Go `net/http`) when it suffices. Versions as of 2026-11-25: run `check-versions.mjs` on the chosen set, which also flags deprecations (for example `lucia`).
+Load when a feature in scope needs a library. Add one only for an in-scope feature, and prefer the framework's built-in or the platform (`fetch`, `node --env-file`, Go `net/http`) when it is enough. Majors as of 2026-11-25: run `check-versions.mjs` on the chosen set, which also flags deprecations (for example `lucia`), and read the official example for the integration ([research](research.md#recipe), step 4).
 
-## HTTP servers
+## HTTP servers and RPC
 
 | Library | Use when | Avoid when |
 |---|---|---|
-| Hono 4 | Edge or multi-runtime (Workers, Bun, Deno, Node); small, typed RPC client | You depend on Express middleware |
-| Fastify 5 | Node services needing throughput, JSON-schema validation, plugins | Edge runtimes |
-| Express 5 | Largest middleware ecosystem, team familiarity, simple services | Performance or typed contracts lead |
+| Hono 4 | Edge or multi-runtime (Workers, Bun, Deno, Node.js); small, typed RPC client | You depend on Express middleware |
+| Fastify 5 | Node.js services needing throughput, JSON-schema validation, plugins | Edge runtimes |
+| Express 5 | The largest middleware ecosystem, team familiarity | Performance or typed contracts lead |
 | NestJS 12 | Large teams wanting modules, DI and conventions | Small services |
-| Elysia | Bun-only services with end-to-end types | Node or edge targets |
-| tRPC 11 / oRPC | TypeScript client and server in one repo; oRPC when you also need OpenAPI | Public APIs for other languages |
-| Rust: axum 0.8 (+ tokio) | Default Rust web service | — |
-| Python: FastAPI | Typed async APIs with OpenAPI; Django 6 for full-stack apps with admin and ORM; Litestar as a FastAPI alternative | — |
-| Go: `net/http` | Stdlib routing with methods and path patterns covers most services; chi v5 for middleware composition; Gin or Echo when the team knows them | — |
+| Elysia | Bun-only services with end-to-end types | Node.js or edge targets |
+| tRPC 11 / oRPC | TypeScript client and server in one repository; oRPC when you also need OpenAPI | Public APIs for other languages |
+| Other languages | Rust: axum 0.8 + tokio. Python: FastAPI; Litestar as an alternative. Go: `net/http` routing; chi for middleware composition | — |
 
-## HTTP clients
+HTTP clients: built-in `fetch` by default; ky 2 adds retries, hooks and timeouts; ofetch suits Nuxt; axios when interceptors or legacy compatibility matter. Rust reqwest, Python httpx, Go `net/http`.
 
-Default to built-in `fetch` (browsers, Node, Bun, Deno). ky 2 adds retries, hooks and timeouts on top of `fetch`; ofetch suits Nuxt/UnJS; axios 1 when interceptors or legacy compatibility matter; undici for low-level Node pooling. Rust: reqwest. Python: httpx (sync and async). Go: `net/http`.
+## State, data fetching and forms
 
-## Client state
+| Need | Library |
+|---|---|
+| Server data: fetching, caching, invalidation | TanStack Query 5 (SWR for simple cases). Never mirror remote data into a global store |
+| Small global UI state (React, React Native) | Zustand 5; Jotai for many independent atoms; Redux Toolkit 2 for large teams or existing Redux |
+| Vue store | Pinia |
+| Explicit state machines | XState 5 |
+| Shared state across islands or frameworks | nanostores |
+| Forms | React Hook Form; TanStack Form for framework-agnostic typed forms |
 
-| Need | Library | Use when |
-|---|---|---|
-| Server data (fetching, caching, invalidation) | TanStack Query 5; SWR for simple cases | Any remote data: do not put it in a global store |
-| Small global UI state, React | Zustand 5 | Default store: tiny API, no provider |
-| Atomic, derived state, React | Jotai | Many independent pieces of state |
-| Large app, strict patterns, devtools | Redux Toolkit 2 (with RTK Query) | Big teams, event logs, existing Redux |
-| Vue | Pinia | Default Vue store |
-| Complex flows, workflows | XState 5 | Explicit state machines |
-| Framework-agnostic | nanostores | Shared state across islands (Astro) or frameworks |
-
-Start with local component state and URL state; add a store only when state is shared across distant components.
+Start with component and URL state; add a store only when distant components share state.
 
 ## Validation
 
-Zod 4 is the default (widest integration). Valibot for the smallest bundles; ArkType for fast runtime checks with TS-like syntax; TypeBox for JSON Schema output. Python: Pydantic 2. Validate every input at the trust boundary (request, env, file).
+Zod 4 by default (widest integration, Standard Schema). Valibot for the smallest bundles, ArkType for fast checks with TypeScript-like syntax, TypeBox for JSON Schema output. Python: Pydantic 2. Validate every input at the trust boundary: request, env, file.
 
 ## Data
 
 | Library | Use when |
 |---|---|
 | Drizzle ORM | SQL-first, light, edge-friendly; migrations with drizzle-kit |
-| Prisma | Schema-first with generated client and migrations; check the version: `latest` may be a release candidate |
+| Prisma | Schema-first with a generated client and migrations. Check the version: `latest` can be a release candidate (8.0.0-rc on 2026-11-25), and Better Auth's adapter declares Prisma 5–7 |
 | Kysely | Type-safe query builder without an ORM |
 | Mongoose | MongoDB |
-| Rust: sqlx (compile-checked SQL), SeaORM or Diesel | — |
-| Python: SQLAlchemy 2 + Alembic; SQLModel with FastAPI | — |
+| Rust | sqlx (compile-checked SQL), SeaORM or Diesel |
+| Python | SQLAlchemy 2 + Alembic; SQLModel with FastAPI |
+| Hosted backends | Supabase (Postgres, auth, storage), Convex (reactive database with functions), Firebase: when you want managed data and auth over running a database |
 
 ## Auth
 
-Better Auth is the default for self-hosted TypeScript auth; it now also maintains Auth.js (`next-auth@latest` is still 4.x). Lucia is deprecated. Hosted providers (Clerk, Auth0, WorkOS, Supabase Auth) when you want managed users, SSO or compliance. Store sessions server-side, keep secrets in env, and add rate limiting on auth routes.
+Better Auth is the default for self-hosted TypeScript auth; Auth.js is now part of Better Auth, which recommends Better Auth for new projects (`next-auth@latest` is still 4.x). Lucia is deprecated. Hosted providers (Clerk, Auth0, WorkOS, Supabase Auth) when you want managed users, SSO or compliance. Keep sessions server-side and secrets in env, and rate-limit auth routes.
 
-## Forms, UI and the rest
+## UI and mobile
 
-Forms: React Hook Form; TanStack Form for framework-agnostic typed forms. Styling: Tailwind CSS 4; components: shadcn (copies source you own) on Radix primitives. Routing in SPAs: TanStack Router or React Router. Logging: pino (Node), tracing (Rust), structlog or stdlib logging (Python), `log/slog` (Go). Env: validate with the schema library at startup.
+Styling: Tailwind CSS 4; components: shadcn (copies source you own) on Radix primitives. SPA routing: TanStack Router or React Router. React Native: Expo Router for navigation, NativeWind for Tailwind classes, FlashList for long lists.
+
+## AI
+
+AI SDK (`ai`, `@ai-sdk/react`) for streaming chat, tools and structured output in TypeScript; Mastra for agents, workflows and memory; MCP servers with `@modelcontextprotocol/server` (TypeScript SDK v2) or `mcp` (Python). Keep provider keys in `.env`.
+
+## Operations
+
+Logging: pino (Node.js), tracing (Rust), structlog or stdlib logging (Python), `log/slog` (Go). Env: validate at startup with the schema library.

@@ -94,6 +94,9 @@ fn an_include_scope_reaches_only_directories_that_could_hold_a_match() {
     for anywhere in [&["*.rs"][..], &["build/"], &["**/gen/*.ts"], &[]] {
         assert!(dir(&scope(anywhere), "any/deep/dir"), "{anywhere:?}");
     }
+    // A segment that does not compile alone is unsure, and unsure reaches.
+    let split = scope(&["{src/lib,test}/x"]);
+    assert!(dir(&split, "anything"));
     let files = scope(&["*.go"]);
     assert!(files.reaches(&root.join("a/b.go"), Path::new("a/b.go"), false));
     assert!(!files.reaches(&root.join("a/b.ts"), Path::new("a/b.ts"), false));

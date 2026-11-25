@@ -41,6 +41,7 @@ fn schema_lists_clasify_only_with_a_key() {
     let workspace = Workspace::new();
     let run = |key: Option<&str>, args: &[&str]| {
         let mut command = workspace.cli();
+        command.env("OCTOCODE_STORAGE_MODE", "persistent");
         if let Some(key) = key {
             command.env("OCTOCODE_CLASSIFICATION_API", key);
         }
@@ -224,4 +225,38 @@ fn a_catalog_view_asked_of_a_tool_is_refused_with_the_catalog_call() {
             "{view}: {text}"
         );
     }
+}
+
+/// Memory storage refuses clone and materialize: the CLI says what to set and
+/// leaves materialize out of the `ghStructure` view.
+#[test]
+fn memory_storage_hides_clone_and_materialize_from_the_schema() {
+    let workspace = Workspace::new();
+    let run = |storage: &str, args: &[&str]| {
+        let output = workspace
+            .cli()
+            .env("OCTOCODE_STORAGE_MODE", storage)
+            .args(args)
+            .output()
+            .expect("schema");
+        assert!(output.status.success(), "{args:?}: {}", stdout(&output));
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).expect("JSON")
+    };
+    let clone = run("memory", &["schema", "ghCloneRepo"]);
+    assert_eq!(clone["availability"]["enabled"], false, "{clone}");
+    assert_eq!(
+        clone["availability"]["envVar"], "OCTOCODE_STORAGE_MODE",
+        "{clone}"
+    );
+    let memory = run("memory", &["schema", "ghStructure"]);
+    assert!(!memory.to_string().contains("materialize"), "{memory}");
+    let persistent = run("persistent", &["schema", "ghStructure"]);
+    assert!(
+        persistent.to_string().contains("materialize"),
+        "{persistent}"
+    );
+    assert_eq!(
+        run("persistent", &["schema", "ghCloneRepo"])["availability"]["enabled"],
+        true
+    );
 }

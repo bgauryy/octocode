@@ -1,12 +1,90 @@
-//! Startup-triggered retention sweeps of native caches.
+//! Retention sweeps of native caches: once at start, then on a periodic check
+//! for as long as the runtime lives. Every run passes through the same 24 h
+//! marker gate.
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::Arc,
     time::{Duration, SystemTime},
 };
 
+use octocode_io::cancellation::Cancellation;
+
 const INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 const MARKER: &str = ".last-cache-maintenance";
+/// How often a live runtime checks whether the sweep is due. The marker gate
+/// still decides; a check that finds it not due reads one small file.
+const CHECK_EVERY: Duration = Duration::new(INTERVAL.as_secs() / 24, 0);
+
+/// Source of the current time; tests inject one.
+pub(super) type Clock = Arc<dyn Fn() -> SystemTime + Send + Sync>;
+
+/// The periodic sweep of one runtime. Closing or dropping it stops the task.
+#[derive(Default)]
+pub(super) struct Periodic {
+    stop: Cancellation,
+    task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+}
+
+impl Periodic {
+    /// Starts checking every `every` on the current tokio runtime; nothing
+    /// starts outside one (a host without a runtime ends with its call).
+    pub(super) fn start(
+        &self,
+        home: PathBuf,
+        capture_ttl: Duration,
+        every: Duration,
+        clock: Clock,
+    ) {
+        let Ok(handle) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let stop = self.stop.clone();
+        let task = handle.spawn(async move {
+            // A fixed schedule: a sweep that runs long does not move the next check.
+            let mut check = tokio::time::interval_at(tokio::time::Instant::now() + every, every);
+            loop {
+                tokio::select! {
+                    () = stop.cancelled() => return,
+                    _ = check.tick() => {}
+                }
+                let (home, clock) = (home.clone(), Arc::clone(&clock));
+                let _ = tokio::task::spawn_blocking(move || {
+                    run_if_due_at(&home, capture_ttl, clock());
+                })
+                .await;
+            }
+        });
+        *self
+            .task
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(task);
+    }
+
+    /// [`Self::start`] with the production period and the wall clock.
+    pub(super) fn start_default(&self, home: PathBuf, capture_ttl: Duration) {
+        self.start(home, capture_ttl, CHECK_EVERY, Arc::new(SystemTime::now));
+    }
+
+    /// Stops the task and waits for a sweep in progress to finish.
+    pub(super) async fn close(&self) {
+        self.stop.cancel();
+        let task = self
+            .task
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        if let Some(task) = task {
+            let _ = task.await;
+        }
+    }
+}
+
+impl Drop for Periodic {
+    fn drop(&mut self) {
+        self.stop.cancel();
+    }
+}
 
 #[cfg(test)]
 type SnapshotLockHook = Box<dyn FnOnce(&Path, &Path)>;
@@ -23,6 +101,11 @@ thread_local! {
 /// when no sweep is due or it could not be recorded. `capture_ttl` is the URL
 /// capture retention, the same value each capture publishes as its `expiresAt`.
 pub(super) fn run_if_due(home: &Path, capture_ttl: Duration) -> bool {
+    run_if_due_at(home, capture_ttl, SystemTime::now())
+}
+
+/// [`run_if_due`] as of `now`.
+fn run_if_due_at(home: &Path, capture_ttl: Duration, now: SystemTime) -> bool {
     let tmp = home.join("tmp");
     if !tmp.is_dir()
         && !octocode_runtime_base::cache::Directory::ALL
@@ -38,7 +121,10 @@ pub(super) fn run_if_due(home: &Path, capture_ttl: Duration) -> bool {
         && let Ok(epoch) = text.trim().parse::<u64>()
     {
         let last = SystemTime::UNIX_EPOCH + Duration::from_secs(epoch);
-        if last.elapsed().is_ok_and(|elapsed| elapsed < INTERVAL) {
+        if now
+            .duration_since(last)
+            .is_ok_and(|elapsed| elapsed < INTERVAL)
+        {
             return false;
         }
     }
@@ -60,24 +146,28 @@ pub(super) fn run_if_due(home: &Path, capture_ttl: Duration) -> bool {
     // `tmp/tree` and `tmp/tree-staging` are written by octocode-mcp 19.x
     // (19.1.0 is still its latest published release), which shares this
     // home; native never reads them, so aged entries are cleared here.
-    sweep_dir(&tmp.join("tree"), INTERVAL);
-    sweep_dir(&tmp.join("tree-staging"), INTERVAL);
+    sweep_dir(&tmp.join("tree"), INTERVAL, now);
+    sweep_dir(&tmp.join("tree-staging"), INTERVAL, now);
     // Materialized checkouts: each snapshot ages by its last write and is
     // removed only under its own lock, so a materialize in progress keeps
     // it.
     sweep_materialized(
         &octocode_tool_github::gh_structure::materialize::materialize_root(home),
         INTERVAL,
+        now,
     );
     // Rate-limit mirrors only hold facts that expire within ~1h.
-    sweep_dir(&tmp.join("ratelimit"), INTERVAL);
+    sweep_dir(&tmp.join("ratelimit"), INTERVAL, now);
     // URL captures are content-addressed directories, rewritten on every
     // recapture of the same text, so their age is their last capture.
     sweep_dir(
         &octocode_tools_shared::source_capture::url::capture_root(home),
         capture_ttl,
+        now,
     );
-    let epoch = octocode_runtime_base::civil_date::unix_secs();
+    let epoch = now
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs());
     // Without the marker the next start sweeps again: say so, and do not
     // report the sweep as recorded.
     if let Err(error) = fs::write(&marker, epoch.to_string()) {
@@ -98,7 +188,7 @@ pub(super) fn run_if_due(home: &Path, capture_ttl: Duration) -> bool {
 /// `max_age`, holding its `<commit>.lock` as a materialize does: a snapshot
 /// whose lock is held is in use and stays. The lock file stays too, so a
 /// writer waiting on it never locks a file another writer recreated.
-fn sweep_materialized(root: &Path, max_age: Duration) {
+fn sweep_materialized(root: &Path, max_age: Duration, now: SystemTime) {
     let children = |path: &Path| {
         fs::read_dir(path)
             .into_iter()
@@ -117,7 +207,7 @@ fn sweep_materialized(root: &Path, max_age: Duration) {
                 continue;
             };
             let manifest = repo.join(format!("{commit}.manifest.json"));
-            if !materialized_stale(&snapshot, &manifest, max_age) {
+            if !materialized_stale(&snapshot, &manifest, max_age, now) {
                 continue;
             }
             #[cfg(test)]
@@ -140,7 +230,7 @@ fn sweep_materialized(root: &Path, max_age: Duration) {
             };
             // A writer may have refreshed the snapshot after the unlocked
             // age check. Its lock makes this verdict and deletion one transaction.
-            if !materialized_stale(&snapshot, &manifest, max_age) {
+            if !materialized_stale(&snapshot, &manifest, max_age, now) {
                 continue;
             }
             let _ = fs::remove_dir_all(&snapshot);
@@ -149,20 +239,24 @@ fn sweep_materialized(root: &Path, max_age: Duration) {
     }
 }
 
-fn materialized_stale(snapshot: &Path, manifest: &Path, max_age: Duration) -> bool {
+fn materialized_stale(
+    snapshot: &Path,
+    manifest: &Path,
+    max_age: Duration,
+    now: SystemTime,
+) -> bool {
     [snapshot, manifest]
         .into_iter()
         .filter_map(|path| fs::metadata(path).and_then(|meta| meta.modified()).ok())
         .max()
-        .and_then(|newest| newest.elapsed().ok())
+        .and_then(|newest| now.duration_since(newest).ok())
         .is_some_and(|age| age > max_age)
 }
 
-fn sweep_dir(path: &PathBuf, max_age: Duration) {
+fn sweep_dir(path: &PathBuf, max_age: Duration, now: SystemTime) {
     let Ok(entries) = fs::read_dir(path) else {
         return;
     };
-    let now = SystemTime::now();
     for entry in entries.flatten() {
         let path = entry.path();
         let Ok(metadata) = entry.metadata() else {

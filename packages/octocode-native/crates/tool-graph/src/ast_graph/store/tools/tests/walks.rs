@@ -150,6 +150,37 @@ fn a_stale_answer_leads_to_the_rebuild_of_its_scope() {
     }
 }
 
+/// The rebuild a stale answer leads to is a call its row needs, so the
+/// response stage keeps it on the successful (evidence) row, where `related`
+/// holds only the calls the producer marked required.
+#[test]
+fn a_stale_answers_rebuild_survives_the_response_stage_on_its_evidence_row() {
+    let dir = Fixture::new();
+    dir.write("app/a.ts", "export const a = 1;\n");
+    let built = call(&dir.0, ToolId::GraphBuild, json!({"path": "app"}));
+    dir.write("app/a.ts", "export const a = 2;\n");
+    let out = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json!({"operation":"hubs","path":"app","graph":built["graph"],"kind":"file"}),
+    );
+    assert_eq!(out["freshness"]["fresh"], false, "{out}");
+    let mut structured = json!({"results": [{"index": 0, "data": out}]});
+    octocode_runtime_base::response::workflow_lead::retain_guidance(
+        ToolId::GraphQuery,
+        &mut structured,
+        &Value::Null,
+    );
+    let data = &structured["results"][0]["data"];
+    let rebuild = data["related"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|call| call["tool"] == "graphBuild")
+        .unwrap_or_else(|| panic!("the rebuild lead was dropped: {data}"));
+    assert!(rebuild.get("required").is_none(), "the mark is not served");
+}
+
 /// A symbol answer's rows are syntax candidates: `related` holds the
 /// lspSearch call that checks them at the symbol's file, name and line,
 /// with the operation that asks the same question; a file answer has none.

@@ -131,32 +131,6 @@ pub(super) struct EnvironmentArrays {
     pub(super) bound: Vec<String>,
     pub(super) credentials: Vec<String>,
     pub(super) narrow: Vec<(String, String)>,
-    /// Each legacy variable name and the current one it is read as, in
-    /// declaration order.
-    pub(super) legacy_names: Vec<(String, String)>,
-}
-
-/// The `legacyNames` of a variable: earlier names, in the order they are tried.
-fn legacy_names(
-    definition: &serde_json::Map<String, Value>,
-    path: &str,
-) -> Result<Vec<String>, Box<dyn Error>> {
-    string_list(
-        definition.get("legacyNames"),
-        &format!("{path}.legacyNames"),
-    )
-}
-
-fn string_list(value: Option<&Value>, path: &str) -> Result<Vec<String>, Box<dyn Error>> {
-    let Some(value) = value else {
-        return Ok(Vec::new());
-    };
-    value
-        .as_array()
-        .ok_or_else(|| invalid(format!("{path} must be an array")))?
-        .iter()
-        .map(|item| string(item, path).map(ToOwned::to_owned))
-        .collect()
 }
 
 pub(super) fn environment_arrays(
@@ -175,7 +149,6 @@ pub(super) fn environment_arrays(
     let mut bound = Vec::new();
     let mut credentials = BTreeSet::new();
     let mut narrow = Vec::new();
-    let mut legacy_env_names = Vec::new();
     for (name, definition_value) in environment {
         let definition = object(definition_value, &format!("environment.{name}"))?;
         match definition
@@ -203,9 +176,6 @@ pub(super) fn environment_arrays(
                 integer(priority, &format!("environment.{name}.tokenPriority"))?,
                 name.clone(),
             ));
-        }
-        for legacy in legacy_names(definition, &format!("environment.{name}"))? {
-            legacy_env_names.push((legacy, name.clone()));
         }
     }
     for field in all_fields {
@@ -250,26 +220,7 @@ pub(super) fn environment_arrays(
                 .to_owned(),
             ));
         }
-        for legacy in legacy_names(binding, &format!("{}.env", field.path))? {
-            legacy_env_names.push((legacy, name.clone()));
-        }
         bound.push(name);
-    }
-    // A legacy name carries its current name's policy: trusted, protected and masked alike.
-    for (legacy, current) in &legacy_env_names {
-        if protected.contains(current) {
-            protected.push(legacy.clone());
-        }
-        if home.contains(current) {
-            home.push(legacy.clone());
-        }
-        if credentials.contains(current) {
-            credentials.insert(legacy.clone());
-        }
-        if let Some((_, value)) = narrow.iter().find(|(name, _)| name == current).cloned() {
-            narrow.push((legacy.clone(), value));
-        }
-        bound.push(legacy.clone());
     }
     tokens.sort_by_key(|(priority, _)| *priority);
     let unique = |values: Vec<String>| {
@@ -286,23 +237,5 @@ pub(super) fn environment_arrays(
         bound: unique(bound),
         credentials: credentials.into_iter().collect(),
         narrow,
-        legacy_names: legacy_env_names,
     })
-}
-
-/// Each legacy `.octocoderc` path and the current one it is read as, in
-/// declaration order.
-pub(super) fn legacy_paths(
-    all_fields: &[Field<'_>],
-) -> Result<Vec<(String, String)>, Box<dyn Error>> {
-    let mut paths = Vec::new();
-    for field in all_fields {
-        for legacy in string_list(
-            field.definition.get("legacyPaths"),
-            &format!("{}.legacyPaths", field.path),
-        )? {
-            paths.push((legacy, field.path.clone()));
-        }
-    }
-    Ok(paths)
 }

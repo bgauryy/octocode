@@ -15,7 +15,7 @@ fn cli_catalog_ignores_mcp_settings_and_follows_only_the_classification_key() {
             ("DISABLE_TOOLS", "localFetch,clasify"),
         ],
         vec![
-            ("OCTOCODE_STORAGE_MODE", "memory"),
+            ("OCTOCODE_STORAGE_MODE", "persistent"),
             ("OCTOCODE_CLASSIFICATION_API", "  "),
             ("OCTOCODE_ENABLE_CLONE", "false"),
         ],
@@ -63,30 +63,28 @@ fn clasify_needs_the_same_key_on_every_surface() {
 }
 
 #[test]
-fn mcp_clone_opt_in_is_independent_of_beta_key_and_storage() {
+fn mcp_clone_opt_in_is_independent_of_beta_and_key_with_persistent_storage() {
     for enabled in ["false", "true"] {
         for beta in ["false", "true"] {
-            for storage in ["memory", "persistent"] {
-                let tools = availability(
-                    &[
-                        ("OCTOCODE_ENABLE_CLONE", enabled),
-                        ("OCTOCODE_BETA", beta),
-                        ("OCTOCODE_STORAGE_MODE", storage),
-                        ("OCTOCODE_CLASSIFICATION_API", "fixture-key"),
-                    ],
-                    RuntimeSurface::Mcp,
-                );
+            let tools = availability(
+                &[
+                    ("OCTOCODE_ENABLE_CLONE", enabled),
+                    ("OCTOCODE_BETA", beta),
+                    ("OCTOCODE_STORAGE_MODE", "persistent"),
+                    ("OCTOCODE_CLASSIFICATION_API", "fixture-key"),
+                ],
+                RuntimeSurface::Mcp,
+            );
+            assert_eq!(
+                tools.is_available("ghCloneRepo"),
+                enabled == "true",
+                "{enabled} {beta}"
+            );
+            if enabled == "false" {
                 assert_eq!(
-                    tools.is_available("ghCloneRepo"),
-                    enabled == "true",
-                    "{enabled} {beta} {storage}"
+                    tools.get("ghCloneRepo").unwrap().env_vars(),
+                    ["OCTOCODE_ENABLE_CLONE"]
                 );
-                if enabled == "false" {
-                    assert_eq!(
-                        tools.get("ghCloneRepo").unwrap().env_vars(),
-                        ["OCTOCODE_ENABLE_CLONE"]
-                    );
-                }
             }
         }
     }
@@ -170,8 +168,35 @@ fn the_tool_list_outranks_the_surface_and_settings() {
     assert!(!all.is_available("ghCloneRepo"));
     let cli = availability(&[], RuntimeSurface::Cli);
     assert!(cli.is_available("ghCloneRepo"));
-    let memory = availability(&[("OCTOCODE_STORAGE_MODE", "memory")], RuntimeSurface::Cli);
-    assert!(memory.is_available("ghCloneRepo"));
+    let persistent = availability(
+        &[("OCTOCODE_STORAGE_MODE", "persistent")],
+        RuntimeSurface::Cli,
+    );
+    assert!(persistent.is_available("ghCloneRepo"));
+}
+
+/// Clone writes under the home, so memory storage refuses it on every surface;
+/// the reason names the value to set.
+#[test]
+fn clone_is_unavailable_under_memory_storage_on_every_surface() {
+    for surface in [RuntimeSurface::Cli, RuntimeSurface::Mcp] {
+        let tools = availability(
+            &[
+                ("OCTOCODE_STORAGE_MODE", "memory"),
+                ("OCTOCODE_ENABLE_CLONE", "true"),
+            ],
+            surface,
+        );
+        let clone = tools.get("ghCloneRepo").expect("known");
+        assert!(!clone.is_available(), "{surface:?}");
+        assert_eq!(clone.reason_code(), Some("missingConfiguration"));
+        assert_eq!(clone.env_vars(), ["OCTOCODE_STORAGE_MODE"]);
+        assert_eq!(
+            clone.reason_text(),
+            "it needs storage.mode=persistent (OCTOCODE_STORAGE_MODE)."
+        );
+        assert!(tools.is_available("ghSearchCode"));
+    }
 }
 
 #[test]

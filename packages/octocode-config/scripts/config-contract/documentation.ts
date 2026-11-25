@@ -27,9 +27,6 @@ const code = (text: string): string => `\`${text}\``;
 const yesNo = (value: unknown): string => (value ? 'yes' : 'no');
 const cell = (text: string): string => text.replace(/\|/g, '\\|');
 const withLink = (text: string, url?: string): string => (url ? `${text}; [get a key](${url})` : text);
-/** A name, with the legacy spellings still read for it. */
-const withLegacy = (name: string, legacy: readonly string[] = []): string =>
-  legacy.length > 0 ? `${code(name)} (legacy: ${legacy.map(code).join(', ')})` : code(name);
 
 const SETTINGS_START = '<!-- settings-table:start (generated from the config contract; do not edit) -->';
 const SETTINGS_END = '<!-- settings-table:end -->';
@@ -40,10 +37,10 @@ export function renderConfigurationPage(contract: Contract, page: string): strin
   const end = page.indexOf(SETTINGS_END);
   if (start < 0 || end < start) throw new Error('docs/CONFIGURATION.md lost its settings-table markers.');
   const settingRows = flattenFields(contract)
-    .map(field => `| ${withLegacy(field.path, field.legacyPaths)} | ${field.env ? withLegacy(field.env.name, field.env.legacyNames) : '—'} | ${readerType(field)} | ${withLink(markdownDefault(field), field.docsUrl)} | ${yesNo(field.credential)} | ${workspacePolicy(field)} | ${cell([field.description, field.notes].filter(Boolean).join(' '))} |`);
+    .map(field => `| ${code(field.path)} | ${field.env ? code(field.env.name) : '—'} | ${readerType(field)} | ${withLink(markdownDefault(field), field.docsUrl)} | ${yesNo(field.credential)} | ${workspacePolicy(field)} | ${cell([field.description, field.notes].filter(Boolean).join(' '))} |`);
   const environmentRows = Object.entries(contract.environment)
     .filter(([, entry]) => entry.type)
-    .map(([name, entry]) => `| — | ${withLegacy(name, entry.legacyNames)} | ${entry.type} | ${withLink(code(entry.displayDefault ?? 'unset'), entry.docsUrl)} | ${yesNo(entry.credential)} | ${entry.dotenv === 'home' || entry.dotenv === 'never' ? 'no' : 'yes'} | ${cell(entry.description ?? '')} |`);
+    .map(([name, entry]) => `| — | ${code(name)} | ${entry.type} | ${withLink(code(entry.displayDefault ?? 'unset'), entry.docsUrl)} | ${yesNo(entry.credential)} | ${entry.dotenv === 'home' || entry.dotenv === 'never' ? 'no' : 'yes'} | ${cell(entry.description ?? '')} |`);
   const table = ['| `.octocoderc` setting | Environment variable | Type | Default | Sensitive | Workspace may set | What it does |', '|---|---|---|---|---|---|---|', ...settingRows, ...environmentRows].join('\n');
   return `${page.slice(0, start)}${SETTINGS_START}\n\n${table}\n\n${page.slice(end)}`;
 }

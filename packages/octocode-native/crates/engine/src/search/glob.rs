@@ -151,8 +151,34 @@ impl Globs {
 pub struct IncludeScope {
     /// One entry per include glob: its directory segments below the root,
     /// or `None` for a glob that matches a name at any depth.
-    globs: Vec<Option<Vec<String>>>,
+    globs: Vec<Option<Vec<Segment>>>,
     files: Option<Gitignore>,
+}
+
+/// One directory segment of an include glob, compiled once.
+#[derive(Clone, Debug)]
+enum Segment {
+    /// Contains `**`: everything below may match.
+    Deep,
+    /// Does not compile alone (a `{a/b}` split at its `/`): it may match,
+    /// unsure is yes.
+    Unsure,
+    Name(globset::GlobMatcher),
+}
+
+impl Segment {
+    fn new(text: &str) -> Self {
+        if text.contains("**") {
+            return Self::Deep;
+        }
+        match globset::GlobBuilder::new(text)
+            .literal_separator(true)
+            .build()
+        {
+            Ok(one) => Self::Name(one.compile_matcher()),
+            Err(_) => Self::Unsure,
+        }
+    }
 }
 
 impl IncludeScope {
@@ -170,7 +196,7 @@ impl IncludeScope {
                 // gitignore: a glob with no `/` but a trailing one matches a
                 // name at any depth.
                 (anchored.len() != glob.len() || body.contains('/'))
-                    .then(|| body.split('/').map(str::to_owned).collect())
+                    .then(|| body.split('/').map(Segment::new).collect())
             })
             .collect();
         Self { globs, files }
@@ -199,17 +225,10 @@ impl IncludeScope {
                     // deeper matches it.
                     return false;
                 };
-                if segment.contains("**") {
-                    return true;
-                }
-                // A segment that does not compile alone (a `{a/b}` split
-                // at its `/`) may match: unsure is yes.
-                let matched = match globset::GlobBuilder::new(segment)
-                    .literal_separator(true)
-                    .build()
-                {
-                    Ok(one) => one.compile_matcher().is_match(name.as_ref()),
-                    Err(_) => true,
+                let matched = match segment {
+                    Segment::Deep => return true,
+                    Segment::Unsure => true,
+                    Segment::Name(one) => one.is_match(name.as_ref()),
                 };
                 if !matched {
                     return false;

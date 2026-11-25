@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { execFile, spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
-import { linkSync, mkdirSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { linkSync, mkdirSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
@@ -124,6 +124,45 @@ test('openGraph, diff and refresh of a project directory consult the registry', 
   assert.equal(code, 0, stderr);
   assert.deepEqual(asked, ['/refresh?t=tok']);
   assert.equal(JSON.parse(stdout).out, out);
+});
+
+test('query of a path that does not exist, or of a file that is no graph, is a usage error naming it, never a crash', () => {
+  const p = project();
+  const out = savedRun(p.root, join(p.base, 'result'));
+  const missing = join(out, 'nope');
+  const gone = spawnSync(process.execPath, [join(commands, 'query.ts'), missing, 'search a'], { cwd: p.elsewhere, env: p.env, encoding: 'utf8' });
+  assert.equal(gone.status, 2);
+  assert.ok(gone.stderr.includes(missing), gone.stderr);
+  assert.doesNotMatch(gone.stderr, /\n\s+at /, 'no stack trace');
+  const text = join(p.base, 'notes.txt');
+  writeFileSync(text, 'SECTION not json\n');
+  const bad = spawnSync(process.execPath, [join(commands, 'query.ts'), text, 'search a'], { cwd: p.elsewhere, env: p.env, encoding: 'utf8' });
+  assert.equal(bad.status, 2);
+  assert.ok(bad.stderr.includes(text), bad.stderr);
+  assert.doesNotMatch(bad.stderr, /\n\s+at /, 'no stack trace');
+});
+
+test('MCP names its package version and refuses a result path that does not exist instead of answering from its parent', { timeout: 30000 }, async (t) => {
+  const p = project();
+  const out = savedRun(p.root, join(p.base, 'result'));
+  const child = spawn(process.execPath, [join(commands, 'mcp.ts')], { cwd: p.elsewhere, env: p.env, stdio: ['pipe', 'pipe', 'ignore'] });
+  t.after(() => child.kill());
+  const replies = new Map();
+  createInterface({ input: child.stdout }).on('line', (line) => {
+    const m = JSON.parse(line);
+    replies.get(m.id)?.(m);
+  });
+  const ask = (id, method, params) => new Promise((ok) => {
+    replies.set(id, ok);
+    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+  });
+  const init = await ask(1, 'initialize', { protocolVersion: '2025-06-18', capabilities: {} });
+  const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(init.result.serverInfo.version, manifest.version);
+  const missing = join(out, 'nope');
+  const q = await ask(2, 'tools/call', { name: 'query_graph', arguments: { result: missing, query: 'search a', format: 'json' } });
+  assert.equal(q.result.isError, true, q.result.content[0].text);
+  assert.ok(q.result.content[0].text.includes(missing), q.result.content[0].text);
 });
 
 test('MCP query_graph with a project directory answers from its registered graph', { timeout: 30000 }, async (t) => {

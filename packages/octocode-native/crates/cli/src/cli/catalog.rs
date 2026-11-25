@@ -77,6 +77,9 @@ pub(super) fn machine_catalog(runtime: &ToolRuntime) -> Result<Value, String> {
         // The language servers this runtime resolves: `schema lspSearch`
         // names them as MCP's description does.
         "lspServers": catalog["lspServers"],
+        // Whether files persist: `schema ghStructure` leaves out materialize
+        // when they do not.
+        "persistentStorage": catalog["persistentStorage"],
         "tools": tools
     }))
 }

@@ -1,0 +1,5 @@
+{
+  "description": "Deno: CI with deno fmt, lint, check and test",
+  "scripts": {},
+  "notes": "Add a build task to deno.json when the project builds (Fresh: deno task build) and a CI step for it."
+}

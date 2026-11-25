@@ -23,7 +23,7 @@ export const sections: ContractInput['sections'] = {
         type: 'boolean',
         default: true,
         description: 'Expose local filesystem tools through MCP. CLI tools remain available; path and content security apply on both surfaces.',
-        env: { name: 'OCTOCODE_ENABLE_LOCAL', dotenv: 'home', workspaceNarrowsTo: 'false', legacyNames: ['ENABLE_LOCAL'] },
+        env: { name: 'OCTOCODE_ENABLE_LOCAL', dotenv: 'home', workspaceNarrowsTo: 'false' },
       },
       beta: {
         type: 'boolean',
@@ -77,8 +77,7 @@ export const sections: ContractInput['sections'] = {
         type: 'boolean',
         default: false,
         description: 'Expose ghCloneRepo through MCP. CLI remains available. Clone execution requires persistent storage on both surfaces. Restart MCP after changing this setting.',
-        env: { name: 'OCTOCODE_ENABLE_CLONE', dotenv: 'home', workspaceNarrowsTo: 'false', legacyNames: ['ENABLE_CLONE'] },
-        legacyPaths: ['local.enableClone'],
+        env: { name: 'OCTOCODE_ENABLE_CLONE', dotenv: 'home', workspaceNarrowsTo: 'false' },
       },
       enableSecurityCheck: {
         type: 'boolean',
@@ -186,6 +185,13 @@ export const sections: ContractInput['sections'] = {
           normalize: 'lower',
           workspaceNarrowsTo: 'memory',
         },
+      },
+      cloneCacheLimit: {
+        type: 'string',
+        default: '5GiB',
+        description: 'Byte cap for the clean ghCloneRepo checkouts under the Octocode home, as a whole number with an optional binary unit (B, KiB, MiB, GiB, TiB; K, M, G, T, KB, MB, GB and TB mean the same): "5GiB", "512MiB", "1073741824". After a new checkout is published, the least recently used checkouts are removed until the total fits. A checkout in use, one with local changes, and the one just published stay. 0 means no cap. An invalid value is reported and the default applies. The shared object stores behind the checkouts are not counted.',
+        env: { name: 'OCTOCODE_CLONE_CACHE_LIMIT', dotenv: 'home', normalize: 'trim' },
+        notes: 'Home-only, so a repository cannot make Octocode discard your checkouts.',
       },
     },
   },

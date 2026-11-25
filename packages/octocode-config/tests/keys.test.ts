@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { API_KEYS, HOME_TRUSTED_ENV_KEYS, LEGACY_ENV_NAMES, PROTECTED_KEY_NAMES, type ApiKeySpec } from '../src/config/contract.generated.js';
+import { API_KEYS, HOME_TRUSTED_ENV_KEYS, PROTECTED_KEY_NAMES, type ApiKeySpec } from '../src/config/contract.generated.js';
 import { getKey, listKeys, runKeysCli, setKey } from '../src/index.js';
 
 describe('getKey, listKeys, setKey and the keys CLI', () => {
@@ -43,13 +43,6 @@ describe('getKey, listKeys, setKey and the keys CLI', () => {
     const processOnly = PROTECTED_KEY_NAMES.find(name => !(HOME_TRUSTED_ENV_KEYS as readonly string[]).includes(name))!;
     write(homeEnv(), `${processOnly}=/tmp/evil\n`);
     expect(getKey(processOnly, { env: {}, home, cwd }).value).toBeUndefined();
-  });
-
-  it('reads a legacy name as its current one', () => {
-    const [legacy, current] = Object.entries(LEGACY_ENV_NAMES).find(([, now]) => API_KEYS.some(key => key.name === now))!;
-    expect(getKey(current, { env: { [legacy]: 'old-spelling' }, home, cwd })).toMatchObject({ value: 'old-spelling', source: 'process' });
-    write(homeEnv(), `${legacy}=old-in-file\n`);
-    expect(getKey(current, { env: {}, home, cwd })).toMatchObject({ value: 'old-in-file', source: 'home' });
   });
 
   it('keeps a blank process classification key as the opt-out no file refills', () => {

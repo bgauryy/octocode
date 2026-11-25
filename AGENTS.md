@@ -94,9 +94,7 @@ Native change → rebuild native and the affected interface → restart MCP → 
 - Fix the root cause with a test that failed first; a special case means the diagnosis is not done.
 - Solve the general case: no handpicked inputs, guessed caps, fixed timeouts or quotas that cut valid work; let
   the owning layer's limit or refusal decide (split on `scopeTooBroad`).
-- One name and one source for each tool, field, setting and piece of logic: no aliases, shims or legacy paths. The
-  one exception: a renamed setting keeps its earlier spellings as `legacyNames`/`legacyPaths` beside it in the config
-  contract ([legacy names](skills-dev/octocode-dev/docs/ADDING_CONFIG.md#legacy-names)).
+- One name and one source for each tool, field, setting and piece of logic: no aliases, shims or legacy paths.
 
 **Tests**
 - Assert invariants (the constant, a bound), never copied literals.

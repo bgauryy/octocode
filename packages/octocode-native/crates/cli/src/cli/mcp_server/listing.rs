@@ -28,7 +28,7 @@ fn available(catalog: &Value) -> Vec<&str> {
 }
 
 /// One tool's `tools/list` entry from its presentation `mcp` definition.
-fn entry(name: &str, mcp: &Value, lsp_servers: Option<&[&str]>, has_local: bool) -> Value {
+fn entry(name: &str, mcp: &Value, lsp_servers: Option<&[&str]>, materialize_listed: bool) -> Value {
     let mut description = mcp["description"].clone();
     let mut input_schema = mcp["inputSchema"].clone();
     if octocode_runtime_base::id::ToolId::from_name(name)
@@ -37,8 +37,9 @@ fn entry(name: &str, mcp: &Value, lsp_servers: Option<&[&str]>, has_local: bool)
     {
         description = Value::String(with_lsp_servers(text, servers));
     }
-    if !has_local && name == "ghStructure" {
-        strip_materialize_mode(&mut description, &mut input_schema);
+    if !materialize_listed && name == "ghStructure" {
+        super::super::schema::strip_materialize_mode(&mut description);
+        super::super::schema::strip_materialize_mode(&mut input_schema);
     }
     let mut entry = serde_json::Map::new();
     entry.insert("name".into(), name.into());
@@ -51,41 +52,6 @@ fn entry(name: &str, mcp: &Value, lsp_servers: Option<&[&str]>, has_local: bool)
     Value::Object(entry)
 }
 
-/// Removes `ghStructure`'s `materialize` mode from the advertised MCP entry
-/// when local tools are disabled, so hosts never see a mode that points to
-/// disabled local tools.
-fn strip_materialize_mode(description: &mut Value, input_schema: &mut Value) {
-    if let Some(text) = description.as_str() {
-        let cleaned = text.replace(
-            "; many searches over a few named paths: tree materialize:true, then local tools",
-            "",
-        );
-        *description = Value::String(cleaned);
-    }
-    if let Some(items) = input_schema
-        .pointer_mut("/properties/queries/items")
-        .and_then(Value::as_object_mut)
-    {
-        if let Some(props) = items.get_mut("properties").and_then(Value::as_object_mut) {
-            props.remove("materialize");
-            if let Some(max_depth) = props.get_mut("maxDepth").and_then(Value::as_object_mut)
-                && let Some(desc) = max_depth.get("description").and_then(Value::as_str)
-            {
-                let cleaned = desc
-                    .replace(", materialize", "")
-                    .replace("materialize, ", "");
-                max_depth.insert("description".into(), Value::String(cleaned));
-            }
-        }
-        if let Some(note) = items.get("description").and_then(Value::as_str) {
-            let cleaned = note
-                .replace(", materialize", "")
-                .replace("materialize, ", "");
-            items.insert("description".into(), Value::String(cleaned));
-        }
-    }
-}
-
 /// The listing for this runtime's catalog.
 pub(super) fn build(presentation: &Value, catalog: &Value) -> Result<Listing, String> {
     let names = available(catalog);
@@ -95,6 +61,9 @@ pub(super) fn build(presentation: &Value, catalog: &Value) -> Result<Listing, St
     let has_local = names
         .iter()
         .any(|name| matches!(*name, "localSearch" | "localFetch"));
+    // Materialize needs local tools to read what it downloads and persistent
+    // storage to write it; a catalog that states no storage keeps it.
+    let materialize_listed = has_local && super::super::schema::storage_is_persistent(catalog);
     let lsp_servers = catalog["lspServers"]
         .as_array()
         .map(|servers| servers.iter().filter_map(Value::as_str).collect::<Vec<_>>());
@@ -104,7 +73,7 @@ pub(super) fn build(presentation: &Value, catalog: &Value) -> Result<Listing, St
             .map(|tool| &tool["mcp"])
             .filter(|mcp| mcp.is_object())
             .ok_or_else(|| format!("Native catalog tool has no contract: {name}"))?;
-        tools.push(entry(name, mcp, lsp_servers.as_deref(), has_local));
+        tools.push(entry(name, mcp, lsp_servers.as_deref(), materialize_listed));
     }
     Ok(Listing {
         tools,

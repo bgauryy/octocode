@@ -46,6 +46,7 @@ export interface RequiredSecurityConfig {
 
 export interface RequiredStorageConfig {
   mode: StorageMode;
+  cloneCacheLimit: string;
 }
 
 export interface RequiredClassificationConfig {
@@ -71,8 +72,6 @@ export interface ConfigEnvBinding {
   dotenv?: 'all' | 'home' | 'never';
   normalize?: 'trim' | 'lower';
   workspaceNarrowsTo?: string;
-  /** Earlier names of this variable, still read where `name` is not set. */
-  legacyNames?: readonly string[];
 }
 export interface ConfigFieldSpec {
   path: string;
@@ -88,8 +87,6 @@ export interface ConfigFieldSpec {
   defaultValue: unknown;
   values?: readonly string[];
   itemFormat?: 'path';
-  /** Earlier `.octocoderc` paths of this field, still read where `path` is not set. */
-  legacyPaths?: readonly string[];
 }
 
 export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
@@ -119,10 +116,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "env": {
       "name": "OCTOCODE_ENABLE_LOCAL",
       "dotenv": "home",
-      "workspaceNarrowsTo": "false",
-      "legacyNames": [
-        "ENABLE_LOCAL"
-      ]
+      "workspaceNarrowsTo": "false"
     },
     "defaultValue": true
   },
@@ -224,15 +218,9 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "env": {
       "name": "OCTOCODE_ENABLE_CLONE",
       "dotenv": "home",
-      "workspaceNarrowsTo": "false",
-      "legacyNames": [
-        "ENABLE_CLONE"
-      ]
+      "workspaceNarrowsTo": "false"
     },
-    "defaultValue": false,
-    "legacyPaths": [
-      "local.enableClone"
-    ]
+    "defaultValue": false
   },
   {
     "path": "tools.enableSecurityCheck",
@@ -425,6 +413,22 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     ]
   },
   {
+    "path": "storage.cloneCacheLimit",
+    "section": "storage",
+    "key": "cloneCacheLimit",
+    "type": "string",
+    "resolved": true,
+    "credential": false,
+    "description": "Byte cap for the clean ghCloneRepo checkouts under the Octocode home, as a whole number with an optional binary unit (B, KiB, MiB, GiB, TiB; K, M, G, T, KB, MB, GB and TB mean the same): \"5GiB\", \"512MiB\", \"1073741824\". After a new checkout is published, the least recently used checkouts are removed until the total fits. A checkout in use, one with local changes, and the one just published stay. 0 means no cap. An invalid value is reported and the default applies. The shared object stores behind the checkouts are not counted.",
+    "notes": "Home-only, so a repository cannot make Octocode discard your checkouts.",
+    "env": {
+      "name": "OCTOCODE_CLONE_CACHE_LIMIT",
+      "dotenv": "home",
+      "normalize": "trim"
+    },
+    "defaultValue": "5GiB"
+  },
+  {
     "path": "classification.api",
     "section": "classification",
     "key": "api",
@@ -541,13 +545,9 @@ export const API_KEYS: readonly ApiKeySpec[] = [
     "docsUrl": "https://docs.typesafe.ai/introduction"
   }
 ];
-export const ENV_CREDENTIAL_VARS = ["ALL_PROXY","DEEPSEEK_API_KEY","EXA_API_KEY","GH_TOKEN","GITHUB_PERSONAL_ACCESS_TOKEN","GITHUB_TOKEN","HTTPS_PROXY","HTTP_PROXY","OCTOCODE_CLASSIFICATION_API","OCTOCODE_TOKEN","SCRAPING_ANT","SERPER_API_KEY","TAVILY_API_KEY"] as const;
-export const PROTECTED_KEY_NAMES = ["PATH","HOME","SHELL","USER","LOGNAME","PWD","TMPDIR","NODE_OPTIONS","PYTHON","TAVILY_BASE_URL","EXA_BASE_URL","SERPER_BASE_URL","DEEPSEEK_BASE_URL","HTTPS_PROXY","HTTP_PROXY","ALL_PROXY","NO_PROXY","SSL_CERT_FILE","SSL_CERT_DIR","GIT_SSL_CAINFO","GIT_SSL_CAPATH","CURL_CA_BUNDLE","OCTOCODE_GITHUB_CLIENT_ID","OCTOCODE_HOME","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_GRAPH_HOME","OCTOCODE_ENABLE_CLONE","OCTOCODE_SECURITY_CHECKS","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_LSP_TRUST_FETCHED_CODE","OCTOCODE_REDACT_EMAILS","OCTOCODE_REDACT_UUID","OCTOCODE_MCP_RESULT","OCTOCODE_CREDENTIAL_FILES","OCTOCODE_STORAGE_MODE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_CLASSIFICATION_API_HOST","ENABLE_LOCAL","ENABLE_CLONE"] as const;
-export const HOME_TRUSTED_ENV_KEYS = ["TAVILY_BASE_URL","EXA_BASE_URL","SERPER_BASE_URL","DEEPSEEK_BASE_URL","OCTOCODE_GITHUB_CLIENT_ID","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_GRAPH_HOME","OCTOCODE_ENABLE_CLONE","OCTOCODE_SECURITY_CHECKS","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_LSP_TRUST_FETCHED_CODE","OCTOCODE_REDACT_EMAILS","OCTOCODE_REDACT_UUID","OCTOCODE_MCP_RESULT","OCTOCODE_CREDENTIAL_FILES","OCTOCODE_STORAGE_MODE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_CLASSIFICATION_API_HOST","ENABLE_LOCAL","ENABLE_CLONE"] as const;
+export const ENV_CREDENTIAL_VARS = ["ALL_PROXY","DEEPSEEK_API_KEY","EXA_API_KEY","GH_TOKEN","GITHUB_TOKEN","HTTPS_PROXY","HTTP_PROXY","OCTOCODE_CLASSIFICATION_API","SCRAPING_ANT","SERPER_API_KEY","TAVILY_API_KEY"] as const;
+export const PROTECTED_KEY_NAMES = ["PATH","HOME","SHELL","USER","LOGNAME","PWD","TMPDIR","NODE_OPTIONS","PYTHON","TAVILY_BASE_URL","EXA_BASE_URL","SERPER_BASE_URL","DEEPSEEK_BASE_URL","HTTPS_PROXY","HTTP_PROXY","ALL_PROXY","NO_PROXY","SSL_CERT_FILE","SSL_CERT_DIR","GIT_SSL_CAINFO","GIT_SSL_CAPATH","CURL_CA_BUNDLE","OCTOCODE_GITHUB_CLIENT_ID","OCTOCODE_HOME","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_GRAPH_HOME","OCTOCODE_ENABLE_CLONE","OCTOCODE_SECURITY_CHECKS","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_LSP_TRUST_FETCHED_CODE","OCTOCODE_REDACT_EMAILS","OCTOCODE_REDACT_UUID","OCTOCODE_MCP_RESULT","OCTOCODE_CREDENTIAL_FILES","OCTOCODE_STORAGE_MODE","OCTOCODE_CLONE_CACHE_LIMIT","OCTOCODE_CLASSIFICATION_API","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
+export const HOME_TRUSTED_ENV_KEYS = ["TAVILY_BASE_URL","EXA_BASE_URL","SERPER_BASE_URL","DEEPSEEK_BASE_URL","OCTOCODE_GITHUB_CLIENT_ID","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_GRAPH_HOME","OCTOCODE_ENABLE_CLONE","OCTOCODE_SECURITY_CHECKS","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_LSP_TRUST_FETCHED_CODE","OCTOCODE_REDACT_EMAILS","OCTOCODE_REDACT_UUID","OCTOCODE_MCP_RESULT","OCTOCODE_CREDENTIAL_FILES","OCTOCODE_STORAGE_MODE","OCTOCODE_CLONE_CACHE_LIMIT","OCTOCODE_CLASSIFICATION_API","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
 /** Home-trusted switches a workspace may set only to this narrowing value. */
-export const WORKSPACE_NARROW_ONLY_ENV: Readonly<Record<string, string>> = {"OCTOCODE_ENABLE_LOCAL":"false","OCTOCODE_ENABLE_CLONE":"false","OCTOCODE_SECURITY_CHECKS":"false","OCTOCODE_LSP_TRUST_FETCHED_CODE":"false","OCTOCODE_REDACT_EMAILS":"true","OCTOCODE_REDACT_UUID":"true","OCTOCODE_CREDENTIAL_FILES":"withhold","OCTOCODE_STORAGE_MODE":"memory","ENABLE_LOCAL":"false","ENABLE_CLONE":"false"};
-/** Each legacy variable name, to the current one it is read as in a source that does not set that one. */
-export const LEGACY_ENV_NAMES: Readonly<Record<string, string>> = {"OCTOCODE_TOKEN":"GH_TOKEN","GITHUB_PERSONAL_ACCESS_TOKEN":"GITHUB_TOKEN","ENABLE_LOCAL":"OCTOCODE_ENABLE_LOCAL","ENABLE_CLONE":"OCTOCODE_ENABLE_CLONE"};
-/** Each legacy `.octocoderc` path, to the current one it is read as in a file that does not set that one. */
-export const LEGACY_CONFIG_PATHS: Readonly<Record<string, string>> = {"local.enableClone":"tools.enableClone"};
-export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "github": { "apiUrl": "https://api.github.com" }, "local": { "enabled": true, "beta": false, "allowedPaths": [], "workspaceRoot": undefined, "graphHome": undefined }, "tools": { "enabled": null, "disabled": null, "enableClone": false, "enableSecurityCheck": false }, "network": { "allowPrivateRegistry": false }, "lsp": { "autoInstall": "prompt", "trustProjectConfig": false, "trustFetchedCode": false, "prewarm": "targeted" }, "output": { "redactEmails": false, "redactUuid": false, "mcpResult": "json" }, "security": { "credentialFiles": "withhold" }, "storage": { "mode": "persistent" }, "classification": { "apiHost": undefined, "model": undefined } };
+export const WORKSPACE_NARROW_ONLY_ENV: Readonly<Record<string, string>> = {"OCTOCODE_ENABLE_LOCAL":"false","OCTOCODE_ENABLE_CLONE":"false","OCTOCODE_SECURITY_CHECKS":"false","OCTOCODE_LSP_TRUST_FETCHED_CODE":"false","OCTOCODE_REDACT_EMAILS":"true","OCTOCODE_REDACT_UUID":"true","OCTOCODE_CREDENTIAL_FILES":"withhold","OCTOCODE_STORAGE_MODE":"memory"};
+export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "github": { "apiUrl": "https://api.github.com" }, "local": { "enabled": true, "beta": false, "allowedPaths": [], "workspaceRoot": undefined, "graphHome": undefined }, "tools": { "enabled": null, "disabled": null, "enableClone": false, "enableSecurityCheck": false }, "network": { "allowPrivateRegistry": false }, "lsp": { "autoInstall": "prompt", "trustProjectConfig": false, "trustFetchedCode": false, "prewarm": "targeted" }, "output": { "redactEmails": false, "redactUuid": false, "mcpResult": "json" }, "security": { "credentialFiles": "withhold" }, "storage": { "mode": "persistent", "cloneCacheLimit": "5GiB" }, "classification": { "apiHost": undefined, "model": undefined } };

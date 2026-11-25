@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // Read-only facts about a target folder before scaffolding: languages, package manager, monorepo, existing tooling.
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fail, errorMessage } from './lib/fail.mjs';
 import { isMainModule } from './lib/entrypoint.mjs';
+import { entries, readJson, readText, stacksIn } from './lib/stacks.mjs';
 
 const HELP = `Usage: node <skill-folder>/scripts/detect-workspace.mjs <target-dir> [--no-probe]
 
@@ -17,23 +18,31 @@ Options:
 
 Output: one JSON object on stdout.
   target          {path, exists, empty}
-  root            nearest ancestor (or the target) holding a lockfile, packageManager or workspace manifest; null if none
+  root            nearest ancestor (or the target) holding a lockfile, packageManager or workspace manifest
+                  (JS workspaces, Cargo, go.work, Gradle settings, .NET solution, Dart or Deno workspace); null if none
   gitRoot         nearest ancestor with .git, or null
-  languages       subset of javascript, typescript, rust, python, go found at target or root
+  languages       stacks found at target or root: javascript, typescript, deno, rust, python, go, dart,
+                  dotnet, jvm, swift, ruby, php, elixir
   packageManager  {name, version, source}: source is packageManager, devEngines or a lockfile name; null if none
   lockfiles       every JS lockfile at the root; more than one is a conflict to resolve with the user
-  monorepo        [{kind, file}]: npm/yarn/bun workspaces, pnpm-workspace, turbo, nx, cargo, go.work, uv
+  monorepo        [{kind, file}]: npm/yarn/bun workspaces, pnpm-workspace, turbo, nx, cargo, go.work, uv,
+                  gradle, dotnet solution, dart and deno workspaces
   tools           existing config per tool (eslint, eslintLegacy, prettier, biome, oxlint, oxfmt, vitePlus,
-                  vitest, jest, playwright, typescript, hooks, rust*, python*, golangci): file names found
+                  vitest, jest, playwright, typescript, hooks, rust*, python*, golangci, dartAnalysis,
+                  swiftlint, swiftFormat, rubocop, pint, phpstan, credo, detekt, dotnetSdk): file names found
   scripts         package.json scripts at the target (or root)
   node            {engines, pinned}: engines.node and .nvmrc/.node-version content
   ci              GitHub workflow files at the root
-  probes          {tool: version or null} for node, npm, pnpm, yarn, bun, cargo, rustc, uv, python3, go
-Effects: reads files; unless --no-probe, runs '<tool> --version' (10 s limit each); writes nothing.
+  probes          {tool: version or null} for node, npm, pnpm, yarn, bun, deno, cargo, rustc, uv, python3,
+                  go, flutter, dart, dotnet, java, swift, xcodebuild, ruby, php, elixir
+Effects: reads files; unless --no-probe, runs each toolchain's version command (10 s limit each); writes nothing.
 Exit codes: 0 report printed; 2 invalid input, as {"ok":false,"error":{code,message}}.`;
 
 const LOCKFILES = { 'pnpm-lock.yaml': 'pnpm', 'yarn.lock': 'yarn', 'bun.lock': 'bun', 'bun.lockb': 'bun', 'package-lock.json': 'npm', 'npm-shrinkwrap.json': 'npm' };
-const PROBES = ['node', 'npm', 'pnpm', 'yarn', 'bun', 'cargo', 'rustc', 'uv', 'python3', 'go'];
+// Version command per toolchain: most take --version; go and xcodebuild do not.
+const PROBES = { node: ['--version'], npm: ['--version'], pnpm: ['--version'], yarn: ['--version'], bun: ['--version'], deno: ['--version'],
+  cargo: ['--version'], rustc: ['--version'], uv: ['--version'], python3: ['--version'], go: ['version'], flutter: ['--version'], dart: ['--version'],
+  dotnet: ['--version'], java: ['-version'], swift: ['--version'], xcodebuild: ['-version'], ruby: ['--version'], php: ['--version'], elixir: ['--version'] };
 const TOOL_FILES = {
   eslint: /^eslint\.config\.(js|mjs|cjs|ts|mts|cts)$/, eslintLegacy: /^\.eslintrc(\.(js|cjs|json|ya?ml))?$/,
   prettier: /^(\.prettierrc(\.(json|ya?ml|js|cjs|mjs|toml))?|prettier\.config\.(js|cjs|mjs|ts))$/,
@@ -43,19 +52,20 @@ const TOOL_FILES = {
   hooks: /^(lefthook\.ya?ml|\.husky|\.lintstagedrc(\.\w+)?|lint-staged\.config\.\w+|\.pre-commit-config\.yaml)$/,
   rustToolchain: /^rust-toolchain(\.toml)?$/, rustfmt: /^\.?rustfmt\.toml$/, clippy: /^\.?clippy\.toml$/, cargoDeny: /^deny\.toml$/,
   ruff: /^\.?ruff\.toml$/, mypy: /^(mypy\.ini|\.mypy\.ini)$/, pytest: /^(pytest\.ini|conftest\.py)$/, golangci: /^\.golangci\.(ya?ml|toml|json)$/,
+  dartAnalysis: /^analysis_options\.yaml$/, swiftlint: /^\.swiftlint\.ya?ml$/, swiftFormat: /^\.swift-format$/, rubocop: /^\.rubocop\.ya?ml$/,
+  pint: /^pint\.json$/, phpstan: /^phpstan\.neon(\.dist)?$/, credo: /^\.credo\.exs$/, detekt: /^detekt\.ya?ml$/, dotnetSdk: /^global\.json$/,
 };
 const DEP_TOOLS = { vitePlus: 'vite-plus', vitest: 'vitest', jest: 'jest', playwright: '@playwright/test', typescript: 'typescript',
   eslint: 'eslint', prettier: 'prettier', biome: '@biomejs/biome', oxlint: 'oxlint', oxfmt: 'oxfmt' };
 
-const readJson = file => { try { return JSON.parse(readFileSync(file, 'utf8')); } catch { return null; } };
-const readText = file => { try { return readFileSync(file, 'utf8'); } catch { return ''; } };
-const entries = dir => { try { return readdirSync(dir); } catch { return []; } };
+const WORKSPACE_FILES = ['pnpm-workspace.yaml', 'go.work', 'settings.gradle', 'settings.gradle.kts'];
 
 function isRoot(dir) {
   const names = entries(dir);
-  if (names.some(name => name in LOCKFILES) || names.includes('pnpm-workspace.yaml') || names.includes('go.work')) return true;
+  if (names.some(name => name in LOCKFILES || WORKSPACE_FILES.includes(name) || /\.slnx?$/.test(name))) return true;
   const pkg = names.includes('package.json') ? readJson(join(dir, 'package.json')) : null;
   if (pkg?.packageManager || pkg?.workspaces || pkg?.devEngines?.packageManager) return true;
+  if (/^workspace:/m.test(readText(join(dir, 'pubspec.yaml'))) || /"workspace"\s*:/.test(readText(join(dir, 'deno.json')) || readText(join(dir, 'deno.jsonc')))) return true;
   return names.includes('Cargo.toml') && /^\[workspace\]/m.test(readText(join(dir, 'Cargo.toml')));
 }
 
@@ -89,6 +99,10 @@ function monorepoOf(root) {
   for (const [kind, file] of checks) if (existsSync(join(root, file))) found.push({ kind, file });
   if (/^\[workspace\]/m.test(readText(join(root, 'Cargo.toml')))) found.push({ kind: 'cargo', file: 'Cargo.toml' });
   if (/^\[tool\.uv\.workspace\]/m.test(readText(join(root, 'pyproject.toml')))) found.push({ kind: 'uv', file: 'pyproject.toml' });
+  for (const file of ['settings.gradle', 'settings.gradle.kts']) if (/^\s*include\b/m.test(readText(join(root, file)))) found.push({ kind: 'gradle', file });
+  for (const file of entries(root).filter(name => /\.slnx?$/.test(name))) found.push({ kind: 'dotnet solution', file });
+  if (/^workspace:/m.test(readText(join(root, 'pubspec.yaml')))) found.push({ kind: 'dart workspace', file: 'pubspec.yaml' });
+  for (const file of ['deno.json', 'deno.jsonc']) if (/"workspace"\s*:/.test(readText(join(root, file)))) found.push({ kind: 'deno workspace', file });
   return found;
 }
 
@@ -113,20 +127,13 @@ function toolsOf(dirs) {
 }
 
 function languagesOf(dirs, tools) {
-  const found = new Set();
-  for (const dir of dirs) {
-    const names = entries(dir);
-    if (names.includes('package.json')) found.add('javascript');
-    if (names.includes('Cargo.toml')) found.add('rust');
-    if (names.some(name => ['pyproject.toml', 'requirements.txt', 'setup.py', 'uv.lock'].includes(name))) found.add('python');
-    if (names.includes('go.mod') || names.includes('go.work')) found.add('go');
-  }
+  const found = new Set(dirs.flatMap(stacksIn));
   if (tools.typescript) found.add('typescript');
   return [...found];
 }
 
 function probe(tool, cwd) {
-  const result = spawnSync(tool, ['--version'], { cwd, encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'],
+  const result = spawnSync(tool, PROBES[tool], { cwd, encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, COREPACK_ENABLE_DOWNLOAD_PROMPT: '0' } });
   if (result.error || result.status !== 0) return null;
   return (result.stdout || result.stderr).trim().split('\n')[0] || null;
@@ -157,7 +164,7 @@ export function detectWorkspace(target, { probe: runProbes = true } = {}) {
     scripts: pkg?.scripts ?? {},
     node: { engines: pkg?.engines?.node ?? null, pinned: pinDir ? (readText(join(pinDir, '.nvmrc')) || readText(join(pinDir, '.node-version'))).trim() : null },
     ci: root || gitRoot ? entries(join(root ?? gitRoot, '.github', 'workflows')).filter(name => /\.ya?ml$/.test(name)) : [],
-    probes: runProbes ? Object.fromEntries(PROBES.map(tool => [tool, probe(tool, probeDir)])) : null,
+    probes: runProbes ? Object.fromEntries(Object.keys(PROBES).map(tool => [tool, probe(tool, probeDir)])) : null,
   };
 }
 

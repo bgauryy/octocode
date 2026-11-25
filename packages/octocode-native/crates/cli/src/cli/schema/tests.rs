@@ -1,6 +1,6 @@
 mod output;
 
-use super::{TOOL_FLOW_COMMAND, catalog, grammar_instruction, tool_view};
+use super::{TOOL_FLOW_COMMAND, catalog, grammar_instruction, tool_view, unknown_tool};
 use octocode_test_support::json_fixture;
 use serde_json::{Value, json};
 
@@ -367,6 +367,37 @@ fn views_a_request_cannot_have_are_usage_errors() {
     );
 }
 
+/// A tool this package does not serve but another does (graphBuild is the
+/// graph package's) is refused with the package that serves it and the command
+/// that launches it; a name no package serves gets no such pointer.
+#[test]
+fn a_tool_another_package_serves_names_that_package_and_its_launch_command() {
+    use crate::cli::tool_package::ToolPackage;
+    let m = machine(&[]);
+    for tool in octocode_runtime_base::id::ToolId::ALL {
+        let name = tool.as_str();
+        let owner = ToolPackage::of(tool);
+        let other = if owner == ToolPackage::Graph {
+            ToolPackage::Research
+        } else {
+            ToolPackage::Graph
+        };
+        let note = other.elsewhere_note(name);
+        let note = note.unwrap_or_else(|| panic!("{name} is served by {}", owner.cli()));
+        assert!(note.contains(owner.cli()), "{note}");
+        assert!(note.contains(owner.launch()), "{note}");
+        assert!(note.contains(name), "{note}");
+        assert!(owner.elsewhere_note(name).is_none(), "{name}");
+    }
+    assert!(ToolPackage::Research.elsewhere_note("noSuchTool").is_none());
+    let unknown = unknown_tool(&m, ToolPackage::Research, "graphBuild").message;
+    assert!(unknown.contains("Unknown tool: graphBuild"), "{unknown}");
+    assert!(
+        unknown.contains(ToolPackage::Graph.launch()),
+        "the refusal gives the launch command: {unknown}"
+    );
+}
+
 /// Without a tool entry in the runtime's catalog a tool is reported disabled.
 #[test]
 fn a_tool_the_runtime_does_not_list_is_disabled() {
@@ -408,4 +439,26 @@ fn cli_views_state_the_instructions_once() {
             assert!(!text.contains(sentence), "{place} repeats: {sentence}");
         }
     }
+}
+
+/// Memory storage refuses materialize, so the CLI view of `ghStructure`
+/// names it nowhere; persistent storage keeps it.
+#[test]
+fn memory_storage_strips_materialize_from_the_ghstructure_view() {
+    let mut m = machine(&[]);
+    for view in ["query", "variants"] {
+        let text = tool_view(&m, "ghStructure", Some(view), None)
+            .unwrap()
+            .to_string();
+        assert!(text.contains("materialize"), "{view}");
+    }
+    m["persistentStorage"] = json!(false);
+    for view in ["query", "variants"] {
+        let text = tool_view(&m, "ghStructure", Some(view), None)
+            .unwrap()
+            .to_string();
+        assert!(!text.contains("materialize"), "{view}: {text}");
+    }
+    let other = tool_view(&m, "ghGetFileContent", Some("query"), None).unwrap();
+    assert!(other.to_string().len() > 100);
 }

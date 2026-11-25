@@ -172,16 +172,28 @@ pub async fn locate_path(
     at: &RepoPath<'_>,
     context: &RequestContext,
 ) -> Option<PathRecovery> {
-    let segments: Vec<&str> = at.path.split('/').filter(|part| !part.is_empty()).collect();
     let commit = provider
         .resolve_reference(at.owner, at.repo, at.reference, context)
         .await
         .ok()?;
+    locate_path_at(provider, at, &commit, context).await
+}
+
+/// [`locate_path`] at a `commit` the caller already resolved `at.reference`
+/// to, so a caller that read the missing path at that commit walks the same
+/// commit with no second resolution.
+pub async fn locate_path_at(
+    provider: &GitHubProvider,
+    at: &RepoPath<'_>,
+    commit: &str,
+    context: &RequestContext,
+) -> Option<PathRecovery> {
+    let segments: Vec<&str> = at.path.split('/').filter(|part| !part.is_empty()).collect();
     // A whole listing entry pasted as the path: its own path is walked
     // first, and answers when it is a file.
     if let Some((bare, _)) = octocode_runtime_base::response::groups::entry_fields(at.path) {
         let bare: Vec<&str> = bare.split('/').filter(|part| !part.is_empty()).collect();
-        let found = walk_trees(provider, at, &bare, &commit, context).await;
+        let found = walk_trees(provider, at, &bare, commit, context).await;
         if let Some(found) = found.filter(|found| found.file.is_some()) {
             return Some(PathRecovery {
                 listing_entry: true,
@@ -189,7 +201,7 @@ pub async fn locate_path(
             });
         }
     }
-    walk_trees(provider, at, &segments, &commit, context).await
+    walk_trees(provider, at, &segments, commit, context).await
 }
 
 /// [`locate_path`] by folder git trees, one per level walked. A folder's own

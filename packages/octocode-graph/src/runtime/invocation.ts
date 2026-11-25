@@ -35,6 +35,17 @@ function packageDir() {
   throw new Error(`no ${PACKAGE} package.json above ${import.meta.url}`);
 }
 
+/** This package's version, from its package.json: what the MCP server reports as its own. */
+export function packageVersion() {
+  const manifest = join(packageDir(), 'package.json');
+  const { version } = JSON.parse(readFileSync(manifest, 'utf8')) as {
+    version?: unknown;
+  };
+  if (typeof version !== 'string')
+    throw new Error(`${manifest} names no version`);
+  return version;
+}
+
 /** The CLI file an `octocode-graph` on PATH must run for it to be this package. */
 export const packageBin = () => join(packageDir(), 'bin', `${NAME}.mjs`);
 

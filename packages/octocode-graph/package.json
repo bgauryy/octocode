@@ -5,7 +5,7 @@
   "license": "MIT",
   "description": "Build, query and serve repository graphs using Octocode.",
   "engines": {
-    "node": "^24.15.0"
+    "node": ">=24.15.0"
   },
   "bin": "bin/octocode-graph.mjs",
   "imports": {

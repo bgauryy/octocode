@@ -115,10 +115,7 @@
       "type": "key",
       "displayDefault": "unset (octocode auth login also works)",
       "group": "GitHub",
-      "description": "GitHub CLI token",
-      "legacyNames": [
-        "OCTOCODE_TOKEN"
-      ]
+      "description": "GitHub CLI token"
     },
     "GITHUB_TOKEN": {
       "dotenv": "all",
@@ -127,10 +124,7 @@
       "type": "key",
       "displayDefault": "unset (octocode auth login also works)",
       "group": "GitHub",
-      "description": "GitHub Actions token",
-      "legacyNames": [
-        "GITHUB_PERSONAL_ACCESS_TOKEN"
-      ]
+      "description": "GitHub Actions token"
     },
     "SCRAPING_ANT": {
       "dotenv": "all",
@@ -240,10 +234,7 @@
           "env": {
             "name": "OCTOCODE_ENABLE_LOCAL",
             "dotenv": "home",
-            "workspaceNarrowsTo": "false",
-            "legacyNames": [
-              "ENABLE_LOCAL"
-            ]
+            "workspaceNarrowsTo": "false"
           }
         },
         "beta": {
@@ -319,14 +310,8 @@
           "env": {
             "name": "OCTOCODE_ENABLE_CLONE",
             "dotenv": "home",
-            "workspaceNarrowsTo": "false",
-            "legacyNames": [
-              "ENABLE_CLONE"
-            ]
-          },
-          "legacyPaths": [
-            "local.enableClone"
-          ]
+            "workspaceNarrowsTo": "false"
+          }
         },
         "enableSecurityCheck": {
           "type": "boolean",
@@ -484,6 +469,17 @@
             "normalize": "lower",
             "workspaceNarrowsTo": "memory"
           }
+        },
+        "cloneCacheLimit": {
+          "type": "string",
+          "default": "5GiB",
+          "description": "Byte cap for the clean ghCloneRepo checkouts under the Octocode home, as a whole number with an optional binary unit (B, KiB, MiB, GiB, TiB; K, M, G, T, KB, MB, GB and TB mean the same): \"5GiB\", \"512MiB\", \"1073741824\". After a new checkout is published, the least recently used checkouts are removed until the total fits. A checkout in use, one with local changes, and the one just published stay. 0 means no cap. An invalid value is reported and the default applies. The shared object stores behind the checkouts are not counted.",
+          "env": {
+            "name": "OCTOCODE_CLONE_CACHE_LIMIT",
+            "dotenv": "home",
+            "normalize": "trim"
+          },
+          "notes": "Home-only, so a repository cannot make Octocode discard your checkouts."
         }
       }
     },

@@ -120,9 +120,6 @@ pub enum Severity {
 }
 /// Diagnostic code of a configuration key no setting reads.
 pub const UNKNOWN_CONFIG_CODE: &str = "unknown_or_future_config";
-/// Diagnostic code of a legacy setting name: read as its current name, or
-/// ignored where the same source sets that one.
-pub const LEGACY_SETTING_CODE: &str = "legacy_setting_name";
 /// Diagnostic code of a tool-list entry no tool has.
 pub(crate) const UNKNOWN_TOOL_NAME_CODE: &str = "unknown_tool_name";
 

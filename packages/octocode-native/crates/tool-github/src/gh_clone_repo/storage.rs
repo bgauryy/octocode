@@ -6,7 +6,7 @@ use std::{
     fs, io,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 static STAGE_ID: AtomicU64 = AtomicU64::new(0);
@@ -302,6 +302,20 @@ impl CloneLock {
     }
 }
 
+/// The lock of the checkout `clone_dir` if nobody holds it, else `None`: a
+/// checkout whose lock is held is in use. `Err` when the lock file cannot be
+/// opened or the filesystem refuses locks.
+pub(super) fn try_lock_checkout(
+    home: &Path,
+    clone_dir: &Path,
+) -> Result<Option<LockedFile>, GitError> {
+    let file = open_lock(&lock_path(home, clone_dir)).map_err(storage_io)?;
+    match octocode_io::lock::try_lock(file).map_err(storage_io)? {
+        TryLock::Locked(lock) => Ok(Some(lock)),
+        TryLock::Busy(_) => Ok(None),
+    }
+}
+
 /// Create `path` and its missing parents readable by the owner only: a clone
 /// holds code the user could read with their own token, so a directory this
 /// tool creates (under whatever home exists) is never group- or world-readable.
@@ -424,6 +438,42 @@ const COMPLETED_AT_FILE: &str = "octocode-cloned-at";
 /// Where `checkout` keeps its git data ([`checkout_git_dir`](octocode_engine::search::walk::checkout_git_dir)).
 fn git_dir(checkout: &Path) -> Option<PathBuf> {
     octocode_engine::search::walk::checkout_git_dir(checkout)
+}
+
+/// The last-use marker inside a checkout's git directory: its modification
+/// time is when the checkout was last cloned or reused. Git ignores it, so the
+/// checkout stays clean, and it travels with the stage when published.
+const LAST_USED_FILE: &str = "octocode-last-used";
+
+/// Record that the checkout `path` (whose lock the caller holds) was used at `at`.
+pub(super) fn record_use(path: &Path, at: SystemTime) -> Result<(), GitError> {
+    let git_dir = git_dir(path).ok_or_else(|| {
+        GitError::new(
+            ErrorCode::FileAccessFailed,
+            "Clone checkout has no git directory to record its use in.",
+        )
+    })?;
+    fs::OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(git_dir.join(LAST_USED_FILE))
+        .and_then(|marker| marker.set_modified(at))
+        .map_err(storage_io)
+}
+
+/// When the checkout `path` was last used ([`record_use`]); a checkout
+/// without a marker is as recent as its completion stamp, or else as its
+/// directory.
+pub(super) fn last_used(path: &Path) -> SystemTime {
+    let modified = |file: &Path| fs::metadata(file).and_then(|meta| meta.modified()).ok();
+    git_dir(path)
+        .and_then(|git_dir| {
+            modified(&git_dir.join(LAST_USED_FILE))
+                .or_else(|| modified(&git_dir.join(COMPLETED_AT_FILE)))
+        })
+        .or_else(|| modified(path))
+        .unwrap_or(SystemTime::UNIX_EPOCH)
 }
 
 /// Record that the worktree `stage` was completed now; returns that time.

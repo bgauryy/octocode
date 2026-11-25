@@ -6,6 +6,13 @@
     "format:check": "biome format",
     "check": "biome check"
   },
-  "devDependencies": ["@biomejs/biome"],
-  "notes": "Pin @biomejs/biome to an exact version (--save-exact / --exact): rule sets change between minors."
+  "devDependencies": [
+    "@biomejs/biome"
+  ],
+  "notes": "Pin @biomejs/biome to an exact version (--save-exact / --exact): rule sets change between minors.",
+  "alternatives": {
+    "biome.json": [
+      "biome.jsonc"
+    ]
+  }
 }

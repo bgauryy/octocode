@@ -107,6 +107,8 @@ pub struct ToolRuntime {
     graph_rows: Arc<octocode_tool_graph::ast_graph::store::SavedRows>,
     /// The sandbox workspace root (configured workspaceRoot, else host cwd).
     workspace_root: PathBuf,
+    /// The retention sweep a long-lived host repeats; stops on close.
+    maintenance: super::maintenance::Periodic,
 }
 
 /// Who makes one call. Both read the same JSON envelope; they differ in
@@ -129,6 +131,7 @@ impl ToolRuntime {
     }
     pub async fn close(&self) {
         self.begin_close();
+        self.maintenance.close().await;
         self.requests.close().await;
         // A rate-limit fact a finished request wrote without awaiting must
         // reach the next process: the CLI and the MCP server end right after
@@ -238,6 +241,11 @@ impl ToolRuntime {
             // Languages whose lspSearch server resolves here (resolution only);
             // hosts render it into the lspSearch description.
             "lspServers": self.lsp_server_languages(),
+            // `storage.mode` is persistent: ghCloneRepo and ghStructure's
+            // materialize write under the home, so hosts hide them otherwise.
+            "persistentStorage": octocode_runtime_base::config::is_persistent_storage_enabled(
+                &self.config.resolved,
+            ),
             "tools": tools,
         })
     }

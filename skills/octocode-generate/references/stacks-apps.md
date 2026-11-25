@@ -1,0 +1,32 @@
+# Mobile, desktop and game stacks
+
+Load when the project ships to iOS, Android, a desktop OS or as a game. Same checks as every catalog: rows verified on 2026-11-25, **Docs** re-read at the current release before a command runs ([research](research.md)). Native toolchains (Xcode, Android SDK, Flutter) are often missing: `detect-workspace.mjs` reports them under `probes`, and a gate whose tool is absent shows as `not-installed`.
+
+## Mobile
+
+| Stack | Non-interactive scaffold | Gates and setup | Watch | Docs |
+|---|---|---|---|---|
+| Expo (SDK 58, React Native) | `npx create-expo-app@latest <dir> --yes --template default --no-agents-md` (`--no-install`; templates `default`, `blank`, `blank-typescript`, `tabs`) | Expo Router and a `lint` script. Lint `npx expo lint`, types `npx tsc --noEmit`, tests `jest` with jest-expo, build `npx expo export --platform all`, health `npx expo-doctor` | No test script: `npx expo install jest-expo jest @types/jest -- --dev` (jest-expo 58 needs Jest 30). The first `expo lint` writes `eslint.config.js`. It also writes agent files such as `.claude/settings.json`: check what it created. CI: `expo/expo-github-action` with EAS. Store builds (`eas build --platform all --non-interactive`) need the user's Expo account: hand them over as a next step unless asked | `expo/expo/docs/pages/more/create-expo.mdx`, `expo/expo/docs/pages/develop/unit-testing.mdx` |
+| React Native without a framework | `npx @react-native-community/cli@latest init <Name> --version <rn> --pm <pm> --package-name com.example.app --skip-install --install-pods false --skip-git-init true` | ESLint, Jest and Prettier scripts | The React Native docs recommend a framework (Expo) for new apps. From 0.87 on macOS, iOS uses SwiftPM instead of CocoaPods | `react-native-community/cli/docs/commands.md` |
+| Flutter | `flutter create --org com.example --platforms=android,ios,web <name>` | `dart format --output=none --set-exit-if-changed .`, `flutter analyze`, `flutter test`, `flutter build <web, apk, ios --no-codesign, macos, …>`; template `flutter` | Material and Cupertino are moving to the `material_ui` and `cupertino_ui` packages (deprecated in the framework from Flutter 3.50): follow the template's imports | `flutter/website/sites/docs/src/content/reference/flutter-cli.md` |
+| Capacitor 8 (+ Ionic) | New: `npx @capacitor/create-app@latest <dir> --name "<App>" --app-id com.example.app`. Existing web app: `npx cap init "<App>" com.example.app --web-dir dist`, then `npx cap add android`, `npx cap add ios`, `npx cap sync`. Ionic: `ionic start <name> tabs --type react --capacitor --no-interactive` | The web framework's gates; build `npm run build && npx cap sync` | Needs Node.js 22+ and Xcode 26+. The docs on main describe v9 while npm latest is 8: pin the major | `ionic-team/create-capacitor-app/README.md` |
+| Kotlin / Compose Multiplatform | Wizard only: kmp.jetbrains.com (download the project) or the IDE's New Project | `./gradlew allTests`, `./gradlew :androidApp:assembleDebug`; iOS through Xcode on macOS; template `gradle` | With AGP 9, use `com.android.kotlin.multiplatform.library` and a separate `androidApp` module | JetBrains/kotlin-multiplatform-dev-docs, `topics/quickstart.md` |
+| Android (Jetpack Compose) | Android Studio's New Project wizard, or the Android CLI: `android create empty-activity --name=<App>` | `./gradlew lint test assembleDebug`; add Spotless or ktlint for format; template `gradle` | Kotlin DSL and `gradle/libs.versions.toml` are the defaults; AGP 9 has built-in Kotlin (drop `org.jetbrains.kotlin.android`) | developer.android.com/tools/agents/android-cli |
+| iOS / macOS (SwiftUI) | Xcode's New Project, or generate it: Tuist (`tuist init`, then `tuist generate`) or XcodeGen (`xcodegen generate` from `project.yml`) | `verify-project.mjs` needs the scheme: `--gate build="xcodebuild -scheme <S> -destination 'generic/platform=iOS Simulator' build"`, `--gate test="xcodebuild test -scheme <S> -destination 'platform=iOS Simulator,name=<device>'"`; SwiftLint or `swift format lint` for style | Xcode runs only on macOS; CI needs a macOS runner. Tuist asks to sign in during `init` | `tuist/tuist/server/priv/docs/en/guides/get-started/generated-xcode-project.md` |
+| .NET MAUI | `dotnet workload install maui`, then `dotnet new maui -n <Name>` | `dotnet format --verify-no-changes`; build per platform, e.g. `dotnet build -f net10.0-android` | Unit tests need a separate xUnit project, and the app project needs a host target framework beside the platform ones | `dotnet/docs-maui/docs/deployment/unit-testing.md` |
+
+## Desktop
+
+| Stack | Non-interactive scaffold | Gates and setup | Watch | Docs |
+|---|---|---|---|---|
+| Tauri 2 | `npm create tauri-app@latest <dir> -- -t react-ts -m <pm> --identifier com.example.app -y` | The frontend's gates in `<dir>`; Rust gates in `<dir>/src-tauri` (run `verify-project.mjs` on both) | Without flags it picks vanilla, npm and `com.tauri.dev` | `tauri-apps/create-tauri-app/README.md` |
+| electron-vite | `npm create @quick-start/electron@latest <dir> -- --template react-ts` | ESLint and Prettier | Electron ships Node.js and Chromium: larger installers than Tauri | `alex8088/quick-start/packages/create-electron/README.md` |
+| Electron Forge | `NODE_INSTALLER=<pm> npx create-electron-app@latest <dir> --template=vite-typescript` | Forge packaging and makers | Uses Yarn when it is installed unless `NODE_INSTALLER` is set | `electron/forge/docs/cli.md` |
+| Flutter, .NET MAUI | See the mobile rows: `--platforms=macos,windows,linux` for Flutter | | | |
+
+## Games
+
+| Stack | Scaffold | Gates and setup | Watch | Docs |
+|---|---|---|---|---|
+| Phaser (2D, web) | `npm create @phaserjs/game@latest` is interactive only; non-interactive: `git clone --depth 1 https://github.com/phaserjs/template-vite-ts <dir>`, then remove `<dir>/.git` | Vite and TypeScript; add a lint lane and Vitest | The create CLI parses only `-v` and `-h` | `phaserjs/create-game/src/main.ts` |
+| Bevy (Rust, 2D and 3D) | `cargo new <dir>`, then `cargo add bevy` | Rust gates (template `rust`) | Linux needs system packages; enable the `dynamic_linking` feature for development builds only | `bevyengine/bevy-website/content/learn/quick-start/getting-started/setup.md` |

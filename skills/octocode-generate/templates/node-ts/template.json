@@ -1,11 +1,27 @@
 {
-  "description": "TypeScript on Node.js: strict tsconfig, Vitest, ignore files and a CI workflow running every gate",
+  "description": "Plain TypeScript on Node.js (services, CLIs, libraries): strict tsconfig, Vitest and ignore files; pair it with ci-js",
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage"
   },
-  "devDependencies": ["typescript", "vitest", "@vitest/coverage-v8", "@types/node"],
-  "notes": "Apply after the framework CLI: skip-exists keeps its tsconfig and test config. CI also runs format:check, lint and build, so add a lint lane and a build script. vitest run fails until the first test exists: write it."
+  "devDependencies": [
+    "typescript",
+    "vitest",
+    "@vitest/coverage-v8",
+    "@types/node"
+  ],
+  "alternatives": {
+    "vitest.config.ts": [
+      "vite.config.ts",
+      "vite.config.mts",
+      "vite.config.js",
+      "vite.config.mjs",
+      "vitest.config.mts",
+      "vitest.config.js",
+      "vitest.config.mjs"
+    ]
+  },
+  "notes": "Not for framework apps whose scaffold owns tsconfig and tests (Next.js, Expo, Angular): use ci-js there. An existing tsconfig or Vite config wins (Vitest reads vite.config, and a vitest.config would override it). tsc -b --noEmit also checks solution-style tsconfigs (files: [] plus references), where tsc --noEmit checks nothing. vitest run fails until the first test exists: write it."
 }

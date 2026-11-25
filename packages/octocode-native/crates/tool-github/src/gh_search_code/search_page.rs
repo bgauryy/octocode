@@ -5,7 +5,6 @@ use super::{GhSearchCodeQuery, GhSearchCodeQueryMatchInItem, Withholds, per_sear
 use octocode_github::{
     CodeSearchItem, CodeSearchPage, CodeSearchRequest, ContentRequest, GitHubProvider,
     ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext, SearchRepository,
-    TreeRequest,
 };
 use octocode_tools_shared::gh_shared::SearchWindow;
 use octocode_tools_shared::gh_shared::text::file_text;
@@ -51,12 +50,15 @@ pub(super) struct SearchPage {
 pub(super) struct FileRead {
     /// The commit it was read at.
     pub(super) commit: String,
-    /// The path read: the row's own, or the name its folder lists in another
-    /// case ([`name_in_any_case`]).
+    /// The path read: the row's own, or the path the commit holds in another
+    /// case of its parts ([`path_in_any_case`]).
     pub(super) path: String,
     /// Whether a file is at `path`: false when the default branch's head
-    /// holds nothing at the row's path in any case of its name.
+    /// holds nothing at the row's path in any case of its parts.
     pub(super) found: bool,
+    /// The deepest folder on the row's path the commit holds
+    /// (case-corrected; `""` is the root): the listing a miss routes to.
+    pub(super) directory: String,
 }
 
 /// The GitHub pages (search index, page number) merged page `current`
@@ -149,7 +151,7 @@ enum Read {
 /// ([`file_matches`]), and its lines are then listed from the same read. A
 /// path missing at the default branch's head, the one branch the index
 /// covers, is matched as the code search matches it, in any case of its
-/// name ([`name_in_any_case`]); with no such name the row is answered empty
+/// parts ([`path_in_any_case`]); with no such path the row is answered empty
 /// from that read.
 async fn probe_path(
     provider: &GitHubProvider,
@@ -186,12 +188,13 @@ async fn probe_path(
     };
     let (path, read) = match read_path(provider, at, path, context, withholds).await? {
         Read::Missing if reference.is_none() => {
-            match name_in_any_case(provider, at, path, context).await? {
-                Case::Absent => {
+            match path_in_any_case(provider, at, path, context).await {
+                Case::Absent(directory) => {
                     let read = FileRead {
                         commit: commit.clone(),
                         path: path.to_owned(),
                         found: false,
+                        directory,
                     };
                     return Ok(PathKind::File(Box::new(file_page(
                         query, current, None, read,
@@ -234,6 +237,7 @@ async fn probe_path(
         commit: commit.clone(),
         path: path.to_owned(),
         found: true,
+        directory: String::new(),
     };
     Ok(PathKind::File(Box::new(file_page(
         query, current, hit, read,
@@ -283,66 +287,56 @@ async fn read_path(
     })
 }
 
-/// What `path`'s folder lists under its last part in any case.
+/// What the commit holds at `path` in any case of its parts.
 enum Case {
-    /// A file of that name in another case, by its path.
+    /// A file at that path in another case, by its path.
     File(String),
-    /// A folder of that name in another case: the folder search, which
+    /// A folder at that path in another case: the folder search, which
     /// matches a path in any case, answers it.
     Folder,
-    /// Neither the name nor its folder is at the commit.
-    Absent,
-    /// The folder's listing failed: the searches decide.
+    /// No such file or folder at the commit: the deepest folder on the path
+    /// it holds (case-corrected).
+    Absent(String),
+    /// No folder listing settled it (a failed or truncated tree): the
+    /// searches decide.
     Unknown,
 }
 
-/// The entry `path`'s folder lists at the commit whose name is `path`'s
-/// last part in another case, as GitHub's code search matches a path: one
-/// git tree read of that folder, the one a read's link check already asked
-/// for. A folder segment in another case is not looked for: its folder is
-/// not at the commit, and the row is absent there.
-async fn name_in_any_case(
+/// What the commit holds at `path` in any case of its parts, as GitHub's
+/// code search matches a path: the shared walk
+/// ([`octocode_tools_shared::gh_shared::locate_path_at`]) reads the path's
+/// folder tree, the one a read's link check already asked for, and climbs
+/// only while that folder is missing, so a miss names the folder a listing
+/// will find.
+async fn path_in_any_case(
     provider: &GitHubProvider,
     at: Target<'_>,
     path: &str,
     context: &RequestContext,
-) -> Result<Case, ProviderError> {
-    let (parent, name) = path.rsplit_once('/').unwrap_or(("", path));
-    let request = TreeRequest {
-        owner: at.owner.to_owned(),
-        repo: at.repo.to_owned(),
-        reference: if parent.is_empty() {
-            at.commit.to_owned()
-        } else {
-            format!("{}:{parent}", at.commit)
-        },
-        recursive: false,
+) -> Case {
+    let place = octocode_tools_shared::gh_shared::RepoPath {
+        owner: at.owner,
+        repo: at.repo,
+        path,
+        reference: Some(at.commit),
     };
-    let tree = match provider.transport.get_tree(&request, context).await {
-        Ok(tree) => tree,
-        Err(error) if error.is_cancelled_or_timed_out() => return Err(error),
-        Err(error) if matches!(error.status, Some(404 | 422)) => return Ok(Case::Absent),
-        Err(_) => return Ok(Case::Unknown),
-    };
-    let name = name.to_lowercase();
-    let Some(entry) = tree
-        .tree
-        .into_iter()
-        .find(|entry| entry.path.to_lowercase() == name)
+    let Some(found) =
+        octocode_tools_shared::gh_shared::locate_path_at(provider, &place, at.commit, context)
+            .await
     else {
-        return Ok(Case::Absent);
+        return Case::Unknown;
     };
-    let listed = if parent.is_empty() {
-        entry.path
-    } else {
-        format!("{parent}/{}", entry.path)
-    };
-    Ok(match entry.kind.as_str() {
-        "blob" => Case::File(listed),
-        "tree" => Case::Folder,
-        // A submodule's files are another repository's.
-        _ => Case::Absent,
-    })
+    if let Some(file) = found.file {
+        return Case::File(file);
+    }
+    if found.truncated {
+        return Case::Unknown;
+    }
+    let parts = |path: &str| path.split('/').filter(|part| !part.is_empty()).count();
+    if parts(&found.directory) == parts(path) {
+        return Case::Folder;
+    }
+    Case::Absent(found.directory)
 }
 
 /// The page of a row answered from the file its `path` names: that file

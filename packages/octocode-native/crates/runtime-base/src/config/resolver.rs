@@ -1,8 +1,7 @@
 mod fields;
 mod inspector;
 mod layers;
-use super::dotenv::{MergedEnv, apply_env, merged_env};
-use super::legacy::{legacy_diagnostic, read_legacy_env};
+use super::dotenv::{apply_env, merged_env};
 use super::types::*;
 use super::validation::get_path;
 pub(super) use fields::parse_candidate;
@@ -200,33 +199,6 @@ fn drop_invalid_credential_env(
     }
 }
 
-/// Read the process environment's legacy names as their current names, and
-/// report every one the process and both `.env` files set.
-fn legacy_diagnostics(
-    input: &ConfigInput,
-    process: &mut BTreeMap<String, String>,
-    merged: &MergedEnv,
-) -> Vec<ConfigDiagnostic> {
-    let sources = [
-        (read_legacy_env(process), None),
-        (
-            merged.legacy_workspace.clone(),
-            Some(input.project_env.path().clone()),
-        ),
-        (
-            merged.legacy_home.clone(),
-            Some(input.global_env.path().clone()),
-        ),
-    ];
-    sources
-        .into_iter()
-        .flat_map(|(uses, path)| {
-            uses.into_iter()
-                .map(move |found| legacy_diagnostic(&found, false, path.clone()))
-        })
-        .collect()
-}
-
 pub fn resolve_config(input: &ConfigInput) -> ConfigOutput {
     fn text(file: &FileInput) -> Option<&str> {
         match file {
@@ -236,7 +208,7 @@ pub fn resolve_config(input: &ConfigInput) -> ConfigOutput {
     }
     let merged = merged_env(text(&input.global_env), text(&input.project_env));
     let mut effective = input.env.clone();
-    let mut diagnostics = legacy_diagnostics(input, &mut effective, &merged);
+    let mut diagnostics = Vec::new();
     let dotenv = apply_env(merged, &mut effective);
     let (project_file, project_state) =
         load_layer(&input.project_config_file, true, &mut diagnostics);

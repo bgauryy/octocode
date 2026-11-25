@@ -28,6 +28,28 @@ impl ToolPackage {
         }
     }
 
+    /// The command that runs this package without installing it.
+    pub(super) const fn launch(self) -> &'static str {
+        match self {
+            Self::Research => "npx -y octocode",
+            Self::Graph => "npx -y @octocodeai/octocode-graph",
+        }
+    }
+
+    /// Where `name` runs when it is a runtime tool this package does not
+    /// serve: the package that does and its launch command.
+    pub(super) fn elsewhere_note(self, name: &str) -> Option<String> {
+        let owner = Self::of(ToolId::from_name(name)?);
+        (owner != self).then(|| {
+            format!(
+                "{name} is served by the {} package: {} schema {name}, or {} {name} '<json>'",
+                owner.cli(),
+                owner.launch(),
+                owner.launch()
+            )
+        })
+    }
+
     pub(super) fn for_name(name: &str) -> Self {
         ToolId::from_name(name).map(Self::of).unwrap_or_default()
     }

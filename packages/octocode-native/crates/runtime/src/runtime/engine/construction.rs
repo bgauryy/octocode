@@ -11,17 +11,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 /// The configuration diagnostics every runtime start prints. A key no
-/// setting reads changes nothing, and a legacy name works as its current
-/// name, so `octocode config` reports them instead of every call; an ignored
-/// value of a live setting (invalid, protected, an unreadable file) is said
-/// each time.
+/// setting reads changes nothing, so `octocode config` reports it instead of
+/// every call; an ignored value of a live setting (invalid, protected, an
+/// unreadable file) is said each time.
 pub(super) fn startup_diagnostics(
     diagnostics: &[config::ConfigDiagnostic],
 ) -> impl Iterator<Item = &config::ConfigDiagnostic> {
-    diagnostics.iter().filter(|diagnostic| {
-        diagnostic.code != config::UNKNOWN_CONFIG_CODE
-            && diagnostic.code != config::LEGACY_SETTING_CODE
-    })
+    diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code != config::UNKNOWN_CONFIG_CODE)
 }
 
 impl ToolRuntime {
@@ -95,6 +93,9 @@ impl ToolRuntime {
         // storage.mode=memory must not touch the disk cache at all.
         if config::is_persistent_storage_enabled(&runtime.config.resolved) {
             super::super::maintenance::run_if_due(&runtime.config.home, runtime.limits.capture_ttl);
+            runtime
+                .maintenance
+                .start_default(runtime.config.home.clone(), runtime.limits.capture_ttl);
         }
         match options.timeout_secs {
             Some(secs) => runtime.with_request_budget(std::time::Duration::from_secs(secs)),
@@ -313,6 +314,7 @@ impl ToolRuntime {
             lsp_answers,
             graph_rows,
             workspace_root,
+            maintenance: super::super::maintenance::Periodic::default(),
         })
     }
 }

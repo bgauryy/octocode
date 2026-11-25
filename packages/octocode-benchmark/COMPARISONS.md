@@ -79,8 +79,7 @@ version assertions. Check the exact executables and versions each round.
 - **Better means:** the same match set first. Then characters, a window with its column for a hit
   in a long line, a continuation that reaches every remaining hit, and the next call ready from
   the row. rg is expected to win raw process latency; say so when it does.
-- **Stored evidence:** `campaigns/legacy/octocode-eval-benchmark/2026-10-20-release-localsearch-vs-rg/`
-  (both agree on all 21 lexical cases; rg is faster), `2026-10-15-native-vs-rg/`.
+- **Result (2026-10-20, raw evidence no longer stored):** both agree on all 21 lexical cases; rg is faster.
 
 Use `--no-config` for reproducible comparisons. Match ignore, hidden-file, binary, case and
 word-boundary policies before timing; use `-F` for literal questions and `-P` or `-U` only when
@@ -119,9 +118,7 @@ matches. Omit `-m` and `head` when checking the complete evidence set. See the
 - **Better means:** the same match set (agreement is the correctness gate), only the shape asked
   for, then characters and time. An empty bare pattern should say how many receiver calls exist
   and offer the rule; ast-grep says nothing.
-- **Stored evidence:** `campaigns/legacy/octocode-eval-benchmark/2026-10-20-release-astsearch-vs-ast-grep/`
-  (agreement on all 41 shared and 17 edge cases), `2026-10-19-owned-core-vs-ast-grep/`,
-  `2026-10-15-native-vs-ast-grep/`.
+- **Result (2026-10-20, raw evidence no longer stored):** agreement on all 41 shared and 17 edge cases.
 
 ### lspSearch
 

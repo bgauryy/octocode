@@ -1,0 +1,5 @@
+{
+  "description": "Dependabot: weekly version updates for each detected stack and for the pinned GitHub Actions",
+  "scripts": {},
+  "notes": "Apply after the manifests exist (package.json, pyproject.toml, go.mod, ...): ecosystems come from the stacks found at the target."
+}

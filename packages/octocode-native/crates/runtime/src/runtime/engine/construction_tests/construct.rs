@@ -295,8 +295,8 @@ async fn sections_runtime_checks_paths_and_sanitizes_before_inference() {
     runtime.close().await;
 }
 
-/// Keys no setting reads and legacy names are left to `octocode
-/// config`; an ignored value of a live setting prints at every start.
+/// Keys no setting reads are left to `octocode config`; an ignored value
+/// of a live setting prints at every start.
 #[test]
 fn startup_prints_only_ignored_values_of_live_settings() {
     let diagnostic = |code: &str| config::ConfigDiagnostic {
@@ -308,7 +308,6 @@ fn startup_prints_only_ignored_values_of_live_settings() {
     };
     let diagnostics = [
         diagnostic(config::UNKNOWN_CONFIG_CODE),
-        diagnostic(config::LEGACY_SETTING_CODE),
         diagnostic("invalid_config"),
         diagnostic("config_load_error"),
     ];

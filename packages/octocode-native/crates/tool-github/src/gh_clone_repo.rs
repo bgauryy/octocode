@@ -1,5 +1,6 @@
 //! Durable, blob-filtered GitHub checkout materialization through the system Git baseline.
 mod checkout;
+mod evict;
 mod git;
 mod pin;
 mod plan;

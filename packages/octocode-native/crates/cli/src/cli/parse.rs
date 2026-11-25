@@ -93,6 +93,24 @@ pub(super) fn clap_error_envelope(error: &clap::Error) -> Value {
     error_envelope(ErrorCode::InvalidInput, &message, &details)
 }
 
+/// Where the command word runs when the parser refused it as a subcommand
+/// but another package serves a tool of that name.
+fn other_package_tool_note(
+    package: ToolPackage,
+    error: &clap::Error,
+    argv: &[std::ffi::OsString],
+) -> Option<String> {
+    if error.kind() != clap::error::ErrorKind::InvalidSubcommand {
+        return None;
+    }
+    let name = argv
+        .iter()
+        .skip(1)
+        .filter_map(|arg| arg.to_str())
+        .find(|arg| !arg.starts_with('-'))?;
+    package.elsewhere_note(name)
+}
+
 pub(crate) fn parse_args() -> Result<Args, u8> {
     parse_args_from(std::env::args_os())
 }
@@ -142,11 +160,19 @@ where
                 return Err(clap_exit_code(&error));
             }
             let mode = parse_error_mode(&argv);
+            let elsewhere = other_package_tool_note(package, &error, &argv);
             if !mode.json {
                 print_clap_error(&error);
+                if let Some(note) = elsewhere {
+                    eprintln!("{note}");
+                }
                 return Err(clap_exit_code(&error));
             }
-            write_json(&clap_error_envelope(&error));
+            let mut envelope = clap_error_envelope(&error);
+            if let (Some(note), Some(message)) = (elsewhere, envelope["error"].as_str()) {
+                envelope["error"] = json!(format!("{message}; {note}"));
+            }
+            write_json(&envelope);
             if mode.tells_stderr() {
                 print_clap_error(&error);
             }

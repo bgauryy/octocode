@@ -97,8 +97,8 @@ fn a_merge_time_is_not_restated_as_the_close_time() {
 /// The summary names the change's three commits: the head
 /// (`headCommitSha`), the recorded target-branch tip (`baseCommitSha`) and a
 /// merged PR's merge commit. A section read keeps what names the PR
-/// (number, title, author) and the commits code is read at (`headCommitSha`,
-/// `mergeCommitSha`), nothing else.
+/// (number, state), the commits code is read at (`headCommitSha`,
+/// `baseCommitSha`, `mergeCommitSha`) and `mergedAt`, nothing else.
 #[test]
 fn every_pr_view_keeps_source_target_and_merge_commits() {
     let raw = json_fixture(

@@ -268,13 +268,21 @@ pub(super) fn output_command(name: &str) -> String {
     )
 }
 
-pub(super) fn unknown_tool(machine: &Value, name: &str) -> SchemaError {
+/// A name no tool of `package` carries: the tools it does serve, and where
+/// a tool of the other package runs.
+pub(super) fn unknown_tool(machine: &Value, package: ToolPackage, name: &str) -> SchemaError {
     let known = tools(machine)
         .filter_map(|tool| tool["name"].as_str())
         .filter(|tool| enabled(machine, tool))
         .collect::<Vec<_>>()
         .join(", ");
-    usage(format!("Unknown tool: {name}. Known tools: {known}"))
+    let elsewhere = package
+        .elsewhere_note(name)
+        .map(|note| format!(". {note}"))
+        .unwrap_or_default();
+    usage(format!(
+        "Unknown tool: {name}. Known tools: {known}{elsewhere}"
+    ))
 }
 
 /// `octocode schema <tool> [--view] [--select]`.
@@ -286,7 +294,7 @@ pub(super) fn tool_view(
 ) -> Result<Value, SchemaError> {
     let presentation = presentation()?;
     let Some(tool) = tool_entry(presentation, name) else {
-        return Err(unknown_tool(machine, name));
+        return Err(unknown_tool(machine, ToolPackage::default(), name));
     };
     if view == Some("output") {
         if select.is_some() {
@@ -329,6 +337,9 @@ pub(super) fn tool_view(
         let servers: Vec<&str> = servers.iter().filter_map(Value::as_str).collect();
         value["description"] = Value::String(with_lsp_servers(description, &servers));
     }
+    if name == "ghStructure" && !storage_is_persistent(machine) {
+        strip_materialize_mode(&mut value);
+    }
     value["availability"] = tool_entry(machine, name)
         .map(|entry| entry["availability"].clone())
         .unwrap_or_else(|| json!({ "enabled": false }));
@@ -337,6 +348,40 @@ pub(super) fn tool_view(
         ToolPackage::for_name(name).cli()
     ));
     Ok(value)
+}
+
+/// Whether the catalog's runtime keeps files on disk (`persistentStorage`);
+/// a catalog that states nothing is taken as persistent.
+pub(super) fn storage_is_persistent(catalog: &Value) -> bool {
+    catalog["persistentStorage"].as_bool() != Some(false)
+}
+
+/// Removes `ghStructure`'s `materialize` mode from an advertised description,
+/// schema or view: the property, its name in field lists, and its mentions in
+/// text. Hosts and agents then never see a mode this runtime refuses.
+pub(super) fn strip_materialize_mode(value: &mut Value) {
+    match value {
+        Value::String(text) => {
+            *text = text
+                .replace(
+                    "; many searches over a few named paths: tree materialize:true, then local tools",
+                    "",
+                )
+                .replace(", materialize", "")
+                .replace("materialize, ", "");
+        }
+        Value::Array(items) => {
+            items.retain(|item| item.as_str() != Some("materialize"));
+            items.iter_mut().for_each(strip_materialize_mode);
+        }
+        Value::Object(map) => {
+            if let Some(Value::Object(properties)) = map.get_mut("properties") {
+                properties.remove("materialize");
+            }
+            map.values_mut().for_each(strip_materialize_mode);
+        }
+        _ => {}
+    }
 }
 
 /// The lspSearch description with the language servers this runtime

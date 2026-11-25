@@ -54,6 +54,8 @@ const CANONICAL = [
   'OCTOCODE_GRAPH_HOME',
   'OCTOCODE_ALLOW_PRIVATE_REGISTRY',
   'OCTOCODE_CLASSIFICATION_API_HOST',
+  // The clone disk cap: a repository must not lift it (0 is no cap).
+  'OCTOCODE_CLONE_CACHE_LIMIT',
   // The classification key turns on provider calls that carry evidence: a
   // repository must not supply its own account's key.
   'OCTOCODE_CLASSIFICATION_API',
@@ -82,9 +84,6 @@ const CANONICAL = [
   'OCTOCODE_CREDENTIAL_FILES',
   // The form of every MCP reply: a repository must not change what a client parses.
   'OCTOCODE_MCP_RESULT',
-  // Legacy names carry their current name's policy.
-  'ENABLE_LOCAL',
-  'ENABLE_CLONE',
 ];
 
 describe('PROTECTED_KEYS', () => {

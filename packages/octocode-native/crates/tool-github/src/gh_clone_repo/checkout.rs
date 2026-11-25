@@ -1,8 +1,11 @@
 //! A fresh checkout: stage the commit, verify it, publish it as an output.
 use super::plan::{Checkout, Fresh, Plan};
-use super::{CloneResult, GitContext, GitError, Sparse, git, policy_denied, recovery, storage};
+use super::{
+    CloneResult, GitContext, GitError, Sparse, evict, git, policy_denied, recovery, storage,
+};
 use octocode_contract_types::ErrorCode;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 /// The checkout already published at `clone_dir` (whose lock the caller
 /// holds), when it is still exactly the commit `reference`: the destination
@@ -68,6 +71,7 @@ pub(super) fn reuse_checkout(
         .map_err(policy_denied)?;
     // A checkout made before scopes were recorded gets its record now.
     storage::record_scope(clone_dir, &record(plan, clone_dir, &checkout))?;
+    storage::record_use(clone_dir, SystemTime::now())?;
     let mut result = plan.result(clone_dir, checkout);
     result.location.cloned_at = storage::completed_at(clone_dir);
     result.location.reused = true;
@@ -111,6 +115,7 @@ pub(super) fn fresh_clone(
     let checkout = publish_stage(plan, &store, &stage, &commit_sha, staged, clone_dir)
         .inspect_err(|_| discard_stage(&stage))?;
     retire_old_stores(context, &key, &store);
+    evict::after_clone(context);
     context
         .path_policy
         .validate(clone_dir)
@@ -173,6 +178,7 @@ fn publish_stage(
         return Err(dirty_checkout(clone_dir));
     }
     storage::record_completion(stage)?;
+    storage::record_use(stage, SystemTime::now())?;
     storage::record_scope(stage, &record(plan, stage, &checkout))?;
     // The destination it replaces, when a linked worktree, moves aside and
     // back through git, which keeps its registration: the prune before the

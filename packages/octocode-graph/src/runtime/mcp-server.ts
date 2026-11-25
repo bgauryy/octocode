@@ -34,6 +34,7 @@ import {
   type ViewerServer,
 } from './serve.ts';
 import { errorMessage } from './lib.ts';
+import { packageVersion } from './invocation.ts';
 import {
   buildGraph,
   openGraph as openSaved,
@@ -797,7 +798,7 @@ const native = (() => {
         await ask('initialize', {
           protocolVersion,
           capabilities: {},
-          clientInfo: { name: 'octocode-graph', version: '1.0.0' },
+          clientInfo: { name: 'octocode-graph', version: packageVersion() },
         });
         send('notifications/initialized');
         const list = await ask('tools/list', {});
@@ -840,7 +841,7 @@ const METHODS: Partial<Record<string, MethodHandler>> = {
           : { tools: {} },
       serverInfo: {
         name: mode === 'channel' ? SOURCE : 'octocode-graph',
-        version: '1.0.0',
+        version: packageVersion(),
       },
       instructions:
         mode === 'channel'

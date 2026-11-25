@@ -11,7 +11,6 @@ import {
   CONFIG_FIELDS,
   ENV_TOKEN_VARS,
   HOME_TRUSTED_ENV_KEYS,
-  LEGACY_ENV_NAMES,
   PROTECTED_KEY_NAMES,
   WORKSPACE_NARROW_ONLY_ENV,
 } from './config/contract.generated.js';
@@ -84,20 +83,10 @@ function readTextIfExists(filePath: string): string {
   }
 }
 
-/**
- * One `.env` file's nonblank entries, each legacy name moved to its current
- * name unless the file sets that one (as the native resolver reads them).
- */
+/** One `.env` file's nonblank entries. */
 export function fileEnv(filePath: string): Record<string, string> {
   const entries = Object.entries(parseEnv(readTextIfExists(filePath))).filter(([, v]) => v.trim());
-  const map = Object.fromEntries(entries);
-  for (const [legacy, current] of Object.entries(LEGACY_ENV_NAMES)) {
-    const value = map[legacy];
-    if (value === undefined) continue;
-    delete map[legacy];
-    if (!map[current]) map[current] = value;
-  }
-  return map;
+  return Object.fromEntries(entries);
 }
 
 export interface LoadOctocodeEnvOptions {
@@ -170,26 +159,8 @@ function workspaceMayNarrow(key: string, value: string): boolean {
   return WORKSPACE_NARROW_ONLY_ENV[key] === value.trim().toLowerCase();
 }
 
-/** Each variable's names: the current one, then its legacy ones (from the config contract). */
-export function namesOf(key: string): string[] {
-  const current = LEGACY_ENV_NAMES[key] ?? key;
-  return [
-    current,
-    ...Object.keys(LEGACY_ENV_NAMES).filter(legacy => LEGACY_ENV_NAMES[legacy] === current),
-  ];
-}
-
-/**
- * Whether `env` sets `key` under any of its names. The native runtime reads a
- * legacy name as its current one, so a legacy spelling in the environment
- * keeps a file from setting the current one.
- */
-function setsAnyName(env: Record<string, string | undefined>, key: string): boolean {
-  return namesOf(key).some(name => Boolean(env[name]?.trim()));
-}
-
-/** The GitHub token variables under every name, in the order they are read. */
-const TOKEN_NAMES = ENV_TOKEN_VARS.flatMap(namesOf);
+/** The GitHub token variables, in the order they are read. */
+const TOKEN_NAMES: readonly string[] = ENV_TOKEN_VARS;
 
 export interface ApplyOctocodeEnvResult {
   applied: string[];
@@ -212,7 +183,7 @@ export function applyOctocodeEnv(
   // Resolve source precedence before token-name priority. Otherwise a
   // workspace `GH_TOKEN` could outrank a process or home `GITHUB_TOKEN`.
   const shadowed = new Set<string>();
-  // What the environment set before any file, under any name of each variable.
+  // What the environment set before any file.
   const before = { ...env };
   const processSelected = TOKEN_NAMES.some(key => Boolean(before[key]?.trim()));
   // Tokens are API keys: a home token shadows every workspace token.
@@ -237,7 +208,7 @@ export function applyOctocodeEnv(
     const existing = env[key];
     // A present-but-blank classification key is an explicit opt-out.
     if (
-      setsAnyName(before, key) ||
+      Boolean(before[key]?.trim()) ||
       shadowed.has(key) ||
       (key === CLASSIFICATION_KILL_SWITCH && existing !== undefined)
     ) {

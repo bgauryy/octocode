@@ -21,7 +21,7 @@ API keys that skill scripts read (every `type: 'key'` entry and credential setti
 
 Something a user chooses: a credential, endpoint, feature switch, tool list, scope, storage mode, model or presentation format. Internal limits (timeouts, retries, page sizes, TTLs, concurrency, spend and memory caps) are code constants, never settings; the contract has no number type. A shared limit lives in `RuntimeLimits::DEFAULT` (`crates/runtime-base/src/execution/limits.rs`; tests vary it through `ToolRuntime::with_limits`), any other next to its one use with a doc comment (for example `IDLE_EXIT` in `crates/cli/src/cli/serve.rs`). A limit that bounds evidence is disclosed in the response. Docs link to the constant instead of copying its value.
 
-To retire a setting, delete its declaration, consumers and tests, then regenerate; unknown names get ordinary unknown-key handling, no tombstones. To rename one, keep each earlier spelling as a [legacy name](#legacy-names); there is no other alias mechanism.
+To retire a setting, delete its declaration, consumers and tests, then regenerate; unknown names get ordinary unknown-key handling, no tombstones. To rename one, rename it everywhere and regenerate; the old name is an unknown key, with no alias or legacy mechanism.
 
 ## Add a setting
 
@@ -40,15 +40,6 @@ At most one `env` binding per setting, `{ "name": "OCTOCODE_..." }`. Every Octoc
 | `dotenv` | `all` (default: workspace or home `.env`), `home` (the trusted home `.env` only), `never` (shell, CI or MCP environment only; joins the generated protected-key sets) |
 | `normalize` | `"trim"`, or `"lower"` (trims and lowercases) |
 | `workspaceNarrowsTo` | On a `dotenv: "home"` binding, the one value a workspace may still set (as `storage.mode: memory`) |
-| `legacyNames` | Earlier names of this variable, still read; also on an `environment` entry |
-
-### Legacy names
-
-A renamed setting keeps its old spelling working: list it beside the setting in `legacyNames` (env binding or `environment` entry) or `legacyPaths` (field, for `.octocoderc`). The generator rejects a spelling that is current or listed twice.
-
-- Each source is read with legacy spellings moved to the current name first (`crates/runtime-base/src/config/legacy.rs`; `src/dotenv.ts` for `.env` propagation), so precedence, trust, token order and reports see one name; within one source the current name wins. A legacy name inherits its current name's policy in every generated set.
-- `octocode config` reports each use as `legacy_setting_name`; tool calls stay quiet. The settings table shows `(legacy: …)`.
-- Tests iterate `LEGACY_ENV_NAMES` and `LEGACY_CONFIG_PATHS` on every layer (`config/legacy/tests.rs`, CLI `config_edit/legacy.rs` and `mcp_server/legacy.rs`, `tests/dotenv-fallback.test.ts`): a new legacy name needs no new test.
 
 ## Credentials
 

@@ -1,6 +1,5 @@
 // Process environment variables the contract governs apart from settings: dotenv trust policy,
 // token precedence and credential marking. Setting-bound variables live on each field's `env`.
-// `legacyNames` are earlier names of the same variable, still read; see schema.ts.
 import type { ContractInput } from '../schema.ts';
 
 export const environment: ContractInput['environment'] = {
@@ -86,7 +85,6 @@ export const environment: ContractInput['environment'] = {
     displayDefault: 'unset (octocode auth login also works)',
     group: 'GitHub',
     description: 'GitHub CLI token',
-    legacyNames: ['OCTOCODE_TOKEN'],
   },
   GITHUB_TOKEN: {
     dotenv: 'all',
@@ -96,7 +94,6 @@ export const environment: ContractInput['environment'] = {
     displayDefault: 'unset (octocode auth login also works)',
     group: 'GitHub',
     description: 'GitHub Actions token',
-    legacyNames: ['GITHUB_PERSONAL_ACCESS_TOKEN'],
   },
   SCRAPING_ANT: {
     dotenv: 'all',
