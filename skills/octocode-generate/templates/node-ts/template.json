@@ -1,0 +1,11 @@
+{
+  "description": "TypeScript on Node.js: strict tsconfig, Vitest, ignore files and a CI workflow running every gate",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage"
+  },
+  "devDependencies": ["typescript", "vitest", "@vitest/coverage-v8", "@types/node"],
+  "notes": "Apply after the framework CLI: skip-exists keeps its tsconfig and test config. CI also runs format:check, lint and build, so add a lint lane and a build script. vitest run fails until the first test exists: write it."
+}

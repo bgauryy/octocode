@@ -1,0 +1,10 @@
+{
+  "description": "ESLint flat config with type-checked typescript-eslint rules, plus Prettier",
+  "scripts": {
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": ["eslint", "@eslint/js", "typescript-eslint", "prettier"],
+  "notes": "typescript-eslint declares a typescript peer range: run check-versions.mjs with typescript in the set. When it excludes TypeScript 7, pin typescript to the range's highest version or alias typescript to @typescript/typescript6 and add @typescript/native for tsc."
+}

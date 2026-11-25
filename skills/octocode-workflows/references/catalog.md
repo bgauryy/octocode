@@ -39,6 +39,7 @@ Choose the domain owner separately from the execution pattern. Use installed ski
 |---|---|
 | Source, history or package evidence | `octocode-research` |
 | Implementation, architecture or refactor | `octocode-engineer` |
+| New app or project scaffold | `octocode-generate` |
 | Diff review / cleanup / blunt critique | `octocode-pr-review` / `octocode-clean-agentic-code` / `octocode-roast`, respectively |
 | Ideas or comparisons / design proposal | `octocode-brainstorming` / `octocode-rfc-generator`, respectively |
 | Public-page extraction / live browser work | `octocode-scraping` / `octocode-chrome-devtools`, respectively |

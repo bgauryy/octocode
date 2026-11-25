@@ -16,6 +16,7 @@ Do not pool results across different request wordings.
 | octocode-clean-agentic-code | Remove dead code and unused exports from this package · Delete leftover debug logs without changing behavior | Refactor this module's architecture (→ engineer) |
 | octocode-documentation | Rewrite this README for newcomers · Write a runbook for this deploy · Shorten this doc without losing facts | Write an RFC for the migration (→ rfc-generator) |
 | octocode-rfc-generator | Write a design proposal for moving to a queue · Draft a migration plan with rollout | Write a README (→ documentation) |
+| octocode-generate | Scaffold a new Next.js app with auth and a database · Bootstrap a TypeScript API project for me | Add a login page to this existing app (→ engineer) |
 | octocode-test-plan | Write a test plan for this feature, someone else will run it · Risk-rank test cases for this bug fix | Write the tests and run them (no skill: code task) |
 | octocode-agentic | Why does my agent call the wrong tool? · Review this system prompt and tool contract · Design an eval for my agent | Coordinate three agents on a task (→ orchestrator) |
 | octocode-orchestrator | Split this task across agents and track dependencies · Resume a stalled multi-agent run | Design the agent's prompt (→ agentic) |

@@ -1,0 +1,11 @@
+{
+  "description": "Biome: one tool and one config for linting, formatting and import sorting",
+  "scripts": {
+    "lint": "biome lint --error-on-warnings",
+    "format": "biome format --write",
+    "format:check": "biome format",
+    "check": "biome check"
+  },
+  "devDependencies": ["@biomejs/biome"],
+  "notes": "Pin @biomejs/biome to an exact version (--save-exact / --exact): rule sets change between minors."
+}

@@ -12,7 +12,11 @@ pub(super) fn status(runtime: &ToolRuntime, name: &str, github_auth: bool) -> Va
     };
     let github_skill = matches!(
         name,
-        "octocode-research" | "octocode-pr-review" | "octocode-rfc-generator" | "octocode-roast"
+        "octocode-research"
+            | "octocode-pr-review"
+            | "octocode-rfc-generator"
+            | "octocode-roast"
+            | "octocode-generate"
     );
     // Only pull-request input needs GitHub here; local planning stays ready without a token.
     let github_pr_input = name == "octocode-test-plan";
