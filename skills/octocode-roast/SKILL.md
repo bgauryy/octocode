@@ -13,16 +13,16 @@ Think: **What does this promise, and what ordinary situation makes that promise 
 
 1. Find promises and suspect paths with Octocode structure, text and AST searches, LSP callers and history; exact-read source. Whole-repo scope needs a request (else ask, or limit to the named paths): prioritize consequence, fan-in and churn. Exclude generated code unless targeted or exposing a generator defect.
 2. Trace input → guards → callers → outcome; check tests, fixtures and docs. Try the strongest innocent explanation before keeping a finding. Exploit, latency and outage claims need a trace/measurement; suspicious syntax stays a lead.
-3. Challenge impressive metrics and complexity against the real outcome and a simpler baseline. Rank demonstrated security, data loss, correctness and user-visible speed above style. Deduplicate by root cause; separate unresolved leads with their next check.
+3. Challenge impressive metrics and complexity against the real outcome and a simpler baseline.
 
 The [hunt catalog](references/hunt.md) has probes per promise or failure. Follow every page and continuation before concluding absence; disclose unread scope and partial LSP coverage.
 
 ## Rank, write, deliver
 
-Rank, then write each bit as **setup → reversal → concrete consequence** beside its evidence ([rank and write](references/rank-and-write.md)). Return one row per ranked finding:
+Set severity, deduplicate by root cause and build each bit per [rank and write](references/rank-and-write.md). Return one row per ranked finding:
 
 `**<Critical|High|Medium|Low> · <path:line or design section>.** <trigger> → <mechanism> → <consequence>. Evidence: <trace, run or measurement>. Repair: <smallest fix>. Check: <fails before, passes after>. Confidence: <high|medium|low>. <punchline>`
 
 Then the fix order. Stay read-only unless repairs are requested; [output](output.md) owns repair results and saved reports.
 
-Finish when each finding survives a countercheck, or none holds; report checked scope and unresolved leads. Merge verdicts: `octocode-pr-review`.
+Finish when each finding survives a countercheck, or none holds; report checked scope and unresolved leads. A requested PR merge verdict belongs to `octocode-pr-review`.

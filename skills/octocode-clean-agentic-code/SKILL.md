@@ -13,10 +13,10 @@ description: "Load this skill first when asked to remove dead code, duplicate he
 
 | Candidate | Decision |
 |---|---|
-| [Dead or duplicate code](references/code-smells.md) | Check the candidate's removal bar and preserve supported consumer behavior. |
+| [Dead or duplicate code](references/code-smells.md), [checker suppressions](references/checker-suppressions.md), [redundant types or dependencies](references/types-dependencies.md) | Check the candidate's removal bar and preserve supported consumer behavior. |
 | [Comments, instructions or configuration](references/text-config-hygiene.md) | Keep text and configuration with a parser, runtime or external consumer until its contract deliberately changes. For AI-writing tells, chat residue and placeholders, use [writing tells](references/writing-tells.md). If cleaner wording changes agent behavior, use `octocode-agentic`. For skill packaging or activation, use `octocode-skills`. |
-| [Agent leftovers or defects](references/agent-defects.md) | Report error masking and reachable stubs as [SBAR blockers](references/agent-defects.md#escalation-protocol). Keep these out of removal batches. Redact exposed credentials and report them for rotation. |
-| [Weak tests or grader gaming](references/tests.md) | Report confirmed gaming as an SBAR blocker. Preserve the behavioral oracle and coverage floors. Never hide a failure by weakening a check or widening a mask. |
+| [Agent leftovers or defects](references/agent-defects.md) | Report [error masking, reachable stubs and unverified dependencies](references/agent-blockers.md) as [SBAR blockers](references/agent-blockers.md#escalation-protocol). Keep these out of removal batches. Redact exposed credentials and report them for rotation. |
+| [Weak tests or grader gaming](references/tests.md), [test debt or replacement tests](references/test-debt.md) | Report confirmed gaming as an SBAR blocker. Preserve the behavioral oracle and coverage floors. Never hide a failure by weakening a check or widening a mask. |
 
 Keep defects requiring behavior changes separate from the cleanup. Use `octocode-engineer` for unresolved design choices.
 

@@ -149,11 +149,11 @@ fn is_protected_key(key: &str) -> bool {
                 .any(|protected| protected.eq_ignore_ascii_case(key)))
 }
 
-/// One `.env` file's nonblank entries.
+/// One `.env` file's nonblank entries, under current variable names.
 fn file_env(text: Option<&str>) -> BTreeMap<String, String> {
     let mut env = parse_env(text);
     env.retain(|_, value| !value.trim().is_empty());
-    env
+    super::canonicalize_env(env)
 }
 
 pub(crate) fn merged_env(global: Option<&str>, project: Option<&str>) -> MergedEnv {

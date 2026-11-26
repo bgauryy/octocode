@@ -1,6 +1,6 @@
 //! `securityCheck`: known vulnerabilities of a package, a package URL or purl, an
 //! advisory id, or a commit. Off until the user turns it on
-//! (`tools.enableSecurityCheck`): admission refuses it before this runs.
+//! (`tools.enableSecurity`): admission refuses it before this runs.
 pub mod advisories;
 mod answer;
 pub mod commit;

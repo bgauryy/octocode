@@ -1,5 +1,7 @@
 Load when reviewing the affected architecture paths for protocols, boundaries, correctness, algorithms, efficiency, resource lifetime, modularity or cleanup.
 
+Read next: [algorithms, efficiency and resources](checks-algorithms-resources.md) for an algorithm, cost or resource-lifetime check; [agent-authored work](checks-agent-work.md) when reviewing a slice an agent wrote.
+
 # Checks
 
 ## Review angles
@@ -9,12 +11,12 @@ Review strengths and failure hypotheses together; preserve useful invariants whi
 | Angle | Healthy signal to preserve | Failure hypothesis | Distinguishing evidence |
 |---|---|---|---|
 | Protocol | One contract owner, explicit state transitions, compatible producer and consumer | Shape drift, ambiguous completion, duplicate effects, lost evidence, version skew | [Contract trace](#contract-trace), [protocol transitions](#protocol-state-and-delivery), real producer/consumer replay |
-| Architecture and modularity | Cohesive capabilities, explicit composition, stable dependency direction | Wrong-way dependency, leaky types, hidden effects, shared mutable state, cyclic ownership | Exact AST boundaries, LSP consumers, graph edges, declared layering rule, change impact; [look-alike terms](concepts.md#look-alike-terms) before naming a role |
+| Architecture and modularity | Cohesive capabilities, explicit composition, stable dependency direction | Wrong-way dependency, leaky types, hidden effects, shared mutable state, cyclic ownership | Exact AST boundaries, LSP consumers, graph edges, declared layering rule, change impact; [look-alike terms](concepts-look-alikes.md#look-alike-terms) before naming a role |
 | Bugs and correctness | Invariants hold on normal and exceptional paths | Off-by-one, wrong default, stale state, race, masked failure, incomplete implementation | Smallest distinguishing reproduction; assertion fails for the intended reason, then passes through the real boundary |
-| Algorithms | Defined input bounds, invariants, termination, and justified data structures | Unproved greedy choice, unstable ordering, repeated scans, numeric or concurrency error | [Algorithm checks](#algorithms), oracle or property checks, adversarial inputs, complexity in named variables |
-| Efficiency | Bounded work, batching or reuse with explicit lifetime and invalidation | N+1 calls, redundant parsing, serialization or copying, lock contention, retry amplification | [Efficiency checks](#efficiency), end-to-end profile, operation counts, comparable cold/warm workloads |
-| Memory and resources | Clear ownership, bounded retention, cleanup on every exit | Leaks, allocation churn, excessive buffering, unbounded cache or queue, dangling ownership | [Memory checks](#memory-and-resource-health), allocation/retention evidence, repeated workload and cancellation checks |
-| Junk and unification | One owner per shared policy; useful independent boundaries remain independent | Dead exports, stale wrappers, parallel rules, debug leftovers, speculative abstraction | AST candidates plus semantic and external-consumer proof; [deletion and unification](change-discipline.md#delete-junk-and-unify) |
+| Algorithms | Defined input bounds, invariants, termination, and justified data structures | Unproved greedy choice, unstable ordering, repeated scans, numeric or concurrency error | [Algorithm checks](checks-algorithms-resources.md#algorithms), oracle or property checks, adversarial inputs, complexity in named variables |
+| Efficiency | Bounded work, batching or reuse with explicit lifetime and invalidation | N+1 calls, redundant parsing, serialization or copying, lock contention, retry amplification | [Efficiency checks](checks-algorithms-resources.md#efficiency), end-to-end profile, operation counts, comparable cold/warm workloads |
+| Memory and resources | Clear ownership, bounded retention, cleanup on every exit | Leaks, allocation churn, excessive buffering, unbounded cache or queue, dangling ownership | [Memory checks](checks-algorithms-resources.md#memory-and-resource-health), allocation/retention evidence, repeated workload and cancellation checks |
+| Junk and unification | One owner per shared policy; useful independent boundaries remain independent | Dead exports, stale wrappers, parallel rules, debug leftovers, speculative abstraction | AST candidates plus semantic and external-consumer proof; [deletion and unification](change-removal.md#delete-junk-and-unify) |
 
 ## Contract trace
 
@@ -44,64 +46,3 @@ Review strengths and failure hypotheses together; preserve useful invariants whi
 - Feedback: callbacks, events, reconciliation re-entering as ingress; ordering, replay, idempotency, consistency windows.
 - Exercise the material paths: normal, invalid, denied, partial failure, retry/replay, timeout/cancellation, stale version.
 - Each validation, persistence, disclosure, and deletion decision has one accountable boundary.
-
-## Algorithms
-
-- Write the contract first: `inputs + preconditions -> postconditions + invariants -> termination -> cost`; name any reference oracle and the representative workload. Example tests are evidence, not proof: they miss boundary, state-space, and complexity failures.
-
-Flaws → strong evidence:
-
-| Finding | Action / proof |
-|---|---|
-| Boundaries: empty/singleton, off-by-one, invalid encoding, duplicates, ordering assumptions, aliasing, caller-data mutation | boundary partitions, property tests. |
-| Invariants: inconsistent state after a transition, leaking partial update | assertions, state-machine tests. |
-| Termination: unbounded wait/poll/retry, no terminal state, recursion depth, livelock, a completion signal re-arming its own wait | decreasing measure, timeout path, adversarial test. |
-| Global correctness: greedy choice, stale cache/index, unstable tie-breaking | proof sketch, oracle differential tests on small cases. |
-| Complexity: hidden nested scan, repeated I/O, pathological hashing, state explosion | time/space in named variables; benchmark representative and worst-shaped inputs. |
-| Numeric: overflow, precision loss, NaN, unit/rounding error, nondeterministic floats | range analysis, typed units, extreme-value tests. |
-| Concurrency: race, lost update, unsafe publication, deadlock, lock-order inversion, non-idempotent replay | happens-before reasoning, stress or deterministic-scheduler checks. |
-| Randomness: modulo bias, irreproducible seed, adversarial skew | fixed-seed property checks with tolerances. |
-
-- Proof ladder: trace the smallest counterexample through exact code → state why the invariant holds or breaks → compare with an oracle, exhaustive small state space, metamorphic property, or prior implementation when practical → measure only the named cost under comparable inputs. Unresolved input bounds, ordering, or numeric range keep the claim a candidate.
-
-## Efficiency
-
-- Define workload size, input distribution, concurrency, cache state, and the user-visible budget. Compare equivalent conditions before and after; separate setup, cold, warm, and steady-state work.
-- Attribute cost across the whole path: CPU, I/O, calls, scans, parsing, serialization, copies, allocation, synchronization, retries, and fan-out. Measure latency and throughput where relevant; a shorter helper or fewer lines is not an efficiency result.
-- Vary input size and shape to test the claimed time and space complexity. A nested loop is a lead, not automatically quadratic in the actual input; a fast small fixture does not rule out pathological growth.
-- Preserve correctness, memory bounds, cancellation, and output completeness while optimizing. Remove redundant work at its owner; do not improve a metric by dropping evidence, suppressing errors, or shifting unmeasured work to a consumer.
-
-## Memory and resource health
-
-- Trace allocate/acquire → owner → transfer/borrow/share → retention → release for buffers, collections, caches, tasks, subscriptions, handles, streams, and child processes. Check success, failure, timeout, cancellation, and shutdown paths; reference cycles and unsafe ownership crossings need explicit evidence.
-- Measure allocated and retained memory where available, peak usage, and resource counts across repeated equivalent workloads and a quiescent period. Distinguish live retention, allocation churn, cache warm-up, allocator reservation, and operating-system RSS; one large snapshot does not prove a leak.
-- Vary payload size, concurrency, and duration. Inspect unbounded queues or caches, whole-input buffering, repeated clones/copies, long-lived closures, and owners retaining larger objects than needed. Verify eviction, backpressure, streaming, and capacity limits where claimed.
-- Use the language's appropriate diagnostics or runtime instrumentation when memory safety or lifetime is in question. AST and LSP can locate ownership paths; they do not establish peak usage, absence of leaks, or safe concurrent lifetime on their own.
-
-## Agent-authored work
-
-- A green functional suite does not rule out structural defects. Check dependency graphs, static analysis, contract diffs and clean-environment behavior as applicable. Use the local [removal proof](change-discipline.md#delete-junk-and-unify); `octocode-clean-agentic-code`, when installed, adds cleanup guidance.
-- State the intended boundary before a slice adds or moves dependencies; re-derive the graph after.
-
-Structure:
-- Drift: forbidden edges added one reasonable commit at a time.
-- Import cycle: new since baseline, or hidden by a deferred or type-only import.
-- Boundary violation: reaching into internals instead of the public interface.
-- Coupling growth: rising fan-in/fan-out on touched modules.
-- God module: new responsibility in the largest file.
-- Parallel implementation: one rule, allowlist, or schema in two places without a parity fixture.
-- Speculative abstraction: one-implementation interface, one-value flag.
-
-Runtime ([contract trace](#contract-trace) for API contracts, [Algorithms](#algorithms) for termination):
-- Thread safety: lazy init without a memory barrier, lock on a shared or interned object, sleep inside a lock where a wait belongs.
-- Resource lifetime: every handle, stream, connection, listener, subscription, timer, child process closes on all branches.
-- Atomicity: must-succeed-together operations; idempotent retries.
-
-Deliverability:
-- Dependency closure: run in a clean environment with only declared dependencies.
-- Environment coupling: behavior varies with cwd, host, or import order (module-scope reads, hardcoded infrastructure).
-- Incomplete generation: a reachable stub returning success.
-- Dependency creep: a second library for a covered concern.
-- Gate integrity: run each guard on a case it must reject; zero exit after parsing nothing, or a negative test passing on an unrelated rejection, is a broken gate.
-
-Spec fit: compare the slice with the request, not itself: missing corner case, wrong input type, invented object or attribute, overfitting to a prompt example, unrequested capability.

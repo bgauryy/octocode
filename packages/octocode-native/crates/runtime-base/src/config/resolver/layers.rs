@@ -68,6 +68,7 @@ pub(super) fn load_layer(
         return (None, LayerState::Invalid);
     }
     let mut value = load.config.unwrap_or_else(|| json!({}));
+    canonicalize_config_keys(&mut value);
     let (issues, warnings) = config_issues(&value);
     for m in warnings {
         diagnostics.push(warning(UNKNOWN_CONFIG_CODE, None, m, &load.path));

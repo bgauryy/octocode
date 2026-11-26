@@ -1,6 +1,6 @@
-# Python debugging
+Load when a Python program needs a breakpoint, post-mortem, pytest failure state or hang stack. For CPU, wall time, asynchronous waits or memory, load [Python profiling](python-profiling.md).
 
-For CPU, wall time, asynchronous waits or memory, see [Python profiling](python-profiling.md).
+# Python debugging
 
 ## Break and inspect
 
@@ -37,7 +37,7 @@ Use `w` to see which frames exist on this Python version and select the frame th
 
 ## Hang
 
-On an existing process use `python3 -m profiling.sampling dump "$pid"` where supported, or `py-spy dump --pid "$pid"`. Take two snapshots during the stall and look for the thread or task expected to release the waiter. For a controlled launch, schedule `faulthandler.dump_traceback_later(seconds, exit=False)` and cancel it after the operation. SIGABRT can terminate the interpreter. [Python faulthandler](https://docs.python.org/3/library/faulthandler.html)
+On an existing process use `python3 -m profiling.sampling dump -a "$pid"` (CPython 3.15+; `-a` adds every thread to the main one), or `py-spy dump --pid "$pid"`. Take two snapshots during the stall and look for the thread or task expected to release the waiter. For a controlled launch, schedule `faulthandler.dump_traceback_later(seconds, exit=False)` and cancel it after the operation. SIGABRT can terminate the interpreter. [Python faulthandler](https://docs.python.org/3/library/faulthandler.html)
 
 ## Imports and environment
 

@@ -1,6 +1,8 @@
+Load when changing, testing or auditing a tool.
+
 # Tool quality
 
-What a tool change must prove, and how to audit one tool end to end. Owners elsewhere: request, result, continuation and paging rules `<repo>/docs/TOOL_DATA_CONTRACT.md`; parameters `<repo>/docs/OCTOCODE_TOOLS.md` and the live `schema`; routing `<repo>/skills/octocode-research/references/tool-flow.md`; live checks [CHECKS.md](../../../packages/octocode-benchmark/CHECKS.md). Code locations: [where code lives](DEVELOPMENT.md#where-code-lives).
+What a tool change must prove, and how to audit one tool end to end. Owners elsewhere: request, result, continuation and paging rules `<repo>/docs/TOOL_DATA_CONTRACT.md`; parameters `<repo>/docs/OCTOCODE_TOOLS.md` and the live `schema`; routing `<repo>/skills/octocode-research/references/tool-flow.md` and its `tool-flow-*.md` parts; live checks [CHECKS.md](../../../packages/octocode-benchmark/CHECKS.md). Code locations: [where code lives](DEVELOPMENT.md#where-code-lives).
 
 ## Acceptance
 
@@ -10,11 +12,12 @@ Test the public request and the calls it emits; no snapshots, prose equality or 
 - Zero-based `index` alignment and isolated row failures: a successful envelope does not mean every row succeeded.
 - Core's operations, defaults and selectors, each operation's required fields and its rejected cross-operation fields. A rejected call names a correction, and the corrected call passes through the real adapter (MCP validates before the callback) against a fixture that tells the caller's intent apart (a same-named symbol at another line, a conflicting filter, a date bound).
 - Documented examples run with observed paths and identities: schema-valid is not runtime-correct.
+- The tool's row in the [per-tool checks](TOOL_CHECKS.md).
 - Reply `next` and row `next.*` continue; `related[]` are fresh calls; `hints[]` stay prose. `response/continuations.rs` `finalize` validates every emitted call against its receiving tool.
 
 ### Surface
 
-`$OCTO schema` shows the effective catalog. A classification key enables `clasify` (a CLI call without one answers `missingConfiguration`); MCP's other opt-ins are `OCTOCODE_BETA` (graph tools), `OCTOCODE_ENABLE_CLONE`, `OCTOCODE_SECURITY_CHECKS` ([availability matrix](../../../docs/CONFIGURATION.md#tool-availability-cli-and-mcp)). The CLI ignores MCP visibility but keeps path and content security. Discovery makes no provider request, so test missing prerequisites and provider failures at invocation; an enabled clone in memory mode stays visible and reports its storage requirement when called. Record the effective configuration per run, and test both CLI and MCP when registration, schema projection, formatting or continuation rendering changes.
+`$OCTO schema` shows the effective catalog. A classification key enables `clasify` (a CLI call without one answers `missingConfiguration`); MCP's other opt-ins are `OCTOCODE_BETA` (graph tools), `OCTOCODE_ENABLE_CLONE`, `OCTOCODE_ENABLE_SECURITY` ([availability matrix](../../../docs/CONFIGURATION.md#tool-availability-cli-and-mcp)). The CLI ignores MCP visibility but keeps path and content security. Discovery makes no provider request, so test missing prerequisites and provider failures at invocation; an enabled clone in memory mode stays visible and reports its storage requirement when called. Record the effective configuration per run, and test both CLI and MCP when registration, schema projection, formatting or continuation rendering changes.
 
 ### Evidence and output
 
@@ -30,28 +33,6 @@ Test the public request and the calls it emits; no snapshots, prose equality or 
 - Shortening field descriptions: compare the published schemas with `node skills-dev/octocode-dev/scripts/tool-inventory.mjs <tool> --schema-diff <older tool-contract.json>` (descriptions ignored), then verify defaults, exceptions and follow-up calls on the rebuilt CLI and a fresh MCP connection. Moving detail out of discovery: replay the task with the CLI schema and the matching MCP resource. Never cut descriptions or instructions to a size target: the 2026-11-24 20% cut raised GitHub calls from 3.4 to 4.6 per question.
 - Routing claims across models need `octocode-agentic` measurement: cases, graders, schemas, instructions and model frozen before inference; tool choice, arguments, schema validity and execution scored apart.
 
-### Per tool
-
-| Tool | Check |
-|---|---|
-| `localSearch` | Text and regex queries independently; match continuations, exclusions, zero-result diagnostics. |
-| `localFetch` | Path-only, full, range, match and each view; matched anchors, transformed windows, fallback mode, redaction, source lines. |
-| `clasify` | Noul, Choice, Score over values and unread resources; body-free answers, coverage, focus scopes, provider failures, cache reuse on exact reads. |
-| `structureSearch` | `view:"paths"` and `"details"` with name and metadata filters; listing and tree pagination, snapshots, depth bounds, exclusions. |
-| `astSearch` | `match`, `syntaxTree`, `symbols`; structural `rule` composition, parser selection, captures, nodes, parser and scan limits. |
-| `lspSearch` | Document, workspace, anchored, hierarchy operations; no server vs unsupported capability vs failed anchor vs valid empty; provenance; snapshots. |
-| `graphBuild` | Scope, `refresh`, storage, beta availability, one query per batch; freshness, durable extraction resume, source invalidation, bounded spill, failed-build preservation, corrupt checkpoint rejection. |
-| `graphQuery` | Every operation, selector, witness and resolution option; pinned continuation union per collection; integrity errors, stale snapshots, grammar coverage, unresolved sites. |
-| `ghSearchRepo`, `ghSearchCode`, `ghStructure` | Code search uses the default-branch index, and an explicit `ref` requires `repo` and re-reads its hits; immutable tree identity, metadata pages, indexing uncertainty, provider-limit diagnostics. |
-| `ghGetFileContent` | `content`, `compact`, `symbols`, full and windowed; local/remote parity, pinned refs, repeated-outline prevention, redaction, directory-input rejection. |
-| `ghSearchHistory` | PR, issue, commit discovery with operation scope; pages, filters, field selection, provider-incomplete results. |
-| `ghGetHistoryItem` | PR/issue, commit, compare; files, comments, reviews, commits, bodies and patches each traversed alone; omitted vs empty patch; immutable refs. |
-| `ghCloneRepo` | Default ref, full SHA, sparse paths, full history, availability gates; ref resolved to a commit every call, a clean checkout reused without a fetch, local edits refused and preserved, concurrent mutation, rollback, crash recovery. |
-| `artifactSearch` | Exact, scoped, keyword (mixed or empty selectors rejected); keyword continuations, repo subdirectory, registry failures, authenticated registries. |
-| `securityCheck` | Every `operation`; `url` forms (purl, registry page, repository, commit, advisory); `release` on distributions only. The verdict equals OSV's answer; repository facts and advisories equal GitHub's REST record; cvss `vector` never a number, `score` only as GitHub publishes it; a refused GitHub read is disclosed (`sourceFailed`), never clean. |
-
-Minification and windows: file fetch (local and GitHub) tests `content`, `compact`, `symbols`, selectors and line or byte windows against exact source, outline, fallback metadata and the continuation union. GitHub code and history search take `fields` only, no `minify`. PR, issue, commit and compare detail stay GitHub's verbatim text; commit and compare also test `sections:["patches"]`, `include` path selection and absent vs omitted vs empty patches. Build the native minification matrix from runtime configuration, filename overrides included ([supported languages](../../../packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md)); fixtures cover delimiter comments, comment-like strings, TS types and imports, JSX/TSX, data, markup, indentation-sensitive, empty, malformed and near-limit files, checked for validity and preservation, not byte counts.
-
 ## Audit a tool end to end
 
 1. **Inventory.** `node skills-dev/octocode-dev/scripts/tool-inventory.mjs <tool>` lists the module, fields and their declared effects. A zero-hit field: read the Rust request struct (`rename_all`, `rename`, `alias`) and prove it is read; unread is dead input (remove it in core) or a bug (wire it). Confirm each `consumed`, `forwarded` or `output-control` label with `lspSearch` references: deserialized and logged is not consumed.
@@ -59,4 +40,4 @@ Minification and windows: file fetch (local and GitHub) tests `content`, `compac
 3. **How the call runs.** Trace one real call per variant: `$OCTO <tool> '<json>'` → `contracts/prepare.rs` → `runtime/dispatch.rs` → `crates/tool-<family>/src/<tool>/` → provider → `response/` → render, noting what each hop adds, copies or drops. Count provider requests per row and the GitHub quota each spends (code search 10 a minute, search 30 a minute, core 5,000 an hour). Flag Rust validation that duplicates core `nativeRules` and hand-mirrored enums that fall into `_ =>`. A refusal must not invite a retry that cannot succeed: a `next.retry` before its `retryAfter`, or a wait past `mcp_reply_budget` (50 s, `execution/limits.rs`). Cache keys never mix tokens or users; compare two identical calls cold and warm (`crates/runtime/tests/{tool_cache_contracts,runtime_github_cache}.rs`).
 4. **What comes back.** Run hit, empty, partial, oversized and error cases on CLI text, `--json` and MCP. Search the producer for `truncate`, `take(`, `.min(`, `[..` and clip constants: selected values must reach the shared pager whole. A continuation returns at least what the row showed. Measure characters per useful fact on a fixed query before and after; nothing is said twice (echoed inputs, metadata repeating rows, warnings restating hints). Output fields feed the next tool without reshaping (path and line, owner/repo/ref, number or SHA).
 5. **Dogfood.** From the instructions alone, plan realistic tasks that use the tool with its siblings; every call you had to guess is a finding. Give the same tasks to a fresh subagent holding only the task and the CLI, and tally calls, failed calls, characters, retries and tokens with `node skills-dev/octocode-harness-review/scripts/harness-tally.mjs <transcript.jsonl>...`; judge correctness by reading. Local benchmark transcripts (`packages/octocode-benchmark/campaigns/*/runs/*/transcript.jsonl`, gitignored) show how often agents follow each offered continuation.
-6. **Fix and verify.** Fix at the owning layer with a failing test first. Then `yarn workspace @octocodeai/config check:tool-contract`, `$OCTO schema <tool> --view query` shows the change, the reproducing call passes on the CLI and a restarted MCP server, every `next.*` it emits runs to termination (`$DEV walk <tool> '<json>'`), and `tool-inventory.mjs` no longer flags the field.
+6. **Fix and verify.** Fix through the [request flow](../SKILL.md#request-flow): a failing test first, at the owning layer. Then `yarn workspace @octocodeai/config check:tool-contract`, `$OCTO schema <tool> --view query` shows the change, the reproducing call passes on the CLI and a restarted MCP server, every `next.*` it emits runs to termination (`$DEV walk <tool> '<json>'`), and `tool-inventory.mjs` no longer flags the field.

@@ -1,10 +1,10 @@
-Load when cleaning or auditing code an agent wrote or edited.
+Load when cleaning or auditing code an agent wrote or edited. Error masking, reachable stubs, supply chain and credentials: [agent blockers](agent-blockers.md).
 
 # Agent defects
 
 ## Audit order
 
-Prioritize reachable wrong results, masked failures, weakened tests and exposed credentials by impact. Then inspect duplication, scope creep, dependency defects and [unsupported suppressions](code-smells.md#checker-suppressions). Treat narration and low-connectivity files as candidates, not automatic deletions.
+Prioritize reachable wrong results, masked failures, weakened tests and exposed credentials by impact. Then inspect duplication, scope creep, dependency defects and [unsupported suppressions](checker-suppressions.md). Treat narration and low-connectivity files as candidates, not automatic deletions.
 
 ## Reinvention
 
@@ -43,35 +43,3 @@ Low confidence until a parser check runs; replacement is a follow-up, never an e
 
 - Regex parsing a language, config format, tool output → show a parser, AST query, or `lspSearch` covers it.
 - Unbounded nested quantifier (`(a+)+`, `(.*)*`) → state the input causing catastrophic backtracking.
-
-## Report, never delete
-
-Removal would reveal a wrong result → [escalation protocol](#escalation-protocol). Error masking (category `error-masking` rows find the literal forms):
-
-- `log-only-catch`: a handler that logs and continues, no rethrow or user signal. Its log line is part of the masked failure, not a debug print.
-- `empty-catch`: a swallowed error with an empty handler.
-- `empty-fallback`, or a default (`?.`, `?? <literal>`, `.get(k, default)`) on a value that is never legitimately absent, or a hardcoded sample response after a failed call.
-- Success returned without checking the effect landed (unchanged bytes, rows, requests): highest severity.
-- `not-implemented-stub`, or a `pass`, `return None`, `return {}` body, on a reachable path.
-- Retry or sleep loop that swallows a failed call or has no bounded termination and failure signal.
-
-Supply chain and credentials (verify):
-
-- Dependency missing from the registry: `artifactSearch` with ecosystem `type` and exact `packageName` is empty (provider errors prove nothing); attacker-claimable, not a typo, until a maintainer confirms.
-- Plausible, recent, near-zero-adoption package: compare with the package it imitates.
-- Import absent from every manifest: deps-usage `undeclared`, or the graph `undeclared-dependency` detector; see [phantom dependency](code-smells.md#dependencies).
-- `placeholder-credential`, or a placeholder URL for a real integration: never ran against a real credential.
-- `credential` (scan-signals prints it redacted; fixtures are scanned for it too): redact, report for rotation; history removal is separate.
-- `mutable-ref` (branch or major-only action ref, untagged or latest image, `*`/`latest` version, unpinned global install): record the intended version with the owner.
-- `insecure-setting` (TLS verification off, privileged container, world-writable mode, write-all token): the owner picks the secure value.
-
-## Escalation protocol
-
-1. Report blocking defects in SBAR: masked failure and location, intended behavior, affected consumers and recommended repair. Use existing evidence; request more investigation only for a material gap.
-2. Keep it out of every batch, approved ones included.
-3. Confirmed test-integrity finding → clean the test per [tests](tests.md) only after the bug is fixed.
-
-## Prevention
-
-- Weight dependency review by ecosystem; instruction files do not replace a scan.
-- After a patch tool edits files, verify its effect and indentation.

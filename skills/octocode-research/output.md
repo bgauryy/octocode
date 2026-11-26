@@ -2,7 +2,7 @@
 
 <!-- report-contract {"statuses":["Confirmed","Likely","Refuted","Open"],"required":["Answer","Scope","Evidence","Gaps","Checks"],"anyOf":[]} -->
 
-Use plain text or Markdown with source links; tables help compare evidence.
+Use plain text or Markdown with source links.
 
 ## Response
 
@@ -20,7 +20,7 @@ Reports: `<workspace>/.octocode/octocode-research/<YYYY-MM-DD>-<slug>.md`; inter
 
 ## Presentation choices
 
-Answer → scope → claim-linked evidence → gaps → checks. Separate observed behavior from inference.
+Separate observed behavior from inference.
 
 | Format | Use when / why |
 |---|---|

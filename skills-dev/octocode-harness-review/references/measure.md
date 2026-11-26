@@ -1,3 +1,5 @@
+Load when taking the baseline or the after numbers of a harness review: pin, fixed session cost, fresh-agent tallies, dogfood log, engine time.
+
 # Measure
 
 Take every number before the change and again after it, on the same tasks and a pinned binary. Keep the run's files in `.octocode/octocode-harness-review/<date>/`.

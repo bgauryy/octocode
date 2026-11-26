@@ -775,11 +775,15 @@ const native = (() => {
           log(`engine tools unavailable: ${engine.error}`);
           return [];
         }
-        // Installing the graph server opts into the engine's graph tools; workspace restrictions and the host's
-        // enabled and disabled tool lists still apply to every request.
+        // Installing the graph server opts into the engine's graph tools and the local section they belong to; the
+        // host's own environment, workspace restrictions and enabled and disabled tool lists still apply.
         child = spawn(engine.bin, ['__graph', 'mcp'], {
           stdio: ['pipe', 'pipe', 'inherit'],
-          env: { OCTOCODE_BETA: 'true', ...process.env },
+          env: {
+            OCTOCODE_BETA: 'true',
+            OCTOCODE_ENABLE_LOCAL: 'true',
+            ...process.env,
+          },
         });
         child.once('exit', () => {
           child = null;

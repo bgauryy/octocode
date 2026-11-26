@@ -186,6 +186,11 @@ fn tools_list_serves_the_core_published_definitions_byte_for_byte() {
             let wire = serde_json::to_value(&served).expect("serialized tool");
             let mut expected = mcp.clone();
             expected["name"] = json!(name);
+            // A listing instruction, never served: every tool is listed here,
+            // so each gated clause stays in the description.
+            if let Some(entry) = expected.as_object_mut() {
+                entry.remove("gatedClauses");
+            }
             // The one runtime addition: the language servers this host has.
             if name == "lspSearch" {
                 let text = mcp["description"].as_str().expect("description");
@@ -285,4 +290,63 @@ fn memory_storage_strips_materialize_from_ghstructure() {
     assert!(property(&catalog));
     catalog["persistentStorage"] = json!(false);
     assert!(!property(&catalog));
+}
+
+/// Every tool an entry of `presentation` gates a clause on, with the tool
+/// that carries the clause and the clause's text.
+fn gated_clauses() -> Vec<(String, String, String)> {
+    presentation()["tools"]
+        .as_array()
+        .expect("tools")
+        .iter()
+        .flat_map(|tool| {
+            let name = tool["name"].as_str().expect("name").to_owned();
+            tool["mcp"]["gatedClauses"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(move |clause| {
+                    (
+                        name.clone(),
+                        clause["needs"].as_str().expect("needs").to_owned(),
+                        clause["text"].as_str().expect("text").to_owned(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// A description sends the agent to another section's tool only while that
+/// tool is listed: without it the clause is gone and the tool unnamed, with
+/// it the clause is served word for word. The entry never carries the
+/// `gatedClauses` list itself.
+#[test]
+fn a_gated_clause_is_served_only_while_its_tool_is_listed() {
+    let clauses = gated_clauses();
+    assert!(!clauses.is_empty(), "the contract gates no clause");
+    let all = presentation_tools();
+    for (tool, needs, text) in clauses {
+        let description = |listed: &[&str]| {
+            let listing =
+                build(presentation(), &catalog(listed, json!({}), json!([]))).expect("listing");
+            let entry = listing
+                .tools
+                .iter()
+                .find(|entry| entry["name"] == tool.as_str())
+                .expect("tool")
+                .clone();
+            assert!(entry.get("gatedClauses").is_none(), "{tool}");
+            entry["description"]
+                .as_str()
+                .expect("description")
+                .to_owned()
+        };
+        let with: Vec<&str> = all.iter().map(String::as_str).collect();
+        let without: Vec<&str> = with.iter().copied().filter(|name| *name != needs).collect();
+        assert!(description(&with).contains(&text), "{tool} with {needs}");
+        let lean = description(&without);
+        assert!(!lean.contains(&needs), "{tool} still names {needs}: {lean}");
+        assert_eq!(lean, description(&with).replacen(&text, "", 1), "{tool}");
+    }
 }

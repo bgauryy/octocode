@@ -28,12 +28,22 @@ fn available(catalog: &Value) -> Vec<&str> {
 }
 
 /// One tool's `tools/list` entry from its presentation `mcp` definition.
-fn entry(name: &str, mcp: &Value, lsp_servers: Option<&[&str]>, materialize_listed: bool) -> Value {
-    let mut description = mcp["description"].clone();
+fn entry(
+    name: &str,
+    mcp: &Value,
+    listed: &[&str],
+    lsp_servers: Option<&[&str]>,
+    materialize_listed: bool,
+) -> Value {
+    let mut description = super::super::schema::without_unlisted_clauses(
+        &mcp["description"],
+        &mcp["gatedClauses"],
+        |needs| listed.contains(&needs),
+    );
     let mut input_schema = mcp["inputSchema"].clone();
     if octocode_runtime_base::id::ToolId::from_name(name)
         .is_some_and(octocode_runtime_base::id::ToolId::lists_lsp_servers)
-        && let (Some(text), Some(servers)) = (mcp["description"].as_str(), lsp_servers)
+        && let (Some(text), Some(servers)) = (description.as_str(), lsp_servers)
     {
         description = Value::String(with_lsp_servers(text, servers));
     }
@@ -73,7 +83,13 @@ pub(super) fn build(presentation: &Value, catalog: &Value) -> Result<Listing, St
             .map(|tool| &tool["mcp"])
             .filter(|mcp| mcp.is_object())
             .ok_or_else(|| format!("Native catalog tool has no contract: {name}"))?;
-        tools.push(entry(name, mcp, lsp_servers.as_deref(), materialize_listed));
+        tools.push(entry(
+            name,
+            mcp,
+            &names,
+            lsp_servers.as_deref(),
+            materialize_listed,
+        ));
     }
     Ok(Listing {
         tools,

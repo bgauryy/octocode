@@ -10,7 +10,10 @@ const uniqueStrings = (item: z.ZodString) =>
   z
     .array(item)
     .min(1)
-    .refine(items => new Set(items).size === items.length, 'items must be unique')
+    .refine(
+      items => new Set(items).size === items.length,
+      'items must be unique'
+    )
     .meta({ uniqueItems: true });
 
 const dotenvPolicy = z.enum(['all', 'home', 'never']);
@@ -31,6 +34,9 @@ const environmentOnly = z.strictObject({
 
 const envBinding = z.strictObject({
   name: envName,
+  // Earlier names of the variable. Each reads as `name` wherever a variable is read (the process, a `.env`), with the
+  // same trust rules; `name` wins when both are set. Docs, messages and saved files use `name`.
+  aliases: z.array(envName).min(1).optional(),
   dotenv: dotenvPolicy.optional(),
   normalize: z.enum(['trim', 'lower']).optional(),
   workspaceNarrowsTo: z.string().min(1).optional(),
@@ -39,6 +45,12 @@ const envBinding = z.strictObject({
 // Properties every field kind may carry; each kind below picks the ones it allows.
 const common = {
   description: z.string().min(1),
+  // Earlier keys of this setting in its section of `.octocoderc`. A file that still spells one is read as the current
+  // key, under the same rules; the current key wins when a file holds both.
+  keyAliases: z
+    .array(z.string().regex(/^[a-z][A-Za-z0-9]*$/))
+    .min(1)
+    .optional(),
   notes: z.string().optional(),
   env: envBinding.optional(),
   displayDefault: z.string().optional(),
@@ -73,7 +85,12 @@ const enumField = z.strictObject({
   ...common,
 });
 
-const field = z.discriminatedUnion('type', [booleanField, stringField, stringArrayField, enumField]);
+const field = z.discriminatedUnion('type', [
+  booleanField,
+  stringField,
+  stringArrayField,
+  enumField,
+]);
 
 const section = z.strictObject({
   title: z.string().min(1),
@@ -81,27 +98,40 @@ const section = z.strictObject({
   fields: z.record(z.string().regex(/^[a-z$][A-Za-z0-9]*$/), field),
 });
 
-export const contractSchema = z
-  .strictObject({
-    $schema: z.string(),
-    config: z.strictObject({
-      fileName: z.string().min(1),
-      runtimeSurfaces: uniqueStrings(z.string().regex(/^[a-z][a-z0-9]*$/)),
-    }),
-    environment: z.record(envName, environmentOnly),
-    sections: z.record(z.string().regex(/^(|[a-z][A-Za-z0-9]*(\.[a-z][A-Za-z0-9]*)*)$/), section),
-  });
+export const contractSchema = z.strictObject({
+  $schema: z.string(),
+  config: z.strictObject({
+    fileName: z.string().min(1),
+    runtimeSurfaces: uniqueStrings(z.string().regex(/^[a-z][a-z0-9]*$/)),
+  }),
+  environment: z.record(envName, environmentOnly),
+  sections: z.record(
+    z.string().regex(/^(|[a-z][A-Za-z0-9]*(\.[a-z][A-Za-z0-9]*)*)$/),
+    section
+  ),
+});
 
 export type ContractInput = z.input<typeof contractSchema>;
 type Parsed = z.output<typeof contractSchema>;
 
 // Every field kind with the keys of the other kinds typed `undefined`, so renderers read any
 // property without narrowing on `type` first.
-type WithAbsentKeys<Kind, Key extends PropertyKey = Kind extends unknown ? keyof Kind : never> =
-  Kind extends unknown ? Kind & { [Absent in Exclude<Key, keyof Kind>]?: undefined } : never;
-export type Field = WithAbsentKeys<Parsed['sections'][string]['fields'][string]>;
-export type Section = Omit<Parsed['sections'][string], 'fields'> & { fields: Record<string, Field> };
-export type Contract = Omit<Parsed, 'sections'> & { sections: Record<string, Section> };
+type WithAbsentKeys<
+  Kind,
+  Key extends PropertyKey = Kind extends unknown ? keyof Kind : never,
+> = Kind extends unknown
+  ? Kind & { [Absent in Exclude<Key, keyof Kind>]?: undefined }
+  : never;
+export type Field = WithAbsentKeys<
+  Parsed['sections'][string]['fields'][string]
+>;
+export type Section = Omit<Parsed['sections'][string], 'fields'> & {
+  fields: Record<string, Field>;
+};
+export type Contract = Omit<Parsed, 'sections'> & {
+  sections: Record<string, Section>;
+};
 
 export const CONTRACT_SCHEMA_TITLE = 'Octocode declarative config contract';
-export const CONTRACT_SCHEMA_ID = 'https://octocode.ai/schemas/config-contract.schema.json';
+export const CONTRACT_SCHEMA_ID =
+  'https://octocode.ai/schemas/config-contract.schema.json';

@@ -45,6 +45,20 @@ function setToken(server: JsonObject, token: string | undefined) {
   else delete server.env;
 }
 
+/**
+ * The setting that lists the local tools (`local.enabled`). The server lists
+ * the GitHub and package tools only by default; the extension runs in an
+ * editor with a project open, so a new entry turns the local tools on. A
+ * value the user already set stays.
+ */
+export const MCP_LOCAL_TOOLS_ENV = 'OCTOCODE_ENABLE_LOCAL';
+
+function setLocalTools(server: JsonObject) {
+  const env = { ...(server.env as JsonObject | undefined) };
+  env[MCP_LOCAL_TOOLS_ENV] ??= 'true';
+  server.env = env;
+}
+
 async function writeConfig(file: string, config: JsonObject) {
   await fs.mkdir(path.dirname(file), { recursive: true });
   const temporary = `${file}.${randomUUID()}.tmp`;
@@ -93,6 +107,7 @@ export async function configureMcpServer(
       args: [...MCP_ARGS],
     };
     setToken(server, token);
+    setLocalTools(server);
     if (JSON.stringify(existing) === JSON.stringify(server)) return 'unchanged';
     servers.octocode = server;
     config[key] = servers;

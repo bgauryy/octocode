@@ -1,4 +1,6 @@
-Load when the task class, mode, proof bar, or multi-pass plan is unclear: bugs, root causes, consequential claims (callers, cycles, reachability, deletion, architecture), loops, workers, handoffs. Tool choice and calls: [tool flow](tool-flow.md).
+Load when the task class or mode is unclear: bugs, features, enhancements, repository comparisons. Proof bar for root causes and consequential claims (callers, cycles, reachability, deletion, architecture): [proof](proof.md). Multi-pass plans, loops, workers, handoffs: [campaigns and handoff](campaigns-handoff.md). Tool choice and calls: [tool flow](tool-flow.md).
+
+# Method
 
 ## Classify the task
 
@@ -6,7 +8,7 @@ Skip stages a known anchor answers; a lookup is a direct read.
 
 | Class | Definition of Done |
 |---|---|
-| bug | supported contract violated, the entry's root-cause rule holds, regression check exists |
+| bug | supported contract violated, all four [root cause](proof.md#root-cause) conditions hold, regression check exists |
 | feature | consumers, acceptance tests, and a compatibility decision set |
 | enhancement | contract holds; baseline, target, experiment, regression guard exist |
 | unknown | one missing fact has its cheapest check or a focused question |
@@ -20,49 +22,6 @@ Skip stages a known anchor answers; a lookup is a direct read.
 | Investigate | symptom needs a cause | structure → symptom search → exact boundary reads → graph/LSP/AST → history/tests |
 | Plan / Architecture | change needs its safest step | contract → entry points → graph/LSP scope → exact boundaries → safest step/tradeoffs |
 
-- Pick surfaces (local, GitHub, packages, PR/history, docs/web) by the claim; name spanned surfaces you skip. Local ↔ upstream: [tool flow](tool-flow.md#carry-evidence-across).
+- Pick surfaces (local, GitHub, packages, PR/history, docs/web) by the claim; name spanned surfaces you skip. Local ↔ upstream: [tool flow](tool-flow-carry.md#carry-evidence-across).
 - Advocate/Critic: strongest evidence for and against; rebut the claim most likely to flip the decision.
 - Reuse (repository landscape): discover repos and packages; separate fit from risk; verify finalists via source, tests, releases, issues, license; report comparison, integration path, gaps. Popularity proves nothing.
-
-## Prove
-
-Ladder: `candidate → exact evidence → claim-specific corroboration → verification → verdict`.
-
-| Finding | Minimum corroboration |
-|---|---|
-| cycle | graph `cycles` + exact imports; type-only vs runtime |
-| affected scope | graph `impact`/`dependents`/`path` + exact reads + LSP references/callers |
-| security sink | sink shape + exact read + sources/callers + guard check |
-| test gap | changed symbol + no test references + nearby test read |
-| performance | exact hot path; benchmark only when runtime proof matters |
-
-- Keep syntax, semantic, history, artifact, and runtime proof separate; list checks not run.
-
-## Root cause
-
-Apply the [research loop](../SKILL.md#research-loop); a suspicious line, commit, or correlation stays a candidate until all four hold:
-
-1. Expected vs actual, and the contract behind it.
-2. Reproduce (or equivalent runtime evidence); first divergent boundary.
-3. Rivals, each with its most distinguishing check: source, references, history, tests.
-4. Changing the cause changes the symptom; if it cannot run, state equivalent evidence and limits.
-
-## Campaigns
-
-- Loop: `frame one question → cheapest call that can change the answer → observe status → learn → next call`.
-- Set the question, corpus and evidence needed to decide. Respect the task's actual budget and prerequisites; stop when further work cannot change the decision. Measure claims resolved, not calls.
-- For work spanning sessions or actors, retain only what recovery needs: goal, source anchors, unresolved alternatives, next checks and emitted continuation calls.
-- Direct research may pursue independent directions sequentially. When an orchestrator selects a multi-actor workflow, it assigns only directions with distinct observations, keeps one ledger and the merged verdict, and gives each actor an authorized Task contract: objective (purpose), constraints, output (`claim, evidence, verdict, confidence` per finding), and a Definition of Done. Actors pick the domain method and return evidence; they do not select more actors. Disagreement is evidence; the orchestrator re-checks each load-bearing anchor. When installed, `octocode-workflows` covers workflow composition.
-- At decision boundaries and when stopping, report per [output](../output.md#response), naming verification and open gaps (unresolved alternatives, exhausted budgets, missing prerequisites).
-
-## Handoff
-
-Pick the protocol by what the receiver must do:
-
-| Situation | Protocol | Slots |
-|---|---|---|
-| Blocked, or the next step needs someone else's evidence, decision, or action | SBAR | situation (question, scope/ref), background (checks run), assessment (evidence, confidence, gaps), request (next) |
-| Unfinished work moves to another actor or session | Handoff packet | current state (question, scope/ref, checks run), evidence (anchors), blockers (gaps), next action, constraints, next-call ids (`next.*` calls copied unchanged) |
-
-- Durable handoff (authorized, or [output](../output.md#saved-report) says save): the saved report; no evidence records.
-- Export structured evidence only for a named machine consumer, using its actual schema and required source anchors.

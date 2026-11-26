@@ -1,4 +1,4 @@
-Load when classifying code as dead, duplicate, kludge, bloat, redundant declaration, or tangled structure. Signal → removal bar; defects to report: [agent-defects](agent-defects.md).
+Load when classifying code as dead, duplicate, kludge, bloat, or tangled structure. Signal → removal bar. Defects to report instead of removing: [agent blockers](agent-blockers.md); agent leftovers and reinvention: [agent defects](agent-defects.md); suppressed checker findings: [checker suppressions](checker-suppressions.md); redundant declarations and dependencies: [types and dependencies](types-dependencies.md).
 
 # Code smells
 
@@ -28,49 +28,6 @@ Load when classifying code as dead, duplicate, kludge, bloat, redundant declarat
 | Type-hint, decorator, annotation-only hunks on untouched functions | no runtime reader (pydantic, dataclasses, FastAPI, attrs, DI, reflection); else report. |
 | Unreferenced `scratch-file` rows | no script, CI job, or doc runs them. |
 | `ai-attribution` rows outside data, fixtures, transcripts | no disclosure or license policy requires them. Commit trailers and PR disclosure are not code comments: keep them. |
-
-## Checker suppressions
-
-Skip generated, vendored, fixture, third-party suppressions. List them with `node <skill-folder>/scripts/scan-signals.mjs [paths] --category suppression` ([scan-signals](../scripts/scan-signals.mjs)). Keep when → else:
-
-| Signal | Check / action |
-|---|---|
-| `type-escape` | line says why the type is inexpressible; else real type if typecheck passes, report runtime fixes. |
-| Non-null `!` or `as T` on a nullable (not scanned) | adjacent invariant proves presence; else report. |
-| `lint-disable` | one item with a reason (file- or crate-wide: reason per lint); else remove if the linter passes. |
-| `suppressed-dead-code` | written structural cause (helper shared by test binaries); else delete the item or cause; "parity with the old X" is residue. |
-| `complexity-lint` | inventory under [Structure](#structure), never batch-fix; raising a threshold only moves it. |
-| `safety-lint` in production | comment says why it cannot fail; else report. |
-
-Sweep:
-
-1. Self-reporting: `#[allow]` → `#[expect]` (`unfulfilled_lint_expectations`); `@ts-ignore` → `@ts-expect-error`; ESLint `--report-unused-disable-directives`; mypy `warn_unused_ignores`; ruff `RUF100`; golangci-lint `nolintlint`.
-2. Run the checker for affected supported features, targets and test/production configurations.
-3. Delete what none needs; else fix the local cause (feature-gated literal, map for a struct with an unread field, written-out macro arm, dropped import-path hack).
-4. Blanket test allowances → tool config (`allow-expect-in-tests`, `allow-panic-in-tests`, ESLint test-glob override).
-5. Revert self-reporting forms some configuration leaves unfulfilled; each survivor carries `reason = "..."` or a comment.
-
-## Types and schemas
-
-- Consumers: `lspSearch` references (aliases, interfaces lack call hierarchy); constraints: exact read + `astSearch`. Empty references: still check public exports, generated consumers, protocol and version boundaries.
-- Same shape ≠ same role: merge only on proven semantic identity (`UserId`, `ProductId` as `string` stay apart).
-| Signal | Check / action |
-|---|---|
-| Constraint-free `type Foo = Bar`, empty `interface A extends B {}` | LSP shows every consumer can use `Bar`; trace A's role. |
-| Duplicate `enum`, near-identical interfaces, same Zod or JSON Schema object twice | AST match or distinguishing field literals; pick canonical; confirm callers. |
-| Same-shape per-version protocol types (`v1`, `v2`), old-to-new message shim | all producers emit the new shape; check persisted and serialized compatibility first. |
-| Type behind an always-on flag | inline it; drop the branch. |
-
-## Dependencies
-
-- Removal or version change: explicit consent, except unused-only removals in an approved batch.
-- Internal monorepo package: `workspace:*` (or configured protocol), never a version pin.
-| Signal | Check / action |
-|---|---|
-| Declared, never imported; imported but undeclared | For a JS/TS package run [deps-usage](../scripts/deps-usage.mjs): `node <skill-folder>/scripts/deps-usage.mjs <package-dir>`. `unimported` is a removal candidate once no tool, plugin shorthand or external consumer loads it; `referencedOnly` is used by scripts or config: keep. `undeclared` (with `declaredBy` when only an ancestor manifest declares it) → declare at the correct version, or drop the import. Other ecosystems or a whole workspace: graphQuery `issues` with `detectors: ["undeclared-dependency"]` (imported but undeclared, hoisted phantoms included). |
-| Test-only in `dependencies` (deps-usage `testOnlyInDependencies`) | `devDependencies` once no production import. Peer also direct (`inMultipleSections`) → does the package ship its own copy? |
-| Versions differ across workspace packages | inspect consumer ranges and compatibility before deduplicating. Multiple transitive versions may be required; use a root resolution only after checking every affected consumer. |
-| In root and workspace `package.json` | keep where used; in `dependencies` and `devDependencies` (`inMultipleSections`) → keep the correct one; build tool as dev and peer → per consumer intent. |
 
 ## Structure
 

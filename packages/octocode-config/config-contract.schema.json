@@ -121,6 +121,14 @@
                       "type": "string",
                       "minLength": 1
                     },
+                    "keyAliases": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-z][A-Za-z0-9]*$"
+                      }
+                    },
                     "notes": {
                       "type": "string"
                     },
@@ -130,6 +138,14 @@
                         "name": {
                           "type": "string",
                           "pattern": "^[A-Z][A-Z0-9_]*$"
+                        },
+                        "aliases": {
+                          "minItems": 1,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Z0-9_]*$"
+                          }
                         },
                         "dotenv": {
                           "type": "string",
@@ -199,6 +215,14 @@
                       "type": "string",
                       "minLength": 1
                     },
+                    "keyAliases": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-z][A-Za-z0-9]*$"
+                      }
+                    },
                     "notes": {
                       "type": "string"
                     },
@@ -208,6 +232,14 @@
                         "name": {
                           "type": "string",
                           "pattern": "^[A-Z][A-Z0-9_]*$"
+                        },
+                        "aliases": {
+                          "minItems": 1,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Z0-9_]*$"
+                          }
                         },
                         "dotenv": {
                           "type": "string",
@@ -281,6 +313,14 @@
                       "type": "string",
                       "minLength": 1
                     },
+                    "keyAliases": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-z][A-Za-z0-9]*$"
+                      }
+                    },
                     "notes": {
                       "type": "string"
                     },
@@ -290,6 +330,14 @@
                         "name": {
                           "type": "string",
                           "pattern": "^[A-Z][A-Z0-9_]*$"
+                        },
+                        "aliases": {
+                          "minItems": 1,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Z0-9_]*$"
+                          }
                         },
                         "dotenv": {
                           "type": "string",
@@ -359,6 +407,14 @@
                       "type": "string",
                       "minLength": 1
                     },
+                    "keyAliases": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-z][A-Za-z0-9]*$"
+                      }
+                    },
                     "notes": {
                       "type": "string"
                     },
@@ -368,6 +424,14 @@
                         "name": {
                           "type": "string",
                           "pattern": "^[A-Z][A-Z0-9_]*$"
+                        },
+                        "aliases": {
+                          "minItems": 1,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "^[A-Z][A-Z0-9_]*$"
+                          }
                         },
                         "dotenv": {
                           "type": "string",

@@ -2,7 +2,8 @@
 // Generates the route table of skills/octocode-research/references/tool-flow.md
 // from the routes core serves as MCP instructions (the generated presentation
 // `instructions.routes`), so the guide the MCP resource and `schema --view flow`
-// serve lists exactly the served routes. The rest of the guide is hand-written.
+// serve lists exactly the served routes. That file is the guide's first part;
+// the rest of it and the tool-flow-*.md parts served after it are hand-written.
 //
 //   node skills/common/tool-flow.mjs           rewrite the table
 //   node skills/common/tool-flow.mjs --check   exit 1 when the table is stale

@@ -67,31 +67,31 @@
     },
     {
       "name": "ghCloneRepo",
-      "description": "GitHub Clone"
+      "description": "GitHub Clone (conditional: requires OCTOCODE_ENABLE_LOCAL and OCTOCODE_ENABLE_CLONE)"
     },
     {
       "name": "localSearch",
-      "description": "Local Search"
+      "description": "Local Search (conditional: requires OCTOCODE_ENABLE_LOCAL)"
     },
     {
       "name": "structureSearch",
-      "description": "Structure Search"
+      "description": "Structure Search (conditional: requires OCTOCODE_ENABLE_LOCAL)"
     },
     {
       "name": "astSearch",
-      "description": "AST Search"
+      "description": "AST Search (conditional: requires OCTOCODE_ENABLE_LOCAL)"
     },
     {
       "name": "localFetch",
-      "description": "Local Fetch Content"
+      "description": "Local Fetch Content (conditional: requires OCTOCODE_ENABLE_LOCAL)"
     },
     {
       "name": "lspSearch",
-      "description": "LSP Search"
+      "description": "LSP Search (conditional: requires OCTOCODE_ENABLE_LOCAL)"
     },
     {
       "name": "securityCheck",
-      "description": "Security Check (conditional: requires OCTOCODE_SECURITY_CHECKS)"
+      "description": "Security Check (conditional: requires OCTOCODE_ENABLE_SECURITY)"
     }
   ],
   "keywords": [

@@ -23,8 +23,8 @@ The reply should hold the README’s first line; local reads work before sign-in
 ## Connect an MCP client
 
 1. `npx -y octocode install --list` shows each client ID and whether its Octocode entry exists (a plugin may supply it); check an existing one with `npx -y octocode install --ide <client-id> --check`.
-2. If the entry is missing, run `npx -y octocode install --ide <client-id>` (`--scope workspace` for a project entry where supported; `--dry-run` previews). For a client with no ID, use the [stdio configuration](references/configure.md#manual-mcp-configuration).
-3. Restart the client, open the project, and ask **“Use Octocode to read the first line of README.md.”** It should call `localFetch` and return the CLI’s line. On failure, do not reinstall: no Octocode tools → rerun `--check`, then the client’s MCP log names the start error; a different line or missing file → set the server’s working directory or `WORKSPACE_ROOT` (stdio configuration), restart, ask again.
+2. If the entry is missing, run `npx -y octocode install --ide <client-id> --enable-local true` (`--scope workspace` for a project entry where supported; `--dry-run` previews). `--enable-local true` lists the tools that search and read code on this machine; without it the server lists the GitHub and package tools only. For a client with no ID, use the [stdio configuration](references/configure.md#manual-mcp-configuration).
+3. Restart the client, open the project, and ask **“Use Octocode to read the first line of README.md.”** It should call `localFetch` and return the CLI’s line. On failure, do not reinstall: no Octocode tools → rerun `--check`; GitHub tools but no `localFetch` → the entry lacks `OCTOCODE_ENABLE_LOCAL=true` (rerun step 2 with `--force`); then the client’s MCP log names the start error; a different line or missing file → set the server’s working directory or `WORKSPACE_ROOT` (stdio configuration), restart, ask again.
 
 ## Sign in to GitHub
 
@@ -41,9 +41,9 @@ The user opens the displayed URL and enters the one-time code. Check for `verifi
 
 | Need | Action | Check |
 |---|---|---|
-| Choose a tool | [First tool calls](references/configure.md#choose-a-tool) | `npx -y octocode schema` or the client’s tool list |
-| Change settings or enable tools | [Precedence](references/configure.md#configuration-and-folders), [optional tools](references/configure.md#optional-tools); restart MCP after | `npx -y octocode config list` |
-| Add a provider key | [Key setup](references/configure.md#add-and-configure-keys); the user enters the secret on stdin | `npx -y octocode config check <KEY>` (exit 0 when set) |
+| Choose a tool | [First tool calls](references/tools-and-keys.md#choose-a-tool) | `npx -y octocode schema` or the client’s tool list |
+| Change settings or enable tools | [Precedence](references/configure.md#configuration-and-folders), [optional tools](references/tools-and-keys.md#optional-tools); restart MCP after | `npx -y octocode config list` |
+| Add a provider key | [Key setup](references/tools-and-keys.md#add-and-configure-keys); the user enters the secret on stdin | `npx -y octocode config check <KEY>` (exit 0 when set) |
 | Install a bundled skill | `npx -y octocode skill list`, then `npx -y octocode skill install <name> --platform <platform> --project-dir .` (or `--global`) | `npx -y octocode skill check <name>` |
 
 Report the interface, project and passing checks, or the failing command or tool, its error and the setup part it affects. Omit tokens and device codes.

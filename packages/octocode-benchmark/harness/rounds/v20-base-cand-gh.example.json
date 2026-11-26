@@ -39,7 +39,7 @@
           "OCTOCODE_HOME": "{home}",
           "OCTOCODE_ENABLE_LOCAL": "true",
           "OCTOCODE_ENABLE_CLONE": "true",
-          "OCTOCODE_SECURITY_CHECKS": "true",
+          "OCTOCODE_ENABLE_SECURITY": "true",
           "ALLOWED_PATHS": "{clones}",
           "WORKSPACE_ROOT": "{clones}"
         }
@@ -60,7 +60,7 @@
           "OCTOCODE_HOME": "{home}",
           "OCTOCODE_ENABLE_LOCAL": "true",
           "OCTOCODE_ENABLE_CLONE": "true",
-          "OCTOCODE_SECURITY_CHECKS": "true",
+          "OCTOCODE_ENABLE_SECURITY": "true",
           "ALLOWED_PATHS": "{clones}",
           "WORKSPACE_ROOT": "{clones}"
         }

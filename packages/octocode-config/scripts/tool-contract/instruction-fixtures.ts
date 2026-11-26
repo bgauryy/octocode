@@ -1,7 +1,11 @@
 // Core's own composed instructions for chosen enabled-tool sets: the expected
 // text of native's composer, never copied by hand. Native's test composes the
 // presentation parts for each set and compares byte for byte.
-import { MCP_INSTRUCTION_CORE_CHARS, MCP_INSTRUCTION_PARTS, mcpInstructions } from '@octocodeai/octocode-core/mcp';
+import {
+  MCP_INSTRUCTION_CORE_CHARS,
+  MCP_INSTRUCTION_PARTS,
+  mcpInstructions,
+} from '@octocodeai/octocode-core/mcp';
 import { DIRECT_TOOL_DEFINITIONS } from '@octocodeai/octocode-core/schema';
 
 export interface InstructionFixture {
@@ -26,10 +30,14 @@ export interface InstructionFixtures {
  */
 export function instructionFixtures(): InstructionFixtures {
   const tools = DIRECT_TOOL_DEFINITIONS.map(definition => definition.name);
-  const optional = new Set<string>(MCP_INSTRUCTION_PARTS.blocks.map(block => block.tool));
+  const optional = new Set<string>(
+    MCP_INSTRUCTION_PARTS.blocks.map(block => block.tool)
+  );
   const plain = tools.filter(tool => !optional.has(tool));
   const local = plain.filter(tool => /^(local|lsp|ast|structure)/.test(tool));
-  const everySetting = Object.fromEntries(MCP_INSTRUCTION_PARTS.settings.map(({ setting, value }) => [setting, value]));
+  const everySetting = Object.fromEntries(
+    MCP_INSTRUCTION_PARTS.settings.map(({ setting, value }) => [setting, value])
+  );
   const sets: Array<[string, string[], Record<string, string>]> = [
     ['all on', tools, {}],
     ['no optional tool', plain, {}],

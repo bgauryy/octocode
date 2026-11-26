@@ -1,3 +1,5 @@
+Load when a Go service or benchmark needs a CPU, goroutine, trace or heap capture, or Delve.
+
 # Go diagnostics
 
 ## Already running

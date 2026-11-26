@@ -95,6 +95,8 @@ Native change → rebuild native and the affected interface → restart MCP → 
 - Solve the general case: no handpicked inputs, guessed caps, fixed timeouts or quotas that cut valid work; let
   the owning layer's limit or refusal decide (split on `scopeTooBroad`).
 - One name and one source for each tool, field, setting and piece of logic: no aliases, shims or legacy paths.
+  One exception, declared in the config contract: a setting's variable keeps its earlier names as `env.aliases`,
+  and both loaders read each as the current name ([ADDING_CONFIG](skills-dev/octocode-dev/docs/CONFIG_ENVIRONMENT.md#environment-binding)).
 
 **Tests**
 - Assert invariants (the constant, a bound), never copied literals.

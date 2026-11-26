@@ -26,17 +26,27 @@ function buildDefaults(fields: FlatField[]): JsonObject {
   return result;
 }
 
-function directChildren(sectionPath: string, sections: Record<string, Section>): string[] {
+function directChildren(
+  sectionPath: string,
+  sections: Record<string, Section>
+): string[] {
   const prefix = sectionPath.length === 0 ? '' : `${sectionPath}.`;
   return Object.keys(sections).filter(candidate => {
-    if (candidate === '' || !candidate.startsWith(prefix) || candidate === sectionPath) {
+    if (
+      candidate === '' ||
+      !candidate.startsWith(prefix) ||
+      candidate === sectionPath
+    ) {
       return false;
     }
     return !candidate.slice(prefix.length).includes('.');
   });
 }
 
-function sectionInterfaceName(sectionPath: string, sections: Record<string, Section>): string {
+function sectionInterfaceName(
+  sectionPath: string,
+  sections: Record<string, Section>
+): string {
   return `Required${sections[sectionPath]?.typeName ?? toPascal(sectionPath)}Config`;
 }
 
@@ -47,7 +57,8 @@ function enumType(field: Field): string {
 
 function resolvedFieldType(field: Field): string {
   if (field.type === 'boolean') return 'boolean';
-  if (field.type === 'stringArray') return field.default === null ? 'string[] | null' : 'string[]';
+  if (field.type === 'stringArray')
+    return field.default === null ? 'string[] | null' : 'string[]';
   if (field.type === 'enum') return enumType(field);
   return field.default === null ? 'string | undefined' : 'string';
 }
@@ -58,7 +69,10 @@ function renderInterfaces(contract: Contract): string {
   for (const section of Object.values(sections)) {
     for (const field of Object.values(section.fields)) {
       if (field.type === 'enum' && field.typeName) {
-        enumAliases.set(field.typeName, (field.values ?? []).map(value => JSON.stringify(value)).join(' | '));
+        enumAliases.set(
+          field.typeName,
+          (field.values ?? []).map(value => JSON.stringify(value)).join(' | ')
+        );
       }
     }
   }
@@ -83,8 +97,9 @@ function renderInterfaces(contract: Contract): string {
     ...Object.entries(root.fields)
       .filter(([, field]) => !field.credential)
       .map(([key, field]) => `  ${key}: ${resolvedFieldType(field)};`),
-    ...directChildren('', sections)
-      .map(path => `  ${path}: ${sectionInterfaceName(path, sections)};`),
+    ...directChildren('', sections).map(
+      path => `  ${path}: ${sectionInterfaceName(path, sections)};`
+    ),
   ];
 
   return `${[...enumAliases].map(([name, type]) => `export type ${name} = ${type};`).join('\n')}
@@ -103,13 +118,15 @@ function renderTsValue(
 ): string {
   if (value === null) {
     const field = fieldByPath.get(path);
-    if (field && ['string', 'url', 'path'].includes(field.type)) return 'undefined';
+    if (field && ['string', 'url', 'path'].includes(field.type))
+      return 'undefined';
     return 'null';
   }
   if (Array.isArray(value)) return JSON.stringify(value);
   if (typeof value !== 'object') return JSON.stringify(value);
   const entries = Object.entries(value).map(
-    ([key, child]) => `${JSON.stringify(key)}: ${renderTsValue(child, path ? `${path}.${key}` : key, fieldByPath)}`
+    ([key, child]) =>
+      `${JSON.stringify(key)}: ${renderTsValue(child, path ? `${path}.${key}` : key, fieldByPath)}`
   );
   return `{ ${entries.join(', ')} }`;
 }
@@ -142,6 +159,8 @@ ${renderInterfaces(contract)}
 export type ConfigFieldKind = 'boolean' | 'string' | 'url' | 'path' | 'stringArray' | 'enum';
 export interface ConfigEnvBinding {
   name: string;
+  /** Earlier names of the variable: each reads as \`name\`, which wins when both are set. */
+  aliases?: readonly string[];
   dotenv?: 'all' | 'home' | 'never';
   normalize?: 'trim' | 'lower';
   workspaceNarrowsTo?: string;
@@ -163,6 +182,8 @@ export interface ConfigFieldSpec {
 }
 
 export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = ${JSON.stringify(metadata, null, 2)};
+/** Every earlier variable name with the name that replaced it (each binding's \`aliases\`). */
+export const ENV_ALIASES: Readonly<Record<string, string>> = ${JSON.stringify(environment.aliases)};
 export const RUNTIME_SURFACES = ${JSON.stringify(contract.config.runtimeSurfaces)} as const;
 export type RuntimeSurface = (typeof RUNTIME_SURFACES)[number];
 export const ENV_TOKEN_VARS = ${JSON.stringify(environment.tokenNames)} as const;

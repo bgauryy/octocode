@@ -24,7 +24,10 @@ export function blankLiterals(text: string): string {
   const blank = (from: number, to: number): void => {
     const end = Math.min(to, text.length);
     if (from >= end) return;
-    parts.push(text.slice(kept, from), text.slice(from, end).replace(/[^\n]/g, ' '));
+    parts.push(
+      text.slice(kept, from),
+      text.slice(from, end).replace(/[^\n]/g, ' ')
+    );
     kept = end;
   };
   const ident = /[A-Za-z0-9_]/;
@@ -39,7 +42,8 @@ export function blankLiterals(text: string): string {
     i = found.index;
     const c = found[0];
     rawOpener.lastIndex = i;
-    const raw = c === 'r' && !ident.test(text[i - 1] ?? '') ? rawOpener.exec(text) : null;
+    const raw =
+      c === 'r' && !ident.test(text[i - 1] ?? '') ? rawOpener.exec(text) : null;
     if (c === '/' && text[i + 1] === '/') {
       const end = text.indexOf('\n', i);
       const stop = end === -1 ? text.length : end;
@@ -95,7 +99,8 @@ export function itemRanges(blanked: string): Array<[number, number]> {
       start = i + 1;
     }
   }
-  if (blanked.slice(start).trim() !== '') throw new Error('generated Rust ends inside an item');
+  if (blanked.slice(start).trim() !== '')
+    throw new Error('generated Rust ends inside an item');
   return ranges;
 }
 
@@ -126,18 +131,23 @@ export function classify(blankedItem: string): Item {
   if (declared?.[1]) return { kind: 'type', name: declared[1] };
   const module = /^pub mod (\w+)/.exec(body);
   if (module?.[1]) return { kind: 'mod', name: module[1] };
-  if (/^impl\b/.test(body)) return { kind: 'impl', header: body.slice(0, body.indexOf('{')) };
+  if (/^impl\b/.test(body))
+    return { kind: 'impl', header: body.slice(0, body.indexOf('{')) };
   throw new Error(`unexpected generated Rust item: ${body.slice(0, 80)}`);
 }
 
-const identifiers = (text: string): Set<string> => new Set(text.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []);
+const identifiers = (text: string): Set<string> =>
+  new Set(text.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []);
 
 /** Each Rust source under `cratesDir` (`crates/<crate>/**\/*.rs`), with literals and comments blanked. */
-function* rustSources(cratesDir: string): Generator<{ path: string; text: string }> {
+function* rustSources(
+  cratesDir: string
+): Generator<{ path: string; text: string }> {
   for (const entry of readdirSync(cratesDir, { withFileTypes: true })) {
     const path = join(cratesDir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name !== 'target' && entry.name !== 'node_modules') yield* rustSources(path);
+      if (entry.name !== 'target' && entry.name !== 'node_modules')
+        yield* rustSources(path);
     } else if (entry.name.endsWith('.rs')) {
       yield { path, text: blankLiterals(readFileSync(path, 'utf8')) };
     }
@@ -147,7 +157,8 @@ function* rustSources(cratesDir: string): Generator<{ path: string; text: string
 /** Every identifier in the native crates' Rust sources (`crates/<crate>/**\/*.rs`). */
 export function nativeIdentifiers(cratesDir: string): Set<string> {
   const names = new Set<string>();
-  for (const { text } of rustSources(cratesDir)) for (const name of identifiers(text)) names.add(name);
+  for (const { text } of rustSources(cratesDir))
+    for (const name of identifiers(text)) names.add(name);
   return names;
 }
 
@@ -158,7 +169,8 @@ export function nativeIdentifiers(cratesDir: string): Set<string> {
 export function namesThrough(cratesDir: string, krate: string): Set<string> {
   const names = new Set<string>();
   const prefix = new RegExp(`\\b${krate}\\s*::\\s*`, 'g');
-  const glob = (path: string): Error => new Error(`${path}: name the types of ${krate} instead of importing *`);
+  const glob = (path: string): Error =>
+    new Error(`${path}: name the types of ${krate} instead of importing *`);
   for (const { path, text } of rustSources(cratesDir)) {
     for (const match of text.matchAll(prefix)) {
       const rest = text.slice(match.index + match[0].length);
@@ -198,13 +210,20 @@ export function keepReachable(generated: string, roots: Set<string>): string {
     item: classify(blanked.slice(start, end)),
     names: identifiers(blanked.slice(start, end)),
   }));
-  const types = new Set(items.flatMap(({ item }) => (item.kind === 'type' ? [item.name] : [])));
-  const generatedIn = (names: Iterable<string>): string[] => [...names].filter((name) => types.has(name));
+  const types = new Set(
+    items.flatMap(({ item }) => (item.kind === 'type' ? [item.name] : []))
+  );
+  const generatedIn = (names: Iterable<string>): string[] =>
+    [...names].filter(name => types.has(name));
   // An impl belongs to the generated types its header names (`impl X`,
   // `impl From<X> for Y`, `impl From<X> for String`): it is kept when all of
   // them are, and then keeps what its body names.
   const owners = items.map(({ item }) =>
-    item.kind === 'type' ? [item.name] : item.kind === 'impl' ? generatedIn(identifiers(item.header)) : []
+    item.kind === 'type'
+      ? [item.name]
+      : item.kind === 'impl'
+        ? generatedIn(identifiers(item.header))
+        : []
   );
   const definitions = new Map<string, string[]>();
   items.forEach(({ item, names }) => {
@@ -217,16 +236,18 @@ export function keepReachable(generated: string, roots: Set<string>): string {
     for (let name = pending.pop(); name !== undefined; name = pending.pop()) {
       if (kept.has(name)) continue;
       kept.add(name);
-      for (const used of definitions.get(name) ?? []) if (!kept.has(used)) pending.push(used);
+      for (const used of definitions.get(name) ?? [])
+        if (!kept.has(used)) pending.push(used);
     }
     items.forEach(({ item, names }, index) => {
       if (item.kind !== 'impl' || applied.has(index)) return;
-      if (!(owners[index] ?? []).every((owner) => kept.has(owner))) return;
+      if (!(owners[index] ?? []).every(owner => kept.has(owner))) return;
       applied.add(index);
-      pending.push(...generatedIn(names).filter((name) => !kept.has(name)));
+      pending.push(...generatedIn(names).filter(name => !kept.has(name)));
     });
   }
-  const keeps = (names: Iterable<string>): boolean => generatedIn(names).every((name) => kept.has(name));
+  const keeps = (names: Iterable<string>): boolean =>
+    generatedIn(names).every(name => kept.has(name));
   const dropped: Array<[number, number]> = [];
   items.forEach(({ start, end, item }, index) => {
     if (item.kind !== 'mod') {
@@ -238,7 +259,8 @@ export function keepReachable(generated: string, roots: Set<string>): string {
     const open = blanked.indexOf('{', start) + 1;
     const inner = blanked.slice(open, end - 1);
     for (const [from, to] of itemRanges(inner)) {
-      if (!keeps(identifiers(inner.slice(from, to)))) dropped.push([open + from, open + to]);
+      if (!keeps(identifiers(inner.slice(from, to))))
+        dropped.push([open + from, open + to]);
     }
   });
   let out = '';
@@ -258,17 +280,19 @@ export function keepReachable(generated: string, roots: Set<string>): string {
 export function withoutTypesOf(generated: string, other: string): string {
   const declared = (text: string): Set<string> => {
     const blank = blankLiterals(text);
-    return new Set(itemRanges(blank).flatMap(([start, end]) => {
-      const item = classify(blank.slice(start, end));
-      return item.kind === 'type' ? [item.name] : [];
-    }));
+    return new Set(
+      itemRanges(blank).flatMap(([start, end]) => {
+        const item = classify(blank.slice(start, end));
+        return item.kind === 'type' ? [item.name] : [];
+      })
+    );
   };
   const moved = declared(other);
   const blanked = blankLiterals(generated);
   const types = declared(generated);
   const movedAll = (names: Iterable<string>): boolean => {
-    const named = [...names].filter((name) => types.has(name));
-    return named.length > 0 && named.every((name) => moved.has(name));
+    const named = [...names].filter(name => types.has(name));
+    return named.length > 0 && named.every(name => moved.has(name));
   };
   const dropped: Array<[number, number]> = [];
   for (const [start, end] of itemRanges(blanked)) {
@@ -283,7 +307,8 @@ export function withoutTypesOf(generated: string, other: string): string {
       const open = blanked.indexOf('{', start) + 1;
       const inner = blanked.slice(open, end - 1);
       for (const [from, to] of itemRanges(inner))
-        if (movedAll(identifiers(inner.slice(from, to)))) dropped.push([open + from, open + to]);
+        if (movedAll(identifiers(inner.slice(from, to))))
+          dropped.push([open + from, open + to]);
     }
   }
   let out = '';

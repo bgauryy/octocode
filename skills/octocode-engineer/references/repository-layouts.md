@@ -1,6 +1,6 @@
-# Repository layouts
-
 Load when choosing folder organization, after identifying the required dependency rule. Names illustrate placement; build rules, lints and package boundaries enforce architecture.
+
+# Repository layouts
 
 | Workload | Example paths | Rule to verify |
 |---|---|---|

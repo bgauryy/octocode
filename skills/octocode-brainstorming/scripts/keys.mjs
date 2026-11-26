@@ -31,13 +31,14 @@ var CONFIG_FIELDS = [
     "type": "boolean",
     "resolved": true,
     "credential": false,
-    "description": "Expose local filesystem tools through MCP. CLI tools remain available; path and content security apply on both surfaces.",
+    "description": "Expose the local section through MCP: the local filesystem tools, ghCloneRepo (with tools.enableClone) and the graph tools. Off, MCP lists the GitHub and package tools only. CLI tools remain available; path and content security apply on both surfaces. Restart MCP after changing this setting.",
+    "notes": "Home-only, so a repository can turn it off for MCP but cannot turn it on.",
     "env": {
       "name": "OCTOCODE_ENABLE_LOCAL",
       "dotenv": "home",
       "workspaceNarrowsTo": "false"
     },
-    "defaultValue": true
+    "defaultValue": false
   },
   {
     "path": "local.beta",
@@ -133,7 +134,7 @@ var CONFIG_FIELDS = [
     "type": "boolean",
     "resolved": true,
     "credential": false,
-    "description": "Expose ghCloneRepo through MCP. CLI remains available. Clone execution requires persistent storage on both surfaces. Restart MCP after changing this setting.",
+    "description": "Expose ghCloneRepo through MCP, with the local tools that read its checkout (local.enabled). CLI remains available. Clone execution requires persistent storage on both surfaces. Restart MCP after changing this setting.",
     "env": {
       "name": "OCTOCODE_ENABLE_CLONE",
       "dotenv": "home",
@@ -142,16 +143,19 @@ var CONFIG_FIELDS = [
     "defaultValue": false
   },
   {
-    "path": "tools.enableSecurityCheck",
+    "path": "tools.enableSecurity",
     "section": "tools",
-    "key": "enableSecurityCheck",
+    "key": "enableSecurity",
     "type": "boolean",
     "resolved": true,
     "credential": false,
     "description": "Expose securityCheck through MCP: it asks OSV (api.osv.dev, operated by Google) about packages, sending each public package name and version it checks. Off, MCP leaves it out and sends nothing. The CLI always offers it, and a CLI call sends the package name to OSV only when you run it. Restart MCP after changing this setting.",
     "notes": "Home-only, so a repository can turn it off for MCP but cannot turn it on.",
     "env": {
-      "name": "OCTOCODE_SECURITY_CHECKS",
+      "name": "OCTOCODE_ENABLE_SECURITY",
+      "aliases": [
+        "OCTOCODE_SECURITY_CHECKS"
+      ],
       "dotenv": "home",
       "workspaceNarrowsTo": "false"
     },
@@ -396,6 +400,7 @@ var CONFIG_FIELDS = [
     "defaultValue": null
   }
 ];
+var ENV_ALIASES = { "OCTOCODE_SECURITY_CHECKS": "OCTOCODE_ENABLE_SECURITY" };
 var API_KEYS = [
   {
     "name": "TAVILY_API_KEY",
@@ -452,15 +457,17 @@ var API_KEYS = [
     "docsUrl": "https://docs.typesafe.ai/introduction"
   }
 ];
-var PROTECTED_KEY_NAMES = ["PATH", "HOME", "SHELL", "USER", "LOGNAME", "PWD", "TMPDIR", "NODE_OPTIONS", "PYTHON", "TAVILY_BASE_URL", "EXA_BASE_URL", "SERPER_BASE_URL", "DEEPSEEK_BASE_URL", "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR", "GIT_SSL_CAINFO", "GIT_SSL_CAPATH", "CURL_CA_BUNDLE", "OCTOCODE_GITHUB_CLIENT_ID", "OCTOCODE_HOME", "OCTOCODE_CARGO", "GITHUB_API_URL", "OCTOCODE_ENABLE_LOCAL", "OCTOCODE_BETA", "ALLOWED_PATHS", "WORKSPACE_ROOT", "OCTOCODE_GRAPH_HOME", "OCTOCODE_ENABLE_CLONE", "OCTOCODE_SECURITY_CHECKS", "OCTOCODE_ALLOW_PRIVATE_REGISTRY", "OCTOCODE_LSP_AUTO_INSTALL", "OCTOCODE_TRUST_PROJECT_LSP_CONFIG", "OCTOCODE_LSP_TRUST_FETCHED_CODE", "OCTOCODE_REDACT_EMAILS", "OCTOCODE_REDACT_UUID", "OCTOCODE_MCP_RESULT", "OCTOCODE_CREDENTIAL_FILES", "OCTOCODE_STORAGE_MODE", "OCTOCODE_CLONE_CACHE_LIMIT", "OCTOCODE_CLASSIFICATION_API", "OCTOCODE_CLASSIFICATION_API_HOST"];
-var HOME_TRUSTED_ENV_KEYS = ["TAVILY_BASE_URL", "EXA_BASE_URL", "SERPER_BASE_URL", "DEEPSEEK_BASE_URL", "OCTOCODE_GITHUB_CLIENT_ID", "OCTOCODE_CARGO", "GITHUB_API_URL", "OCTOCODE_ENABLE_LOCAL", "OCTOCODE_BETA", "ALLOWED_PATHS", "WORKSPACE_ROOT", "OCTOCODE_GRAPH_HOME", "OCTOCODE_ENABLE_CLONE", "OCTOCODE_SECURITY_CHECKS", "OCTOCODE_ALLOW_PRIVATE_REGISTRY", "OCTOCODE_LSP_AUTO_INSTALL", "OCTOCODE_TRUST_PROJECT_LSP_CONFIG", "OCTOCODE_LSP_TRUST_FETCHED_CODE", "OCTOCODE_REDACT_EMAILS", "OCTOCODE_REDACT_UUID", "OCTOCODE_MCP_RESULT", "OCTOCODE_CREDENTIAL_FILES", "OCTOCODE_STORAGE_MODE", "OCTOCODE_CLONE_CACHE_LIMIT", "OCTOCODE_CLASSIFICATION_API", "OCTOCODE_CLASSIFICATION_API_HOST"];
-var DEFAULT_CONFIG_VALUE = { "github": { "apiUrl": "https://api.github.com" }, "local": { "enabled": true, "beta": false, "allowedPaths": [], "workspaceRoot": void 0, "graphHome": void 0 }, "tools": { "enabled": null, "disabled": null, "enableClone": false, "enableSecurityCheck": false }, "network": { "allowPrivateRegistry": false }, "lsp": { "autoInstall": "prompt", "trustProjectConfig": false, "trustFetchedCode": false, "prewarm": "targeted" }, "output": { "redactEmails": false, "redactUuid": false, "mcpResult": "json" }, "security": { "credentialFiles": "withhold" }, "storage": { "mode": "persistent", "cloneCacheLimit": "5GiB" }, "classification": { "apiHost": void 0, "model": void 0 } };
+var PROTECTED_KEY_NAMES = ["PATH", "HOME", "SHELL", "USER", "LOGNAME", "PWD", "TMPDIR", "NODE_OPTIONS", "PYTHON", "TAVILY_BASE_URL", "EXA_BASE_URL", "SERPER_BASE_URL", "DEEPSEEK_BASE_URL", "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR", "GIT_SSL_CAINFO", "GIT_SSL_CAPATH", "CURL_CA_BUNDLE", "OCTOCODE_GITHUB_CLIENT_ID", "OCTOCODE_HOME", "OCTOCODE_CARGO", "GITHUB_API_URL", "OCTOCODE_ENABLE_LOCAL", "OCTOCODE_BETA", "ALLOWED_PATHS", "WORKSPACE_ROOT", "OCTOCODE_GRAPH_HOME", "OCTOCODE_ENABLE_CLONE", "OCTOCODE_ENABLE_SECURITY", "OCTOCODE_ALLOW_PRIVATE_REGISTRY", "OCTOCODE_LSP_AUTO_INSTALL", "OCTOCODE_TRUST_PROJECT_LSP_CONFIG", "OCTOCODE_LSP_TRUST_FETCHED_CODE", "OCTOCODE_REDACT_EMAILS", "OCTOCODE_REDACT_UUID", "OCTOCODE_MCP_RESULT", "OCTOCODE_CREDENTIAL_FILES", "OCTOCODE_STORAGE_MODE", "OCTOCODE_CLONE_CACHE_LIMIT", "OCTOCODE_CLASSIFICATION_API", "OCTOCODE_CLASSIFICATION_API_HOST"];
+var HOME_TRUSTED_ENV_KEYS = ["TAVILY_BASE_URL", "EXA_BASE_URL", "SERPER_BASE_URL", "DEEPSEEK_BASE_URL", "OCTOCODE_GITHUB_CLIENT_ID", "OCTOCODE_CARGO", "GITHUB_API_URL", "OCTOCODE_ENABLE_LOCAL", "OCTOCODE_BETA", "ALLOWED_PATHS", "WORKSPACE_ROOT", "OCTOCODE_GRAPH_HOME", "OCTOCODE_ENABLE_CLONE", "OCTOCODE_ENABLE_SECURITY", "OCTOCODE_ALLOW_PRIVATE_REGISTRY", "OCTOCODE_LSP_AUTO_INSTALL", "OCTOCODE_TRUST_PROJECT_LSP_CONFIG", "OCTOCODE_LSP_TRUST_FETCHED_CODE", "OCTOCODE_REDACT_EMAILS", "OCTOCODE_REDACT_UUID", "OCTOCODE_MCP_RESULT", "OCTOCODE_CREDENTIAL_FILES", "OCTOCODE_STORAGE_MODE", "OCTOCODE_CLONE_CACHE_LIMIT", "OCTOCODE_CLASSIFICATION_API", "OCTOCODE_CLASSIFICATION_API_HOST"];
+var DEFAULT_CONFIG_VALUE = { "github": { "apiUrl": "https://api.github.com" }, "local": { "enabled": false, "beta": false, "allowedPaths": [], "workspaceRoot": void 0, "graphHome": void 0 }, "tools": { "enabled": null, "disabled": null, "enableClone": false, "enableSecurity": false }, "network": { "allowPrivateRegistry": false }, "lsp": { "autoInstall": "prompt", "trustProjectConfig": false, "trustFetchedCode": false, "prewarm": "targeted" }, "output": { "redactEmails": false, "redactUuid": false, "mcpResult": "json" }, "security": { "credentialFiles": "withhold" }, "storage": { "mode": "persistent", "cloneCacheLimit": "5GiB" }, "classification": { "apiHost": void 0, "model": void 0 } };
 function getOctocodeHome(env = process.env) {
   const override = env["OCTOCODE_HOME"];
   if (override && override.trim()) return path.resolve(override.trim());
   return path.join(homedir(), ".octocode");
 }
-var API_KEY_NAMES = new Set(API_KEYS.map((key) => key.name));
+var API_KEY_NAMES = new Set(
+  API_KEYS.map((key) => key.name)
+);
 var PROTECTED_KEYS = new Set(PROTECTED_KEY_NAMES);
 var PROTECTED_KEYS_CI = new Set(
   PROTECTED_KEY_NAMES.map((name) => name.toUpperCase())
@@ -499,9 +506,26 @@ function readTextIfExists(filePath) {
     return "";
   }
 }
+function canonicalEnvName(key) {
+  return Object.hasOwn(ENV_ALIASES, key) ? ENV_ALIASES[key] : key;
+}
+function canonicalEnv(env) {
+  const current = {};
+  const earlier = [];
+  for (const [key, value] of Object.entries(env)) {
+    if (value === void 0) continue;
+    const name = canonicalEnvName(key);
+    if (name === key) current[key] = value;
+    else earlier.push([name, value]);
+  }
+  for (const [name, value] of earlier) current[name] ??= value;
+  return current;
+}
 function fileEnv(filePath) {
-  const entries = Object.entries(parseEnv(readTextIfExists(filePath))).filter(([, v]) => v.trim());
-  return Object.fromEntries(entries);
+  const entries = Object.entries(parseEnv(readTextIfExists(filePath))).filter(
+    ([, v]) => v.trim()
+  );
+  return canonicalEnv(Object.fromEntries(entries));
 }
 var CLASSIFICATION_KILL_SWITCH = CONFIG_FIELDS.find(
   (field) => field.path === "classification.api"
@@ -511,36 +535,62 @@ function context(options) {
   const env = options.env ?? process.env;
   const home = options.home ?? getOctocodeHome(env);
   const cwd = options.cwd ?? process.cwd();
-  return { env, files: { home: path3.join(home, ".env"), workspace: path3.join(cwd, ".octocode", ".env") } };
+  return {
+    env,
+    files: {
+      home: path3.join(home, ".env"),
+      workspace: path3.join(cwd, ".octocode", ".env")
+    }
+  };
 }
 function keyFiles(options = {}) {
   return context(options).files;
 }
-function getKey(name, options = {}) {
-  const { env, files } = context(options);
+function getKey(requested, options = {}) {
+  const name = canonicalEnvName(requested);
+  const { env: processEnv, files } = context(options);
+  const env = canonicalEnv(processEnv);
   const fromProcess = env[name]?.trim() ? env[name] : void 0;
-  if (fromProcess) return { name, value: fromProcess.trim(), source: "process", files };
-  if (name === CLASSIFICATION_KILL_SWITCH && env[name] !== void 0) return { name, files };
+  if (fromProcess)
+    return { name, value: fromProcess.trim(), source: "process", files };
+  if (name === CLASSIFICATION_KILL_SWITCH && env[name] !== void 0)
+    return { name, files };
   if (isProtectedKey(name) && !HOME_TRUSTED.has(name)) return { name, files };
   const fromHome = fileEnv(files.home)[name];
   if (fromHome) return { name, value: fromHome, source: "home", files };
-  if (isProtectedKey(name) || sameFile(files.workspace, files.home)) return { name, files };
+  if (isProtectedKey(name) || sameFile(files.workspace, files.home))
+    return { name, files };
   const fromWorkspace = fileEnv(files.workspace)[name];
-  if (fromWorkspace) return { name, value: fromWorkspace, source: "workspace", files };
+  if (fromWorkspace)
+    return { name, value: fromWorkspace, source: "workspace", files };
   return { name, files };
 }
 function listKeys(names, options = {}) {
-  const specs = names?.length ? names.map((name) => API_KEYS.find((spec) => spec.name === name) ?? { name, dotenv: "all", description: "Not a declared Octocode key" }) : API_KEYS;
+  const specs = names?.length ? names.map(
+    (name) => API_KEYS.find((spec) => spec.name === name) ?? {
+      name,
+      dotenv: "all",
+      description: "Not a declared Octocode key"
+    }
+  ) : API_KEYS;
   const keys = specs.map((spec) => {
     const { value, source } = getKey(spec.name, options);
-    return { ...spec, key: value ? "set" : "missing", ...source ? { source } : {} };
+    return {
+      ...spec,
+      key: value ? "set" : "missing",
+      ...source ? { source } : {}
+    };
   });
   return { files: keyFiles(options), keys };
 }
 function setKey(name, value, { scope = "home", ...options } = {}) {
   const spec = API_KEYS.find((candidate) => candidate.name === name);
-  if (!spec) throw new Error(`${name} is not a declared Octocode API key (${API_KEYS.map((key) => key.name).join(", ")})`);
-  if (scope === "workspace" && spec.dotenv === "home") throw new Error(`${name} is home-only: a workspace .env cannot set it`);
+  if (!spec)
+    throw new Error(
+      `${name} is not a declared Octocode API key (${API_KEYS.map((key) => key.name).join(", ")})`
+    );
+  if (scope === "workspace" && spec.dotenv === "home")
+    throw new Error(`${name} is home-only: a workspace .env cannot set it`);
   const clean = value.trim();
   if (!clean) throw new Error(`no value for ${name}`);
   if (/[\r\n]/.test(clean)) throw new Error(`${name} must be one line`);
@@ -560,7 +610,9 @@ function setKey(name, value, { scope = "home", ...options } = {}) {
   });
   while (kept.length && !kept.at(-1)?.trim()) kept.pop();
   fs2.writeFileSync(file, `${[...kept, `${name}=${clean}`].join("\n")}
-`, { mode: 384 });
+`, {
+    mode: 384
+  });
   fs2.chmodSync(file, 384);
   const { source } = getKey(name, options);
   return { name, scope, file, ...source ? { source } : {} };
@@ -575,36 +627,72 @@ list: every declared API key (or the named ones), set or missing, with its sourc
 get:  the same for the named keys; exit 1 when any is missing.
 set:  saves the value read from stdin to <home>/.env, or with --workspace to <workspace>/.octocode/.env.
 No command prints a key value.`;
-function runKeysCli(argv, { readStdin = () => fs2.readFileSync(0, "utf8"), ...options } = {}) {
+function runKeysCli(argv, {
+  readStdin = () => fs2.readFileSync(0, "utf8"),
+  ...options
+} = {}) {
   const [command, ...rest] = argv;
-  const fail = (code, message, exitCode = 2) => ({ exitCode, output: { ok: false, error: { code, message } } });
-  if (!command || command === "--help" || command === "-h") return { exitCode: command ? 0 : 2, output: USAGE };
+  const fail = (code, message, exitCode = 2) => ({
+    exitCode,
+    output: { ok: false, error: { code, message } }
+  });
+  if (!command || command === "--help" || command === "-h")
+    return { exitCode: command ? 0 : 2, output: USAGE };
   if (command === "list" || command === "get") {
     const names = rest.filter((arg) => !arg.startsWith("-"));
     const unknown = rest.find((arg) => arg.startsWith("-"));
     if (unknown) return fail("invalidArguments", `unknown option ${unknown}`);
-    if (command === "get" && !names.length) return fail("invalidArguments", "get needs at least one key name");
+    if (command === "get" && !names.length)
+      return fail("invalidArguments", "get needs at least one key name");
     const { files, keys } = listKeys(names, options);
     const missing = keys.filter((key) => key.key === "missing");
     const ok = command === "list" || missing.length === 0;
-    return { exitCode: ok ? 0 : 1, output: { ok, files, keys: keys.map((key) => key.key === "missing" ? { ...key, fix: `keys.mjs set ${key.name} --stdin` } : key) } };
+    return {
+      exitCode: ok ? 0 : 1,
+      output: {
+        ok,
+        files,
+        keys: keys.map(
+          (key) => key.key === "missing" ? { ...key, fix: `keys.mjs set ${key.name} --stdin` } : key
+        )
+      }
+    };
   }
   if (command === "set") {
     const name = rest.find((arg) => !arg.startsWith("-"));
     const flags = rest.filter((arg) => arg.startsWith("-"));
-    const badFlag = flags.find((flag) => flag !== "--stdin" && flag !== "--workspace");
+    const badFlag = flags.find(
+      (flag) => flag !== "--stdin" && flag !== "--workspace"
+    );
     if (badFlag) return fail("invalidArguments", `unknown option ${badFlag}`);
     if (!name) return fail("invalidArguments", "set needs a key name");
-    if (rest.filter((arg) => !arg.startsWith("-")).length > 1) return fail("invalidArguments", "pass the value on stdin with --stdin, never as an argument");
-    if (!flags.includes("--stdin")) return fail("invalidArguments", "set reads the value from stdin: pass --stdin and paste or pipe the key");
+    if (rest.filter((arg) => !arg.startsWith("-")).length > 1)
+      return fail(
+        "invalidArguments",
+        "pass the value on stdin with --stdin, never as an argument"
+      );
+    if (!flags.includes("--stdin"))
+      return fail(
+        "invalidArguments",
+        "set reads the value from stdin: pass --stdin and paste or pipe the key"
+      );
     try {
-      const saved = setKey(name, readStdin(), { ...options, scope: flags.includes("--workspace") ? "workspace" : "home" });
+      const saved = setKey(name, readStdin(), {
+        ...options,
+        scope: flags.includes("--workspace") ? "workspace" : "home"
+      });
       return { exitCode: 0, output: { ok: true, ...saved } };
     } catch (error) {
-      return fail("invalidKey", error instanceof Error ? error.message : String(error));
+      return fail(
+        "invalidKey",
+        error instanceof Error ? error.message : String(error)
+      );
     }
   }
-  return fail("invalidArguments", `unknown command ${command} (list, get, set)`);
+  return fail(
+    "invalidArguments",
+    `unknown command ${command} (list, get, set)`
+  );
 }
 var DEFAULT_CONFIG = Object.freeze(DEFAULT_CONFIG_VALUE);
 

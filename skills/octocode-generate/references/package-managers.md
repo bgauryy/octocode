@@ -26,7 +26,7 @@ Pin the manager: `"packageManager": "<name>@<version>"` in package.json (read by
 
 | Ecosystem | Manager | Lock and pin | Workspaces |
 |---|---|---|---|
-| Rust | Cargo | `Cargo.lock` (commit it for apps and libraries); toolchain in `rust-toolchain.toml` | `[workspace]` members and `[workspace.dependencies]` |
+| Rust | Cargo | `Cargo.lock` (commit it for apps and libraries); `cargo --locked` in CI; toolchain in `rust-toolchain.toml` | `[workspace]` members and `[workspace.dependencies]` |
 | Python | uv (manages Python too) | `uv.lock`; Python in `.python-version`; `uv sync --locked` in CI | `[tool.uv.workspace]` |
 | Go | Go modules | `go.sum`; Go version in `go.mod` (`go` and `toolchain` lines) | `go.work` |
 | Deno | Deno (npm and JSR packages) | `deno.lock`; CI `deno ci` | `workspace` in `deno.json` |

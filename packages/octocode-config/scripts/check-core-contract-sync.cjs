@@ -34,10 +34,14 @@ function fetchPublishedCore(tempRoot) {
     pin(join(configRoot, 'package.json'), 'dependencies') ||
     pin(join(repoRoot, 'package.json'), 'resolutions');
   if (!version) {
-    console.error('contract-sync: no @octocodeai/octocode-core version pinned in packages/octocode-config/package.json dependencies.');
+    console.error(
+      'contract-sync: no @octocodeai/octocode-core version pinned in packages/octocode-config/package.json dependencies.'
+    );
     process.exit(1);
   }
-  if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version)) {
+  if (
+    !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version)
+  ) {
     throw new Error(
       'Published contract verification requires an exact npm version for @octocodeai/octocode-core; local paths, protocols, tags, and ranges cannot prove release parity.'
     );
@@ -48,7 +52,17 @@ function fetchPublishedCore(tempRoot) {
   // runtime dependencies (zod, …) when we load the contract builder.
   execFileSync(
     'npm',
-    ['install', spec, '--prefix', tempRoot, '--ignore-scripts', '--no-save', '--no-audit', '--no-fund', '--silent'],
+    [
+      'install',
+      spec,
+      '--prefix',
+      tempRoot,
+      '--ignore-scripts',
+      '--no-save',
+      '--no-audit',
+      '--no-fund',
+      '--silent',
+    ],
     { encoding: 'utf8' }
   );
   return {
@@ -58,11 +72,15 @@ function fetchPublishedCore(tempRoot) {
 }
 
 async function checkAgainst(coreDir, label) {
-  const core = await import(pathToFileURL(join(coreDir, 'dist', 'schema.js')).href);
+  const core = await import(
+    pathToFileURL(join(coreDir, 'dist', 'schema.js')).href
+  );
   const current = core.buildEnforcementContractIr().fingerprint;
   if (current !== provenance.contractFingerprint) {
     console.error('contract-sync: FINGERPRINT MISMATCH');
-    console.error(`  octocode-config contract/: ${provenance.contractFingerprint}`);
+    console.error(
+      `  octocode-config contract/: ${provenance.contractFingerprint}`
+    );
     console.error(`  ${label} computes:        ${current}`);
     console.error(
       '  Fix: `node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen` against the intended core, align the core dependency version, or publish the matching core first.'
@@ -84,7 +102,7 @@ async function main() {
   }
 }
 
-main().catch((error) => {
+main().catch(error => {
   console.error('contract-sync: failed:', error.message);
   process.exit(1);
 });

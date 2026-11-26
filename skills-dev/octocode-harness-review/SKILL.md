@@ -25,11 +25,11 @@ Run from the repo root; `$DEV` is `node skills-dev/octocode-dev/scripts/dev.mjs`
    measure it before proposing a change. Judge whole chains: three calls where one would do is an issue even when
    each call is correct.
 3. **Propose.** Write or update `<repo>/docs/rfcs/context-efficiency.md`. Give each item its breakdown (`path:line`),
-   measurement, change, expected saving, risk and proving check, and rank items by saving per risk. Cite
-   [tool writing](https://www.anthropic.com/engineering/writing-tools-for-agents),
+   measurement, change, expected saving, risk and proving check, and rank items by saving per risk. When an item
+   rests on a rule from [tool writing](https://www.anthropic.com/engineering/writing-tools-for-agents),
    [context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) or the
-   [MCP spec](https://modelcontextprotocol.io/specification/latest) where they apply. A review-only request stops
-   here and returns the ranked items.
+   [MCP spec](https://modelcontextprotocol.io/specification/latest), cite that source beside the item. A
+   review-only request stops here and returns the ranked items.
 4. **Fix and prove.** Land one item at a time: core text first (then `$DEV contracts:regen`), native after. Rerun the
    same tasks on a newly pinned binary. Keep a change only if answers stay correct and cited and cost drops beyond
    run-to-run spread (`harness-tally.mjs --before`); undo the rest by editing. Finish with `$DEV gates`, or hand the

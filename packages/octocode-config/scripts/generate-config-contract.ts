@@ -5,11 +5,15 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { contractFromDeclaration } from './config-contract/declaration/index.ts';
 import { renderConfigurationPage } from './config-contract/documentation.ts';
-import { renderContractJson, renderContractSchema } from './config-contract/emit.ts';
+import {
+  renderContractJson,
+  renderContractSchema,
+} from './config-contract/emit.ts';
 import { renderTypeScript } from './config-contract/typescript.ts';
 import { readGenerated, writeGenerated } from './generated-files.ts';
 
-const path = (relative: string): string => fileURLToPath(new URL(relative, import.meta.url));
+const path = (relative: string): string =>
+  fileURLToPath(new URL(relative, import.meta.url));
 
 export type GeneratedFile = { path: string; content: string };
 
@@ -18,8 +22,14 @@ export function generateConfigContract(): GeneratedFile[] {
   const contract = contractFromDeclaration();
   return [
     { path: path('../config-contract.json'), content: renderContractJson() },
-    { path: path('../config-contract.schema.json'), content: renderContractSchema() },
-    { path: path('../src/config/contract.generated.ts'), content: renderTypeScript(contract) },
+    {
+      path: path('../config-contract.schema.json'),
+      content: renderContractSchema(),
+    },
+    {
+      path: path('../src/config/contract.generated.ts'),
+      content: renderTypeScript(contract),
+    },
     {
       path: path('../../../docs/CONFIGURATION.md'),
       content: renderConfigurationPage(

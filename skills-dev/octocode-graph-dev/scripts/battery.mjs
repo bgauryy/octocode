@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The graph language battery's mechanical part: per row of references/battery.md, build and query the graph
 // through the octocode-graph CLI on a frozen binary, run the ripgrep oracle, and write bench.json, compare.json
-// (with --before) and report.md. Judging each row stays with the reader (battery.md#judge).
+// (with --before) and report.md. Judging each row stays with the reader (battery-judge.md).
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs';

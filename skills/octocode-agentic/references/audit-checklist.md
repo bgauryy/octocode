@@ -1,67 +1,31 @@
+Load when auditing a production agent, harness or agent feature.
+
 # Audit checklist
 
-Load when auditing a production agent, harness or agent feature. Mark each check **pass**, **fail** or **not assessed**, with the evidence (trace, config, code location, run). Report each fail as an [audit finding](../output.md#audit-findings), which owns its fields and the proven-versus-candidate rule.
+Mark each check **pass**, **fail** or **not assessed**, with the evidence (trace, config, code location, run). Each check names what to inspect, then what fails. Report each fail as an [audit finding](answer-formats.md#audit-findings), which owns its fields and the proven-versus-candidate rule.
 
 ## Context and attention
 
-Detail: [context and memory](context-and-memory.md), [retrieval](retrieval-and-grounding.md).
-
-- Loads only task-relevant context.
-- Uses precise retrieval before broad reads.
-- Reserves context and output headroom.
-- Keeps authoritative instructions and constraints salient, with explicit precedence.
-- Tracks evidence provenance and source revisions.
+- In one captured request, every block is read by that step; fail: a file, tool result or instruction the trace never uses ([attention](context-attention.md#attention-first)).
+- In a trace, each read follows a search or names an exact symbol, range or field; fail: a whole file or an unfiltered listing read before any narrowing ([retrieval](retrieval.md#retrieval-techniques)).
+- At the largest request, measured occupancy leaves the model's output limit plus tool-result room ([budget](context-budget.md#context-budget)); fail: a truncated output or a limit error in a trace.
+- After the longest run or a compaction, the request still holds the objective, acceptance criteria and safety constraints, and two conflicting rules have a stated winner; fail: a missing constraint, or a collision no rule resolves ([context failures](context-attention.md#context-failures)).
+- Each claim in the result names its source and revision; fail: a fact with no source, or an inference a summary turned into a fact ([grounding](grounding.md#grounding)).
 
 ## Caching and memory
 
-Detail: [caching](context-and-memory.md#caching), [memory](context-and-memory.md#memory), [compaction](context-and-memory.md#compaction).
-
-- Keeps cacheable prefixes stable.
-- Separates caches from durable memory.
-- Versions and expires cached data.
-- Isolates users and tenants.
-- Preserves decisions and unresolved work through compaction.
+- Byte-diff the prefix of two requests of one workflow; fail: a timestamp, a changing identifier or a reordered tool definition inside it ([prompt caching](caching.md#prompt-caching)).
+- Each store is named a cache or a memory; fail: a cache used as a permission boundary or as long-term memory ([prompt caching](caching.md#prompt-caching)).
+- Each cache entry carries a version and an expiry; fail: an entry served after the thing it is keyed on changed ([caching](caching.md#caching)).
+- Read a cache or memory entry with a second user or tenant identity; fail: the first identity's entry comes back ([caching](caching.md#caching), [memory](memory.md#memory)).
+- After a compaction, the agent names the next correct action and its supporting evidence; fail: a decision, constraint or pending item absent from the checkpoint ([checkpoint template](compaction.md#checkpoint-template)).
 
 ## Tools, MCP and skills
 
-Detail: [tools and MCP](tools-and-mcp.md).
+- For each close pair of tools in the served list, one sentence decides between them; fail: a pair with no deciding sentence, or a job stated in no layer ([set audit](tool-set-audit.md#set-audit)).
+- Only skill names and descriptions load before a task matches; fail: a skill body or reference in a request whose task did not need it ([skill loading](tool-set-audit.md#skills-and-progressive-disclosure)).
+- Send one call with an invalid argument and one the caller may not make; fail: either one executes ([schema](tool-descriptions.md#schema), [risks](security-risks.md#risks-and-mitigations)).
+- Large collections are read through server-side filters, pages or ranges, and every `hasMore` has a reachable continuation; fail: an unbounded result, or a partial page reported as complete ([pagination](tool-results.md#pagination-contract)).
+- Call each tool with an oversized result, an invalid argument, a cancel and a timeout; fail: any reply without a typed result and a next step ([errors](tool-errors.md#actionable-errors), [pagination](tool-results.md#pagination-contract), [cancel and timeout](tool-design.md#mcp-server-design)).
 
-- Tools are descriptive and non-overlapping.
-- Skills are discovered progressively.
-- Schemas and permissions are validated at execution.
-- Uses pagination, filters and range reads.
-- Handles truncation, errors, cancellation and timeouts.
-
-## Model and agent routing
-
-Detail: [models and delegation](models-and-delegation.md).
-
-- Uses simple execution by default.
-- Escalates model capability only when justified.
-- Delegates bounded, independent tasks.
-- Defines structured subagent return contracts.
-- Bounds recursive delegation and concurrency.
-
-## Correctness and efficiency
-
-Detail: [grounding](retrieval-and-grounding.md#grounding), [execution control](execution-control.md).
-
-- Distinguishes confirmed, inferred and unknown claims.
-- Verifies actual outcomes with tests or observations.
-- Avoids redundant calls and repeated investigations.
-- Stops when evidence and acceptance criteria suffice.
-- Returns concise findings and remaining risks.
-
-## Security and operations
-
-Detail: [security](security.md), [evaluation](evaluation.md).
-
-- Treats retrieved data, skills and peer agents as untrusted.
-- Enforces least-privilege execution.
-- Protects destructive actions with approval.
-- Persists safe checkpoints and durable action IDs.
-- Measures task success, latency, cost and regressions.
-
-## Uncertainty and long-running actions
-
-Use the [uncertainty, reversibility and survival checks](mental-models.md#uncertainty-reversibility-and-survival) to inspect invalidating observations, recovery limits and failure containment separately from success. For changing or resumed runs, inspect stale inputs, pending effects and accumulated exposure. Mark missing execution evidence **not assessed**; a plausible scenario is not a proven failure.
+Continue with the [routing, correctness, security and long-running checks](audit-checklist-operations.md).

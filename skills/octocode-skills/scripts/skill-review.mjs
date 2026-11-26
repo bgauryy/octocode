@@ -81,6 +81,16 @@ function supportPaths(text) {
 }
 
 const MAX_SKILL_LINES = 50;
+// The same cap for every document a skill routes: a longer one is split by load condition, never packed.
+const MAX_DOC_LINES = 50;
+
+function checkDocLength({ texts, add }) {
+  for (const [path, text] of texts) {
+    if (path !== 'output.md' && !path.startsWith('references/')) continue;
+    const lines = text.replace(/\n$/, '').split('\n').length;
+    if (lines > MAX_DOC_LINES) add('WARN', 'doc-length', `${path} has ${lines} lines; keep each document at ${MAX_DOC_LINES} or fewer by splitting it by load condition.`, { file: path });
+  }
+}
 
 function checkFrontmatter({ dir, name, skill, add }) {
   const fm = frontmatter(skill);
@@ -347,6 +357,7 @@ function review(dir, { commands = false, sizes = false, tells = false } = {}) {
   const ctx = { dir, name, files, texts, skill: texts.get('SKILL.md') || '', add };
   checkFrontmatter(ctx);
   checkLayout(ctx);
+  checkDocLength(ctx);
   checkConventions(ctx);
   for (const [path, text] of texts) checkDocLinks(ctx, path, text);
   const reachable = checkRouting(ctx);
@@ -425,6 +436,13 @@ function selfTestContent(skill, source) {
     if (Boolean(finding) !== count > MAX_SKILL_LINES || (finding && finding.level !== 'WARN')) throw new Error(`a ${count}-line SKILL.md was judged wrong for skill-length`);
   }
   writeFileSync(join(skill, 'SKILL.md'), source);
+  mkdirSync(join(skill, 'references'), { recursive: true });
+  for (const count of [MAX_DOC_LINES, MAX_DOC_LINES + 1]) {
+    writeFileSync(join(skill, 'references/long.md'), 'line\n'.repeat(count));
+    const finding = review(skill).findings.find((item) => item.code === 'doc-length');
+    if (Boolean(finding) !== count > MAX_DOC_LINES || (finding && finding.level !== 'WARN')) throw new Error(`a ${count}-line reference was judged wrong for doc-length`);
+  }
+  rmSync(join(skill, 'references/long.md'));
   writeFileSync(join(skill, 'README.md'), '# Example\n\n```md\n[link](not-here.md) [anchor](#nowhere)\n```\n\n```bash\nnode scripts/example-tool.mjs\n```\n');
   const fenced = review(skill).findings.filter((item) => item.code !== 'description-length');
   if (fenced.some((item) => item.level === 'ERROR') || !fenced.some((item) => item.code === 'missing-support-file-in-code')) throw new Error(`fenced code was linted as links, or a missing command went unreported: ${JSON.stringify(fenced)}`);

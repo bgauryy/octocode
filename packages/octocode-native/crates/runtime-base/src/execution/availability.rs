@@ -1,11 +1,12 @@
 //! Tool exposure by surface. CLI exposes every tool except one whose
-//! [`required_setting`] is unset; MCP adds its configuration gates, the
-//! opt-ins among them ([`mcp_opt_in`]). Provider readiness is checked by
+//! [`required_setting`] is unset; MCP adds its configuration gates: the
+//! setting that turns the tool's section on ([`section_setting`]) and the
+//! tool's own opt-in ([`mcp_opt_in`]). Provider readiness is checked by
 //! invocation, never by discovery. Execution still enforces credentials and
 //! security.
 
 use crate::config::{ConfigFieldSpec, ConfigOutput, RuntimeSurface, field};
-use crate::id::ToolId;
+use crate::id::{ToolId, ToolSection};
 use std::sync::Arc;
 
 /// Whether a tool runs on this runtime, and if not, the one reason.
@@ -144,28 +145,38 @@ const fn required_setting(id: ToolId) -> Option<&'static ConfigFieldSpec> {
     }
 }
 
-/// The opt-in an MCP host needs before it offers a tool that runs without
-/// any setting: the CLI always offers it, and a CLI call is the user's own
-/// request (securityCheck sends the package name to OSV only when run).
+/// The setting that turns a section on for an MCP host; the external section
+/// (GitHub and package registries) needs none. The CLI offers every section:
+/// a CLI call is the user's own request (securityCheck sends the package name
+/// to OSV only when run). The one place a section meets a setting: a tool
+/// joins a section in core `TOOL_POLICIES`, never here.
+const fn section_setting(section: ToolSection) -> Option<&'static ConfigFieldSpec> {
+    match section {
+        ToolSection::External => None,
+        ToolSection::Local => Some(field::LOCAL_ENABLED),
+        ToolSection::Security => Some(field::TOOLS_ENABLE_SECURITY),
+        ToolSection::Clasify => Some(field::CLASSIFICATION_API),
+    }
+}
+
+/// The opt-in of its own an MCP host needs before it offers a tool whose
+/// section is on: a clone writes a checkout to disk.
 const fn mcp_opt_in(id: ToolId) -> Option<&'static ConfigFieldSpec> {
     match id {
         ToolId::GhCloneRepo => Some(field::TOOLS_ENABLE_CLONE),
-        ToolId::SecurityCheck => Some(field::TOOLS_ENABLE_SECURITY_CHECK),
         _ => None,
     }
 }
 
-/// Settings MCP exposure needs. Family comes from the contract; the opt-ins
-/// ([`mcp_opt_in`]) and [`required_setting`] apply here too. Hiding public
-/// clasify never disables goals on other tools: the credential stays separate.
+/// Settings MCP exposure needs, each once: the section's ([`section_setting`]),
+/// the tool's own opt-in ([`mcp_opt_in`]) and its [`required_setting`]. Hiding
+/// public clasify never disables goals on other tools: the credential stays
+/// separate.
 fn prerequisites(id: ToolId) -> impl Iterator<Item = &'static ConfigFieldSpec> {
-    [
-        id.is_local().then_some(field::LOCAL_ENABLED),
-        mcp_opt_in(id),
-        required_setting(id),
-    ]
-    .into_iter()
-    .flatten()
+    let section = section_setting(id.section());
+    let required = required_setting(id)
+        .filter(|setting| section.is_none_or(|section| section.path != setting.path));
+    [section, mcp_opt_in(id), required].into_iter().flatten()
 }
 
 fn is_met(config: &ConfigOutput, setting: &ConfigFieldSpec) -> bool {
@@ -174,9 +185,7 @@ fn is_met(config: &ConfigOutput, setting: &ConfigFieldSpec) -> bool {
         path if path == field::LOCAL_ENABLED.path => resolved.local.enabled,
         path if path == field::LOCAL_BETA.path => resolved.local.beta,
         path if path == field::TOOLS_ENABLE_CLONE.path => resolved.tools.enable_clone,
-        path if path == field::TOOLS_ENABLE_SECURITY_CHECK.path => {
-            resolved.tools.enable_security_check
-        }
+        path if path == field::TOOLS_ENABLE_SECURITY.path => resolved.tools.enable_security,
         path if path == field::CLASSIFICATION_API.path => classification_key(config).is_some(),
         path if path == field::STORAGE_MODE.path => {
             crate::config::is_persistent_storage_enabled(resolved)

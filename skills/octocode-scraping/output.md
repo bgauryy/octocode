@@ -6,7 +6,7 @@ Lead with the answer and confidence (verified: span read; partial; inferred; nev
 
 ## Saved result
 
-Sessions use `<workspace>/.octocode/octocode-scraping/tmp/<sessionId>/`; `--out` stays under `<workspace>/.octocode/`. Reports use `<workspace>/.octocode/octocode-scraping/<YYYY-MM-DD>-<slug>.md`. Workspace is the repository root, else cwd, never an existing `.octocode/`. A user-named report path wins; subagent scratch does not. Use a [coverage table or extracted JSON/CSV](references/report-output.md#choose-the-format) when useful; attribute images and link full captures.
+Sessions stay in their [session folder](references/corpus.md#layout) under `<workspace>`; `--out` stays under `<workspace>/.octocode/`. Reports use `<workspace>/.octocode/octocode-scraping/<YYYY-MM-DD>-<slug>.md`. Workspace is the repository root, else cwd, never an existing `.octocode/`. A user-named report path wins; subagent scratch does not. Use a [coverage table or extracted JSON/CSV](references/report-output.md#choose-the-format) when useful; attribute images and link full captures.
 
 ## Saved report
 

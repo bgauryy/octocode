@@ -12,7 +12,7 @@ For workflow selection: primary workflow, why it fits, orchestrator and actor du
 
 For workflow design: desired result, current state, participants and capabilities, ordered steps or branches, exchanged messages/artifacts, acceptance and recovery. Name proposed versus available capabilities. Include one success walkthrough and one failure or interruption walkthrough; state whether execution is direct or delegated. A diagram may show communication, but does not replace the acceptance check.
 
-For completion: result and confidence first; then verified scope, decisive evidence, changed or observed boundary, failed/unverified/stale work (counts from the [ledger check](scripts/ledger.mjs) `counts`), and next action. The orchestrator merges raw actor observations into the sole ledger; do not present a message delivery as verified work.
+For completion: result and confidence first; then verified scope, decisive evidence, changed or observed boundary, failed/unverified/stale work (counts from the [ledger check](scripts/ledger.mjs) `counts`), and next action. Do not present a message delivery as verified work.
 
 ## Presentation choices
 
@@ -26,7 +26,7 @@ Use the [shared format guide](references/report-output.md#choose-the-format); lo
 
 ## Saved report
 
-Save a workflow selection, handoff, or multi-file completion report at `<workspace>/.octocode/octocode-workflows/<YYYY-MM-DD>-<slug>.md` when the user requests it or it needs durable resume evidence. Working ledgers and captures belong under `<workspace>/.octocode/tmp/octocode-workflows/<YYYY-MM-DD>-<slug>/`; reuse an existing ledger rather than moving it.
+Save a workflow selection, handoff, or multi-file completion report at `<workspace>/.octocode/octocode-workflows/<YYYY-MM-DD>-<slug>.md` when the user requests it or it needs durable resume evidence. Working ledgers and captures stay in the [ledger folder](references/verification.md#keep-one-compact-coverage-ledger), never beside the saved report.
 
 Use the [shared header](references/report-output.md#report-header). Accepted `status` values: `Proposed`, `Accepted`, `Needs work`.
 

@@ -4,20 +4,14 @@ Load when asked what a change, branch or refactor did to the structure, or to re
 
 | Question | Tool | Covers |
 |---|---|---|
-| What did my last edits change structurally? | `octocode-graph refresh <dir>` then `octocode-graph diff <dir>` | The stitched graph: every package, metrics, LSP-confirmed calls. `refresh` keeps the replaced graph as `previous.json` |
-| How do two builds compare (main against a branch, before and after a refactor)? | `octocode-graph diff <before-dir> <after-dir>` | The same, for any two saved runs of one project |
-| What drifted in one scope since a retained snapshot? | native `graphQuery` `drift` with `baseline` | One snapshot scope; rows per file and relation, cycles added or resolved, static and dynamic transitions |
-| What may a working-tree change affect? | native `graphQuery` `impact` with `since: "main"` | Changed nodes from Git, their dependents, the tests to run and the affected entry points |
+| What did my last edits change structurally? | `octocode-graph refresh <dir>` (rebuilds only the chunks holding a change), then `octocode-graph diff <dir>` (`previous.json` → `data.json`) | The stitched graph: every package, metrics, LSP-confirmed calls. `refresh` keeps the replaced graph as `previous.json` |
+| How do two builds compare (main against a branch, before and after a refactor)? | `octocode-graph diff <before-dir> <after-dir> [--json]` | The same, for any two saved runs of one project |
+| What drifted in one scope since a retained snapshot? | native `graphQuery` `drift` with `baseline` ([native commands](operations.md#native-drift-and-impact)) | One snapshot scope; rows per file and relation, cycles added or resolved, static and dynamic transitions |
+| What may a working-tree change affect? | native `graphQuery` `impact` with `since: "main"` ([native commands](operations.md#native-drift-and-impact)) | Changed nodes from Git, their dependents, the tests to run and the affected entry points |
 
 ## Saved-graph diff
 
-```sh
-octocode-graph refresh .octocode/octocode-graph/<run>      # rebuilds only chunks holding a change
-octocode-graph diff .octocode/octocode-graph/<run>         # previous.json → data.json
-octocode-graph diff <before-run> <after-run> --json        # every list in full
-```
-
-The text output leads with the review findings, high first:
+`<dir>` is a run under `.octocode/octocode-graph/`. The text output leads with the review findings, high first:
 
 | Finding | Severity | Meaning |
 |---|---|---|
@@ -28,19 +22,7 @@ The text output leads with the review findings, high first:
 | Entered a ranking's top 20 | low | A file became a new PageRank or betweenness hotspot |
 | Cycle shrank or resolved | low | Coupling went down |
 
-Then come the dependencies added and removed (weight before → after, and whether they cross chunks), renames and files. A file renamed with the same path and a new extension, or moved as the only file with its name, keeps its edges, so a migration reads as renames instead of hundreds of removed and added edges. Call changes are counted. `--json` also carries the reweighted dependencies, coupling per package, every reach change and every ranking move.
-
-## Native drift and impact
-
-Keep a baseline. A build keeps `keep` snapshots per scope (default 3), so raise `keep` before a long series. Then compare:
-
-```sh
-octocode-graph graphBuild '{"queries":[{"path":"packages/api","keep":5}]}'        # note data.graph
-octocode-graph graphQuery '{"queries":[{"operation":"drift","path":"packages/api","baseline":"<older id>"}]}'
-octocode-graph graphQuery '{"queries":[{"operation":"impact","path":"packages/api","since":"main"}]}'
-```
-
-`drift` counts `filesAdded`, `filesRemoved`, `filesChanged`, `cyclesAdded`, `cyclesResolved`, `relationsAdded` and `relationsRemoved`, and pages its rows: add `--all-pages` to read them all in one reply. It does not detect renames, so a renamed file appears removed and added.
+Then come the dependencies added and removed (weight before → after, and whether they cross chunks), renames and files. A file renamed with the same path and a new extension, or moved as the only file with its name, keeps its edges, so a migration reads as renames instead of hundreds of removed and added edges. Call changes are counted. `--json` carries every list in full, and also the reweighted dependencies, coupling per package, every reach change and every ranking move.
 
 ## Review a change by its structure
 

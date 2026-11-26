@@ -1,5 +1,6 @@
 use super::*;
 use crate::config::{ConfigInput, FileInput};
+use crate::id::ToolSection;
 use std::collections::BTreeMap;
 
 #[test]
@@ -68,6 +69,7 @@ fn mcp_clone_opt_in_is_independent_of_beta_and_key_with_persistent_storage() {
         for beta in ["false", "true"] {
             let tools = availability(
                 &[
+                    ("OCTOCODE_ENABLE_LOCAL", "true"),
                     ("OCTOCODE_ENABLE_CLONE", enabled),
                     ("OCTOCODE_BETA", beta),
                     ("OCTOCODE_STORAGE_MODE", "persistent"),
@@ -163,7 +165,7 @@ fn the_tool_list_outranks_the_surface_and_settings() {
     let all = availability(&[], RuntimeSurface::Mcp);
     assert_eq!(
         all.get("ghCloneRepo").unwrap().env_vars(),
-        ["OCTOCODE_ENABLE_CLONE"]
+        ["OCTOCODE_ENABLE_LOCAL", "OCTOCODE_ENABLE_CLONE"]
     );
     assert!(!all.is_available("ghCloneRepo"));
     let cli = availability(&[], RuntimeSurface::Cli);
@@ -183,6 +185,7 @@ fn clone_is_unavailable_under_memory_storage_on_every_surface() {
         let tools = availability(
             &[
                 ("OCTOCODE_STORAGE_MODE", "memory"),
+                ("OCTOCODE_ENABLE_LOCAL", "true"),
                 ("OCTOCODE_ENABLE_CLONE", "true"),
             ],
             surface,
@@ -223,7 +226,10 @@ fn a_blank_classification_key_opts_out() {
 fn beta_graph_tools_preserve_cli_access_and_require_opt_in_on_mcp() {
     for beta in ["false", "true"] {
         for surface in [RuntimeSurface::Cli, RuntimeSurface::Mcp] {
-            let tools = availability(&[("OCTOCODE_BETA", beta)], surface);
+            let tools = availability(
+                &[("OCTOCODE_ENABLE_LOCAL", "true"), ("OCTOCODE_BETA", beta)],
+                surface,
+            );
             for name in ["graphBuild", "graphQuery"] {
                 let expected = surface == RuntimeSurface::Cli || beta == "true";
                 assert_eq!(
@@ -264,7 +270,7 @@ fn beta_graph_tools_preserve_cli_access_and_require_opt_in_on_mcp() {
 /// turns it on, and the refusal names what to set.
 #[test]
 fn the_security_check_needs_its_setting_on_mcp_only() {
-    for env in [vec![], vec![("OCTOCODE_SECURITY_CHECKS", "false")]] {
+    for env in [vec![], vec![("OCTOCODE_ENABLE_SECURITY", "false")]] {
         assert!(
             availability(&env, RuntimeSurface::Cli).is_available("securityCheck"),
             "{env:?}"
@@ -272,12 +278,90 @@ fn the_security_check_needs_its_setting_on_mcp_only() {
         let off = availability(&env, RuntimeSurface::Mcp);
         assert!(!off.is_available("securityCheck"), "{env:?}");
         let reason = off.get("securityCheck").expect("known").reason_text();
-        assert!(reason.contains("tools.enableSecurityCheck"), "{reason}");
+        assert!(reason.contains("tools.enableSecurity"), "{reason}");
         assert_eq!(
             off.get("securityCheck").expect("known").env_vars(),
-            ["OCTOCODE_SECURITY_CHECKS"]
+            ["OCTOCODE_ENABLE_SECURITY"]
         );
     }
-    let on = availability(&[("OCTOCODE_SECURITY_CHECKS", "true")], RuntimeSurface::Mcp);
+    let on = availability(&[("OCTOCODE_ENABLE_SECURITY", "true")], RuntimeSurface::Mcp);
     assert!(on.is_available("securityCheck"));
+}
+
+/// With no setting an MCP host lists the external section and nothing else;
+/// the CLI lists every section but the one that needs a key.
+#[test]
+fn an_unconfigured_mcp_host_lists_the_external_section_only() {
+    let mcp = availability(&[], RuntimeSurface::Mcp);
+    let cli = availability(&[], RuntimeSurface::Cli);
+    for id in ToolId::ALL {
+        assert_eq!(
+            mcp.is_available(id.as_str()),
+            id.section() == ToolSection::External,
+            "{id}"
+        );
+        assert_eq!(
+            cli.is_available(id.as_str()),
+            id.section() != ToolSection::Clasify,
+            "{id}"
+        );
+    }
+    assert!(ToolId::ALL.iter().any(|id| mcp.is_available(id.as_str())));
+}
+
+/// One setting turns a whole section on: with it set, an MCP host lacks a
+/// section's tool only for that tool's own extra (the clone opt-in, the beta
+/// gate), never for the section.
+#[test]
+fn one_setting_turns_each_section_on() {
+    for (section, env) in [
+        (ToolSection::Local, ("OCTOCODE_ENABLE_LOCAL", "true")),
+        (ToolSection::Security, ("OCTOCODE_ENABLE_SECURITY", "true")),
+        (ToolSection::Clasify, ("OCTOCODE_CLASSIFICATION_API", "k")),
+    ] {
+        let off = availability(&[], RuntimeSurface::Mcp);
+        let on = availability(&[env], RuntimeSurface::Mcp);
+        let mut listed = 0;
+        for id in ToolId::ALL.into_iter().filter(|id| id.section() == section) {
+            assert!(!off.is_available(id.as_str()), "{id}");
+            assert!(
+                off.get(id.as_str())
+                    .expect("known")
+                    .env_vars()
+                    .contains(&env.0)
+                    || id.is_beta(),
+                "{id} names {}",
+                env.0
+            );
+            let still = on.get(id.as_str()).expect("known").env_vars();
+            assert!(!still.contains(&env.0), "{id}: {still:?}");
+            listed += usize::from(on.is_available(id.as_str()));
+        }
+        assert!(listed > 0, "{section:?}");
+        for id in ToolId::ALL.into_iter().filter(|id| id.section() != section) {
+            assert_eq!(
+                on.is_available(id.as_str()),
+                off.is_available(id.as_str()),
+                "{id} follows its own section"
+            );
+        }
+    }
+}
+
+/// A clone is read by the local tools only, so MCP never lists it without them.
+#[test]
+fn mcp_lists_the_clone_only_with_the_local_tools() {
+    let alone = availability(&[("OCTOCODE_ENABLE_CLONE", "true")], RuntimeSurface::Mcp);
+    let clone = alone.get("ghCloneRepo").expect("known");
+    assert!(!clone.is_available());
+    assert_eq!(clone.env_vars(), ["OCTOCODE_ENABLE_LOCAL"]);
+    let both = availability(
+        &[
+            ("OCTOCODE_ENABLE_CLONE", "true"),
+            ("OCTOCODE_ENABLE_LOCAL", "true"),
+        ],
+        RuntimeSurface::Mcp,
+    );
+    assert!(both.is_available("ghCloneRepo"));
+    assert!(both.is_available("localSearch"));
 }

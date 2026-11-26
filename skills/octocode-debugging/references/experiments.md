@@ -1,11 +1,13 @@
+Load when one observation fits several causes, a failure must be reduced or bisected, a spike must be caught, or a request must be followed across services.
+
 # Controlled experiments
 
-When the same observation fits several explanations, look for a difference you can measure. A nearby working case can reveal which input, timing or concurrency condition matters.
+Pick the measurement on which the rival explanations differ. When a nearby case works, compare its input, timing and concurrency with the failing one.
 
 | Observation | Rival explanations | Discriminating evidence |
 |---|---|---|
 | Tail latency rises with low process CPU | Downstream I/O, a contended local lock or a runnable worker starved of CPU | Same-request dependency span, lock owner/waiter or runnable-to-running scheduler delay |
-| RSS climbs, live managed heap stays flat | Native retention or allocator reserves | Outstanding native allocations and mappings after equivalent cleanup cycles |
+| RSS climbs, live managed heap stays flat | Uncollected garbage, native retention or allocator reserves | RSS against heap used at the same moment ([name the memory](memory-profiling.md#name-the-memory-first)), then outstanding native allocations and mappings after equivalent cleanup cycles |
 | Failure disappears at a breakpoint | Timing-sensitive race or changed input/order | Reuse the same input and concurrency. Collect low-overhead events around the first divergent handoff. |
 
 ## Narrow a reproducible failure
@@ -18,7 +20,7 @@ For a regression between a known good and bad revision, a repeatable test can dr
 
 Record before, during and after the trigger. If the service already retains rolling telemetry, save the original window. Choose sampling resolution for the suspected burst, and record missed events, delayed samples and cumulative metrics. A one-second average cannot locate a ten-millisecond spike. Quantiles cannot be differenced across windows.
 
-Add boundary events only for a missing observation. Use a correlation ID to follow handoffs, and timing, input size or phase when they distinguish causes; include a retry reason when relevant. Avoid sensitive payloads and synchronous hot-path logging. Preserve an intermittent failure and enough context to replay it. External writes need an idempotent or disposable target. Remove unsupported experimental edits.
+Add boundary events only for a missing observation. Use a correlation ID to follow handoffs, and timing, input size or phase when they distinguish causes; include a retry reason when relevant. Avoid sensitive payloads and synchronous hot-path logging. Preserve an intermittent failure and enough context to replay it. External writes need an idempotent or disposable target.
 
 ## Follow a full-stack request
 

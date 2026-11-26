@@ -229,8 +229,9 @@
       "fields": {
         "enabled": {
           "type": "boolean",
-          "default": true,
-          "description": "Expose local filesystem tools through MCP. CLI tools remain available; path and content security apply on both surfaces.",
+          "default": false,
+          "description": "Expose the local section through MCP: the local filesystem tools, ghCloneRepo (with tools.enableClone) and the graph tools. Off, MCP lists the GitHub and package tools only. CLI tools remain available; path and content security apply on both surfaces. Restart MCP after changing this setting.",
+          "notes": "Home-only, so a repository can turn it off for MCP but cannot turn it on.",
           "env": {
             "name": "OCTOCODE_ENABLE_LOCAL",
             "dotenv": "home",
@@ -306,20 +307,26 @@
         "enableClone": {
           "type": "boolean",
           "default": false,
-          "description": "Expose ghCloneRepo through MCP. CLI remains available. Clone execution requires persistent storage on both surfaces. Restart MCP after changing this setting.",
+          "description": "Expose ghCloneRepo through MCP, with the local tools that read its checkout (local.enabled). CLI remains available. Clone execution requires persistent storage on both surfaces. Restart MCP after changing this setting.",
           "env": {
             "name": "OCTOCODE_ENABLE_CLONE",
             "dotenv": "home",
             "workspaceNarrowsTo": "false"
           }
         },
-        "enableSecurityCheck": {
+        "enableSecurity": {
           "type": "boolean",
           "default": false,
+          "keyAliases": [
+            "enableSecurityCheck"
+          ],
           "description": "Expose securityCheck through MCP: it asks OSV (api.osv.dev, operated by Google) about packages, sending each public package name and version it checks. Off, MCP leaves it out and sends nothing. The CLI always offers it, and a CLI call sends the package name to OSV only when you run it. Restart MCP after changing this setting.",
           "notes": "Home-only, so a repository can turn it off for MCP but cannot turn it on.",
           "env": {
-            "name": "OCTOCODE_SECURITY_CHECKS",
+            "name": "OCTOCODE_ENABLE_SECURITY",
+            "aliases": [
+              "OCTOCODE_SECURITY_CHECKS"
+            ],
             "dotenv": "home",
             "workspaceNarrowsTo": "false"
           }

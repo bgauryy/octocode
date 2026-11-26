@@ -22,7 +22,7 @@ async fn read(server: &MockServer, repo: &str) -> Value {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[
         ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
-        ("OCTOCODE_SECURITY_CHECKS", "true".into()),
+        ("OCTOCODE_ENABLE_SECURITY", "true".into()),
     ]);
     let outcome = call(
         &runtime,
@@ -184,7 +184,7 @@ async fn text_that_is_no_repository_never_reaches_github() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[
         ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
-        ("OCTOCODE_SECURITY_CHECKS", "true".into()),
+        ("OCTOCODE_ENABLE_SECURITY", "true".into()),
     ]);
     let outcome = call(
         &runtime,
@@ -321,7 +321,7 @@ async fn a_github_url_reads_as_the_repository_operation_in_a_mixed_batch() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[
         ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
-        ("OCTOCODE_SECURITY_CHECKS", "true".into()),
+        ("OCTOCODE_ENABLE_SECURITY", "true".into()),
     ]);
     let outcome = call(
         &runtime,

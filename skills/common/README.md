@@ -27,6 +27,7 @@ Shared Markdown under `references/` is discovered automatically. Link a shared p
 | `scripts/render-report.mjs` | `scripts/render-report.mjs` | Markdown report viewer |
 | `scripts/lib/report/*.mjs` | Same paths | Report viewer modules (Markdown engine, page views, collection, checks), shipped with the viewer |
 | `references/report-output.md` | `references/report-output.md` | Shared report instructions |
+| `references/report-render.md` | Same path | Check a saved report, render it to HTML, find saved reports |
 | `references/configuration.md` | Same path | Config lookup, credentials, ownership |
 | `references/evidence.md` | Same path | Source vs runtime proof, absence, verification |
 | `references/mental-models.md` | Same path | Select thinking lenses and turn assumptions into distinguishing checks |

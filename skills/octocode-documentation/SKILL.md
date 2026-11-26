@@ -13,9 +13,9 @@ Follow user instructions, project style, local convention, then this skill. Pres
 
 | When | Action |
 |---|---|
-| A fact, API or command changes | Check its owning source, contract or test. For cross-file claims, ADRs or agent instructions, use [writing and verification](references/write.md). |
+| A fact, API or command changes | Check its owning source, contract or test. For cross-file claims or ADRs, use [writing and verification](references/write.md); for agent-readable pages or agent instruction files, [agent docs](references/agent-docs.md). |
 | Drafting steps | Put prerequisites first and give the result the reader sees after each consequential step. |
-| Editing wording or repetition | Use the [style guide](references/style-guide.md) for disputed wording. Give each rule one home and link to it where readers need it. |
+| Reviewing, or editing wording or repetition | Use the [style guide](references/style-guide.md) for the review procedure, review comments and disputed wording, [structure and formatting](references/style-layout.md) for layout, punctuation, UI terms and diagrams, and [code, claims and links](references/style-code-claims.md). Give each rule one home and link to it where readers need it. |
 | Comparing choices or explaining a branch | Use the [format chooser](references/report-output.md#choose-the-format). |
 | Before delivery | Run the [doc check](#check-before-delivery) and the project's own docs lint, if it has one. Verify changed examples and commands where safe and authorized, otherwise inspect their source. |
 

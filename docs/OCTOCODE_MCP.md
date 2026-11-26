@@ -5,17 +5,18 @@ Connect an agent that supports stdio MCP to the same research tools as the [Octo
 ## Quick start
 
 1. Run `npx -y octocode install --list` to see supported clients and their config paths.
-2. Run `npx -y octocode install --ide cursor`, replacing `cursor` with your client ID. Add `--dry-run` to preview the entry, or `--scope workspace` for a project-level config.
+2. Run `npx -y octocode install --ide cursor --enable-local true`, replacing `cursor` with your client ID. `--enable-local true` adds the tools that search and read code on this machine; without it the server lists the GitHub and package tools only. Add `--dry-run` to preview the entry, or `--scope workspace` for a project-level config.
 3. Restart the client. In a project with a README, ask **“Use Octocode to read the first line of README.md.”** The agent should call `localFetch` and return that line.
 
-For a client that takes an `mcpServers` JSON object, add this entry by hand. Set `WORKSPACE_ROOT` in `env` if the client starts servers outside your project.
+For a client that takes an `mcpServers` JSON object, add this entry by hand. Set `WORKSPACE_ROOT` in `env` if the client starts servers outside your project; leave `OCTOCODE_ENABLE_LOCAL` out for GitHub and package research only.
 
 ```json
 {
   "mcpServers": {
     "octocode": {
       "command": "npx",
-      "args": ["-y", "octocode-mcp@latest"]
+      "args": ["-y", "octocode-mcp@latest"],
+      "env": {"OCTOCODE_ENABLE_LOCAL": "true"}
     }
   }
 }
@@ -23,7 +24,7 @@ For a client that takes an `mcpServers` JSON object, add this entry by hand. Set
 
 ## Tools and opt-ins
 
-The contract has 17 tools. MCP exposes 12 by default. Install the graph MCP separately for graph tools. Cloning, advisory lookups and classification have their own opt-ins. Check your client’s tool list after a restart. GitHub code search and private repositories require authentication. [Availability and opt-ins](CONFIGURATION.md#tool-availability-cli-and-mcp) · [GitHub sign-in](AUTHENTICATION.md)
+The contract has 17 tools. MCP exposes 7 by default: the GitHub and package tools. Local tools need `OCTOCODE_ENABLE_LOCAL=true`. Install the graph MCP separately for graph tools. Cloning, advisory lookups and classification have their own opt-ins. Check your client’s tool list after a restart. GitHub code search and private repositories require authentication. [Availability and opt-ins](CONFIGURATION.md#tool-availability-cli-and-mcp) · [GitHub sign-in](AUTHENTICATION.md)
 
 If the same workspace appears twice in your client, check whether both a plugin and a manual entry connect it. Keep one entry for that workspace and configuration.
 

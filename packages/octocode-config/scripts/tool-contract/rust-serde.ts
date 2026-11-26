@@ -13,9 +13,13 @@ import { blankLiterals, classify, itemRanges } from './rust-reach.ts';
  * (a schema core registers on its own, such as the analysis capabilities) has
  * no role to narrow by and keeps both.
  */
-export type Roles = { readonly inputs: Iterable<string>; readonly outputs: Iterable<string> };
+export type Roles = {
+  readonly inputs: Iterable<string>;
+  readonly outputs: Iterable<string>;
+};
 
-const identifiers = (text: string): Set<string> => new Set(text.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []);
+const identifiers = (text: string): Set<string> =>
+  new Set(text.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []);
 
 /**
  * The types of `generated` (typify output) that must decode: those an input
@@ -23,16 +27,29 @@ const identifiers = (text: string): Set<string> => new Set(text.match(/[A-Za-z_]
  * no input or output root reaches, those `named` (native source names them),
  * and every type these reach in turn.
  */
-export function decodedTypes(generated: string, roles: Roles, named: Iterable<string> = []): Set<string> {
+export function decodedTypes(
+  generated: string,
+  roles: Roles,
+  named: Iterable<string> = []
+): Set<string> {
   const blanked = blankLiterals(generated);
   const definitions = new Map<string, string[]>();
-  const items = itemRanges(blanked).map(([start, end]) => ({ item: classify(blanked.slice(start, end)), text: blanked.slice(start, end) }));
-  const types = new Set(items.flatMap(({ item }) => (item.kind === 'type' ? [item.name] : [])));
+  const items = itemRanges(blanked).map(([start, end]) => ({
+    item: classify(blanked.slice(start, end)),
+    text: blanked.slice(start, end),
+  }));
+  const types = new Set(
+    items.flatMap(({ item }) => (item.kind === 'type' ? [item.name] : []))
+  );
   for (const { item, text } of items)
-    if (item.kind === 'type') definitions.set(item.name, [...identifiers(text)].filter((name) => types.has(name)));
+    if (item.kind === 'type')
+      definitions.set(
+        item.name,
+        [...identifiers(text)].filter(name => types.has(name))
+      );
   const reach = (roots: Iterable<string>): Set<string> => {
     const seen = new Set<string>();
-    const pending = [...roots].filter((name) => types.has(name));
+    const pending = [...roots].filter(name => types.has(name));
     for (let name = pending.pop(); name !== undefined; name = pending.pop()) {
       if (seen.has(name)) continue;
       seen.add(name);
@@ -43,24 +60,34 @@ export function decodedTypes(generated: string, roles: Roles, named: Iterable<st
   const inputs = reach(roles.inputs);
   const outputs = reach(roles.outputs);
   // A decoded type's fields decode too, whatever else uses them.
-  return reach([...inputs, ...named, ...[...types].filter((name) => !outputs.has(name))]);
+  return reach([
+    ...inputs,
+    ...named,
+    ...[...types].filter(name => !outputs.has(name)),
+  ]);
 }
 
-const DESERIALIZE_DERIVE = /(#\[derive\(\s*)::\s*serde\s*::\s*Deserialize\s*,\s*/;
+const DESERIALIZE_DERIVE =
+  /(#\[derive\(\s*)::\s*serde\s*::\s*Deserialize\s*,\s*/;
 
 /**
  * `generated` with `Deserialize` only on the `decoded` types: every other
  * type loses the derive and typify's hand-written `Deserialize` impl.
  */
-export function encodeOnly(generated: string, decoded: ReadonlySet<string>): string {
+export function encodeOnly(
+  generated: string,
+  decoded: ReadonlySet<string>
+): string {
   const blanked = blankLiterals(generated);
   const out: string[] = [];
   let at = 0;
   for (const [start, end] of itemRanges(blanked)) {
     const item = classify(blanked.slice(start, end));
     const text = generated.slice(start, end);
-    const target = item.kind === 'impl' ? deserializeTarget(item.header) : undefined;
-    if (item.kind === 'type' && !decoded.has(item.name)) out.push(text.replace(DESERIALIZE_DERIVE, '$1'));
+    const target =
+      item.kind === 'impl' ? deserializeTarget(item.header) : undefined;
+    if (item.kind === 'type' && !decoded.has(item.name))
+      out.push(text.replace(DESERIALIZE_DERIVE, '$1'));
     else if (target === undefined || decoded.has(target)) out.push(text);
     at = end;
   }
@@ -69,5 +96,7 @@ export function encodeOnly(generated: string, decoded: ReadonlySet<string>): str
 
 /** `X` for typify's `impl<'de> ::serde::Deserialize<'de> for X`. */
 function deserializeTarget(header: string): string | undefined {
-  return /^impl\s*<\s*'de\s*>\s*::\s*serde\s*::\s*Deserialize\s*<\s*'de\s*>\s+for\s+(\w+)\s*$/.exec(header.trim())?.[1];
+  return /^impl\s*<\s*'de\s*>\s*::\s*serde\s*::\s*Deserialize\s*<\s*'de\s*>\s+for\s+(\w+)\s*$/.exec(
+    header.trim()
+  )?.[1];
 }

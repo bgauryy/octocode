@@ -1,6 +1,8 @@
+Load when validating this skill or changing its routing and loop policy.
+
 # Behavioral checks
 
-Load when validating this skill or changing its routing and loop policy. Use disposable artifacts and simulated operation states; these cases authorize no external writes or messages. Provide a fresh evaluator the user request and raw inputs before showing expected behavior. Inspect its chosen actions and resulting state, not wording or headings.
+Use disposable artifacts and simulated operation states; these cases authorize no external writes or messages. Provide a fresh evaluator the user request and raw inputs before showing expected behavior. Inspect its chosen actions and resulting state, not wording or headings.
 
 | Request and raw situation | Expected behavior |
 |---|---|
@@ -20,7 +22,7 @@ For missing acceptance or authority, distinguish a retrievable fact from a user 
 
 ## Graph and loop checks
 
-Use the [execution and dependency graphs](loops.md#execution-graph). Walk these cases with named artifacts and observed states; for the dependency cases, write the plan and run [dep-graph](../scripts/dep-graph.mjs) on it. A diagram rendering alone does not validate control flow.
+Use the [execution](loops.md#execution-graph) and [dependency](dependency-graph.md) graphs. Walk these cases with named artifacts and observed states; for the dependency cases, write the plan and run [dep-graph](../scripts/dep-graph.mjs) on it. A diagram rendering alone does not validate control flow.
 
 | Given | Check |
 |---|---|

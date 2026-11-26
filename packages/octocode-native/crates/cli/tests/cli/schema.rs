@@ -97,7 +97,7 @@ fn schema_lists_clasify_only_with_a_key() {
     }
 }
 
-/// The guide the CLI catalog points to, whole, as the skill's own file.
+/// The guide the CLI catalog points to, whole, as the skill's own part files.
 #[test]
 fn schema_flow_prints_the_tool_flow_guide() {
     let workspace = Workspace::new();
@@ -107,12 +107,7 @@ fn schema_flow_prints_the_tool_flow_guide() {
         .output()
         .expect("flow");
     assert!(flow.status.success(), "{}", stderr(&flow));
-    let skill = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../skills/octocode-research/references/tool-flow.md");
-    assert_eq!(
-        stdout(&flow),
-        std::fs::read_to_string(skill).expect("skill file")
-    );
+    assert_eq!(stdout(&flow), support::tool_flow_guide());
     let output = workspace
         .cli()
         .args(["schema", "--view", "full"])

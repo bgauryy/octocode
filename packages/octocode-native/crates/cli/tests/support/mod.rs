@@ -54,3 +54,37 @@ impl Workspace {
         PersistentCli::new(self)
     }
 }
+
+/// The research skill's reference files, the sources of the served references.
+pub(crate) fn research_references() -> PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../../skills/octocode-research/references")
+}
+
+/// The tool-flow guide as served, from the skill files: `tool-flow.md`, then
+/// the sibling parts its opening line links, in that order, each without its
+/// opening line and with a blank line between parts.
+pub(crate) fn tool_flow_guide() -> String {
+    let read = |file: &str| {
+        std::fs::read_to_string(research_references().join(file))
+            .unwrap_or_else(|error| panic!("{file}: {error}"))
+    };
+    let first = read("tool-flow.md");
+    let opening = first.lines().next().expect("opening line");
+    let siblings = opening
+        .split("](")
+        .skip(1)
+        .filter_map(|rest| rest.split(')').next())
+        .map(read);
+    let parts: Vec<String> = std::iter::once(first.clone()).chain(siblings).collect();
+    assert!(parts.len() > 1, "tool-flow.md links no sibling part");
+    parts
+        .iter()
+        .map(|part| {
+            part.split_once("\n\n")
+                .expect("opening line, then sections")
+                .1
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}

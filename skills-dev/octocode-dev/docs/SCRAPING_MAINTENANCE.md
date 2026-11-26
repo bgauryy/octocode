@@ -1,12 +1,14 @@
+Load when changing the `skills/octocode-scraping` scripts or their tests, or adding a vendor.
+
 # Maintaining octocode-scraping
 
-For changing the `skills/octocode-scraping` scripts or their tests, or adding a vendor. Usage lives in the skill's `SKILL.md` and `references/`; script inputs in each script's `--help`. Paths below are under `skills/octocode-scraping/scripts/`.
+Usage lives in the skill's `SKILL.md` and `references/`; script inputs in each script's `--help`. Paths below are under `skills/octocode-scraping/scripts/`.
 
 ## Layout
 
 - Entry scripts at the top; shared modules in `lib/`.
 - `schemas/graph.schema.json` is copied into every session (`lib/corpus.mjs`) for downstream tools. No JSON-schema validator runs in the skill or its tests: schemas and the vendor contract are enforced only by tests.
-- Errors go through `lib/fail.mjs` in the shape of `skills/octocode-scraping/references/corpus.md#stdout-contract`; `corpus-inspect`, `dom-find`, `graph-navigate` and `resource-list` print usage on stderr instead.
+- Errors go through `lib/fail.mjs` in the shape of `skills/octocode-scraping/references/script-output.md#stdout-contract`; `corpus-inspect`, `dom-find`, `graph-navigate` and `resource-list` print usage on stderr instead.
 
 ## Vendor contract
 

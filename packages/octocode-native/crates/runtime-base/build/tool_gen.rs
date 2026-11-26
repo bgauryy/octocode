@@ -14,7 +14,7 @@ use tool_query_limits::query_variants;
 pub(super) use tool_query_limits::render_query_limits;
 
 /// `ToolId` identity and policy, generated from the contract's `tools[]`
-/// (`name`, `family`, `beta` are authored once in core
+/// (`name`, `family`, `section`, `beta` are authored once in core
 /// `TOOL_POLICIES`). Nothing in native re-spells a tool list.
 pub(super) fn render_tool_ids(contract: &Value) -> Result<String, Box<dyn Error>> {
     let tools = contract
@@ -38,6 +38,7 @@ struct ToolArms {
     variants: Vec<String>,
     names: String,
     families: String,
+    sections: String,
     titles: String,
     beta: Vec<String>,
     github: Vec<String>,
@@ -64,6 +65,8 @@ impl ToolArms {
         self.names.push_str(&arm(&format!("{name:?}")));
         self.families
             .push_str(&arm(&format!("ToolFamily::{family}")));
+        self.sections
+            .push_str(&arm(&format!("ToolSection::{}", tool_section(tool, path)?)));
         let title = tool
             .get("title")
             .and_then(Value::as_str)
@@ -126,6 +129,7 @@ impl ToolArms {
             variants,
             names,
             families,
+            sections,
             titles,
             github,
             ..
@@ -158,6 +162,9 @@ impl ToolArms {
              \x20   /// Cursor-scope / policy family (contract `family`).\n\
              \x20   #[must_use]\n\
              \x20   pub const fn family(self) -> ToolFamily {{\n        match self {{\n{families}        }}\n    }}\n\n\
+             \x20   /// The group the tool is exposed with on MCP (contract `section`).\n\
+             \x20   #[must_use]\n\
+             \x20   pub const fn section(self) -> ToolSection {{\n        match self {{\n{sections}        }}\n    }}\n\n\
              \x20   /// Tools requiring the shared beta gate on MCP; CLI access remains available (contract `beta`).\n\
              \x20   #[must_use]\n\
              \x20   pub const fn is_beta(self) -> bool {{\n        {beta}\n    }}\n\n\
@@ -230,6 +237,23 @@ fn tool_family(tool: &Value, path: &str) -> Result<&'static str, Box<dyn Error>>
         "remote" => Ok("Remote"),
         other => Err(invalid(format!(
             "{path}.family {other:?} is not local|github|remote"
+        ))),
+    }
+}
+
+/// The `ToolSection` variant of a tool's contract `section`.
+fn tool_section(tool: &Value, path: &str) -> Result<&'static str, Box<dyn Error>> {
+    match string(
+        tool.get("section")
+            .ok_or_else(|| invalid(format!("{path} has no section")))?,
+        &format!("{path}.section"),
+    )? {
+        "external" => Ok("External"),
+        "local" => Ok("Local"),
+        "security" => Ok("Security"),
+        "clasify" => Ok("Clasify"),
+        other => Err(invalid(format!(
+            "{path}.section {other:?} is not external|local|security|clasify"
         ))),
     }
 }

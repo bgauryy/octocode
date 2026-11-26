@@ -29,12 +29,15 @@ Frame the question, corpus/revision and evidence that would settle it. Read a kn
 
 | Need | Read |
 |---|---|
-| Select a tool, view, scout or cross-source route | [Tool flow](references/tool-flow.md) |
+| Pick the tool for where the evidence is | [Tool flow: routes](references/tool-flow.md) |
+| Ask for the least that answers, or scout unread material with `clasify` | [Tool flow: shape and scout](references/tool-flow-shape.md) |
+| Carry evidence between local code, packages and GitHub; version, CVE, ref or fetched-code conditions | [Tool flow: carry across sources](references/tool-flow-carry.md) |
+| Analysis spans, graph, history, docs or web; a failed call | [Tool flow: analysis, history and recovery](references/tool-flow-recover.md) |
 | A CLI reply with `next` | Add `--all-pages` to the call to follow every page |
 | Source identity, semantic proof or coverage limits | [Evidence rules](references/evidence.md) |
 | GitHub token, classification key or another setting | [Configuration](references/configuration.md) |
-| Root-cause proof, campaigns, repository comparisons or handoff | [Method](references/method.md) |
-| Authorized behavior change, deletion or refactor | [Prove, then act](references/workflows.md) |
+| Task class, mode or repository comparisons; root-cause or finding proof; campaigns or handoff | [Method](references/method.md); [proof](references/proof.md); [campaigns and handoff](references/campaigns-handoff.md) |
+| Authorized behavior change, deletion or refactor | [Prove, then change](references/workflows.md) |
 | Saved report or detailed result contract | [Output](output.md), [renderer](scripts/render-report.mjs) |
 
-Return the answer and confidence, claims beside source anchors, checks actually run and material gaps. Use `Confirmed`, `Likely`, `Refuted` or `Open`; stop when remaining uncertainty cannot change the decision or a named blocker prevents it.
+Return the answer and confidence, claims beside source anchors, checks actually run and material gaps, shaped per [response](output.md#response). Use `Confirmed`, `Likely`, `Refuted` or `Open`; stop when remaining uncertainty cannot change the decision or a named blocker prevents it.

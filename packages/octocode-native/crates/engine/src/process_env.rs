@@ -96,8 +96,9 @@ impl EnvMap for HashMap<String, String> {
     }
 }
 
-/// Whether a request carries `name` to the engine: a setting (`OCTOCODE_*`)
-/// or a [`CALL_ENV`] variable.
+/// Whether a request carries `name` to the engine by its spelling alone: an
+/// `OCTOCODE_*` variable or a [`CALL_ENV`] one. A setting's variable has no
+/// prefix; the runtime adds the declared ones (`config::DECLARED_ENV_KEYS`).
 pub fn carried(name: &str) -> bool {
     name.starts_with("OCTOCODE_") || call_declares(name)
 }

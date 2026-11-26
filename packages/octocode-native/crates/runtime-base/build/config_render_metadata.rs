@@ -32,7 +32,22 @@ pub(super) fn render_field_metadata(
                     }
                     None => "None",
                 };
-                format!("Some(ConfigEnvBinding {{ name: {name:?}, normalize: {normalize} }})")
+                let aliases = match binding.get("aliases") {
+                    None => Vec::new(),
+                    Some(value) => value
+                        .as_array()
+                        .ok_or_else(|| {
+                            invalid(format!("{}.env.aliases is not an array", field.path))
+                        })?
+                        .iter()
+                        .map(|alias| {
+                            string(alias, &format!("{}.env.aliases", field.path)).map(str::to_owned)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                };
+                format!(
+                    "Some(ConfigEnvBinding {{ name: {name:?}, aliases: &{aliases:?}, normalize: {normalize} }})"
+                )
             }
         };
         writeln!(
@@ -75,6 +90,12 @@ pub(super) fn render_field_metadata(
             other => return Err(invalid(format!("unsupported field type {other}"))),
         };
         let default_json = serde_json::to_string(&own_default(field)?)?;
+        let key_aliases: Vec<&str> = field
+            .definition
+            .get("keyAliases")
+            .and_then(Value::as_array)
+            .map(|aliases| aliases.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default();
         let credential = bool_value(
             field.definition.get("credential"),
             false,
@@ -82,7 +103,7 @@ pub(super) fn render_field_metadata(
         )?;
         writeln!(
             output,
-            "    ConfigFieldSpec {{ path: {:?}, section: {:?}, key: {:?}, kind: ConfigFieldKind::{kind_name}, resolved: {}, credential: {credential}, env: FIELD_{index}_ENV, default_json: {:?}, display_default: {:?}, description: {:?}, notes: {:?}, section_title: {:?}, group: {:?}, docs_url: {:?}, values: FIELD_{index}_VALUES, item_path: {} }},",
+            "    ConfigFieldSpec {{ path: {:?}, section: {:?}, key: {:?}, kind: ConfigFieldKind::{kind_name}, resolved: {}, credential: {credential}, env: FIELD_{index}_ENV, key_aliases: &{key_aliases:?}, default_json: {:?}, display_default: {:?}, description: {:?}, notes: {:?}, section_title: {:?}, group: {:?}, docs_url: {:?}, values: FIELD_{index}_VALUES, item_path: {} }},",
             field.path,
             field.section,
             field.key,

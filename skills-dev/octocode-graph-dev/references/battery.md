@@ -1,6 +1,8 @@
+Load when measuring a graph engine change: running the battery, reading its fields, or adding a row.
+
 # Language battery
 
-The battery measures a graph change on one pinned clone per grammar: the files `callers` returns for a probe function against the files a ripgrep oracle finds calling it, plus the workflow queries on each snapshot. Run the calls, oracle and numbers with `node skills-dev/octocode-graph-dev/scripts/battery.mjs --bin <pinned binary> --out <campaign dir> [--rows <ids>] [--before <bench.json>]` ([battery.mjs](../scripts/battery.mjs); `--help` lists what it writes), then judge each row by reading it ([rules](../../../packages/octocode-benchmark/CHECKS.md#rules)).
+The battery measures a graph change on one pinned clone per grammar: the files `callers` returns for a probe function against the files a ripgrep oracle finds calling it, plus the workflow queries on each snapshot. Run the calls, oracle and numbers with `node skills-dev/octocode-graph-dev/scripts/battery.mjs --bin <pinned binary> --out <campaign dir> [--rows <ids>] [--before <bench.json>]` ([battery.mjs](../scripts/battery.mjs); `--help` lists what it writes), then [judge](battery-judge.md) each row by reading it ([rules](../../../packages/octocode-benchmark/CHECKS.md#rules)).
 
 ## Run
 
@@ -40,17 +42,6 @@ Per row:
 ### Fields
 
 Record rows under the field names earlier receipts use, so runs compare field by field: `ingest.{ms,callSites,linked,callLinkRate,unresolvedByReason}`, `callers.pagesComplete` (false: the ratios are partial), `recall.{recall,precision,missed,extra,missedSites,dropped}`, `workflowOk`, `incremental.{ms,reused}`.
-
-## Judge
-
-- Precision must hold on every row. A recall drop, a workflow query that fails where it answered before, or `incremental.reused` turning false is a regression to explain from source; accept a recall drop only as an explained removal of a name-guess link.
-- Read the source behind every miss and new extra. The oracle matches text, not bindings: a same-named function of another library or a binding built at runtime still counts as a miss (`missedSites` gives the graph's reason), prototypes and declarations the graph does not list still count as hits, and callers through `extern "C"` includes, re-exports or other names are real but invisible to it, so an extra can be correct.
-- Any recall or precision change, or a cache version bump, needs the owner's acceptance with before → after rows.
-- Timing claims: one row at a time on an idle machine; machine load moves build time more than most changes.
-- Per-edge agreement with LSP: compare `witnesses` call edges with an octocode-graph LSP cross-check (`via: lsp | both | graph`).
-- Viewer paging timing: same frozen tree, binary and warm snapshots. In the run's `events.jsonl`, count one `tool` start per id; a chunk's `paging` state confirms a native snapshot and its `done` state that the viewer read the pages. Compare streamed rows as multisets.
-
-Keep the explained misses for each row current in [CODE_GRAPH.md](../../../packages/octocode-native/docs/engine/CODE_GRAPH.md#evaluation).
 
 ## Add a row
 

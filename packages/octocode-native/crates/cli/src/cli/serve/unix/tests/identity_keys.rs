@@ -166,7 +166,7 @@ fn configuration_keys_the_runtime_and_not_the_server() {
         (
             "home .octocoderc",
             home.path().join(".octocoderc"),
-            "{\"local\":{\"enabled\":false}}",
+            "{\"local\":{\"enabled\":true}}",
         ),
         (
             "workspace .octocoderc",

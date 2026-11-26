@@ -20,7 +20,7 @@ export interface RequiredToolsConfig {
   enabled: string[] | null;
   disabled: string[] | null;
   enableClone: boolean;
-  enableSecurityCheck: boolean;
+  enableSecurity: boolean;
 }
 
 export interface RequiredNetworkConfig {
@@ -69,6 +69,8 @@ export interface ResolvedConfigData {
 export type ConfigFieldKind = 'boolean' | 'string' | 'url' | 'path' | 'stringArray' | 'enum';
 export interface ConfigEnvBinding {
   name: string;
+  /** Earlier names of the variable: each reads as `name`, which wins when both are set. */
+  aliases?: readonly string[];
   dotenv?: 'all' | 'home' | 'never';
   normalize?: 'trim' | 'lower';
   workspaceNarrowsTo?: string;
@@ -112,13 +114,14 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "type": "boolean",
     "resolved": true,
     "credential": false,
-    "description": "Expose local filesystem tools through MCP. CLI tools remain available; path and content security apply on both surfaces.",
+    "description": "Expose the local section through MCP: the local filesystem tools, ghCloneRepo (with tools.enableClone) and the graph tools. Off, MCP lists the GitHub and package tools only. CLI tools remain available; path and content security apply on both surfaces. Restart MCP after changing this setting.",
+    "notes": "Home-only, so a repository can turn it off for MCP but cannot turn it on.",
     "env": {
       "name": "OCTOCODE_ENABLE_LOCAL",
       "dotenv": "home",
       "workspaceNarrowsTo": "false"
     },
-    "defaultValue": true
+    "defaultValue": false
   },
   {
     "path": "local.beta",
@@ -214,7 +217,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "type": "boolean",
     "resolved": true,
     "credential": false,
-    "description": "Expose ghCloneRepo through MCP. CLI remains available. Clone execution requires persistent storage on both surfaces. Restart MCP after changing this setting.",
+    "description": "Expose ghCloneRepo through MCP, with the local tools that read its checkout (local.enabled). CLI remains available. Clone execution requires persistent storage on both surfaces. Restart MCP after changing this setting.",
     "env": {
       "name": "OCTOCODE_ENABLE_CLONE",
       "dotenv": "home",
@@ -223,16 +226,19 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "defaultValue": false
   },
   {
-    "path": "tools.enableSecurityCheck",
+    "path": "tools.enableSecurity",
     "section": "tools",
-    "key": "enableSecurityCheck",
+    "key": "enableSecurity",
     "type": "boolean",
     "resolved": true,
     "credential": false,
     "description": "Expose securityCheck through MCP: it asks OSV (api.osv.dev, operated by Google) about packages, sending each public package name and version it checks. Off, MCP leaves it out and sends nothing. The CLI always offers it, and a CLI call sends the package name to OSV only when you run it. Restart MCP after changing this setting.",
     "notes": "Home-only, so a repository can turn it off for MCP but cannot turn it on.",
     "env": {
-      "name": "OCTOCODE_SECURITY_CHECKS",
+      "name": "OCTOCODE_ENABLE_SECURITY",
+      "aliases": [
+        "OCTOCODE_SECURITY_CHECKS"
+      ],
       "dotenv": "home",
       "workspaceNarrowsTo": "false"
     },
@@ -477,6 +483,8 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "defaultValue": null
   }
 ];
+/** Every earlier variable name with the name that replaced it (each binding's `aliases`). */
+export const ENV_ALIASES: Readonly<Record<string, string>> = {"OCTOCODE_SECURITY_CHECKS":"OCTOCODE_ENABLE_SECURITY"};
 export const RUNTIME_SURFACES = ["mcp","cli"] as const;
 export type RuntimeSurface = (typeof RUNTIME_SURFACES)[number];
 export const ENV_TOKEN_VARS = ["GH_TOKEN","GITHUB_TOKEN"] as const;
@@ -546,8 +554,8 @@ export const API_KEYS: readonly ApiKeySpec[] = [
   }
 ];
 export const ENV_CREDENTIAL_VARS = ["ALL_PROXY","DEEPSEEK_API_KEY","EXA_API_KEY","GH_TOKEN","GITHUB_TOKEN","HTTPS_PROXY","HTTP_PROXY","OCTOCODE_CLASSIFICATION_API","SCRAPING_ANT","SERPER_API_KEY","TAVILY_API_KEY"] as const;
-export const PROTECTED_KEY_NAMES = ["PATH","HOME","SHELL","USER","LOGNAME","PWD","TMPDIR","NODE_OPTIONS","PYTHON","TAVILY_BASE_URL","EXA_BASE_URL","SERPER_BASE_URL","DEEPSEEK_BASE_URL","HTTPS_PROXY","HTTP_PROXY","ALL_PROXY","NO_PROXY","SSL_CERT_FILE","SSL_CERT_DIR","GIT_SSL_CAINFO","GIT_SSL_CAPATH","CURL_CA_BUNDLE","OCTOCODE_GITHUB_CLIENT_ID","OCTOCODE_HOME","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_GRAPH_HOME","OCTOCODE_ENABLE_CLONE","OCTOCODE_SECURITY_CHECKS","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_LSP_TRUST_FETCHED_CODE","OCTOCODE_REDACT_EMAILS","OCTOCODE_REDACT_UUID","OCTOCODE_MCP_RESULT","OCTOCODE_CREDENTIAL_FILES","OCTOCODE_STORAGE_MODE","OCTOCODE_CLONE_CACHE_LIMIT","OCTOCODE_CLASSIFICATION_API","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
-export const HOME_TRUSTED_ENV_KEYS = ["TAVILY_BASE_URL","EXA_BASE_URL","SERPER_BASE_URL","DEEPSEEK_BASE_URL","OCTOCODE_GITHUB_CLIENT_ID","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_GRAPH_HOME","OCTOCODE_ENABLE_CLONE","OCTOCODE_SECURITY_CHECKS","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_LSP_TRUST_FETCHED_CODE","OCTOCODE_REDACT_EMAILS","OCTOCODE_REDACT_UUID","OCTOCODE_MCP_RESULT","OCTOCODE_CREDENTIAL_FILES","OCTOCODE_STORAGE_MODE","OCTOCODE_CLONE_CACHE_LIMIT","OCTOCODE_CLASSIFICATION_API","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
+export const PROTECTED_KEY_NAMES = ["PATH","HOME","SHELL","USER","LOGNAME","PWD","TMPDIR","NODE_OPTIONS","PYTHON","TAVILY_BASE_URL","EXA_BASE_URL","SERPER_BASE_URL","DEEPSEEK_BASE_URL","HTTPS_PROXY","HTTP_PROXY","ALL_PROXY","NO_PROXY","SSL_CERT_FILE","SSL_CERT_DIR","GIT_SSL_CAINFO","GIT_SSL_CAPATH","CURL_CA_BUNDLE","OCTOCODE_GITHUB_CLIENT_ID","OCTOCODE_HOME","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_GRAPH_HOME","OCTOCODE_ENABLE_CLONE","OCTOCODE_ENABLE_SECURITY","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_LSP_TRUST_FETCHED_CODE","OCTOCODE_REDACT_EMAILS","OCTOCODE_REDACT_UUID","OCTOCODE_MCP_RESULT","OCTOCODE_CREDENTIAL_FILES","OCTOCODE_STORAGE_MODE","OCTOCODE_CLONE_CACHE_LIMIT","OCTOCODE_CLASSIFICATION_API","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
+export const HOME_TRUSTED_ENV_KEYS = ["TAVILY_BASE_URL","EXA_BASE_URL","SERPER_BASE_URL","DEEPSEEK_BASE_URL","OCTOCODE_GITHUB_CLIENT_ID","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_GRAPH_HOME","OCTOCODE_ENABLE_CLONE","OCTOCODE_ENABLE_SECURITY","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_LSP_TRUST_FETCHED_CODE","OCTOCODE_REDACT_EMAILS","OCTOCODE_REDACT_UUID","OCTOCODE_MCP_RESULT","OCTOCODE_CREDENTIAL_FILES","OCTOCODE_STORAGE_MODE","OCTOCODE_CLONE_CACHE_LIMIT","OCTOCODE_CLASSIFICATION_API","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
 /** Home-trusted switches a workspace may set only to this narrowing value. */
-export const WORKSPACE_NARROW_ONLY_ENV: Readonly<Record<string, string>> = {"OCTOCODE_ENABLE_LOCAL":"false","OCTOCODE_ENABLE_CLONE":"false","OCTOCODE_SECURITY_CHECKS":"false","OCTOCODE_LSP_TRUST_FETCHED_CODE":"false","OCTOCODE_REDACT_EMAILS":"true","OCTOCODE_REDACT_UUID":"true","OCTOCODE_CREDENTIAL_FILES":"withhold","OCTOCODE_STORAGE_MODE":"memory"};
-export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "github": { "apiUrl": "https://api.github.com" }, "local": { "enabled": true, "beta": false, "allowedPaths": [], "workspaceRoot": undefined, "graphHome": undefined }, "tools": { "enabled": null, "disabled": null, "enableClone": false, "enableSecurityCheck": false }, "network": { "allowPrivateRegistry": false }, "lsp": { "autoInstall": "prompt", "trustProjectConfig": false, "trustFetchedCode": false, "prewarm": "targeted" }, "output": { "redactEmails": false, "redactUuid": false, "mcpResult": "json" }, "security": { "credentialFiles": "withhold" }, "storage": { "mode": "persistent", "cloneCacheLimit": "5GiB" }, "classification": { "apiHost": undefined, "model": undefined } };
+export const WORKSPACE_NARROW_ONLY_ENV: Readonly<Record<string, string>> = {"OCTOCODE_ENABLE_LOCAL":"false","OCTOCODE_ENABLE_CLONE":"false","OCTOCODE_ENABLE_SECURITY":"false","OCTOCODE_LSP_TRUST_FETCHED_CODE":"false","OCTOCODE_REDACT_EMAILS":"true","OCTOCODE_REDACT_UUID":"true","OCTOCODE_CREDENTIAL_FILES":"withhold","OCTOCODE_STORAGE_MODE":"memory"};
+export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "github": { "apiUrl": "https://api.github.com" }, "local": { "enabled": false, "beta": false, "allowedPaths": [], "workspaceRoot": undefined, "graphHome": undefined }, "tools": { "enabled": null, "disabled": null, "enableClone": false, "enableSecurity": false }, "network": { "allowPrivateRegistry": false }, "lsp": { "autoInstall": "prompt", "trustProjectConfig": false, "trustFetchedCode": false, "prewarm": "targeted" }, "output": { "redactEmails": false, "redactUuid": false, "mcpResult": "json" }, "security": { "credentialFiles": "withhold" }, "storage": { "mode": "persistent", "cloneCacheLimit": "5GiB" }, "classification": { "apiHost": undefined, "model": undefined } };

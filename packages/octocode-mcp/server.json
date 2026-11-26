@@ -23,6 +23,12 @@
           "description": "GitHub Personal Access Token. Optional - authenticate via GitHub CLI (gh auth login) for automatic token management, or set this token manually for CI/CD environments.",
           "isRequired": false,
           "isSecret": true
+        },
+        {
+          "name": "OCTOCODE_ENABLE_LOCAL",
+          "description": "Set to true to list the local tools (localSearch, localFetch, structureSearch, astSearch, lspSearch). Off by default: the server then lists the GitHub and package tools only.",
+          "isRequired": false,
+          "isSecret": false
         }
       ]
     }

@@ -1,4 +1,4 @@
-Load when evidence spans files, writing an ADR or agent instruction file, or checking API behavior.
+Load when evidence spans files, writing an ADR, or checking API behavior. For a page an agent reads or an agent instruction file, read [agent docs](agent-docs.md).
 
 # Write and verify docs
 
@@ -16,22 +16,8 @@ Load when evidence spans files, writing an ADR or agent instruction file, or che
 
 ## Draft
 
-- Identify the reader, target paths, purpose, evidence, and gaps; outline large documents or sets.
+- List the evidence and the gaps for the reader and destination the entry identified; outline a large document or a set before drafting.
 - Follow existing terminology and heading style; examples beside their concept; steps in execution order.
-
-## Agent-readable pages
-
-- One idea per bullet; tables for command and path maps; short pages linking deeper ones; no intros, slogans, or restated README.
-- Link the parent index, siblings, and ADRs; never "see docs".
-- A command or signature only when the reader must copy it; else link the source. No code dumps (full configuration, long JSON or YAML).
-- Links and bullets answer "where do I look?" and "what must I not break?".
-
-| Information | Prefer | Why |
-|---|---|---|
-| Condition, action and reason | Trigger → action → check table | Agent can select one applicable row. |
-| Dependency, branch, state or ordered interaction | Compact Mermaid diagram | Exposes relationships; keep conditions on edges. |
-| Copyable command or exact schema | Code fence with prerequisites and expected result | Preserves executable syntax. |
-| One fact or short explanation | Prose | Avoid a visual that takes longer to parse. |
 
 ## ADR
 
@@ -46,16 +32,6 @@ Load when evidence spans files, writing an ADR or agent instruction file, or che
 - Decision (ADR) sections: Status (proposed, accepted, superseded, or deprecated), Date, Context, Decision, Alternatives considered, Consequences. Keep Status accurate; supersede, never delete.
 - Link it from the relevant index or architecture doc.
 - Definition of Done: convention matched or default justified, at least one alternative or an explicit "none", no secrets.
-
-## Agent instruction files
-
-When `octocode-agentic` is available, it owns behavioral wording; this section covers index structure and link checks.
-
-- Check how the target host loads `AGENTS.md` or `CLAUDE.md`; preserve its scope and precedence. Keep nested instructions focused on local differences.
-- Draft as an index. Run `node <skill-folder>/scripts/doc-check.mjs <file> --checks links,anchors,commands`: it reports links and anchors that do not resolve and commands whose script or package script is missing. Run or inspect each command it cannot resolve, such as a tool on `PATH`.
-- Sections only for non-obvious value: package manager (one line); Commands table (task, command, file-scoped test or lint); External references table (need, path); Key conventions that prevent likely mistakes.
-- Symlink between hosts only when both read the same rules and the repository supports it.
-- Omit welcome text, skill lists, and linter-config restatements.
 
 ## Verify
 

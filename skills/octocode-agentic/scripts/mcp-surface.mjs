@@ -9,31 +9,56 @@ import { isMainModule } from './lib/entrypoint.mjs';
 const HELP = `Capture, size and structurally diff the MCP surface a client receives.
 
 Usage:
-  node scripts/mcp-surface.mjs capture --cmd '<server command>' --out <new-file> [--cwd <dir>] [--protocol <version>] [--timeout <ms>]
+  node scripts/mcp-surface.mjs capture --cmd '<server command>' --out <new-file> [--cwd <dir>] [--protocol <version>]
+                                       [--probe-wait <ms>] [--timeout <ms>]
   node scripts/mcp-surface.mjs size <capture.json>
   node scripts/mcp-surface.mjs diff <before.json> <after.json>
 
-capture  Starts the stdio server with sh -c, sends initialize (protocol default 2025-11-25),
-         notifications/initialized, then tools/list, following every nextCursor until none.
-         Writes {command, protocolVersion, capturedAt, initialize, toolsList:[{cursor, result}]}
-         to --out (refuses an existing file) and prints {ok, out, protocolVersion, serverInfo,
-         pages, tools}. Answers server pings; refuses other server requests. Stops the server
-         after the capture. --timeout bounds the whole capture; omit it to wait for the server.
+capture  Starts the stdio server with sh -c and detects which handshake it speaks:
+         discover    stateless revisions (2026-07-28 and later): probes server/discover, then sends
+                     tools/list; every request carries the protocol version, client info and client
+                     capabilities in params._meta. No initialize is sent.
+         initialize  earlier revisions: initialize (2025-11-25), notifications/initialized, tools/list.
+         The probe goes first. A discover result, or an unsupported-version error that lists a
+         stateless revision (retried with it), selects discover; any other error selects initialize,
+         and so does silence for --probe-wait ms (default 2000), with the probe still accepted if
+         it answers before initialize does. --protocol asks for one revision: an earlier one skips
+         the probe and sends initialize with it; a stateless one is the probe's version.
+         Follows every tools/list nextCursor until none. Writes {command, handshake, protocolVersion
+         (the version sent), capturedAt, discover | initialize (the result), toolsList:[{cursor,
+         result}]} to --out (refuses an existing file) and prints {ok, out, handshake,
+         protocolVersion (the version served), serverInfo, pages, tools}. Answers server pings;
+         refuses other server requests. Stops the server after the capture. --timeout bounds the
+         whole capture; omit it to wait for the server.
+size, diff read captures of both handshakes; a file without handshake is an initialize capture.
+         Instructions come from discover.instructions or initialize.instructions; serverInfo from
+         discover._meta["io.modelcontextprotocol/serverInfo"] (else the first tools/list result's
+         _meta) or initialize.serverInfo.
 size     Prints UTF-8 bytes in served order: per tool, bytes (compact JSON of the definition),
          descriptionBytes (tool description text), inputSchemaBytes and outputSchemaBytes (compact
          JSON), schemaProseBytes (description/title text inside schemas); totals add them up, plus
-         instructionsBytes (initialize.instructions text) and surfaceBytes = toolBytes + instructionsBytes.
+         instructionsBytes (instructions text) and surfaceBytes = toolBytes + instructionsBytes.
          Bytes are not tokens.
 diff     Compares tools by name, ignoring prose (description, title, $comment, markdownDescription,
          annotations.title). Reports each change {tool, path, kind, change, before, after}; kind is
          name, required, default, bound, enum, type, composition, property, shape, annotation or other.
-         required is compared as a set. Prose changes are listed under prose and do not count.
+         required is compared as a set. Prose changes are listed under prose and do not count;
+         handshake {before, after} names each capture's handshake and does not count either.
 
 Output: JSON on stdout. Errors: {ok:false,error:{code,message}}.
 Exit codes: 0 done (diff: no structural change); 1 capture failed or diff found a structural change;
 2 invalid input (arguments, unreadable or malformed capture, duplicate tool names in diff).`;
 
-const DEFAULT_PROTOCOL = '2025-11-25';
+// Revisions from STATELESS_PROTOCOL on carry version, identity and capabilities on every request (no initialize).
+const STATELESS_PROTOCOL = '2026-07-28';
+const HANDSHAKE_PROTOCOL = '2025-11-25';
+const DEFAULT_PROBE_WAIT_MS = 2000;
+const UNSUPPORTED_PROTOCOL_VERSION = -32022;
+// The error codes the stateless revisions define (-32020 header mismatch, -32021 missing client capability, -32022).
+const STATELESS_ERRORS = new Set([-32020, -32021, UNSUPPORTED_PROTOCOL_VERSION]);
+const META = 'io.modelcontextprotocol/';
+const CLIENT_INFO = { name: 'mcp-surface', version: '1' };
+const HANDSHAKES = ['initialize', 'discover'];
 const PROSE = new Set(['description', 'title', '$comment', 'markdownDescription']);
 const SCHEMA_MAPS = new Set(['properties', 'patternProperties', '$defs', 'definitions', 'dependentSchemas']);
 const SCHEMA_ONE = new Set(['items', 'additionalProperties', 'additionalItems', 'not', 'if', 'then', 'else', 'contains',
@@ -130,15 +155,27 @@ export function loadCapture(file) {
   try { capture = JSON.parse(readFileSync(file, 'utf8')); }
   catch (error) { throw Object.assign(new Error(`${file}: ${errorMessage(error)}`), { code: 'invalidCapture' }); }
   const pages = capture?.toolsList;
-  if (!isObject(capture) || !isObject(capture.initialize) || !Array.isArray(pages) || !pages.length ||
+  const handshake = isObject(capture) ? capture.handshake ?? 'initialize' : undefined;
+  if (!HANDSHAKES.includes(handshake) || !isObject(capture[handshake]) || !Array.isArray(pages) || !pages.length ||
     !pages.every((page) => isObject(page?.result) && Array.isArray(page.result.tools))) {
-    throw Object.assign(new Error(`${file}: expected a capture with initialize and toolsList[].result.tools (run capture first)`), { code: 'invalidCapture' });
+    throw Object.assign(new Error(`${file}: expected a capture with an initialize or discover result and toolsList[].result.tools (run capture first)`), { code: 'invalidCapture' });
   }
   const tools = pages.flatMap((page) => page.result.tools);
   if (!tools.every((tool) => isObject(tool) && typeof tool.name === 'string')) {
     throw Object.assign(new Error(`${file}: every tool needs a string name`), { code: 'invalidCapture' });
   }
   return { capture, tools };
+}
+
+/** Where a capture holds what both handshakes serve: {handshake, protocolVersion, serverInfo, instructions}. */
+export function surfaceOf(capture) {
+  if (capture.handshake !== 'discover') {
+    const { protocolVersion = null, serverInfo = null, instructions } = capture.initialize;
+    return { handshake: 'initialize', protocolVersion, serverInfo, instructions };
+  }
+  const serverInfo = [capture.discover, ...capture.toolsList.map((page) => page.result)]
+    .map((result) => result?.['_meta']?.[`${META}serverInfo`]).find(isObject) ?? null;
+  return { handshake: 'discover', protocolVersion: capture.protocolVersion ?? null, serverInfo, instructions: capture.discover.instructions };
 }
 
 const duplicates = (tools) => [...new Set(tools.map((t) => t.name).filter((name, i, all) => all.indexOf(name) !== i))];
@@ -158,12 +195,13 @@ export function sizeCapture({ capture, tools }) {
     };
   });
   const sum = (key) => rows.reduce((total, row) => total + row[key], 0);
-  const instructions = capture.initialize.instructions;
+  const { handshake, protocolVersion, serverInfo, instructions } = surfaceOf(capture);
   const instructionsBytes = typeof instructions === 'string' ? bytes(instructions) : 0;
   return {
     ok: true,
-    protocolVersion: capture.initialize.protocolVersion ?? null,
-    serverInfo: capture.initialize.serverInfo ?? null,
+    handshake,
+    protocolVersion,
+    serverInfo,
     pages: capture.toolsList.length,
     duplicateNames: duplicates(tools),
     totals: {
@@ -211,21 +249,31 @@ export function diffCaptures(before, after) {
   }
   const counts = {};
   for (const change of changes) counts[change.kind] = (counts[change.kind] ?? 0) + 1;
+  const [served, servedAfter] = [surfaceOf(before.capture), surfaceOf(after.capture)];
   return {
     ok: true,
     structural: changes.length > 0,
+    handshake: { before: served.handshake, after: servedAfter.handshake },
     tools: { before: a.size, after: b.size },
     counts,
     changes,
     prose: {
-      instructionsChanged: (before.capture.initialize.instructions ?? null) !== (after.capture.initialize.instructions ?? null),
+      instructionsChanged: (served.instructions ?? null) !== (servedAfter.instructions ?? null),
       tools: proseChanged,
     },
   };
 }
 
-/** Runs the stdio handshake and tools/list pagination; resolves the capture object. */
-export function captureServer({ cmd, cwd, protocol, timeout }) {
+const isHandshakeVersion = (version) => /^\d{4}-\d{2}-\d{2}$/.test(version) && version < STATELESS_PROTOCOL;
+/** The asked version when the server lists it, else the newest stateless revision it lists. */
+const pickVersion = (listed, asked) => (listed.includes(asked) ? asked
+  : listed.filter((version) => typeof version === 'string' && !isHandshakeVersion(version)).toSorted().at(-1));
+
+/**
+ * Detects the handshake (server/discover probe, initialize fallback), then pages tools/list; resolves the capture
+ * object. protocol is optional: a pre-stateless version skips the probe.
+ */
+export function captureServer({ cmd, cwd, protocol, timeout, probeWait = DEFAULT_PROBE_WAIT_MS }) {
   return new Promise((resolve, reject) => {
     const child = spawn('sh', ['-c', cmd], { cwd, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
     const pending = new Map();
@@ -235,7 +283,6 @@ export function captureServer({ cmd, cwd, protocol, timeout }) {
     let buffer = '';
     let nextId = 1;
     let settled = false;
-    let initialize;
 
     let exited = false;
     child.once('exit', () => { exited = true; });
@@ -274,7 +321,7 @@ export function captureServer({ cmd, cwd, protocol, timeout }) {
       const entry = pending.get(message.id);
       if (!entry) return;
       pending.delete(message.id);
-      if (message.error) entry.failed(Object.assign(new Error(`${entry.method} failed: ${JSON.stringify(message.error)}`), { code: 'rpcError' }));
+      if (message.error) entry.failed(Object.assign(new Error(`${entry.method} failed: ${JSON.stringify(message.error)}`), { code: 'rpcError', rpc: message.error }));
       else entry.done(message.result);
     };
     child.stdout.setEncoding('utf8');
@@ -297,22 +344,64 @@ export function captureServer({ cmd, cwd, protocol, timeout }) {
     child.on('exit', (code, signal) => finish(Object.assign(new Error(`server exited (${signal ?? code}) before the capture finished`), { code: 'serverExited' })));
     child.stdin.on('error', () => { /* reported by the exit handler */ });
 
+    const meta = (version) => ({ [`${META}protocolVersion`]: version, [`${META}clientInfo`]: CLIENT_INFO, [`${META}clientCapabilities`]: {} });
+    const settle = (promise) => promise.then((result) => ({ result }), (error) => ({ error }));
+    const sleep = (ms) => new Promise((done) => { setTimeout(done, ms).unref(); });
+    const isDiscover = (answer) => isObject(answer?.result) && Array.isArray(answer.result.supportedVersions);
+    const isStateless = (answer) => isDiscover(answer) || STATELESS_ERRORS.has(answer?.error?.rpc?.code);
+    const initializeWith = (version) => request('initialize', { protocolVersion: version, capabilities: {}, clientInfo: CLIENT_INFO });
+
+    /** Resolves {handshake, version (sent), result}; the initialize path has sent notifications/initialized. */
+    const handshake = async () => {
+      const initialized = (version, result) => {
+        send({ method: 'notifications/initialized' });
+        return { handshake: 'initialize', version, result };
+      };
+      if (protocol !== undefined && isHandshakeVersion(protocol)) return initialized(protocol, await initializeWith(protocol));
+      const asked = protocol ?? STATELESS_PROTOCOL;
+      const probe = settle(request('server/discover', { _meta: meta(asked) }));
+      let answer = await Promise.race([probe, sleep(probeWait)]);
+      if (!answer) {
+        // A silent server is taken for an initialize one, but a slow stateless one may still answer the probe:
+        // a stateless answer wins whenever it comes; an initialize error waits one more probeWait for it.
+        const initialize = settle(initializeWith(HANDSHAKE_PROTOCOL));
+        const stateless = probe.then((probed) => (isStateless(probed) ? probed : new Promise(() => {})));
+        answer = await Promise.race([stateless, initialize.then((done) => (done.error
+          ? Promise.race([stateless, sleep(probeWait).then(() => done)]) : { initialize: done.result }))]);
+        if (answer.initialize) return initialized(HANDSHAKE_PROTOCOL, answer.initialize);
+        if (!isStateless(answer)) throw answer.error;
+      }
+      if (isDiscover(answer)) {
+        const version = pickVersion(answer.result.supportedVersions, asked);
+        if (version === undefined) throw Object.assign(new Error(`server/discover lists no stateless revision: ${JSON.stringify(answer.result.supportedVersions)}`), { code: 'protocolError' });
+        return { handshake: 'discover', version, result: answer.result };
+      }
+      if (isStateless(answer)) {
+        const { code, data } = answer.error.rpc;
+        const version = code === UNSUPPORTED_PROTOCOL_VERSION && Array.isArray(data?.supported) ? pickVersion(data.supported, asked) : undefined;
+        if (version === undefined || version === asked) throw answer.error;
+        const result = await request('server/discover', { _meta: meta(version) });
+        if (!isDiscover({ result })) throw Object.assign(new Error(`server/discover returned no supportedVersions: ${JSON.stringify(result)}`), { code: 'protocolError' });
+        return { handshake: 'discover', version, result };
+      }
+      return initialized(HANDSHAKE_PROTOCOL, await initializeWith(HANDSHAKE_PROTOCOL));
+    };
+
     (async () => {
-      initialize = await request('initialize', {
-        protocolVersion: protocol, capabilities: {}, clientInfo: { name: 'mcp-surface', version: '1' },
-      });
-      send({ method: 'notifications/initialized' });
+      const served = await handshake();
+      const listParams = served.handshake === 'discover' ? { _meta: meta(served.version) } : {};
       let cursor;
       do {
         if (cursor !== undefined) {
           if (seenCursors.has(cursor)) throw Object.assign(new Error(`tools/list repeated cursor ${JSON.stringify(cursor)}`), { code: 'cursorLoop' });
           seenCursors.add(cursor);
         }
-        const result = await request('tools/list', cursor === undefined ? {} : { cursor });
+        const result = await request('tools/list', cursor === undefined ? listParams : { ...listParams, cursor });
         pages.push({ cursor: cursor ?? null, result });
         cursor = result?.nextCursor ?? undefined;
       } while (cursor !== undefined);
-      finish(null, { command: cmd, protocolVersion: protocol, capturedAt: new Date().toISOString(), initialize, toolsList: pages });
+      finish(null, { command: cmd, handshake: served.handshake, protocolVersion: served.version, capturedAt: new Date().toISOString(),
+        [served.handshake]: served.result, toolsList: pages });
     })().catch((error) => finish(error));
   });
 }
@@ -344,21 +433,23 @@ async function main(argv) {
     return;
   }
   if (command === 'capture') {
-    const options = parseOptions(rest, ['--cmd', '--out', '--cwd', '--protocol', '--timeout']);
+    const options = parseOptions(rest, ['--cmd', '--out', '--cwd', '--protocol', '--probe-wait', '--timeout']);
     if (options._.length || !options.cmd || !options.out) fail('invalidArguments', 'capture needs --cmd and --out (see --help)', 2);
     const timeout = options.timeout === undefined ? undefined : Number(options.timeout);
     if (timeout !== undefined && (!Number.isSafeInteger(timeout) || timeout < 1)) fail('invalidArguments', '--timeout must be a positive integer of milliseconds', 2);
+    const probeWait = options['probe-wait'] === undefined ? undefined : Number(options['probe-wait']);
+    if (probeWait !== undefined && (!Number.isSafeInteger(probeWait) || probeWait < 1)) fail('invalidArguments', '--probe-wait must be a positive integer of milliseconds', 2);
     let capture;
     try {
-      capture = await captureServer({ cmd: options.cmd, cwd: options.cwd ?? process.cwd(), protocol: options.protocol ?? DEFAULT_PROTOCOL, timeout });
+      capture = await captureServer({ cmd: options.cmd, cwd: options.cwd ?? process.cwd(), protocol: options.protocol, timeout, probeWait });
     } catch (error) {
       fail(error.code ?? 'captureFailed', errorMessage(error), 1, error.stderr ? { stderr: error.stderr } : {});
     }
     try { writeFileSync(options.out, `${JSON.stringify(capture, null, 2)}\n`, { flag: 'wx' }); }
     catch (error) { fail(error.code === 'EEXIST' ? 'outputExists' : 'writeFailed', errorMessage(error), 2); }
     const tools = capture.toolsList.reduce((total, page) => total + (page.result?.tools?.length ?? 0), 0);
-    console.log(JSON.stringify({ ok: true, out: options.out, protocolVersion: capture.initialize.protocolVersion ?? null,
-      serverInfo: capture.initialize.serverInfo ?? null, pages: capture.toolsList.length, tools }));
+    const { handshake, protocolVersion, serverInfo } = surfaceOf(capture);
+    console.log(JSON.stringify({ ok: true, out: options.out, handshake, protocolVersion, serverInfo, pages: capture.toolsList.length, tools }));
     return;
   }
   if (command === 'size') {

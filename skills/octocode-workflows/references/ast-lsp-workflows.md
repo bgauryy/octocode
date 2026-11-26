@@ -18,4 +18,4 @@ These are evidence techniques, not extra workers. Assign the evidence duty to an
 3. Trace semantic edges in both directions and exact-read decisive transforms, exports, registrations, generated consumers, and dynamic boundaries LSP cannot prove. A call hierarchy omits non-call uses, stored callbacks, aliases, and registry entries.
 4. Re-resolve after a change; verify supported consumers before deletion or unification; use `octocode-engineer` for its change discipline when installed.
 
-An empty AST/LSP result, missing graph edge, or tool agreement is never proof of absence or runtime behavior. Record source/index identity and partial coverage in the [ledger](verification.md#keep-one-compact-coverage-ledger); use the identity guard for runtime rows.
+An empty AST/LSP result, missing graph edge, or tool agreement is never proof of absence or runtime behavior. Record source/index identity and partial coverage in the [ledger](verification.md#keep-one-compact-coverage-ledger); use the [identity guard](verification.md#automatically-check-artifact-identity) for runtime rows.

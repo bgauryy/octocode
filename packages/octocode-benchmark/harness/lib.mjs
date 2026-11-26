@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CONFIG_FIELDS } from '@octocodeai/config';
 
 export const HARNESS = path.dirname(fileURLToPath(import.meta.url));
 export const BENCH = path.resolve(HARNESS, '..');
@@ -302,7 +303,9 @@ export function removeTreeAndEmptyParents(dir, stop) {
 
 /** The environment a session starts with: the caller's, minus anything that configures Octocode, gh or the host. */
 export function sessionEnv(base = process.env) {
-  const dropped = new Set(['ENABLE_LOCAL', 'ENABLE_CLONE', 'ALLOWED_PATHS', 'WORKSPACE_ROOT', 'TOOLS_TO_RUN', 'DISABLE_TOOLS', 'NODE_ENV', 'RUN_ID']);
+  // Every setting's variable (their earlier `OCTOCODE_*` names fall under the prefixes below).
+  const settings = CONFIG_FIELDS.flatMap(field => (field.env ? [field.env.name] : []));
+  const dropped = new Set([...settings, 'NODE_ENV', 'RUN_ID']);
   const prefixes = ['OCTOCODE', 'GH_', 'GITHUB_', 'CLAUDECODE', 'CLAUDE_CODE_', 'BENCH_GH_'];
   return Object.fromEntries(Object.entries(base).filter(([key]) => !dropped.has(key) && !prefixes.some(prefix => key.startsWith(prefix))));
 }

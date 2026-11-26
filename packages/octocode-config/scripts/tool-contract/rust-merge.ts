@@ -26,22 +26,39 @@ export function mergeDuplicateTypes(
   kept: ReadonlySet<string>
 ): { rust: string; renamed: ReadonlyMap<string, string> } {
   const blanked = blankLiterals(generated);
-  const items = itemRanges(blanked).map(([start, end]) => ({ start, end, item: classify(blanked.slice(start, end)) }));
-  const names = items.flatMap(({ item }) => (item.kind === 'type' ? [item.name] : []));
+  const items = itemRanges(blanked).map(([start, end]) => ({
+    start,
+    end,
+    item: classify(blanked.slice(start, end)),
+  }));
+  const names = items.flatMap(({ item }) =>
+    item.kind === 'type' ? [item.name] : []
+  );
   const isType = new Set(names);
   // An impl belongs to the type it is for (`impl Display for X`, `impl X`), or,
   // for a conversion into a std type, to the one type it converts from
   // (`impl From<X> for String`, `impl From<X> for BTreeMap<K, V>`).
   const ownerOf = (header: string): string => {
     const [trait = '', target] = header.split(/\sfor\s/);
-    const named = target === undefined ? undefined : /^\s*(?:(?:::)?\s*\w+\s*::\s*)*(\w+)\s*$/.exec(target)?.[1];
+    const named =
+      target === undefined
+        ? undefined
+        : /^\s*(?:(?:::)?\s*\w+\s*::\s*)*(\w+)\s*$/.exec(target)?.[1];
     if (named !== undefined && isType.has(named)) return named;
-    const from = [...new Set(trait.match(IDENTIFIER) ?? [])].filter((name) => isType.has(name));
+    const from = [...new Set(trait.match(IDENTIFIER) ?? [])].filter(name =>
+      isType.has(name)
+    );
     if (from.length === 1 && from[0] !== undefined) return from[0];
-    throw new Error(`generated impl without one generated owner: ${header.trim()}`);
+    throw new Error(
+      `generated impl without one generated owner: ${header.trim()}`
+    );
   };
   const owners = items.map(({ item }) =>
-    item.kind === 'type' ? item.name : item.kind === 'impl' ? ownerOf(item.header) : undefined
+    item.kind === 'type'
+      ? item.name
+      : item.kind === 'impl'
+        ? ownerOf(item.header)
+        : undefined
   );
   const defaults = new Map<string, string>();
 
@@ -50,15 +67,26 @@ export function mergeDuplicateTypes(
     const edits: Array<[number, number, string]> = [];
     const text = generated.slice(start, end);
     const blank = blanked.slice(start, end);
-    for (const doc of blank.matchAll(DOC_ATTRIBUTE)) edits.push([doc.index, doc.index + doc[0].length, '']);
+    for (const doc of blank.matchAll(DOC_ATTRIBUTE))
+      edits.push([doc.index, doc.index + doc[0].length, '']);
     for (const name of blank.matchAll(IDENTIFIER))
-      if (isType.has(name[0])) edits.push([name.index, name.index + name[0].length, `⟪${name[0]}⟫`]);
+      if (isType.has(name[0]))
+        edits.push([name.index, name.index + name[0].length, `⟪${name[0]}⟫`]);
     for (const call of text.matchAll(DEFAULT_PATH))
-      if (call[1] !== undefined && defaults.has(call[1]) && blank[call.index + 1] === ' ')
+      if (
+        call[1] !== undefined &&
+        defaults.has(call[1]) &&
+        blank[call.index + 1] === ' '
+      )
         edits.push([call.index, call.index + call[0].length, `⟦${call[1]}⟧`]);
     let out = text;
-    for (const [from, to, value] of edits.sort((a, b) => b[0] - a[0])) out = out.slice(0, from) + value + out.slice(to);
-    return out.replace(/\s+/g, ' ').replace(/ ?([^\w\s"'⟪⟫⟦⟧]) ?/g, '$1').replace(/,([)\]}>])/g, '$1').trim();
+    for (const [from, to, value] of edits.sort((a, b) => b[0] - a[0]))
+      out = out.slice(0, from) + value + out.slice(to);
+    return out
+      .replace(/\s+/g, ' ')
+      .replace(/ ?([^\w\s"'⟪⟫⟦⟧]) ?/g, '$1')
+      .replace(/,([)\]}>])/g, '$1')
+      .trim();
   };
 
   // `defaults` functions, by name, as code: a serde `default = "defaults::f"`
@@ -67,27 +95,42 @@ export function mergeDuplicateTypes(
     if (item.kind !== 'mod' || item.name !== 'defaults') continue;
     const open = blanked.indexOf('{', start) + 1;
     for (const [from, to] of itemRanges(blanked.slice(open, end - 1))) {
-      const name = /\bfn\s+(\w+)/.exec(blanked.slice(open + from, open + to))?.[1];
-      if (name !== undefined) defaults.set(name, template(open + from, open + to).replace(/\bfn\s+\w+/, 'fn'));
+      const name = /\bfn\s+(\w+)/.exec(
+        blanked.slice(open + from, open + to)
+      )?.[1];
+      if (name !== undefined)
+        defaults.set(
+          name,
+          template(open + from, open + to).replace(/\bfn\s+\w+/, 'fn')
+        );
     }
   }
 
-  const signature = new Map<string, string>(names.map((name) => [name, '']));
+  const signature = new Map<string, string>(names.map(name => [name, '']));
   items.forEach(({ start, end }, index) => {
     const owner = owners[index];
-    if (owner !== undefined) signature.set(owner, `${signature.get(owner)}\n${template(start, end)}`);
+    if (owner !== undefined)
+      signature.set(owner, `${signature.get(owner)}\n${template(start, end)}`);
   });
   for (const [name, code] of signature)
-    signature.set(name, code.replace(/⟦(\w+)⟧/g, (_, fn: string) => `⟦${defaults.get(fn) ?? fn}⟧`));
+    signature.set(
+      name,
+      code.replace(/⟦(\w+)⟧/g, (_, fn: string) => `⟦${defaults.get(fn) ?? fn}⟧`)
+    );
 
   // Partition refinement: split blocks until every member names the same blocks.
-  const refine = (initial: ReadonlyMap<string, string>): Map<string, number> => {
+  const refine = (
+    initial: ReadonlyMap<string, string>
+  ): Map<string, number> => {
     let blocks: ReadonlyMap<string, string | number> = initial;
-    for (let count = new Set(initial.values()).size; ; ) {
+    for (let count = new Set(initial.values()).size; ;) {
       const ids = new Map<string, number>();
       const next = new Map<string, number>();
       for (const name of names) {
-        const code = (signature.get(name) ?? '').replace(/⟪(\w+)⟫/g, (_, used: string) => `⟪${blocks.get(used)}⟫`);
+        const code = (signature.get(name) ?? '').replace(
+          /⟪(\w+)⟫/g,
+          (_, used: string) => `⟪${blocks.get(used)}⟫`
+        );
         const key = `${blocks.get(name)} ${code}`;
         if (!ids.has(key)) ids.set(key, ids.size);
         next.set(name, ids.get(key) ?? 0);
@@ -97,7 +140,7 @@ export function mergeDuplicateTypes(
       blocks = next;
     }
   };
-  const shapes = refine(new Map(names.map((name) => [name, ''])));
+  const shapes = refine(new Map(names.map(name => [name, ''])));
   // A shape with two kept names splits into one block per kept name, plus one
   // for the rest; refining again splits whatever holds them apart.
   const keptPerShape = new Map<number, number>();
@@ -106,31 +149,52 @@ export function mergeDuplicateTypes(
     const shape = shapes.get(name) ?? 0;
     keptPerShape.set(shape, (keptPerShape.get(shape) ?? 0) + 1);
   }
-  const blocks = refine(new Map(names.map((name) => {
-    const shape = shapes.get(name) ?? 0;
-    return [name, kept.has(name) && (keptPerShape.get(shape) ?? 0) > 1 ? `kept ${name}` : `${shape}`];
-  })));
+  const blocks = refine(
+    new Map(
+      names.map(name => {
+        const shape = shapes.get(name) ?? 0;
+        return [
+          name,
+          kept.has(name) && (keptPerShape.get(shape) ?? 0) > 1
+            ? `kept ${name}`
+            : `${shape}`,
+        ];
+      })
+    )
+  );
 
   const members = new Map<number, string[]>();
   for (const name of names) {
     const block = blocks.get(name) ?? 0;
     members.set(block, [...(members.get(block) ?? []), name]);
   }
-  const ranges = new Map(items.flatMap(({ start, end, item }) => (item.kind === 'type' ? [[item.name, [start, end]] as const] : [])));
+  const ranges = new Map(
+    items.flatMap(({ start, end, item }) =>
+      item.kind === 'type' ? [[item.name, [start, end]] as const] : []
+    )
+  );
   const rename = new Map<string, string>();
   const dropped = new Set<string>();
   const taken = new Set<string>();
-  const sets = [...members.values()].filter((set) => set.length > 1);
+  const sets = [...members.values()].filter(set => set.length > 1);
   for (const set of sets) {
-    const named = set.find((name) => kept.has(name));
+    const named = set.find(name => kept.has(name));
     if (named !== undefined) taken.add(named);
   }
   for (const set of sets) {
-    const representative = set.find((name) => kept.has(name)) ?? set[0] ?? '';
+    const representative = set.find(name => kept.has(name)) ?? set[0] ?? '';
     const range = ranges.get(representative);
-    const sole = range === undefined ? undefined : soleMember(blanked.slice(...range));
-    const name = kept.has(representative) ? representative : sharedName(set, sole, (candidate) =>
-      !taken.has(candidate) && (!isType.has(candidate) || set.includes(candidate)));
+    const sole =
+      range === undefined ? undefined : soleMember(blanked.slice(...range));
+    const name = kept.has(representative)
+      ? representative
+      : sharedName(
+          set,
+          sole,
+          candidate =>
+            !taken.has(candidate) &&
+            (!isType.has(candidate) || set.includes(candidate))
+        );
     taken.add(name);
     for (const member of set) {
       if (member !== representative) dropped.add(member);
@@ -145,15 +209,24 @@ export function mergeDuplicateTypes(
     const edits: Array<[number, number, string]> = [];
     for (const name of blank.matchAll(IDENTIFIER)) {
       const to = rename.get(name[0]);
-      if (to !== undefined) edits.push([name.index, name.index + name[0].length, to]);
+      if (to !== undefined)
+        edits.push([name.index, name.index + name[0].length, to]);
     }
     const to = own === undefined ? undefined : rename.get(own);
     if (own !== undefined && to !== undefined)
       for (const doc of blank.matchAll(DOC_ATTRIBUTE)) {
-        const literal = generated.slice(start + doc.index, start + doc.index + doc[0].length);
-        edits.push([doc.index, doc.index + doc[0].length, literal.split(`\`${own}\``).join(`\`${to}\``)]);
+        const literal = generated.slice(
+          start + doc.index,
+          start + doc.index + doc[0].length
+        );
+        edits.push([
+          doc.index,
+          doc.index + doc[0].length,
+          literal.split(`\`${own}\``).join(`\`${to}\``),
+        ]);
       }
-    for (const [from, until, value] of edits.sort((a, b) => b[0] - a[0])) out = out.slice(0, from) + value + out.slice(until);
+    for (const [from, until, value] of edits.sort((a, b) => b[0] - a[0]))
+      out = out.slice(0, from) + value + out.slice(until);
     return out;
   };
 
@@ -162,26 +235,42 @@ export function mergeDuplicateTypes(
   const impls = new Map<string, number[]>();
   items.forEach(({ start, end, item }, index) => {
     const owner = owners[index];
-    if (item.kind !== 'impl' || owner === undefined || dropped.has(owner)) return;
-    const header = template(start, end).replace(/⟪(\w+)⟫/g, (_, used: string) => rename.get(used) ?? used);
+    if (item.kind !== 'impl' || owner === undefined || dropped.has(owner))
+      return;
+    const header = template(start, end).replace(
+      /⟪(\w+)⟫/g,
+      (_, used: string) => rename.get(used) ?? used
+    );
     const key = header.slice(0, header.indexOf('{'));
     impls.set(key, [...(impls.get(key) ?? []), index]);
   });
   const ambiguous = new Set<number>();
   for (const [header, indexes] of impls) {
     if (indexes.length < 2) continue;
-    if (!header.startsWith('impl::std::convert::From<')) throw new Error(`merging generated types repeats ${header}`);
+    if (!header.startsWith('impl::std::convert::From<'))
+      throw new Error(`merging generated types repeats ${header}`);
     for (const index of indexes) ambiguous.add(index);
   }
 
   const referenced = (text: string): Set<string> =>
-    new Set([...text.matchAll(/\bdefaults::(\w+)/g)].flatMap((match) => (match[1] === undefined ? [] : [match[1]])));
+    new Set(
+      [...text.matchAll(/\bdefaults::(\w+)/g)].flatMap(match =>
+        match[1] === undefined ? [] : [match[1]]
+      )
+    );
   const before = referenced(generated);
   const survivors: Array<{ index: number; text: string }> = [];
   items.forEach(({ start, end, item }, index) => {
     const owner = owners[index];
-    if ((owner !== undefined && dropped.has(owner)) || ambiguous.has(index)) return;
-    survivors.push({ index, text: item.kind === 'mod' ? '' : renamed(start, end, item.kind === 'type' ? item.name : undefined) });
+    if ((owner !== undefined && dropped.has(owner)) || ambiguous.has(index))
+      return;
+    survivors.push({
+      index,
+      text:
+        item.kind === 'mod'
+          ? ''
+          : renamed(start, end, item.kind === 'type' ? item.name : undefined),
+    });
   });
   const after = referenced(survivors.map(({ text }) => text).join('\n'));
   // Items are contiguous (each holds the layout before it), so the file is its
@@ -198,15 +287,25 @@ export function mergeDuplicateTypes(
     const open = blanked.indexOf('{', entry.start) + 1;
     let from = entry.start;
     for (const [start, end] of itemRanges(blanked.slice(open, entry.end - 1))) {
-      const name = /\bfn\s+(\w+)/.exec(blanked.slice(open + start, open + end))?.[1];
-      if (entry.item.name === 'defaults' && name !== undefined && before.has(name) && !after.has(name)) {
+      const name = /\bfn\s+(\w+)/.exec(
+        blanked.slice(open + start, open + end)
+      )?.[1];
+      if (
+        entry.item.name === 'defaults' &&
+        name !== undefined &&
+        before.has(name) &&
+        !after.has(name)
+      ) {
         out.push(renamed(from, open + start));
         from = open + end;
       }
     }
     out.push(renamed(from, entry.end));
   }
-  return { rust: out.join('') + generated.slice(items.at(-1)?.end ?? 0), renamed: rename };
+  return {
+    rust: out.join('') + generated.slice(items.at(-1)?.end ?? 0),
+    renamed: rename,
+  };
 }
 
 const IDENTIFIER = /[A-Za-z_][A-Za-z0-9_]*/g;
@@ -214,11 +313,17 @@ const DOC_ATTRIBUTE = /#\[doc\s*=\s*r?#*"[^"]*"#*\]/g;
 const DEFAULT_PATH = /"defaults::(\w+)"/g;
 
 /** `GhGetFileContentQueryContent0View` → `Gh`, `Get`, `File`, `Content`, `Query`, `Content0`, `View`. */
-const words = (name: string): string[] => name.match(/[A-Z][a-z]*[0-9]*|[a-z]+[0-9]*|[0-9]+/g) ?? [name];
+const words = (name: string): string[] =>
+  name.match(/[A-Z][a-z]*[0-9]*|[a-z]+[0-9]*|[0-9]+/g) ?? [name];
 
 /** `next_cursor` → `NextCursor`, `r#type` → `Type`. */
 const pascalCase = (field: string): string =>
-  field.replace(/^r#/, '').split('_').filter(Boolean).map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join('');
+  field
+    .replace(/^r#/, '')
+    .split('_')
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join('');
 
 /** `blankedItem` without the attributes before it. */
 function withoutAttributes(blankedItem: string): string {
@@ -237,7 +342,9 @@ function withoutAttributes(blankedItem: string): string {
 
 /** The one field of a struct, or the one unit variant of an enum, as a type-name word. */
 function soleMember(blankedItem: string): string | undefined {
-  const body = /^pub (struct|enum) \w+\s*\{([\s\S]*)\}\s*$/.exec(withoutAttributes(blankedItem));
+  const body = /^pub (struct|enum) \w+\s*\{([\s\S]*)\}\s*$/.exec(
+    withoutAttributes(blankedItem)
+  );
   if (!body?.[2]) return undefined;
   const members: string[] = [];
   let depth = 0;
@@ -271,34 +378,66 @@ function soleMember(blankedItem: string): string | undefined {
  * when they are more than the suffix; else its shortest name. `free` rejects
  * a name another type holds.
  */
-function sharedName(set: readonly string[], sole: string | undefined, free: (name: string) => boolean): string {
+function sharedName(
+  set: readonly string[],
+  sole: string | undefined,
+  free: (name: string) => boolean
+): string {
   const split = set.map(words);
-  const shortest = Math.min(...split.map((parts) => parts.length));
+  const shortest = Math.min(...split.map(parts => parts.length));
   const first = split[0] ?? [];
-  const common = (at: (parts: string[], index: number) => string | undefined): number => {
+  const common = (
+    at: (parts: string[], index: number) => string | undefined
+  ): number => {
     let length = 0;
-    while (length < shortest && split.every((parts) => at(parts, length) === at(first, length))) length += 1;
+    while (
+      length < shortest &&
+      split.every(parts => at(parts, length) === at(first, length))
+    )
+      length += 1;
     return length;
   };
   const prefix = common((parts, index) => parts[index]);
-  const suffix = Math.min(common((parts, index) => parts[parts.length - 1 - index]), shortest - prefix);
+  const suffix = Math.min(
+    common((parts, index) => parts[parts.length - 1 - index]),
+    shortest - prefix
+  );
   const role = first.slice(first.length - suffix).join('');
-  const byMember = sole !== undefined && suffix > 0 ? [role.startsWith(sole) ? role : `${sole}${role}`] : [];
-  const byNames = suffix > 0 && prefix + suffix >= 2 ? [`${first.slice(0, prefix).join('')}${role}`] : [];
+  const byMember =
+    sole !== undefined && suffix > 0
+      ? [role.startsWith(sole) ? role : `${sole}${role}`]
+      : [];
+  const byNames =
+    suffix > 0 && prefix + suffix >= 2
+      ? [`${first.slice(0, prefix).join('')}${role}`]
+      : [];
   // The words every name holds, in order, ending in the role: what the copies
   // share when the role alone is taken (`QueryContextLines`).
   const shared: string[] = [];
   const at = split.map(() => 0);
   for (const word of first)
     if (split.every((parts, index) => parts.indexOf(word, at[index]) >= 0)) {
-      split.forEach((parts, index) => { at[index] = parts.indexOf(word, at[index]) + 1; });
+      split.forEach((parts, index) => {
+        at[index] = parts.indexOf(word, at[index]) + 1;
+      });
       shared.push(word);
     }
-  const byShared = suffix > 0 && shared.length > suffix && shared.join('').endsWith(role) ? [shared.join('')] : [];
+  const byShared =
+    suffix > 0 && shared.length > suffix && shared.join('').endsWith(role)
+      ? [shared.join('')]
+      : [];
   // A one-word role (`Kind`, `Operation`) says little next to an owner prefix;
   // a longer one (`ArgumentCoverageScope`) reads best under the owner.
-  const candidates = [...(suffix === 1 ? [...byMember, ...byNames] : [...byNames, ...byMember]), ...byShared];
-  return candidates.find(free)
-    ?? [...set].sort((left, right) => left.length - right.length || (left < right ? -1 : left > right ? 1 : 0))[0]
-    ?? '';
+  const candidates = [
+    ...(suffix === 1 ? [...byMember, ...byNames] : [...byNames, ...byMember]),
+    ...byShared,
+  ];
+  return (
+    candidates.find(free) ??
+    [...set].sort(
+      (left, right) =>
+        left.length - right.length || (left < right ? -1 : left > right ? 1 : 0)
+    )[0] ??
+    ''
+  );
 }

@@ -1,6 +1,8 @@
+Load when reviewing the coordinator's architecture or considering an alternative.
+
 # Research basis and design choices
 
-Read when reviewing the coordinator's architecture or considering an alternative. The rules below are Octocode design decisions, not claims that one topology always performs best. Recheck provider documentation before adopting API-specific behavior.
+The rules below are Octocode design decisions, not claims that one topology always performs best. Recheck provider documentation before adopting API-specific behavior.
 
 | Primary source | Relevant finding | Application here |
 |---|---|---|
@@ -11,7 +13,7 @@ Read when reviewing the coordinator's architecture or considering an alternative
 
 ## Fit with the existing collection
 
-`octocode-agentic` already owns architecture, execution-policy diagnosis, models, context and communication setup. `octocode-workflows` owns workflow patterns, composition and verification procedures. The new skill supplies the coordinator's repeated decision: given current evidence and assignments, what can safely advance acceptance now?
+`octocode-agentic` already owns architecture, execution-policy diagnosis, models, context and communication setup. `octocode-workflows` owns workflow patterns, composition and verification procedures. This skill supplies the coordinator's repeated decision: given current evidence and assignments, what can safely advance acceptance now?
 
 Keep neighbor skills optional so the bundle works alone. Use their domain details when available, and reuse their existing ledger rather than creating competing state. Shared message formats and evidence rules come from `skills/common`; generated copies keep the standalone bundle complete.
 
@@ -23,4 +25,4 @@ Keep neighbor skills optional so the bundle works alone. Use their domain detail
 | Permit unrestricted peer delegation | Allows local initiative but obscures scope, writers and final responsibility. Keep one coordinator accountable; workers return evidence and scope requests. |
 | Restart every failed round | Simple scheduling can repeat valid work and unknown effects. Reconcile current state and rerun only work whose evidence is missing or stale. |
 
-The behavioral checks exercise these decisions. Structural validation cannot establish automatic activation, production reliability or a performance improvement.
+The [behavioral checks](checks.md) exercise these decisions. Structural validation cannot establish automatic activation, production reliability or a performance improvement.

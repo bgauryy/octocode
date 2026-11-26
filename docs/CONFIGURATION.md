@@ -40,37 +40,41 @@ Use `octocode config set classification.apiHost https://gateway.example.com` for
 
 ## Tool availability CLI and MCP
 
-The CLI has 14 tools by default. MCP starts with 12.
+The CLI has 14 tools by default. MCP starts with 7: the external section.
 
-| MCP tools | Availability |
-|---|---|
-| `structureSearch`, `localSearch`, `localFetch`, `astSearch`, `lspSearch` | On by default. `local.enabled=false` hides local tools, including graphs. |
-| `ghSearchRepo`, `ghSearchCode`, `ghStructure`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `artifactSearch` | On by default. |
-| `graphBuild`, `graphQuery` | Install the separate `@octocodeai/octocode-graph` MCP server with local tools enabled. Its launcher opts into the graph tools. |
-| `ghCloneRepo` | Set `tools.enableClone=true`. Clones require persistent storage on either interface. |
-| `securityCheck` | Set `tools.enableSecurityCheck=true`. [What advisory checks send](SECURITY.md#advisory-egress) |
-| `clasify` | Set a nonblank `OCTOCODE_CLASSIFICATION_API` to enable classification on both interfaces. |
+The tools fall into four sections, each with one switch for MCP:
 
-MCP applies `tools.enabled` as an allowlist and gives `tools.disabled` priority. Allowlisted tools still need their opt-ins. The CLI includes graph, clone and advisory commands by default and ignores both MCP lists. [Tool examples](OCTOCODE_TOOLS.md)
+| Section | MCP tools | Availability |
+|---|---|---|
+| External (GitHub and packages) | `ghSearchRepo`, `ghSearchCode`, `ghStructure`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `artifactSearch` | Always on. |
+| Local | `structureSearch`, `localSearch`, `localFetch`, `astSearch`, `lspSearch` | Off by default. Set `local.enabled=true` (`OCTOCODE_ENABLE_LOCAL=true`). [Turn local tools on](#local-profile) |
+| Local | `graphBuild`, `graphQuery` | Install the separate `@octocodeai/octocode-graph` MCP server with local tools enabled. Its launcher opts into the graph tools. |
+| Local | `ghCloneRepo` | Set `tools.enableClone=true` with the local tools on: they are the only readers of a checkout. Clones require persistent storage on either interface. |
+| Security | `securityCheck` | Off by default. Set `tools.enableSecurity=true` (`OCTOCODE_ENABLE_SECURITY=true`). [What advisory checks send](SECURITY.md#advisory-egress) |
+| Clasify | `clasify` | On whenever a nonblank `OCTOCODE_CLASSIFICATION_API` is set, on both interfaces. |
 
-### Remote research profile
+MCP applies `tools.enabled` as an allowlist and gives `tools.disabled` priority. Allowlisted tools still need their opt-ins. The CLI includes clone and advisory commands by default and ignores both MCP lists; the graph commands `graphBuild` and `graphQuery` run through the separate graph CLI (`npx -y @octocodeai/octocode-graph graphBuild '<json>'`). [Tool examples](OCTOCODE_TOOLS.md)
 
-For an MCP session that only researches GitHub repositories and packages, turn off the three tools that work on a local tree. Put this in the MCP server entry:
+Each tool's section is declared in the tool contract, and `octocode schema` prints it per tool. [Design and reasoning](rfcs/tool-sections.md)
+
+### Local profile
+
+An MCP session starts with the GitHub and package tools only. To search and read code on this machine, turn the local section on in the MCP server entry:
 
 ```json
-"env": {"DISABLE_TOOLS": "lspSearch,astSearch,structureSearch"}
+"env": {"OCTOCODE_ENABLE_LOCAL": "true"}
 ```
 
-Or put `{"tools":{"disabled":["lspSearch","astSearch","structureSearch"]}}` in an `.octocoderc`. Restart MCP afterwards.
+Or run `octocode config set local.enabled true` once: it applies to every MCP server on this machine. `octocode mcp install --enable-local true` writes the variable into a client's config. A repository's `.octocoderc` can turn local tools off but never on. Restart MCP afterwards.
 
-| | Default | With the profile |
+| | Default | With local tools |
 |---|---:|---:|
-| MCP tools listed | 12 | 9 |
-| Tool definitions sent to the model | 40.6k characters | 28.2k characters |
+| MCP tools listed | 7 | 12 |
+| Tool definitions sent to the model | 21.6k characters | 41.4k characters |
 
-The server instructions drop the route lines that name those tools. `localSearch` and `localFetch` stay, so a clone or a materialized tree can still be searched and read; listing a tree, syntax search and definitions or callers are gone for that session.
+Measured on the 26 November 2026 build as the JSON of each `tools/list` entry. The server instructions gain the route lines that name the local tools. Add `OCTOCODE_ENABLE_CLONE=true` to clone a repository and search it with them.
 
-The saving matters where the host loads every tool definition into the prompt. A host that loads definitions on demand, as Claude Code does by default, already leaves them out. [Measured token and cost figures](../packages/octocode-benchmark/results/rounds/20.2.0-2026-11-25-v19-v20-gh/SPIKES.md#spike-1-the-fixed-prompt)
+The difference matters where the host loads every tool definition into the prompt. A host that loads definitions on demand, as Claude Code does by default, already leaves them out. The CLI is not affected: it runs every local tool with no setting.
 
 ## GitHub token resolution
 
@@ -101,15 +105,15 @@ Set proxy and TLS variables in the shell, CI or MCP process environment. `SSL_CE
 | `.octocoderc` setting | Environment variable | Type | Default | Sensitive | Workspace may set | What it does |
 |---|---|---|---|---|---|---|
 | `github.apiUrl` | `GITHUB_API_URL` | url | `https://api.github.com` | no | no | GitHub REST API root. GitHub Enterprise commonly uses /api/v3. |
-| `local.enabled` | `OCTOCODE_ENABLE_LOCAL` | boolean | `true` | no | only `false` | Expose local filesystem tools through MCP. CLI tools remain available; path and content security apply on both surfaces. |
+| `local.enabled` | `OCTOCODE_ENABLE_LOCAL` | boolean | `false` | no | only `false` | Expose the local section through MCP: the local filesystem tools, ghCloneRepo (with tools.enableClone) and the graph tools. Off, MCP lists the GitHub and package tools only. CLI tools remain available; path and content security apply on both surfaces. Restart MCP after changing this setting. Home-only, so a repository can turn it off for MCP but cannot turn it on. |
 | `local.beta` | `OCTOCODE_BETA` | boolean | `false` | no | no | Enable beta tools on their owning MCP server. The octocode-graph launcher opts into its graph tools by default. Restart the server after changing its environment. |
 | `local.allowedPaths` | `ALLOWED_PATHS` | list | `[]` | no | no | Extra absolute or home-relative roots added to the allowed roots (workspace root and OCTOCODE_HOME). The environment value is a comma-separated list. |
 | `local.workspaceRoot` | `WORKSPACE_ROOT` | path | `the working directory` | no | no | Optional absolute or home-relative workspace root. |
 | `local.graphHome` | `OCTOCODE_GRAPH_HOME` | path | `<workspace>/.octocode/graph` | no | no | Directory in which graphBuild keeps its snapshots, in place of the workspace's .octocode/graph, shared by every workspace: a build then writes nothing in the repository and may scan any allowed directory, such as a ghCloneRepo checkout. Octocode creates the directory if needed and writes only in its own octocode-graph folder there, never reading or removing anything else; the setting grants local tools no read access to it. A build of a path that contains it is refused. Home-only, so a repository cannot choose where Octocode writes. |
 | `tools.enabled` | `TOOLS_TO_RUN` | list | `unset (every tool)` | no | yes | Strict MCP tool allowlist; other MCP prerequisites still apply. The CLI ignores this list. |
 | `tools.disabled` | `DISABLE_TOOLS` | list | `unset (none)` | no | yes | Tools removed from MCP discovery and admission. The CLI ignores this list. |
-| `tools.enableClone` | `OCTOCODE_ENABLE_CLONE` | boolean | `false` | no | only `false` | Expose ghCloneRepo through MCP. CLI remains available. Clone execution requires persistent storage on both surfaces. Restart MCP after changing this setting. |
-| `tools.enableSecurityCheck` | `OCTOCODE_SECURITY_CHECKS` | boolean | `false` | no | only `false` | Expose securityCheck through MCP: it asks OSV (api.osv.dev, operated by Google) about packages, sending each public package name and version it checks. Off, MCP leaves it out and sends nothing. The CLI always offers it, and a CLI call sends the package name to OSV only when you run it. Restart MCP after changing this setting. Home-only, so a repository can turn it off for MCP but cannot turn it on. |
+| `tools.enableClone` | `OCTOCODE_ENABLE_CLONE` | boolean | `false` | no | only `false` | Expose ghCloneRepo through MCP, with the local tools that read its checkout (local.enabled). CLI remains available. Clone execution requires persistent storage on both surfaces. Restart MCP after changing this setting. |
+| `tools.enableSecurity` | `OCTOCODE_ENABLE_SECURITY` (also `OCTOCODE_SECURITY_CHECKS`) | boolean | `false` | no | only `false` | Expose securityCheck through MCP: it asks OSV (api.osv.dev, operated by Google) about packages, sending each public package name and version it checks. Off, MCP leaves it out and sends nothing. The CLI always offers it, and a CLI call sends the package name to OSV only when you run it. Restart MCP after changing this setting. Home-only, so a repository can turn it off for MCP but cannot turn it on. |
 | `network.allowPrivateRegistry` | `OCTOCODE_ALLOW_PRIVATE_REGISTRY` | boolean | `false` | no | no | Allow private, loopback, or link-local artifact registries. Security-sensitive SSRF escape hatch; opt in only for trusted enterprise registries. |
 | `lsp.autoInstall` | `OCTOCODE_LSP_AUTO_INSTALL` | prompt \| off \| auto | `prompt` | no | no | Whether `octocode lsp-server install` may download a managed language server: prompt (ask), off, or auto. |
 | `lsp.trustProjectConfig` | `OCTOCODE_TRUST_PROJECT_LSP_CONFIG` | boolean | `false` | no | no | Trust a project .octocode/lsp-servers.json. Security-sensitive: a trusted project config can launch server binaries. |

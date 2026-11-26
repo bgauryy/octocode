@@ -5,10 +5,23 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isObject, pascal, type Json } from './json.ts';
 import { mergeDuplicateTypes } from './rust-merge.ts';
-import { keepReachable, namesThrough, nativeIdentifiers, withoutTypesOf } from './rust-reach.ts';
+import {
+  keepReachable,
+  namesThrough,
+  nativeIdentifiers,
+  withoutTypesOf,
+} from './rust-reach.ts';
 import { decodedTypes, encodeOnly } from './rust-serde.ts';
 import { shareStringSchemas } from './rust-shared.ts';
-import { dataTypeName, errorDataTypeName, queryBranches, queryTypeName, renderDispatch, type ChannelRegistry, type ErrorChannels } from './rust-dispatch.ts';
+import {
+  dataTypeName,
+  errorDataTypeName,
+  queryBranches,
+  queryTypeName,
+  renderDispatch,
+  type ChannelRegistry,
+  type ErrorChannels,
+} from './rust-dispatch.ts';
 
 export const TYPIFY_VERSION = '0.8.0';
 
@@ -23,12 +36,18 @@ pub const TOOL_TYPES_SCHEMA_SHA256: &str = ${JSON.stringify(schemaSha256)};
 function requireTypify(): void {
   let version = '';
   try {
-    version = execFileSync('cargo', ['typify', '--version'], { encoding: 'utf8' });
+    version = execFileSync('cargo', ['typify', '--version'], {
+      encoding: 'utf8',
+    });
   } catch {
-    throw new Error(`cargo-typify is required: cargo install cargo-typify --version ${TYPIFY_VERSION} --locked`);
+    throw new Error(
+      `cargo-typify is required: cargo install cargo-typify --version ${TYPIFY_VERSION} --locked`
+    );
   }
   if (!version.includes(TYPIFY_VERSION)) {
-    throw new Error(`cargo-typify ${TYPIFY_VERSION} is required (found ${version.trim()}).`);
+    throw new Error(
+      `cargo-typify ${TYPIFY_VERSION} is required (found ${version.trim()}).`
+    );
   }
 }
 
@@ -50,10 +69,15 @@ function requireTypify(): void {
 /** Whether a def is one tool's success or error row data (`LocalSearchData`, `GhCloneRepoErrorData`). */
 const isRowData = (name: string): boolean => name.endsWith('Data');
 
-export function rustBundle(bundle: { [key: string]: Json }): { [key: string]: Json } {
-  const defs: { [key: string]: Json } = isObject(bundle.$defs) ? bundle.$defs : {};
+export function rustBundle(bundle: { [key: string]: Json }): {
+  [key: string]: Json;
+} {
+  const defs: { [key: string]: Json } = isObject(bundle.$defs)
+    ? bundle.$defs
+    : {};
   const closed = (branch: Json, seen = new Set<string>()): boolean => {
-    if (branch === null || typeof branch !== 'object' || Array.isArray(branch)) return false;
+    if (branch === null || typeof branch !== 'object' || Array.isArray(branch))
+      return false;
     const ref = branch.$ref;
     if (typeof ref === 'string' && ref.startsWith('#/$defs/')) {
       const name = ref.slice('#/$defs/'.length);
@@ -70,29 +94,52 @@ export function rustBundle(bundle: { [key: string]: Json }): { [key: string]: Js
   // with another one required); those stay an `anyOf`, which typify merges
   // into one struct.
   const rowUnion = (branches: Json[]): boolean => {
-    const shapes = branches.map((branch) => {
-      if (branch === null || typeof branch !== 'object' || Array.isArray(branch)) return undefined;
+    const shapes = branches.map(branch => {
+      if (
+        branch === null ||
+        typeof branch !== 'object' ||
+        Array.isArray(branch)
+      )
+        return undefined;
       // A named branch is judged by the def it names.
       const ref = branch.$ref;
-      const target = typeof ref === 'string' && ref.startsWith('#/$defs/') ? defs[ref.slice('#/$defs/'.length)] : undefined;
+      const target =
+        typeof ref === 'string' && ref.startsWith('#/$defs/')
+          ? defs[ref.slice('#/$defs/'.length)]
+          : undefined;
       if (typeof ref === 'string' && !isObject(target)) return ref;
       const row = isObject(target) ? target : branch;
       const properties = row.properties;
-      if (row.type !== 'object' || properties === null || typeof properties !== 'object' || Array.isArray(properties)) return undefined;
+      if (
+        row.type !== 'object' ||
+        properties === null ||
+        typeof properties !== 'object' ||
+        Array.isArray(properties)
+      )
+        return undefined;
       return JSON.stringify(Object.keys(properties).toSorted());
     });
-    return shapes.every((shape) => shape !== undefined) && new Set(shapes).size > 1;
+    return (
+      shapes.every(shape => shape !== undefined) && new Set(shapes).size > 1
+    );
   };
   const enumUnions = (value: Json, output: boolean): Json => {
-    if (Array.isArray(value)) return value.map((child) => enumUnions(child, output));
+    if (Array.isArray(value))
+      return value.map(child => enumUnions(child, output));
     if (value === null || typeof value !== 'object') return value;
-    const walked = Object.fromEntries(Object.entries(value).map(([key, child]) => [key, enumUnions(child, output)]));
+    const walked = Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [
+        key,
+        enumUnions(child, output),
+      ])
+    );
     normalizeNativeKeywords(walked);
     const branches = walked.anyOf;
     if (
       Array.isArray(branches) &&
       branches.length > 1 &&
-      (branches.every((branch) => closed(branch)) || (output && rowUnion(branches)))
+      (branches.every(branch => closed(branch)) ||
+        (output && rowUnion(branches)))
     ) {
       const { anyOf: _anyOf, ...rest } = walked;
       return { ...rest, oneOf: branches };
@@ -102,49 +149,79 @@ export function rustBundle(bundle: { [key: string]: Json }): { [key: string]: Js
   return shareStringSchemas({
     ...bundle,
     $defs: Object.fromEntries(
-      Object.entries(defs).map(([name, schema]) => [name, enumUnions(schema, isRowData(name))])
+      Object.entries(defs).map(([name, schema]) => [
+        name,
+        enumUnions(schema, isRowData(name)),
+      ])
     ),
   });
 }
 
 function normalizeNativeKeywords(schema: { [key: string]: Json }): void {
-    // An `allOf` member that leaves other keys open (`additionalProperties: {}`)
-    // admits what the member without the keyword admits; typify reads the
-    // keyword as a new object to merge and types the narrowed rule anew.
-    if (Array.isArray(schema.allOf))
-      for (const member of schema.allOf)
-        if (isObject(member) && isObject(member.additionalProperties)
-          && Object.keys(member.additionalProperties).length === 0)
-          delete member.additionalProperties;
-    if (typeof schema.$ref === 'string') {
-      delete schema.title;
-      delete schema.description;
-    }
-    // Timestamp text stays lossless on the wire. Native validates formats
-    // before decoding; typify's chrono conversion would change that text.
-    if (schema.type === 'string' && schema.format === 'date-time')
-      delete schema.format;
-    const names = schema.propertyNames;
-    if (schema.type === 'object' && names !== null && typeof names === 'object' && !Array.isArray(names)
-      && Object.keys(names).length === 1 && names.type === 'string')
-      delete schema.propertyNames;
+  // An `allOf` member that leaves other keys open (`additionalProperties: {}`)
+  // admits what the member without the keyword admits; typify reads the
+  // keyword as a new object to merge and types the narrowed rule anew.
+  if (Array.isArray(schema.allOf))
+    for (const member of schema.allOf)
+      if (
+        isObject(member) &&
+        isObject(member.additionalProperties) &&
+        Object.keys(member.additionalProperties).length === 0
+      )
+        delete member.additionalProperties;
+  if (typeof schema.$ref === 'string') {
+    delete schema.title;
+    delete schema.description;
+  }
+  // Timestamp text stays lossless on the wire. Native validates formats
+  // before decoding; typify's chrono conversion would change that text.
+  if (schema.type === 'string' && schema.format === 'date-time')
+    delete schema.format;
+  const names = schema.propertyNames;
+  if (
+    schema.type === 'object' &&
+    names !== null &&
+    typeof names === 'object' &&
+    !Array.isArray(names) &&
+    Object.keys(names).length === 1 &&
+    names.type === 'string'
+  )
+    delete schema.propertyNames;
 }
 
 /** The native crates whose sources name the generated types they use. */
-export const NATIVE_CRATES = fileURLToPath(new URL('../../../octocode-native/crates', import.meta.url));
+export const NATIVE_CRATES = fileURLToPath(
+  new URL('../../../octocode-native/crates', import.meta.url)
+);
 
 /** The tools and continuation channels the typed call dispatch is generated from. */
-export type Dispatch = { tools: readonly string[]; channels: ChannelRegistry; errorChannels: ErrorChannels };
+export type Dispatch = {
+  tools: readonly string[];
+  channels: ChannelRegistry;
+  errorChannels: ErrorChannels;
+};
 
 /** The schema roots a call decodes (each tool's query and bulk input) and those native only encodes (its output). */
-export const roleRoots = (tools: readonly string[]): { inputs: string[]; outputs: string[] } => ({
+export const roleRoots = (
+  tools: readonly string[]
+): { inputs: string[]; outputs: string[] } => ({
   inputs: tools.flatMap(tool => [queryTypeName(tool), `${pascal(tool)}Input`]),
   outputs: tools.map(tool => `${pascal(tool)}Output`),
 });
 
 /** The roots native names, plus each tool's query and row data types the generated dispatch names. */
-export const withDispatchRoots = (roots: Set<string>, tools: readonly string[]): Set<string> =>
-  new Set([...roots, ...tools.flatMap(tool => [queryTypeName(tool), dataTypeName(tool), errorDataTypeName(tool)])]);
+export const withDispatchRoots = (
+  roots: Set<string>,
+  tools: readonly string[]
+): Set<string> =>
+  new Set([
+    ...roots,
+    ...tools.flatMap(tool => [
+      queryTypeName(tool),
+      dataTypeName(tool),
+      errorDataTypeName(tool),
+    ]),
+  ]);
 
 /** The crate holding the generated types lower crates name (`crates/contract-base`), by its Rust path. */
 export const BASE_CRATE = 'octocode_contract_base';
@@ -195,28 +272,48 @@ export function renderRust(
     const named = dispatch ? withDispatchRoots(roots, dispatch.tools) : roots;
     const typified = readFileSync(output, 'utf8')
       .split('\n')
-      .filter((line) => !line.startsWith('#![') && !line.startsWith('//!'))
+      .filter(line => !line.startsWith('#![') && !line.startsWith('//!'))
       .join('\n');
     // Roles come from the whole schema: the `*Input` and `*Output` roots are
     // not kept, but they decide what their types must do. A type native names
     // may be decoded there too (a saved page, a row checked against its type).
-    const decoded = decodedTypes(typified, roleRoots(dispatch?.tools ?? []), roots);
+    const decoded = decodedTypes(
+      typified,
+      roleRoots(dispatch?.tools ?? []),
+      roots
+    );
     const reached = keepReachable(typified, named);
     // One type per shape; the names native or the dispatch use stay their own types.
     const { rust: merged, renamed } = mergeDuplicateTypes(
       reached,
-      dispatch ? new Set([...named, ...queryBranches(reached, dispatch.tools).map(({ type }) => type)]) : named
+      dispatch
+        ? new Set([
+            ...named,
+            ...queryBranches(reached, dispatch.tools).map(({ type }) => type),
+          ])
+        : named
     );
     // A merged type decodes when any of its copies did.
-    const generated = encodeOnly(merged, new Set([...decoded].map((name) => renamed.get(name) ?? name))).trim();
+    const generated = encodeOnly(
+      merged,
+      new Set([...decoded].map(name => renamed.get(name) ?? name))
+    ).trim();
     const base = keepReachable(generated, baseRoots).trim();
     const types = withoutTypesOf(generated, base).trim();
     const calls = dispatch
       ? `\n${renderDispatch(dispatch.tools, dispatch.channels, dispatch.errorChannels, queryBranches(types, dispatch.tools))}`
       : '';
-    const comments = header.split('\n').filter((line) => line.startsWith('//')).join('\n');
+    const comments = header
+      .split('\n')
+      .filter(line => line.startsWith('//'))
+      .join('\n');
     // Each base type has its one definition there; this crate names it through the re-export.
-    const shared = ['error', ...[...base.matchAll(/^pub (?:struct|enum|type) (\w+)/gm)].flatMap(([, name]) => (name ? [name] : []))];
+    const shared = [
+      'error',
+      ...[...base.matchAll(/^pub (?:struct|enum|type) (\w+)/gm)].flatMap(
+        ([, name]) => (name ? [name] : [])
+      ),
+    ];
     return {
       types: `${header}pub use ::${BASE_CRATE}::{${shared.join(', ')}};\n${finished(types)}${calls}\n`,
       base: `${comments}\n${finished(base)}\n`,
@@ -230,7 +327,11 @@ export function renderRust(
 function finished(generated: string): string {
   // Validated string newtypes format like the `String` they wrap.
   // rustfmt may wrap a long name's field onto its own line.
-  const display = [...generated.matchAll(/^pub struct (\w+)\(\s*::std::string::String,?\s*\);$/gm)]
+  const display = [
+    ...generated.matchAll(
+      /^pub struct (\w+)\(\s*::std::string::String,?\s*\);$/gm
+    ),
+  ]
     .map(
       ([, name]) => `impl ::std::fmt::Display for ${name} {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {

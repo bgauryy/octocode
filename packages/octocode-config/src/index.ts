@@ -16,10 +16,20 @@ export {
   loadOctocodeEnv,
   applyOctocodeEnv,
   propagateOctocodeEnv,
+  canonicalEnv,
+  canonicalEnvName,
 } from './dotenv.js';
 export { devOverridesAllowed } from './config/devOverrides.js';
 export { getKey, keyFiles, listKeys, setKey, runKeysCli } from './keys.js';
-export type { KeyFiles, KeyLookup, KeyOptions, KeyScope, KeySource, KeyStatus, KeysCliResult } from './keys.js';
+export type {
+  KeyFiles,
+  KeyLookup,
+  KeyOptions,
+  KeyScope,
+  KeySource,
+  KeyStatus,
+  KeysCliResult,
+} from './keys.js';
 export { API_KEYS } from './config/contract.generated.js';
 export type { ApiKeySpec } from './config/contract.generated.js';
 

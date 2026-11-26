@@ -22,7 +22,7 @@ The npm launchers require Node.js 22 or later. Prebuilt binaries cover macOS on 
 
 | Interface | Start here | Check that it works |
 |---|---|---|
-| MCP in your agent | Run `npx -y octocode install` to choose a client, or `npx -y octocode install --ide cursor` for Cursor. Restart the client. | Open a project with a README and ask “Use Octocode to read the first line of README.md.” |
+| MCP in your agent | Run `npx -y octocode install --enable-local true` to choose a client, or `npx -y octocode install --ide cursor --enable-local true` for Cursor. Restart the client. Without `--enable-local true` the server lists the GitHub and package tools only. | Open a project with a README and ask “Use Octocode to read the first line of README.md.” |
 | CLI in a terminal or script | Run `npx -y octocode --help` from the project directory. | From a project with a README, run the command below. The result includes its first line. |
 
 ```bash
@@ -46,12 +46,12 @@ For GitHub code search or private repositories, sign in on the machine that runs
 
 ## Tools
 
-**17 tools.** With default settings you get 12 tools over MCP and 14 in the CLI. Both interfaces use the same tool names and JSON inputs.
+**17 tools.** With default settings you get 7 tools over MCP and 14 in the CLI. Set `OCTOCODE_ENABLE_LOCAL=true` in the MCP server entry to add the local tools. Both interfaces use the same tool names and JSON inputs.
 
 | Task | Tools | Availability |
 |---|---|---|
-| Find and read local code | `structureSearch` finds files, `localSearch` finds text, and `localFetch` reads the matching lines. | Default |
-| Follow a symbol | `astSearch` matches code by syntax. `lspSearch` finds definitions, references and callers. | Default |
+| Find and read local code | `structureSearch` finds files, `localSearch` finds text, and `localFetch` reads the matching lines. | CLI default · MCP opt-in |
+| Follow a symbol | `astSearch` matches code by syntax. `lspSearch` finds definitions, references and callers. | CLI default · MCP opt-in |
 | Read GitHub code | `ghSearchRepo` finds repositories. `ghSearchCode` finds code on the default branch. `ghStructure` browses a tree at a ref, and `ghGetFileContent` reads a file there. | Default |
 | Trace a change | `ghSearchHistory` finds commits, pull requests and issues. `ghGetHistoryItem` opens their patches or discussions and compares revisions. | Default |
 | Look up a package | `artifactSearch` resolves a package version to registry metadata, dependencies and upstream source when available. | Default |
@@ -80,9 +80,10 @@ Run `npx -y octocode config list` to see effective settings, defaults and source
 
 | To enable | Run once for your user |
 |---|---|
-| Graph tools in MCP | `npx -y octocode config set local.beta true` |
-| Repository cloning in MCP | `npx -y octocode config set tools.enableClone true` |
-| Advisory lookups in MCP | `npx -y octocode config set tools.enableSecurityCheck true` |
+| Local tools in MCP | `npx -y octocode config set local.enabled true` |
+| Graph tools in MCP | `npx -y octocode config set local.beta true`, with local tools on |
+| Repository cloning in MCP | `npx -y octocode config set tools.enableClone true`, with local tools on |
+| Advisory lookups in MCP | `npx -y octocode config set tools.enableSecurity true` |
 | Classification in CLI and MCP | `npx -y octocode config set OCTOCODE_CLASSIFICATION_API --stdin` |
 
 Restart MCP after a settings change. For GitHub authentication, a process token takes precedence over a project or user `.env` token, followed by the host’s saved Octocode, OS or GitHub CLI login. [Settings, scopes and workspace permissions](docs/CONFIGURATION.md) · [GitHub token resolution](docs/AUTHENTICATION.md#github-token-resolution)

@@ -226,7 +226,10 @@ impl ToolRuntime {
                 .iter()
                 // The settings and the environment a call carries to language
                 // server discovery and start (`PATH`, the toolchain variables).
-                .filter(|(key, _)| octocode_engine::process_env::carried(key))
+                .filter(|(key, _)| {
+                    octocode_engine::process_env::carried(key)
+                        || config::DECLARED_ENV_KEYS.contains(&key.as_str())
+                })
                 .map(|(key, value)| (key.clone(), value.clone()))
                 .collect(),
             octocode_home: Some(octocode_home),

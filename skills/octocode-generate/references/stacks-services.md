@@ -6,7 +6,7 @@ Load when the project is an API, a server-rendered monolith, a CLI, a published 
 
 | Stack | Non-interactive scaffold | Sets up | Watch | Docs |
 |---|---|---|---|---|
-| Hono (TypeScript) | `npm create hono@latest <dir> -- --template nodejs --pm <pm> --install` (`bun`, `deno`, `cloudflare-workers`, …) | Minimal server | Add the `node-ts` and `ci-js` templates and a lint lane | `honojs/create-hono/README.md` |
+| Hono (TypeScript) | `npm create hono@latest <dir> -- --template nodejs --pm <pm> --install` (`bun`, `deno`, `cloudflare-workers`, …) | Minimal server | Add the `node-ts` and `ci-js` templates, a lint lane and Vitest | `honojs/create-hono/README.md` |
 | Fastify 5 | `npx fastify-cli@latest generate <dir> --lang=ts` | `node --test` with c8 | Does not install; the folder must not exist unless it is `.` | `fastify/fastify-cli/README.md` |
 | NestJS 12 | `npx @nestjs/cli@latest new <dir> --package-manager <pm> --skip-git --type esm --no-observe --skip-skills` | ESM, Vitest, Oxlint and Prettier, AGENTS.md | Needs Node.js 22.22.3+, 24.15+ or 26+; CommonJS projects get Jest | `nestjs/docs.nestjs.com/content/first-steps.md` |
 | Bun | `bun init -y` (`--react`, `--react=tailwind`, `--react=shadcn`); from a template `bun create <name or user/repo> <dir>` | One runtime for the server, bundler, tests and SQL: `Bun.serve({ routes })` serves HTML imports and API routes, with built-in `sql`; `bun test`; `bun check` type-checks; `bun build --compile ./cli.ts --outfile <name>` makes one executable (`--target` for other platforms) | No linter: add a lint lane | `oven-sh/bun/docs/bundler/fullstack.mdx`, `oven-sh/bun/docs/compiler/index.mdx` |
@@ -35,7 +35,7 @@ Load when the project is an API, a server-rendered monolith, a CLI, a published 
 | Go CLI | `go mod init <module>`, then `go get github.com/spf13/cobra` | The `cobra-cli` generator's last release was in 2022; the library is current | `spf13/cobra-cli/README.md` |
 | Python CLI | `uv init --package <dir>`, then `uv add typer` | Run it with `uv run <name>` | `fastapi/typer/README.md` |
 | TypeScript library | `npm create tsdown@latest <dir> -- -t default` (`minimal`, `react`, `vue`, `solid`, `svelte`) | Building needs Node.js 22+; check the package with `publint` and `@arethetypeswrong/cli` | `rolldown/tsdown/packages/create-tsdown/README.md` |
-| Other libraries | `cargo new --lib <dir>`; `uv init --lib <dir>`; `swift package init --type library --name <Name> --enable-swift-testing`; `dotnet new classlib -o src/<Name>`; `go mod init` | Swift: run `swift format --in-place --recursive Sources Tests Package.swift` once | `swiftlang/swift-package-manager/PackageInit.md` |
+| Other libraries | `cargo new --lib <dir>`; `uv init --lib <dir>`; `swift package init --type library --name <Name> --enable-swift-testing`; `dotnet new classlib -o src/<Name>`; `go mod init` | Swift: run `swift format --in-place --recursive Sources Tests Package.swift` once | `swiftlang/swift-package-manager/Sources/PackageManagerDocs/Documentation.docc/Package/PackageInit.md` |
 
 ## AI apps, agents and MCP servers
 
@@ -45,5 +45,3 @@ Load when the project is an API, a server-rendered monolith, a CLI, a published 
 | Agents and workflows (TypeScript) | `npm create mastra@latest <dir> -- --llm <provider> --no-skills --no-git --no-install` | Sends analytics; installs coding-assistant skills unless `--no-skills` | `mastra-ai/mastra/packages/cli/src/commands/create/command.ts` |
 | MCP server, TypeScript | A Node.js TypeScript project (`node-ts`, `ci-js`), then `<pm> add @modelcontextprotocol/server zod`; import `McpServer` and the stdio transport | SDK v2 ships as `@modelcontextprotocol/server` and `/client`; `@modelcontextprotocol/sdk` 1.x is the maintenance line; `@modelcontextprotocol/create-server` is deprecated | `modelcontextprotocol/typescript-sdk/README.md` |
 | MCP server, Python | `uv init --package <dir>`, then `uv add "mcp[cli]"`; `from mcp.server import MCPServer`; test with `uv run mcp dev server.py`. Or `uv add fastmcp` | mcp 2.x removed `mcp.server.fastmcp` | `modelcontextprotocol/python-sdk/docs/migration.md` |
-
-API keys go in `.env` (ignored) with each name in `.env.example`; never in code or the plan.

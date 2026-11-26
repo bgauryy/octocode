@@ -6,11 +6,11 @@ Lead with the decision or finding in the [result form](SKILL.md#result), then ma
 
 ## Design answer
 
-Recommend the simplest option that fits the workload. Include relevant failure modes and the test or measurement that can settle the choice.
+Recommend the simplest option that fits the workload. Name each failure mode that could flip the choice and the test or measurement that settles it.
 
 ## Review findings
 
-Order findings by impact, each with its evidence. Identify missing checks rather than assigning decorative scores.
+Order findings by the [ranking rule](references/analysis-proof.md#proof-and-ranking), each with its evidence. Name missing checks instead of assigning scores.
 
 ## Decision record
 
@@ -18,7 +18,7 @@ For consequential work, preserve the problem, constraints, decision, rationale, 
 
 ## Presentation choices
 
-Use a comparison table or boundary diagram when it clarifies the decision. Mark uncertain relationships. The [format guide](references/report-output.md#choose-the-format) supplies optional syntax.
+Compare options in a table. Draw a changed boundary or dependency as a diagram at one C4 level, and mark each relationship that is not proven `inferred`. The [format guide](references/report-output.md#choose-the-format) supplies optional syntax.
 
 ## Saved report
 

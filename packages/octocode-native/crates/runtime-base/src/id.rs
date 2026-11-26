@@ -20,6 +20,36 @@ pub enum ToolFamily {
     Remote,
 }
 
+/// The group a tool is exposed with on MCP (contract `section`): one setting
+/// turns a whole section on, and the always-on section needs none
+/// (`execution::availability`). Unlike [`ToolFamily`] it follows who can use a
+/// tool's result: `ghCloneRepo` calls GitHub and is listed with the local
+/// tools, the only readers of its checkout.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ToolSection {
+    /// GitHub and package-registry readers: always on.
+    External,
+    /// Local-filesystem tools and what feeds them.
+    Local,
+    /// Advisory lookups.
+    Security,
+    /// Model-assisted classification.
+    Clasify,
+}
+
+impl ToolSection {
+    /// The contract's spelling, as catalogs print it.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::External => "external",
+            Self::Local => "local",
+            Self::Security => "security",
+            Self::Clasify => "clasify",
+        }
+    }
+}
+
 include!(concat!(env!("OUT_DIR"), "/tool_ids.rs"));
 
 /// The contract's exit class of `code` (`errorCodes`). An undeclared code,

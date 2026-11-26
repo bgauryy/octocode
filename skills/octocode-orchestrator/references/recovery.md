@@ -1,6 +1,8 @@
+Load for a stalled loop, missing worker result, conflicting writes, interruption, cancellation or uncertain side effect.
+
 # Recovery and resume
 
-Load for a stalled loop, missing worker result, conflicting writes, interruption, cancellation or uncertain side effect. Reconcile facts before dispatching replacement work.
+Reconcile facts before dispatching replacement work.
 
 | Observation | Next action |
 |---|---|
@@ -8,7 +10,7 @@ Load for a stalled loop, missing worker result, conflicting writes, interruption
 | Valid transient failure | Use the tool/provider's retry contract and existing limits. Distinguish a safe read retry from a write whose outcome is unknown. |
 | Worker is silent or a wait timed out | Inspect its existing task handle and artifacts through supported status tools. A timeout is not proof the worker stopped. |
 | Two writers need the same boundary | Pause conflicting writes, inspect current changes and assign one owner or sequence. Never overwrite or stash another session's work. |
-| Worker result no longer matches current inputs | Mark the affected evidence stale and recheck its dependents; retain unrelated evidence with an unchanged basis. |
+| Worker result no longer matches current inputs | List the affected tasks with the [`--changed` check](dependency-graph.md). Mark the affected evidence stale and recheck its dependents; retain unrelated evidence with an unchanged basis. |
 | Workers disagree | Check source identity and assumptions, then run the observation that distinguishes their claims. Do not choose by majority or confidence alone. |
 | Dependency, authority or input is missing | Report an SBAR through the [protocol catalog](protocol-catalog.md#report-and-hand-off), request the specific prerequisite, and continue independent work. |
 
@@ -24,4 +26,4 @@ Recover the existing goal and acceptance, constraints and approvals, assignments
 
 Reuse active workers where possible. Before replacing an uncertain writer, establish that it stopped or that the host prevents it from writing; otherwise continue only independent work. Never silently restart terminal tasks. Record reassignment in the existing tracker so late results can be checked against the current assignment instead of overwriting newer work.
 
-On a user redirect, update acceptance and affected assignments together, stop obsolete work through supported handles, and preserve work still in scope. On cancellation, stop owned work, reconcile effects and report the remaining state. Before compaction or handoff, checkpoint what the next coordinator needs in the host's existing task store; when a file is needed and no location exists, write `checkpoint.json` (goal, acceptance, plan, handles, evidence, unresolved effects, next actions; shape in [dep-graph](../scripts/dep-graph.mjs) `--help`) under `<workspace>/.octocode/tmp/octocode-orchestrator/<run>/`. Run `node <skill-folder>/scripts/dep-graph.mjs --validate-checkpoint <checkpoint.json>` before handing off and fix each entry in `errors`, such as a running task without a handle or an accepted task downstream of an unknown effect; on resume, run it again and dispatch from its `ready` list. Keep credentials and unrelated transcripts out of it.
+On a user redirect, update acceptance and affected assignments together, stop obsolete work through supported handles, and preserve work still in scope. On cancellation, apply the [interruption rule](loops.md#execution-graph). Before compaction or handoff, checkpoint what the next coordinator needs in the host's existing task store; when a file is needed and no location exists, write `checkpoint.json` (goal, acceptance, plan, handles, evidence, unresolved effects, next actions; shape in [dep-graph](../scripts/dep-graph.mjs) `--help`) under `<workspace>/.octocode/tmp/octocode-orchestrator/<run>/`. Run `node <skill-folder>/scripts/dep-graph.mjs --validate-checkpoint <checkpoint.json>` before handing off and fix each entry in `errors`, such as a running task without a handle or an accepted task downstream of an unknown effect; on resume, run it again and dispatch from its `ready` list. Keep credentials and unrelated transcripts out of it.

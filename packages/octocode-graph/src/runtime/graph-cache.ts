@@ -1090,6 +1090,38 @@ async function settingsFiles() {
 // Variables that name this process's tools, not an engine setting: the engine digest already keys the executable.
 const NOT_SETTINGS = new Set(['OCTOCODE_CLI', 'OCTOCODE_LANE']);
 
+/**
+ * Every setting's variable, as the config contract names it. This package ships without
+ * `@octocodeai/config`, so the list is spelled here and `graph-cache.test.mjs` holds it to the
+ * contract; `OCTOCODE_*` covers each one's earlier name.
+ */
+export const SETTING_ENV: ReadonlySet<string> = new Set([
+  'GITHUB_API_URL',
+  'OCTOCODE_ENABLE_LOCAL',
+  'OCTOCODE_BETA',
+  'ALLOWED_PATHS',
+  'WORKSPACE_ROOT',
+  'OCTOCODE_GRAPH_HOME',
+  'TOOLS_TO_RUN',
+  'DISABLE_TOOLS',
+  'OCTOCODE_ENABLE_CLONE',
+  'OCTOCODE_ENABLE_SECURITY',
+  'OCTOCODE_ALLOW_PRIVATE_REGISTRY',
+  'OCTOCODE_LSP_AUTO_INSTALL',
+  'OCTOCODE_TRUST_PROJECT_LSP_CONFIG',
+  'OCTOCODE_LSP_TRUST_FETCHED_CODE',
+  'OCTOCODE_LSP_PREWARM',
+  'OCTOCODE_REDACT_EMAILS',
+  'OCTOCODE_REDACT_UUID',
+  'OCTOCODE_MCP_RESULT',
+  'OCTOCODE_CREDENTIAL_FILES',
+  'OCTOCODE_STORAGE_MODE',
+  'OCTOCODE_CLONE_CACHE_LIMIT',
+  'OCTOCODE_CLASSIFICATION_API',
+  'OCTOCODE_CLASSIFICATION_API_HOST',
+  'OCTOCODE_CLASSIFICATION_MODEL',
+]);
+
 // The Octocode environment variables and config files, as one digest: the engine's settings come from them.
 async function settingsDigest() {
   const env = Object.fromEntries(
@@ -1097,8 +1129,7 @@ async function settingsDigest() {
       .filter(
         ([k]) =>
           (k.startsWith('OCTOCODE_') && !NOT_SETTINGS.has(k)) ||
-          k === 'WORKSPACE_ROOT' ||
-          k === 'ALLOWED_PATHS'
+          SETTING_ENV.has(k)
       )
       .toSorted(([a], [b]) => (a < b ? -1 : 1))
   );

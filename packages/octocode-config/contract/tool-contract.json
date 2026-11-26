@@ -28359,7 +28359,7 @@
     "restart": "branch",
     "retry": "branch"
   },
-  "fingerprint": "91434a434941278cef8022aa5e52de87eac1830cc4aa9de36023d9f17601aac4",
+  "fingerprint": "088082830212c9fb0f4fb780960ae5795ff2771b4e2f22c7686795d090009bfb",
   "limits": {
     "defaultReadContextLines": 0,
     "defaultResponseChars": 20000,
@@ -28863,6 +28863,7 @@
         },
         "type": "object"
       },
+      "section": "local",
       "title": "Build Code Graph",
       "variants": [
         {
@@ -29694,6 +29695,7 @@
         ]
       },
       "rowPageWindow": true,
+      "section": "local",
       "title": "Query Code Graph",
       "variants": [
         {
@@ -30810,6 +30812,7 @@
           }
         ]
       },
+      "section": "clasify",
       "semanticPolicy": {
         "choiceLabels": 255,
         "maxImageBytes": 16777216,
@@ -31211,6 +31214,7 @@
           }
         ]
       },
+      "section": "external",
       "title": "GitHub Repository Search",
       "variants": [
         {
@@ -31897,6 +31901,7 @@
           }
         ]
       },
+      "section": "external",
       "title": "GitHub Code Search",
       "variants": [
         {
@@ -32150,6 +32155,7 @@
           }
         ]
       },
+      "section": "external",
       "title": "GitHub Structure",
       "variants": [
         {
@@ -32452,6 +32458,7 @@
           }
         ]
       },
+      "section": "external",
       "title": "GitHub File Content Fetch",
       "variants": [
         {
@@ -32872,6 +32879,7 @@
           }
         ]
       },
+      "section": "external",
       "title": "GitHub History Search",
       "variants": [
         {
@@ -33482,6 +33490,7 @@
           }
         ]
       },
+      "section": "external",
       "semanticPolicy": {
         "collectionPageSize": 100,
         "textWindowChars": 12000
@@ -33977,6 +33986,7 @@
           }
         ]
       },
+      "section": "external",
       "title": "Package Search",
       "variants": [
         {
@@ -34322,6 +34332,7 @@
         ],
         "type": "object"
       },
+      "section": "local",
       "title": "GitHub Clone",
       "variants": [
         {
@@ -34589,6 +34600,7 @@
           }
         ]
       },
+      "section": "local",
       "semanticPolicy": {
         "listPageSize": 100,
         "matchesPerFile": 10,
@@ -34925,6 +34937,7 @@
           }
         ]
       },
+      "section": "local",
       "semanticPolicy": {
         "walkWindow": 10000
       },
@@ -36220,6 +36233,7 @@
           }
         ]
       },
+      "section": "local",
       "title": "AST Search",
       "variants": [
         {
@@ -36609,6 +36623,7 @@
         ]
       },
       "rowPageWindow": true,
+      "section": "local",
       "title": "Local Fetch Content",
       "variants": [
         {
@@ -37569,6 +37584,7 @@
           }
         ]
       },
+      "section": "local",
       "title": "LSP Search",
       "variants": [
         {
@@ -38252,6 +38268,7 @@
           }
         ]
       },
+      "section": "security",
       "title": "Security Check",
       "variants": [
         {

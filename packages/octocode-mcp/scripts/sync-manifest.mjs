@@ -11,7 +11,12 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { configFieldEnvName } from '@octocodeai/config';
-import { getPublicToolCatalog, TOOL_NAMES, toolPackage } from '@octocodeai/config/schema';
+import {
+  getPublicToolCatalog,
+  TOOL_NAMES,
+  TOOL_POLICIES,
+  toolPackage,
+} from '@octocodeai/config/schema';
 
 const check = process.argv.includes('--check');
 
@@ -22,15 +27,21 @@ function gateEnv(fieldPath) {
 }
 
 const betaEnv = gateEnv('local.beta');
-const classificationEnv = gateEnv('classification.api');
-const securityCheckEnv = gateEnv('tools.enableSecurityCheck');
+// The variable that turns each section on for MCP, as native's `section_setting` states it; the external section needs none.
+const sectionEnv = {
+  local: gateEnv('local.enabled'),
+  security: gateEnv('tools.enableSecurity'),
+  clasify: gateEnv('classification.api'),
+};
+const cloneEnv = gateEnv('tools.enableClone');
 
 function describe(tool) {
   const text = tool.title;
   const requiredEnv = [];
+  const section = sectionEnv[TOOL_POLICIES[tool.name].section];
+  if (section) requiredEnv.push(section);
+  if (tool.name === TOOL_NAMES.GITHUB_CLONE_REPO) requiredEnv.push(cloneEnv);
   if (tool.beta) requiredEnv.push(betaEnv);
-  if (tool.name === TOOL_NAMES.CLASIFY) requiredEnv.push(classificationEnv);
-  if (tool.name === TOOL_NAMES.SECURITY_CHECK) requiredEnv.push(securityCheckEnv);
   if (!requiredEnv.length) return text;
   const gate = tool.beta ? 'beta' : 'conditional';
   return `${text} (${gate}: requires ${requiredEnv.join(' and ')})`;

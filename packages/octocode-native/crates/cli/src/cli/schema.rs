@@ -87,6 +87,9 @@ pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, Sche
                 "when": octocode_runtime_base::contracts::cli_tool_trigger(name),
                 "fields": entry.get("fields").cloned().unwrap_or_else(|| json!("[]")),
             });
+            if let Some(id) = octocode_runtime_base::id::ToolId::from_name(name) {
+                row["section"] = json!(id.section().as_str());
+            }
             if view.is_some()
                 && let Some(limit) = octocode_runtime_base::id::ToolId::from_name(name)
                     .and_then(octocode_runtime_base::contracts::batch_limit)
@@ -327,6 +330,15 @@ pub(super) fn tool_view(
         }
         Some(selection) => selected(tool, configured, selection)?.clone(),
     };
+    // The same description an MCP host is listed: no clause that sends the
+    // agent to a tool this runtime does not offer.
+    if value.get("description").is_some() {
+        value["description"] = without_unlisted_clauses(
+            &value["description"],
+            &tool["mcp"]["gatedClauses"],
+            |needs| enabled(machine, needs),
+        );
+    }
     if octocode_runtime_base::id::ToolId::from_name(name)
         .is_some_and(octocode_runtime_base::id::ToolId::lists_lsp_servers)
         && let (Some(description), Some(servers)) = (
@@ -354,6 +366,28 @@ pub(super) fn tool_view(
 /// a catalog that states nothing is taken as persistent.
 pub(super) fn storage_is_persistent(catalog: &Value) -> bool {
     catalog["persistentStorage"].as_bool() != Some(false)
+}
+
+/// `description` without the gated clauses (presentation `gatedClauses`:
+/// `needs`, `text`) whose tool `listed` says is missing: a session is never
+/// sent to a tool it does not list. A clause is in the description word for
+/// word (core holds that), so dropping it leaves the sentences around it whole.
+pub(super) fn without_unlisted_clauses(
+    description: &Value,
+    clauses: &Value,
+    listed: impl Fn(&str) -> bool,
+) -> Value {
+    let Some(text) = description.as_str() else {
+        return description.clone();
+    };
+    let kept = clauses
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|clause| clause["needs"].as_str().is_none_or(|needs| !listed(needs)))
+        .filter_map(|clause| clause["text"].as_str())
+        .fold(text.to_owned(), |text, clause| text.replacen(clause, "", 1));
+    Value::String(kept)
 }
 
 /// Removes `ghStructure`'s `materialize` mode from an advertised description,

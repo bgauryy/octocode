@@ -4,7 +4,7 @@
 
 ## Structure
 
-Required, under these names: `## Summary`, `## Features`, `## Proposed design`, `## Tasks and rollout`, `## Validation and success`, `## Open questions`, `## Sources`. Add the others only when they carry content, keeping the table's names and order. IDs cross-reference sections (`P` prerequisite, `F` feature, `D` decision, `T` task, `V` check, `Q` question); terms, entities and flows keep their code names everywhere.
+Required, under these names: `## Summary`, `## Features`, `## Proposed design`, `## Tasks and rollout`, `## Validation and success`, `## Open questions`, `## Sources`. Add the others only when they carry content, keeping the table's names and order. IDs cross-reference sections (`P` prerequisite, `F` feature, `D` decision, `T` task, `V` check, `Q` question).
 
 | Section | Holds |
 |---|---|
@@ -25,9 +25,9 @@ Required, under these names: `## Summary`, `## Features`, `## Proposed design`, 
 
 ## Language
 
-- Clear technical English (unless asked otherwise) for a capable newcomer to this system: concrete verbs, short paragraphs, exact identifiers, one name per thing.
+- Clear technical English (unless asked otherwise) for a capable newcomer to this system: concrete verbs, short paragraphs, exact identifiers, one name per thing: terms, entities and flows keep their code names everywhere.
 - Facts with evidence, assumptions marked, unknowns named (what nobody checked); the proposal stays apart from current behavior.
-- Cite beside the claim as a link and list the source in Sources; an uncited deciding claim is an assumption. The [trace](references/checklist.md#trace) lists cited links missing from Sources and local links that do not resolve.
+- Cite beside the claim as a link and list the source in Sources; an uncited deciding claim is an assumption. The [trace](references/trace.md) lists cited links missing from Sources and local links that do not resolve.
 - "must" = requirement, "should" = recommendation; uppercase only under a real protocol convention. Observable outcomes, not promises.
 - Each paragraph carries a decision, evidence or a consequence; check drafts against [writing tells](references/writing-tells.md).
 - Cut repetition, sales language, narration, author/date/status tables, timestamps (the header `status` and the dated folder are the only date and status fields), tool inventories, scores, logs, transcripts, receipts.
@@ -36,7 +36,7 @@ Required, under these names: `## Summary`, `## Features`, `## Proposed design`, 
 
 Save at `<workspace>/.octocode/octocode-rfc-generator/<YYYY-MM-DD>-<slug>/RFC.md`; `<workspace>` is the project root (repository root, else current directory), never inside an existing `.octocode/`. A user-named path wins (including the repository's RFC folder); a scratch folder like `.octocode/tmp/` does not. Scratch notes and long requests go to `<workspace>/.octocode/tmp/octocode-rfc-generator/`. One file: no companion `PLAN.md`, `KPI.md`, `PREREQUISITES.md`, `IMPLEMENTATION.md` or `RESOURCES.md`.
 
-The file starts with the [shared header](references/report-output.md#report-header), then the `#` title, a lead paragraph stating the answer, and the sections. Before replying, run `node <skill-folder>/scripts/rfc-trace.mjs <RFC.md>` and resolve or report each finding ([trace](references/checklist.md#trace)). Accepted `status` values: `Proposed`, `Accepted`, `Implemented`, `Rejected`, `Superseded`.
+The file starts with the [shared header](references/report-output.md#report-header), then the `#` title, a lead paragraph stating the answer, and the sections. Before replying, run the [trace](references/trace.md) and resolve or report each finding. Accepted `status` values: `Proposed`, `Accepted`, `Implemented`, `Rejected`, `Superseded`.
 `Implemented` means built and verified, with `next` naming any eval still owed; a `Superseded` lead names the replacement.
 
-Reply BLUF: decision and confidence, any unresolved blocker, the `RFC.md` path, the HTML link if rendered. Review-only request: findings, no files. Then follow the [HTML offer](references/presentation.md#html-delivery); once HTML is accepted, rerender after each revision with the [report commands](references/report-output.md#render-and-retrieve), which also run `--manifest` discovery.
+Reply BLUF: decision and confidence, expected effect, risks, any unresolved blocker, the `RFC.md` path, the HTML link if rendered. Review-only request: findings, no files. Then follow the [HTML offer](references/presentation.md#html-delivery); once HTML is accepted, rerender after each revision with the [report commands](references/report-output.md#render-and-retrieve), which also run `--manifest` discovery.

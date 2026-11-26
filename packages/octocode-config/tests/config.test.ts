@@ -47,7 +47,7 @@ const CANONICAL = [
   'GITHUB_API_URL',
   'OCTOCODE_BETA',
   'OCTOCODE_ENABLE_CLONE',
-  'OCTOCODE_SECURITY_CHECKS',
+  'OCTOCODE_ENABLE_SECURITY',
   'ALLOWED_PATHS',
   'WORKSPACE_ROOT',
   // Where graph snapshots are written: a repository must not choose it.

@@ -1,3 +1,5 @@
+Load when finding the module and tests that own a graph engine change, choosing the cache version to bump, or moving the Python standard-library pin.
+
 # Engine map
 
 Paths are under `packages/octocode-native/crates/`. `ast_graph/` is `tool-graph/src/ast_graph/`, and every other path that does not start with a crate name is under `ast_graph/`. Rows follow the pipeline: extraction, scan and file linking, call resolution, projection, encoding, queries, CLI and MCP. Each module opens with a `//!` line naming its job.

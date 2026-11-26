@@ -1,10 +1,6 @@
-# Analyze a change and prove findings
+Load for proof by change type, the base-test script, parallel review lanes or requested repairs. Pin and read the target first; the [entry](../SKILL.md#review-loop) owns ranking, the review loop and the verdict.
 
-Load for proof by change type, parallel review lanes or requested repairs. Pin and read the target first; the entry owns the review loop and verdict.
-
-## Rank and order
-
-Depth follows affected contracts: a small diff can require a full trace. State unread affected scope. Prioritize security, correctness, flow, architecture, performance, errors and maintainability by the change's risk.
+# Prove findings by change type
 
 | Change or suspected finding | Prove with |
 |---|---|
@@ -15,7 +11,7 @@ Depth follows affected contracts: a small diff can require a full trace. State u
 | Module reshape | Cycles before and after |
 | Security sink | Sink shape, exact read, sources and callers, guard check |
 | Test gap | Changed symbol, no test references, nearby test read |
-| New or changed test on a bug-fix or behavior-change PR | [Test at base](#test-at-base): passing there means it does not cover the change. Characterization tests on a refactor pass on both by design |
+| New or changed test on a bug-fix or behavior-change PR | [Test at base](#test-at-base). Characterization tests on a refactor pass on both by design |
 | Diff vs stated intent | Files and lines touched against the PR's goal; unrelated refactors, renames or reformatting are a `suggestion` to split |
 | Error handling and types | Added catch-all that logs and continues, `except: pass`, fallback defaults on failure; added `as any`, `as unknown as T`, non-null `!`, `# type: ignore`, `@ts-expect-error` without a stated reason |
 | PR description | Each assurance ("preserves behavior", "improves robustness") maps to a check or diff anchor; an unbacked one is a `question` ([writing tells](writing-tells.md)) |
@@ -34,7 +30,7 @@ In a user-provided checkout at the pinned head, or with approval, run from the d
 node <skill-folder>/scripts/test-at-base.mjs --base <baseCommitSha> --head <pinned head SHA> --test <test path> --cmd "<command that runs that test>" [--setup "<install or build step>"]
 ```
 
-[test-at-base.mjs](../scripts/test-at-base.mjs) runs the command in a temporary git worktree at base with the checkout's test copied in, then in the checkout, and removes the worktree even on failure or interrupt. It writes nothing in the checkout but its logs; `--cmd` runs there as given. Each run's `setup.log`, `base.log` and `head.log` stay in a new folder under `<workspace>/.octocode/tmp/octocode-pr-review/test-at-base/` (the output's `logs`; `--logs <dir>` picks another). `--setup` runs only in the base tree: pass the project's install or build step when the test needs one. Options: `--help`.
+[test-at-base.mjs](../scripts/test-at-base.mjs) runs the command in a temporary git worktree at base with the checkout's test copied in, then in the checkout, and removes the worktree even on failure or interrupt. It writes nothing in the checkout but its logs; `--cmd` runs there as given. Each run's `setup.log`, `base.log` and `head.log` stay in a new folder under `<workspace>/.octocode/tmp/octocode-pr-review/test-at-base/` (the output's `logs`; `--logs <dir>` picks another). `--setup` runs only in the base tree: pass the project's install or build step when the test needs one. Repeat `--test` per file or directory; `--repo <dir>` sets the directory to run from; `--help` lists every option.
 
 | Result | Read it as |
 |---|---|

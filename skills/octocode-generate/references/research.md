@@ -1,8 +1,8 @@
 # Research with Octocode and the web
 
-Load before writing the plan, and when a scaffold, install or gate fails. The catalogs name each row's docs as `owner/repo/path` or a URL (rows verified on 2026-11-25). Re-read that source at the current release before trusting a flag, then cite the finding in the plan's Evidence table as `owner/repo@commitSha:path:line` or a URL. Save longer notes to the project's `context/research.md`.
+Load before writing the plan, and when a scaffold, install or gate fails. The catalogs name each row's docs as `owner/repo/path` or a URL (rows verified on 2026-11-26). Re-read that source at the current release before trusting a flag, then cite the finding in the plan's Evidence table as `owner/repo@commitSha:path:line` or a URL. Save longer notes to the project's `context/research.md`.
 
-Research as much as the decision needs. A preset the user accepted needs steps 1–3 and 6–7. A new SDK, an unusual feature or a failure needs more.
+A preset the user accepted needs steps 1–3 and 6–7. A new SDK or an unusual feature adds steps 4–5, a jump from a version you know adds step 8, and a failure uses [the failure table](#when-something-fails).
 
 | Mode | Use for | How |
 |---|---|---|
@@ -17,7 +17,7 @@ Use the Octocode MCP tools when they are listed. Otherwise the CLI takes the sam
 | Step | Call | Keep for the plan |
 |---|---|---|
 | 1. Resolve the scaffolder and framework | `artifactSearch` `{"operation":"resolve","ecosystem":"npm","packageName":"create-next-app"}` (ecosystems: npm, pypi, crates, maven, nuget, go, packagist, rubygems) | Version, source `owner/repo`, release `ref` |
-| 2. Read the current command | `ghGetFileContent` on the row's docs path at that `ref`, with `matchString` on the command name; for exact flags, the CLI's argument parser in the same repository. A doc that lives only on a website: `clasify` with `source:{"url":…}`, then its `next.read` | The non-interactive command, what it sets up, any prompt it still shows |
+| 2. Read the current command | `ghGetFileContent` on the row's docs path at that `ref`, with `matchString` on the command name; for exact flags, the CLI's argument parser in the same repository. A doc that lives only on a website: the Web mode above | The non-interactive command, what it sets up, any prompt it still shows |
 | 3. Read the generated template | `ghStructure` `tree` of the template folder at the `ref`, then `ghGetFileContent` on its manifest and config files | Scripts, lint and test tooling, files the skill's templates must not duplicate |
 | 4. Find the closest official example | `ghStructure` `tree` of the framework's `examples/` folder, or `ghSearchCode` with the framework's `owner` and a feature term (`betterAuth`, `drizzle`, `expo-router`) | Integration code to follow, at the version you install |
 | 5. Community reference apps, only for a feature no official example covers | `ghSearchRepo` with `keywords`, `filters.pushedAt.from` (recent), `sort:{"by":"stars"}`; then `ghStructure` on the best hit | A maintained app on the same major versions |

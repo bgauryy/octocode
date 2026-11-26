@@ -21,7 +21,71 @@ pub enum ConfigNormalize {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ConfigEnvBinding {
     pub name: &'static str,
+    /// Earlier names of the variable: each reads as `name` wherever a
+    /// variable is read ([`canonical_env_name`]), and `name` wins when both
+    /// are set.
+    pub aliases: &'static [&'static str],
     pub normalize: Option<ConfigNormalize>,
+}
+
+/// The current name of the variable `key`: a setting's earlier name (an
+/// alias of its contract binding) reads as the name that replaced it, any
+/// other key as itself.
+#[must_use]
+pub fn canonical_env_name(key: &str) -> &str {
+    CONFIG_FIELDS
+        .iter()
+        .filter_map(|field| field.env)
+        .find(|binding| binding.aliases.contains(&key))
+        .map_or(key, |binding| binding.name)
+}
+
+/// `config` (one `.octocoderc` file) under current keys only: a value under a
+/// field's earlier key moves to its current one unless the file holds that
+/// too. Validation, the workspace rules and the layers then read one key per
+/// setting.
+pub(crate) fn canonicalize_config_keys(config: &mut serde_json::Value) {
+    for field in CONFIG_FIELDS
+        .iter()
+        .filter(|field| !field.key_aliases.is_empty())
+    {
+        let section = field
+            .section
+            .split('.')
+            .filter(|part| !part.is_empty())
+            .try_fold(&mut *config, |at, part| at.get_mut(part));
+        let Some(section) = section.and_then(serde_json::Value::as_object_mut) else {
+            continue;
+        };
+        for alias in field.key_aliases {
+            if let Some(value) = section.remove(*alias) {
+                section.entry(field.key).or_insert(value);
+            }
+        }
+    }
+}
+
+/// `env` under current names only: a value set under an earlier name moves to
+/// the current one unless that one is set too. Every source of variables (the
+/// process, each `.env` file) passes through here first, so trust rules,
+/// validation and identity see one name per setting.
+pub(crate) fn canonicalize_env(
+    env: std::collections::BTreeMap<String, String>,
+) -> std::collections::BTreeMap<String, String> {
+    let mut current = std::collections::BTreeMap::new();
+    let mut earlier = Vec::new();
+    for (key, value) in env {
+        let name = canonical_env_name(&key);
+        if name == key {
+            current.insert(key, value);
+        } else {
+            earlier.push((name.to_owned(), value));
+        }
+    }
+    for (name, value) in earlier {
+        current.entry(name).or_insert(value);
+    }
+    current
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ConfigFieldSpec {
@@ -33,6 +97,9 @@ pub struct ConfigFieldSpec {
     pub credential: bool,
     /// The one environment variable that sets this field, if any.
     pub env: Option<ConfigEnvBinding>,
+    /// Earlier keys of this field in its section of `.octocoderc`: a file
+    /// that still spells one is read as `key` ([`canonicalize_config_keys`]).
+    pub key_aliases: &'static [&'static str],
     pub default_json: &'static str,
     /// What an unset value means when the default is not a literal value.
     pub display_default: Option<&'static str>,

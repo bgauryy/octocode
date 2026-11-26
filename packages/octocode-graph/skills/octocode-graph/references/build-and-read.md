@@ -1,6 +1,6 @@
-# Build a graph and read its rows
+Load when creating or refreshing a native snapshot, or before interpreting its rows, weights, confidence or gaps.
 
-Load when creating or refreshing a snapshot, or before interpreting rows, weights, confidence or gaps.
+# Build a graph and read its rows
 
 ## Query first
 
@@ -31,7 +31,7 @@ octocode-graph graphBuild '{"queries":[{"path":"."}]}'
 - **Confidence is categorical binding evidence.** `high` (default) is a strong syntax binding; `medium` adds scoped or ambiguous candidates; `low` adds a bare call's only declaration of its name; member calls on unknown receivers stay in `unresolved`. Ask again at `medium` before reading an empty answer as absence.
 - **Weights mean different things; never mix them.** `sites` counts distinct source occurrences behind an edge (connection strength). `pageRank` is structural importance. `commits`/`share` in `cochange` is change coupling from Git history. None is a probability or a runtime frequency.
 - **`impact` lists dependents, not breakage.** `direct` means "depends on it directly: inspect first". Only tests or execution prove a break; the summary counts `testsToRun` and `affectedEntrypoints`, and `next.testsToRun` and `next.affectedEntrypoints` list where to look.
-- **`issues` are ranked hypotheses.** Read each finding's `evidence` and `controls`, then check it: a cycle with `path`, an unused export with `lspSearch` references, a critical file with `dependents` to its `farthestDepth`.
+- **`issues` are ranked hypotheses.** Read each finding's `evidence` and `controls`, then check it: a cycle with `path`, an unused export or other dead-code finding with `lspSearch` references, a critical file with `dependents` to its `farthestDepth`.
 - **`passes`** is an argument slot (a named function handed to a call), not proof of invocation. Other value uses produce no edge, so a function can be used without any `calls` row.
 - **Gaps are listed, not hidden.** `unresolved` gives reasons (external package, unknown receiver, ambiguous). Dynamic dispatch, reflection and string loading are not modeled.
 - **Direction and depth select the question.** `deps`/`callees` follow outgoing edges; `dependents`/`callers` follow incoming edges. Their default is one hop; `impact` defaults to three. Increase `depth` to cover the claim; paging exhausts the selected depth, not the whole transitive graph. Pin `graph` when comparing queries, and use `keep` at build time to retain baselines across later builds.

@@ -28,18 +28,18 @@ octocode-graph check . --format sarif                      # dependency rules fr
 | A fresh scope, or native detectors (`issues`, `cochange`, `drift`, `witnesses`, `unresolved`) | `octocode-graph graphQuery '{"queries":[{"path":".","operation":"issues"}]}'` · [Operations](references/operations.md) · [Builds and pagination](references/build-and-read.md) |
 | A spelling or literal text | `localSearch` (or `rg`), not the graph |
 
-Add `--runtime` (drops `import type`) or `--eager` (startup only) to any walk. [Saved queries](references/query.md) owns each query's flags and fields. Batch questions in one load, one per line: `printf '%s\n' 'search x' 'about a.ts' | octocode-graph query . --stdin --json`. An ambiguous name returns re-runnable candidates.
+Add `--runtime` (drops `import type`) or `--eager` (startup only) to any walk. [Saved queries](references/query.md) owns the flags and routes to each query's fields. Batch questions in one load, one per line: `printf '%s\n' 'search x' 'about a.ts' | octocode-graph query . --stdin --json`. An ambiguous name returns re-runnable candidates.
 
 ## Go further
 
 | Need | Read |
 |---|---|
-| CI dependency rules: forbidden, allowed, required, reachable, circular; baseline, SARIF, `--since <rev>` | [Rules](references/rules.md) |
-| Bundle bytes, CPU and heap profiles (`hot`), minified frames (`locate`), CodeQL or Joern data flow | [Providers](references/providers.md) |
-| What a metric means; quality, risk, retest and migration order | [Algorithms](references/algorithms.md) |
+| CI dependency rules: forbidden, allowed, required, reachable, circular; baseline, SARIF, `--since <rev>` | [Rules](references/rules.md) · [fields](references/rule-fields.md) · [CI](references/rules-ci.md) |
+| Bundle bytes, CPU and heap profiles (`hot`), minified frames (`locate`), CodeQL or Joern data flow | [Providers](references/providers.md) · [bundles](references/provider-bundle.md) · [profiles, locate](references/provider-profiles.md) · [data flow](references/provider-data-flow.md) |
+| What a metric means · quality, risk, retest and migration order | [Algorithms](references/algorithms.md) · [Quality checks](references/quality-checks.md) |
 | What a change did to the structure | [Diff](references/diff.md) |
 | Docs, configs and manifests linked to code (`links`); record a missed link | [Links](references/links.md) |
-| Build options, cache, registry, viewer, replay | [Commands](references/commands.md) |
+| Build options, replay · build phases, cache, registry · viewer server, events | [Commands](references/commands.md) · [Pipeline](references/build-pipeline.md) · [Viewer and events](references/viewer-events.md) |
 | Saved files, coverage lines, HTML export | [Output](output.md) |
 | Viewer chat · durable notes · architecture layers | [Chat](references/chat.md) · [Wiki](references/wiki.md) · [Modeling](references/modeling.md) |
 

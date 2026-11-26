@@ -330,11 +330,11 @@ fn the_tool_flow_is_readable_as_a_resource() {
         !listed_uris.contains(&"octocode://contract/output/clasify"),
         "{listed}"
     );
-    let references = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../skills/octocode-research/references");
+    let references = support::research_references();
     // Follow every sibling link from the tool flow: each must be listed and
-    // read back as its skill source file. A link with a path segment points
-    // into the installed skill, outside the served references.
+    // read back as its skill source (the tool flow as its parts joined, any
+    // other as its one file). A link with a path segment points into the
+    // installed skill, outside the served references.
     let mut pending = vec![uri.to_string()];
     let mut read_uris = Vec::new();
     while let Some(current) = pending.pop() {
@@ -345,17 +345,13 @@ fn the_tool_flow_is_readable_as_a_resource() {
         let text = read["result"]["contents"][0]["text"]
             .as_str()
             .unwrap_or_else(|| panic!("{current} is not readable: {read}"));
-        let file = current.rsplit('/').next().expect("file");
-        let file = if file.ends_with(".md") {
-            file.to_string()
+        let source = if current == uri {
+            support::tool_flow_guide()
         } else {
-            format!("{file}.md")
+            let file = current.rsplit('/').next().expect("file");
+            std::fs::read_to_string(references.join(file)).expect("skill file")
         };
-        assert_eq!(
-            text,
-            std::fs::read_to_string(references.join(&file)).expect("skill file"),
-            "{current}"
-        );
+        assert_eq!(text, source, "{current}");
         assert!(
             listed_uris.contains(&current.as_str()),
             "{current} unlisted"

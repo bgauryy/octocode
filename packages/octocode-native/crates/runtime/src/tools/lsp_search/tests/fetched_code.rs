@@ -77,10 +77,14 @@ impl World {
         home_rc: &Value,
         workspace_rc: Option<&Value>,
     ) -> ToolRuntime {
-        let mut vars = BTreeMap::from([(
-            octocode_runtime_base::config::environment::OCTOCODE_HOME.to_owned(),
-            self.home.to_string_lossy().into_owned(),
-        )]);
+        // An MCP host lists the local tools only once it turns them on.
+        let mut vars = BTreeMap::from([
+            (
+                octocode_runtime_base::config::environment::OCTOCODE_HOME.to_owned(),
+                self.home.to_string_lossy().into_owned(),
+            ),
+            ("OCTOCODE_ENABLE_LOCAL".to_owned(), "true".to_owned()),
+        ]);
         vars.extend(env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
         let project_rc = self.cwd.join(".octocode/.octocoderc");
         ToolRuntime::with_limits(

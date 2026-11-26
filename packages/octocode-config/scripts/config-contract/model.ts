@@ -49,12 +49,22 @@ export function setPath(root: JsonObject, path: string, value: unknown): void {
 }
 
 export function ownDefault(field: FlatField): unknown {
-  return field.type === 'enum' ? field.values?.[0] : structuredClone(field.default);
+  return field.type === 'enum'
+    ? field.values?.[0]
+    : structuredClone(field.default);
 }
 
 export function orderedEnvironment(fields: FlatField[], contract: Contract) {
   const fieldBindings = fields.flatMap(field =>
-    field.env ? [{ field: field.path, credential: field.credential === true, ...field.env }] : []
+    field.env
+      ? [
+          {
+            field: field.path,
+            credential: field.credential === true,
+            ...field.env,
+          },
+        ]
+      : []
   );
   const protectedNames: string[] = [];
   const homeTrusted: string[] = [];
@@ -69,23 +79,59 @@ export function orderedEnvironment(fields: FlatField[], contract: Contract) {
     if ((binding.dotenv ?? 'all') !== 'all') protectedNames.push(binding.name);
     if (binding.dotenv === 'home') homeTrusted.push(binding.name);
     if (binding.credential) credentialNames.add(binding.name);
-    if (binding.workspaceNarrowsTo) workspaceNarrowOnly[binding.name] = binding.workspaceNarrowsTo;
+    if (binding.workspaceNarrowsTo)
+      workspaceNarrowOnly[binding.name] = binding.workspaceNarrowsTo;
+  }
+  // An alias reads as its binding's name, so it may name nothing else: no other variable, no second binding.
+  const aliases: Record<string, string> = {};
+  const names = new Set([
+    ...Object.keys(contract.environment),
+    ...fieldBindings.map(binding => binding.name),
+  ]);
+  for (const binding of fieldBindings) {
+    for (const alias of binding.aliases ?? []) {
+      if (names.has(alias) || alias in aliases)
+        throw new Error(
+          `${binding.field}: env alias ${alias} already names a variable`
+        );
+      aliases[alias] = binding.name;
+    }
   }
   const tokens = Object.entries(contract.environment).filter(
     ([, definition]) => definition.tokenPriority !== undefined
   );
-  tokens.sort(([, left], [, right]) => (left.tokenPriority ?? 0) - (right.tokenPriority ?? 0));
+  tokens.sort(
+    ([, left], [, right]) =>
+      (left.tokenPriority ?? 0) - (right.tokenPriority ?? 0)
+  );
   const tokenNames = tokens.map(([name]) => name);
   // Every API key a person sets: environment credentials of type key, then credential settings.
   const apiKeys = [
     ...Object.entries(contract.environment)
       .filter(([, definition]) => definition.type === 'key')
-      .map(([name, definition]) => ({ name, dotenv: definition.dotenv ?? 'all', group: definition.group, description: definition.description, docsUrl: definition.docsUrl })),
+      .map(([name, definition]) => ({
+        name,
+        dotenv: definition.dotenv ?? 'all',
+        group: definition.group,
+        description: definition.description,
+        docsUrl: definition.docsUrl,
+      })),
     ...fields
       .filter(field => field.credential === true && field.env)
-      .map(field => ({ name: field.env!.name, dotenv: field.env!.dotenv ?? 'all', group: field.group, description: field.description, docsUrl: field.docsUrl })),
-  ].map(key => Object.fromEntries(Object.entries(key).filter(([, value]) => value !== undefined)));
+      .map(field => ({
+        name: field.env!.name,
+        dotenv: field.env!.dotenv ?? 'all',
+        group: field.group,
+        description: field.description,
+        docsUrl: field.docsUrl,
+      })),
+  ].map(key =>
+    Object.fromEntries(
+      Object.entries(key).filter(([, value]) => value !== undefined)
+    )
+  );
   return {
+    aliases,
     apiKeys,
     fieldBindings,
     protectedNames: [...new Set(protectedNames)],

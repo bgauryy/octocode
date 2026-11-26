@@ -109,7 +109,7 @@ async fn read(github: &MockServer) -> Value {
     let runtime = workspace.runtime_with(
         &[
             ("GITHUB_API_URL", format!("{}/api/v3", github.uri())),
-            ("OCTOCODE_SECURITY_CHECKS", "true".into()),
+            ("OCTOCODE_ENABLE_SECURITY", "true".into()),
         ],
         RuntimeLimits {
             osv_api,
@@ -329,7 +329,7 @@ async fn egress_preview_names_the_hash_and_origins_without_asking_either_provide
     let runtime = workspace.runtime_with(
         &[
             ("GITHUB_API_URL", format!("{}/api/v3", github.uri())),
-            ("OCTOCODE_SECURITY_CHECKS", "true".into()),
+            ("OCTOCODE_ENABLE_SECURITY", "true".into()),
         ],
         RuntimeLimits {
             osv_api: Box::leak(format!("{}/v1", osv.uri()).into_boxed_str()),

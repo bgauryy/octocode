@@ -1,0 +1,16 @@
+Load when asking what an entry loads at run time, why, what an import costs, or querying attached bundles and profiles (`reach`, `why`, `hubs`, `bundle`, `hot`).
+
+# What loads and what it costs
+
+## What an entry loads and what it costs
+
+| Query | Answer |
+|---|---|
+| `reach <entry...> [--eager] [--forbid <file\|dir\|pkg:name>...]` | What an entry loads at run time (an entry is a file, or a directory: every file under it): every file (`load` eager or lazy, `bytes`, `importedAt`, `kinds`, and `chain`: each step from the entry with its import `line` and `kinds`), `packages` (this graph's files by workspace package with bytes; workspace package nodes with `bytesIfWhole`; installed packages with their importers; runtime modules such as `node:fs` as `builtin`), each with the shortest `chain` from the entry, `boundaries` (each `import()` from startup code), `unsettled` imports, and totals (`stats.eagerBytes`, `lazyBytes`). `--eager` answers startup alone. `--forbid` is a rule: each forbidden target reached is a `violations` row with its chain and import lines, the answer is `failed: true` and `octocode-graph query` exits 1, so CI can run it. A forbidden path, or a `pkg:` name no file of the graph imports, is an error with near names, so a misspelled rule fails. In text, a step `a.ts:9 [kinds → load] → b.ts` is the import at line 9 of `a.ts` that pulls in `b.ts`, and how it loads |
+| `why <entry> <file\|pkg:name> [--eager]` | Why the entry loads the target at run time (`--eager`: at startup): the route through every distinct first hop of the entry that still reaches it (`path --all` over the runtime walk), fewest hops first, each row's `chain` with every hop's import `line` and `kinds`; the summary names the strongest route. A target reached only through `import type` is `found: false` and says so; a `pkg:` name no file imports is an error with near names. [Rules](rules.md) reuse the same chains |
+| `hubs [n\|all] [<dir>]` | Files (under `<dir>` when named) ranked by what they cost importers: runtime importers × the bytes one import loads (`closureFiles`, `closureBytes`, `value`) |
+| `hubs <file>` | Each runtime importer of the file with the names it takes (`names`: each name, how it resolves and where it is declared) and a `verdict`: `reexports-only` (every name is declared elsewhere: import from `direct` and skip this file's closure, `directClosure`), `mixed`, `names-unknown`, `whole-file` (a namespace import), `own-names` |
+| `bundle [<output>] [--diff]` | What a bundler shipped, once a metafile is attached with `enrich` (esbuild metafile, rollup/rolldown output, rolldown analyze): outputs, bytes by source file and package, and `--diff` against `reach <entry> --runtime` (tree-shaken, not shipped, unexpected). [Bundles](provider-bundle.md#what-a-bundle-ships) |
+| `hot [files\|functions] [n\|all] [--from <file>] [--heap]` | Self and total cost per file or function from attached `.cpuprofile` / `.heapprofile` files; `--from` keeps the runtime reach of one entry; unmapped cost is stated. [Profiles](provider-profiles.md#where-profile-cost-lands) |
+
+For a minified stack frame or profile frame (`bundle.js:2282:1266`), run `octocode-graph locate <frame> --graph <out>`: the source line and the graph symbol, through the bundle's source map ([locate](provider-profiles.md#map-minified-positions)).

@@ -1,6 +1,6 @@
-# Skill template
-
 Load when starting a new skill from the canonical entry skeleton (placement rules: [SKILL.md](../SKILL.md#decide-placement)).
+
+# Skill template
 
 The smallest bundle is `<skill-name>/SKILL.md`. Replace placeholders and delete unused slots. Use steps for procedures, condition → action/check rows for reference or decision skills, and conditional resource links for independent branches. The skeleton is adaptable, not a required section order.
 

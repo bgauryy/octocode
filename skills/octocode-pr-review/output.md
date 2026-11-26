@@ -10,7 +10,7 @@ Lead with the verdict, the main risk and what was verified. Then give the most c
 
 ## Findings
 
-Order findings by severity; a table helps compare several:
+Order findings by severity. In a saved report use this table: the verdict check reads `(blocking)` only from its rows.
 
 | ID | Location | Finding and evidence | Impact | Severity | Confidence | Fix |
 |---|---|---|---|---|---|---|
@@ -23,13 +23,11 @@ Order findings by severity; a table helps compare several:
 
 ## Saved report
 
-Save when the review has several findings, a diagram or evidence comparison helps, or the user or project instructions ask for a record. A short review can stay in chat.
+Save when the review has several findings, needs a diagram or evidence comparison, or the user or project instructions ask for a record; otherwise answer in chat.
 
 Path: `<workspace>/.octocode/octocode-pr-review/<YYYY-MM-DD>-pr-<number>.md`, or `<YYYY-MM-DD>-review-<branch>.md` without a PR; intermediate files go in `<workspace>/.octocode/tmp/octocode-pr-review/`. `<workspace>` is the repository root, else the current directory, never a folder inside `.octocode/`. A user-named path wins.
 
-Use the [shared header](references/report-output.md#report-header). `status` is the verdict. Accepted `status` values: `APPROVE`, `COMMENT`, `REQUEST_CHANGES`.
-
-Title the report with the reviewed target and verdict; lead with the recommendation, main risk and what was verified.
+Use the [shared header](references/report-output.md#report-header). `status` is the verdict. Accepted `status` values: `APPROVE`, `COMMENT`, `REQUEST_CHANGES`. Title the report with the reviewed target and verdict, and open it as the [response](#response) does.
 
 Include, in this order:
 

@@ -30,7 +30,7 @@ Run from the repo root with `$DEV` and `$OCTO` as [AGENTS.md](../../AGENTS.md#wo
 
 ## Pitfalls
 
-- `$DEV format` runs native's `cargo fmt --all`: format only your files (`rustfmt --edition 2024 <file>`, `npx prettier --write <file>`).
+- `$DEV format` runs every workspace's `format` script except native's, which is `cargo fmt --all`: format only your files (`rustfmt --edition 2024 <file>`, `npx prettier --write <file>`).
 - `$DEV profile --build`, `cargo dev-test` and `bacon` run cargo outside the build slots.
 - A `-p` or feature selection other than `test:rust`'s compiles a second copy of the crates; `$DEV test:dev` reuses that selection.
 - A change in `tools-shared`, `runtime-base` or `github` also runs its users' tests (`tool-local`, `tool-github`, `native`).
@@ -38,9 +38,9 @@ Run from the repo root with `$DEV` and `$OCTO` as [AGENTS.md](../../AGENTS.md#wo
 
 ## Read next
 
-- Crate map, contract pipeline, build and lint internals, Rust dev tools, profiling: [DEVELOPMENT.md](docs/DEVELOPMENT.md)
-- Changing, testing or auditing a tool: [TOOL_QUALITY.md](docs/TOOL_QUALITY.md)
-- A setting, credential or provider key: [ADDING_CONFIG.md](docs/ADDING_CONFIG.md)
+- Crate map, contract pipeline: [DEVELOPMENT.md](docs/DEVELOPMENT.md); cargo builds, Rust dev tools: [RUST_BUILDS.md](docs/RUST_BUILDS.md); lint internals: [LINT_CHECKS.md](docs/LINT_CHECKS.md); profiling: [PROFILING.md](docs/PROFILING.md)
+- Changing, testing or auditing a tool: [TOOL_QUALITY.md](docs/TOOL_QUALITY.md); one tool's test matrix: [TOOL_CHECKS.md](docs/TOOL_CHECKS.md)
+- A setting: [ADDING_CONFIG.md](docs/ADDING_CONFIG.md); its sources and environment binding: [CONFIG_ENVIRONMENT.md](docs/CONFIG_ENVIRONMENT.md); a credential or provider key: [CONFIG_CREDENTIALS.md](docs/CONFIG_CREDENTIALS.md)
 - The `skills/octocode-scraping` scripts or a new vendor: [SCRAPING_MAINTENANCE.md](docs/SCRAPING_MAINTENANCE.md)
 - Delegating to several agents: [orchestration](references/orchestration.md)
 - The graph engine or its language battery: the `octocode-graph-dev` skill

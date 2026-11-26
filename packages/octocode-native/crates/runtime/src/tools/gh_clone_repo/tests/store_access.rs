@@ -13,10 +13,14 @@ use std::path::Path;
 
 /// A runtime whose home is `home`, run from `cwd`.
 fn runtime(home: &Path, cwd: &Path) -> ToolRuntime {
-    let env = BTreeMap::from([(
-        octocode_runtime_base::config::environment::OCTOCODE_HOME.to_owned(),
-        home.to_string_lossy().into_owned(),
-    )]);
+    // An MCP host lists the local tools only once it turns them on.
+    let env = BTreeMap::from([
+        (
+            octocode_runtime_base::config::environment::OCTOCODE_HOME.to_owned(),
+            home.to_string_lossy().into_owned(),
+        ),
+        ("OCTOCODE_ENABLE_LOCAL".to_owned(), "true".to_owned()),
+    ]);
     ToolRuntime::with_limits(
         ConfigInput {
             env,

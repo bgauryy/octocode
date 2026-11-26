@@ -11,7 +11,8 @@ export const sections: ContractInput['sections'] = {
       apiUrl: {
         type: 'url',
         default: 'https://api.github.com',
-        description: 'GitHub REST API root. GitHub Enterprise commonly uses /api/v3.',
+        description:
+          'GitHub REST API root. GitHub Enterprise commonly uses /api/v3.',
         env: { name: 'GITHUB_API_URL', dotenv: 'home', normalize: 'trim' },
       },
     },
@@ -21,21 +22,30 @@ export const sections: ContractInput['sections'] = {
     fields: {
       enabled: {
         type: 'boolean',
-        default: true,
-        description: 'Expose local filesystem tools through MCP. CLI tools remain available; path and content security apply on both surfaces.',
-        env: { name: 'OCTOCODE_ENABLE_LOCAL', dotenv: 'home', workspaceNarrowsTo: 'false' },
+        default: false,
+        description:
+          'Expose the local section through MCP: the local filesystem tools, ghCloneRepo (with tools.enableClone) and the graph tools. Off, MCP lists the GitHub and package tools only. CLI tools remain available; path and content security apply on both surfaces. Restart MCP after changing this setting.',
+        notes:
+          'Home-only, so a repository can turn it off for MCP but cannot turn it on.',
+        env: {
+          name: 'OCTOCODE_ENABLE_LOCAL',
+          dotenv: 'home',
+          workspaceNarrowsTo: 'false',
+        },
       },
       beta: {
         type: 'boolean',
         default: false,
-        description: 'Enable beta tools on their owning MCP server. The octocode-graph launcher opts into its graph tools by default. Restart the server after changing its environment.',
+        description:
+          'Enable beta tools on their owning MCP server. The octocode-graph launcher opts into its graph tools by default. Restart the server after changing its environment.',
         env: { name: 'OCTOCODE_BETA', dotenv: 'home' },
       },
       allowedPaths: {
         type: 'stringArray',
         default: [],
         itemFormat: 'path',
-        description: 'Extra absolute or home-relative roots added to the allowed roots (workspace root and OCTOCODE_HOME).',
+        description:
+          'Extra absolute or home-relative roots added to the allowed roots (workspace root and OCTOCODE_HOME).',
         env: { name: 'ALLOWED_PATHS', dotenv: 'home' },
         notes: 'The environment value is a comma-separated list.',
       },
@@ -50,9 +60,15 @@ export const sections: ContractInput['sections'] = {
         type: 'path',
         default: null,
         displayDefault: '<workspace>/.octocode/graph',
-        description: 'Directory in which graphBuild keeps its snapshots, in place of the workspace\'s .octocode/graph, shared by every workspace: a build then writes nothing in the repository and may scan any allowed directory, such as a ghCloneRepo checkout. Octocode creates the directory if needed and writes only in its own octocode-graph folder there, never reading or removing anything else; the setting grants local tools no read access to it. A build of a path that contains it is refused.',
-        notes: 'Home-only, so a repository cannot choose where Octocode writes.',
-        env: { name: 'OCTOCODE_GRAPH_HOME', dotenv: 'home', normalize: 'trim' },
+        description:
+          "Directory in which graphBuild keeps its snapshots, in place of the workspace's .octocode/graph, shared by every workspace: a build then writes nothing in the repository and may scan any allowed directory, such as a ghCloneRepo checkout. Octocode creates the directory if needed and writes only in its own octocode-graph folder there, never reading or removing anything else; the setting grants local tools no read access to it. A build of a path that contains it is refused.",
+        notes:
+          'Home-only, so a repository cannot choose where Octocode writes.',
+        env: {
+          name: 'OCTOCODE_GRAPH_HOME',
+          dotenv: 'home',
+          normalize: 'trim',
+        },
       },
     },
   },
@@ -63,28 +79,43 @@ export const sections: ContractInput['sections'] = {
         type: 'stringArray',
         default: null,
         displayDefault: 'unset (every tool)',
-        description: 'Strict MCP tool allowlist; other MCP prerequisites still apply. The CLI ignores this list.',
+        description:
+          'Strict MCP tool allowlist; other MCP prerequisites still apply. The CLI ignores this list.',
         env: { name: 'TOOLS_TO_RUN' },
       },
       disabled: {
         type: 'stringArray',
         default: null,
         displayDefault: 'unset (none)',
-        description: 'Tools removed from MCP discovery and admission. The CLI ignores this list.',
+        description:
+          'Tools removed from MCP discovery and admission. The CLI ignores this list.',
         env: { name: 'DISABLE_TOOLS' },
       },
       enableClone: {
         type: 'boolean',
         default: false,
-        description: 'Expose ghCloneRepo through MCP. CLI remains available. Clone execution requires persistent storage on both surfaces. Restart MCP after changing this setting.',
-        env: { name: 'OCTOCODE_ENABLE_CLONE', dotenv: 'home', workspaceNarrowsTo: 'false' },
+        description:
+          'Expose ghCloneRepo through MCP, with the local tools that read its checkout (local.enabled). CLI remains available. Clone execution requires persistent storage on both surfaces. Restart MCP after changing this setting.',
+        env: {
+          name: 'OCTOCODE_ENABLE_CLONE',
+          dotenv: 'home',
+          workspaceNarrowsTo: 'false',
+        },
       },
-      enableSecurityCheck: {
+      enableSecurity: {
         type: 'boolean',
         default: false,
-        description: 'Expose securityCheck through MCP: it asks OSV (api.osv.dev, operated by Google) about packages, sending each public package name and version it checks. Off, MCP leaves it out and sends nothing. The CLI always offers it, and a CLI call sends the package name to OSV only when you run it. Restart MCP after changing this setting.',
-        notes: 'Home-only, so a repository can turn it off for MCP but cannot turn it on.',
-        env: { name: 'OCTOCODE_SECURITY_CHECKS', dotenv: 'home', workspaceNarrowsTo: 'false' },
+        keyAliases: ['enableSecurityCheck'],
+        description:
+          'Expose securityCheck through MCP: it asks OSV (api.osv.dev, operated by Google) about packages, sending each public package name and version it checks. Off, MCP leaves it out and sends nothing. The CLI always offers it, and a CLI call sends the package name to OSV only when you run it. Restart MCP after changing this setting.',
+        notes:
+          'Home-only, so a repository can turn it off for MCP but cannot turn it on.',
+        env: {
+          name: 'OCTOCODE_ENABLE_SECURITY',
+          aliases: ['OCTOCODE_SECURITY_CHECKS'],
+          dotenv: 'home',
+          workspaceNarrowsTo: 'false',
+        },
       },
     },
   },
@@ -94,9 +125,14 @@ export const sections: ContractInput['sections'] = {
       allowPrivateRegistry: {
         type: 'boolean',
         default: false,
-        description: 'Allow private, loopback, or link-local artifact registries.',
-        env: { name: 'OCTOCODE_ALLOW_PRIVATE_REGISTRY', dotenv: 'home' },
-        notes: 'Security-sensitive SSRF escape hatch; opt in only for trusted enterprise registries.',
+        description:
+          'Allow private, loopback, or link-local artifact registries.',
+        env: {
+          name: 'OCTOCODE_ALLOW_PRIVATE_REGISTRY',
+          dotenv: 'home',
+        },
+        notes:
+          'Security-sensitive SSRF escape hatch; opt in only for trusted enterprise registries.',
       },
     },
   },
@@ -106,27 +142,46 @@ export const sections: ContractInput['sections'] = {
       autoInstall: {
         type: 'enum',
         values: ['prompt', 'off', 'auto'],
-        description: 'Whether `octocode lsp-server install` may download a managed language server: prompt (ask), off, or auto.',
-        env: { name: 'OCTOCODE_LSP_AUTO_INSTALL', dotenv: 'home', normalize: 'lower' },
+        description:
+          'Whether `octocode lsp-server install` may download a managed language server: prompt (ask), off, or auto.',
+        env: {
+          name: 'OCTOCODE_LSP_AUTO_INSTALL',
+          dotenv: 'home',
+          normalize: 'lower',
+        },
       },
       trustProjectConfig: {
         type: 'boolean',
         default: false,
-        description: 'Trust a project .octocode/lsp-servers.json. Security-sensitive: a trusted project config can launch server binaries.',
-        env: { name: 'OCTOCODE_TRUST_PROJECT_LSP_CONFIG', dotenv: 'home' },
+        description:
+          'Trust a project .octocode/lsp-servers.json. Security-sensitive: a trusted project config can launch server binaries.',
+        env: {
+          name: 'OCTOCODE_TRUST_PROJECT_LSP_CONFIG',
+          dotenv: 'home',
+        },
       },
       trustFetchedCode: {
         type: 'boolean',
         default: false,
-        description: 'Let lspSearch start language servers on code Octocode fetched: ghCloneRepo and ghStructure materialize checkouts and URL captures under its home. Off by default, because a language server can run code from the repository it opens; text, AST and graph tools read that code without running anything.',
-        notes: 'Security-sensitive: turning it on lets a repository you fetched run code on this machine when lspSearch opens it. Home-only, so a repository cannot turn it on.',
-        env: { name: 'OCTOCODE_LSP_TRUST_FETCHED_CODE', dotenv: 'home', workspaceNarrowsTo: 'false' },
+        description:
+          'Let lspSearch start language servers on code Octocode fetched: ghCloneRepo and ghStructure materialize checkouts and URL captures under its home. Off by default, because a language server can run code from the repository it opens; text, AST and graph tools read that code without running anything.',
+        notes:
+          'Security-sensitive: turning it on lets a repository you fetched run code on this machine when lspSearch opens it. Home-only, so a repository cannot turn it on.',
+        env: {
+          name: 'OCTOCODE_LSP_TRUST_FETCHED_CODE',
+          dotenv: 'home',
+          workspaceNarrowsTo: 'false',
+        },
       },
       prewarm: {
         type: 'enum',
         values: ['targeted', 'all', 'off'],
-        description: 'Language-server prewarm: targeted warms the server of the file a localSearch, localFetch or astSearch row names and of an lspSearch call the response offers; all also warms files named by other local tools and, at MCP initialize, the workspace\'s top three languages; off disables prewarm. Only languages with a configured server start, and each start indexes a whole project: targeted avoids unrelated server starts, but a lookup before any read or search can take seconds.',
-        env: { name: 'OCTOCODE_LSP_PREWARM', normalize: 'lower' },
+        description:
+          "Language-server prewarm: targeted warms the server of the file a localSearch, localFetch or astSearch row names and of an lspSearch call the response offers; all also warms files named by other local tools and, at MCP initialize, the workspace's top three languages; off disables prewarm. Only languages with a configured server start, and each start indexes a whole project: targeted avoids unrelated server starts, but a lookup before any read or search can take seconds.",
+        env: {
+          name: 'OCTOCODE_LSP_PREWARM',
+          normalize: 'lower',
+        },
       },
     },
   },
@@ -137,19 +192,33 @@ export const sections: ContractInput['sections'] = {
         type: 'boolean',
         default: false,
         description: 'Mask email addresses such as GitHub commit authors.',
-        env: { name: 'OCTOCODE_REDACT_EMAILS', dotenv: 'home', workspaceNarrowsTo: 'true' },
+        env: {
+          name: 'OCTOCODE_REDACT_EMAILS',
+          dotenv: 'home',
+          workspaceNarrowsTo: 'true',
+        },
       },
       redactUuid: {
         type: 'boolean',
         default: false,
-        description: 'Mask UUIDs (8-4-4-4-12 hexadecimal) in every tool result. Off by default: a UUID is an identifier, not a secret.',
-        env: { name: 'OCTOCODE_REDACT_UUID', dotenv: 'home', workspaceNarrowsTo: 'true' },
+        description:
+          'Mask UUIDs (8-4-4-4-12 hexadecimal) in every tool result. Off by default: a UUID is an identifier, not a secret.',
+        env: {
+          name: 'OCTOCODE_REDACT_UUID',
+          dotenv: 'home',
+          workspaceNarrowsTo: 'true',
+        },
       },
       mcpResult: {
         type: 'enum',
         values: ['json', 'text'],
-        description: 'Format of an MCP tools/call reply: json sends the compact JSON result as one text block; text sends the text view the CLI prints (content lines, then `# key: value` lines, each continuation as a runnable `{"tool","input"}` call), which a client must not parse as JSON.',
-        env: { name: 'OCTOCODE_MCP_RESULT', normalize: 'lower', dotenv: 'home' },
+        description:
+          'Format of an MCP tools/call reply: json sends the compact JSON result as one text block; text sends the text view the CLI prints (content lines, then `# key: value` lines, each continuation as a runnable `{"tool","input"}` call), which a client must not parse as JSON.',
+        env: {
+          name: 'OCTOCODE_MCP_RESULT',
+          normalize: 'lower',
+          dotenv: 'home',
+        },
       },
     },
   },
@@ -160,8 +229,10 @@ export const sections: ContractInput['sections'] = {
         type: 'enum',
         typeName: 'CredentialFilesPolicy',
         values: ['withhold', 'allow'],
-        description: 'Whether local read and search tools may read the known credential files (.env and .env.*, credentials.json, .netrc, .npmrc, id_rsa*, *.pem and the like): withhold them, or allow them in the workspace and allowed paths so results match ripgrep. Known secret formats stay redacted. Credential directories such as .ssh, .aws and .git, the Octocode home, and known credential files directly in your home or in its dot directories (~/.npmrc, ~/.codex/auth.json) stay withheld; every other file, such as ~/.zshrc or a shell history, follows the allowed roots like any file. Graph snapshots, clasify and classification never read these files, and allow keeps saved local results in memory, so a cursor ends with its process.',
-        notes: 'Security-sensitive: redaction recognizes known secret formats only, so a secret in no known format can appear in results. Home-only, so a repository cannot turn it on.',
+        description:
+          'Whether local read and search tools may read the known credential files (.env and .env.*, credentials.json, .netrc, .npmrc, id_rsa*, *.pem and the like): withhold them, or allow them in the workspace and allowed paths so results match ripgrep. Known secret formats stay redacted. Credential directories such as .ssh, .aws and .git, the Octocode home, and known credential files directly in your home or in its dot directories (~/.npmrc, ~/.codex/auth.json) stay withheld; every other file, such as ~/.zshrc or a shell history, follows the allowed roots like any file. Graph snapshots, clasify and classification never read these files, and allow keeps saved local results in memory, so a cursor ends with its process.',
+        notes:
+          'Security-sensitive: redaction recognizes known secret formats only, so a secret in no known format can appear in results. Home-only, so a repository cannot turn it on.',
         env: {
           name: 'OCTOCODE_CREDENTIAL_FILES',
           dotenv: 'home',
@@ -178,7 +249,8 @@ export const sections: ContractInput['sections'] = {
         type: 'enum',
         typeName: 'StorageMode',
         values: ['persistent', 'memory'],
-        description: 'Persistent saves continuation state and provider answers to disk; memory retains them only in the current runtime. Fresh local requests reuse only in-memory results keyed by the content they read; GitHub and registry answers repeat as their origin allows. Explicit graph snapshots are outputs; interrupted extraction checkpoints follow this setting.',
+        description:
+          'Persistent saves continuation state and provider answers to disk; memory retains them only in the current runtime. Fresh local requests reuse only in-memory results keyed by the content they read; GitHub and registry answers repeat as their origin allows. Explicit graph snapshots are outputs; interrupted extraction checkpoints follow this setting.',
         env: {
           name: 'OCTOCODE_STORAGE_MODE',
           dotenv: 'home',
@@ -189,9 +261,15 @@ export const sections: ContractInput['sections'] = {
       cloneCacheLimit: {
         type: 'string',
         default: '5GiB',
-        description: 'Byte cap for the clean ghCloneRepo checkouts under the Octocode home, as a whole number with an optional binary unit (B, KiB, MiB, GiB, TiB; K, M, G, T, KB, MB, GB and TB mean the same): "5GiB", "512MiB", "1073741824". After a new checkout is published, the least recently used checkouts are removed until the total fits. A checkout in use, one with local changes, and the one just published stay. 0 means no cap. An invalid value is reported and the default applies. The shared object stores behind the checkouts are not counted.',
-        env: { name: 'OCTOCODE_CLONE_CACHE_LIMIT', dotenv: 'home', normalize: 'trim' },
-        notes: 'Home-only, so a repository cannot make Octocode discard your checkouts.',
+        description:
+          'Byte cap for the clean ghCloneRepo checkouts under the Octocode home, as a whole number with an optional binary unit (B, KiB, MiB, GiB, TiB; K, M, G, T, KB, MB, GB and TB mean the same): "5GiB", "512MiB", "1073741824". After a new checkout is published, the least recently used checkouts are removed until the total fits. A checkout in use, one with local changes, and the one just published stay. 0 means no cap. An invalid value is reported and the default applies. The shared object stores behind the checkouts are not counted.',
+        env: {
+          name: 'OCTOCODE_CLONE_CACHE_LIMIT',
+          dotenv: 'home',
+          normalize: 'trim',
+        },
+        notes:
+          'Home-only, so a repository cannot make Octocode discard your checkouts.',
       },
     },
   },
@@ -202,30 +280,48 @@ export const sections: ContractInput['sections'] = {
         type: 'string',
         default: null,
         credential: true,
-        description: 'Classification provider API key. A nonblank value exposes clasify and read-tool classifiers in MCP and the CLI; without one, a CLI clasify call answers where to get a key. Discovery makes no provider request.',
-        env: { name: 'OCTOCODE_CLASSIFICATION_API', dotenv: 'home', normalize: 'trim' },
+        description:
+          'Classification provider API key. A nonblank value exposes clasify and read-tool classifiers in MCP and the CLI; without one, a CLI clasify call answers where to get a key. Discovery makes no provider request.',
+        env: {
+          name: 'OCTOCODE_CLASSIFICATION_API',
+          dotenv: 'home',
+          normalize: 'trim',
+        },
         displayDefault: 'unset (classification off)',
         group: 'Classification',
         docsUrl: 'https://docs.typesafe.ai/introduction',
-        notes: 'Credential values are omitted from resolved configuration and diagnostics. Home-only, so a repository cannot turn classification on or send your evidence under its own provider account.',
+        notes:
+          'Credential values are omitted from resolved configuration and diagnostics. Home-only, so a repository cannot turn classification on or send your evidence under its own provider account.',
       },
       apiHost: {
         type: 'url',
         default: null,
-        description: 'Classification provider API root, for a proxy, gateway or compatible provider that serves the same API.',
-        env: { name: 'OCTOCODE_CLASSIFICATION_API_HOST', dotenv: 'home', normalize: 'trim' },
+        description:
+          'Classification provider API root, for a proxy, gateway or compatible provider that serves the same API.',
+        env: {
+          name: 'OCTOCODE_CLASSIFICATION_API_HOST',
+          dotenv: 'home',
+          normalize: 'trim',
+        },
         displayDefault: 'https://api.typesafe.ai',
         group: 'Classification',
-        notes: 'Calls require HTTPS except on loopback, and an API root with no path. Home-only, so a repository cannot redirect your key.',
+        notes:
+          'Calls require HTTPS except on loopback, and an API root with no path. Home-only, so a repository cannot redirect your key.',
       },
       model: {
         type: 'string',
         default: null,
-        description: 'Classification model for read-tool classifiers and clasify; a clasify row\'s model overrides it.',
-        env: { name: 'OCTOCODE_CLASSIFICATION_MODEL', dotenv: 'all', normalize: 'trim' },
+        description:
+          "Classification model for read-tool classifiers and clasify; a clasify row's model overrides it.",
+        env: {
+          name: 'OCTOCODE_CLASSIFICATION_MODEL',
+          dotenv: 'all',
+          normalize: 'trim',
+        },
         displayDefault: 'jev-latest',
         group: 'Classification',
-        notes: 'Pin an exact model (for example jev-1.13.0) for reproducible results; an alias can change between fresh evaluations.',
+        notes:
+          'Pin an exact model (for example jev-1.13.0) for reproducible results; an alias can change between fresh evaluations.',
       },
     },
   },

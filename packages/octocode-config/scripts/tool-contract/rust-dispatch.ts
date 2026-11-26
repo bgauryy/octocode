@@ -26,9 +26,12 @@ export type ChannelRegistry = Readonly<
 >;
 
 /** The names of the contract's tool records, each checked as text. */
-export function toolNames(records: readonly Readonly<Record<string, unknown>>[]): string[] {
+export function toolNames(
+  records: readonly Readonly<Record<string, unknown>>[]
+): string[] {
   return records.map(({ name }) => {
-    if (typeof name !== 'string') throw new TypeError('A contract tool has no name');
+    if (typeof name !== 'string')
+      throw new TypeError('A contract tool has no name');
     return name;
   });
 }
@@ -40,7 +43,8 @@ export const queryTypeName = (tool: string): string => `${pascal(tool)}Query`;
 export const dataTypeName = (tool: string): string => `${pascal(tool)}Data`;
 
 /** The generated error-row data type of a tool, where core registers one: `ghCloneRepo` → `GhCloneRepoErrorData`. */
-export const errorDataTypeName = (tool: string): string => `${pascal(tool)}ErrorData`;
+export const errorDataTypeName = (tool: string): string =>
+  `${pascal(tool)}ErrorData`;
 
 /** One named branch of a tool's query union: `LocalFetchQuerySymbols` of `localFetch`. */
 export type QueryBranch = { readonly tool: string; readonly type: string };
@@ -49,17 +53,23 @@ export type QueryBranch = { readonly tool: string; readonly type: string };
  * The branch types typify converts into each tool's query union
  * (`impl From<Branch> for <Tool>Query`), read from its output.
  */
-export function queryBranches(generated: string, tools: readonly string[]): QueryBranch[] {
+export function queryBranches(
+  generated: string,
+  tools: readonly string[]
+): QueryBranch[] {
   const byQuery = new Map(tools.map(tool => [queryTypeName(tool), tool]));
   const branches: QueryBranch[] = [];
-  for (const [, type, query] of generated.matchAll(/impl\s+::std::convert::From<(\w+)>\s+for\s+(\w+)\s*\{/g)) {
+  for (const [, type, query] of generated.matchAll(
+    /impl\s+::std::convert::From<(\w+)>\s+for\s+(\w+)\s*\{/g
+  )) {
     const tool = query === undefined ? undefined : byQuery.get(query);
     if (tool !== undefined && type !== undefined) branches.push({ tool, type });
   }
   return branches;
 }
 
-const variant = (key: string): string => typeName(key.replace(/([a-z0-9])([A-Z])/g, '$1-$2'));
+const variant = (key: string): string =>
+  typeName(key.replace(/([a-z0-9])([A-Z])/g, '$1-$2'));
 const str = (value: string): string => JSON.stringify(value);
 
 /**
@@ -76,10 +86,14 @@ function channelEnum(
   const definitionOf = (key: string): ChannelDefinition => row[key] ?? 'linear';
   const kind = (key: string): string => {
     const definition = definitionOf(key);
-    return pascal(typeof definition === 'object' ? definition.kind : definition);
+    return pascal(
+      typeof definition === 'object' ? definition.kind : definition
+    );
   };
   const arms = (body: (key: string) => string): string =>
-    keys.map(key => `            Self::${variant(key)} => ${body(key)},`).join('\n');
+    keys
+      .map(key => `            Self::${variant(key)} => ${body(key)},`)
+      .join('\n');
   return `${doc}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ${name} {
@@ -159,29 +173,47 @@ function branchOwnersOf(
 ): Map<string, string> {
   const known = new Set(tools);
   const missing = tools.filter(tool => channels[tool] === undefined);
-  if (missing.length > 0) throw new Error(`continuationChannels has no entry for ${missing.join(', ')}`);
+  if (missing.length > 0)
+    throw new Error(
+      `continuationChannels has no entry for ${missing.join(', ')}`
+    );
   const stray = Object.keys(channels).filter(tool => !known.has(tool));
-  if (stray.length > 0) throw new Error(`continuationChannels names unknown tools: ${stray.join(', ')}`);
+  if (stray.length > 0)
+    throw new Error(
+      `continuationChannels names unknown tools: ${stray.join(', ')}`
+    );
   const owners = new Map<string, string>();
   for (const { tool, type } of branches) {
-    if (!known.has(tool)) throw new Error(`query branch ${type} names unknown tool ${tool}`);
+    if (!known.has(tool))
+      throw new Error(`query branch ${type} names unknown tool ${tool}`);
     const owner = owners.get(type);
-    if (owner !== undefined && owner !== tool) throw new Error(`query branch ${type} is shared by ${owner} and ${tool}`);
+    if (owner !== undefined && owner !== tool)
+      throw new Error(`query branch ${type} is shared by ${owner} and ${tool}`);
     owners.set(type, tool);
   }
   return owners;
 }
 
 /** A `From<type> for ToolQuery` impl whose body builds the variant from `value`. */
-const toolQueryFrom = (type: string, body: string): string => `impl ::std::convert::From<${type}> for ToolQuery {
+const toolQueryFrom = (
+  type: string,
+  body: string
+): string => `impl ::std::convert::From<${type}> for ToolQuery {
     fn from(value: ${type}) -> Self {
         ${body}
     }
 }`;
 
 /** The `ToolQuery` enum with a `From` for every tool query and query branch. */
-function renderToolQuery(tools: readonly string[], branchOwners: ReadonlyMap<string, string>): string {
-  const queries = tools.map(tool => ({ tool, type: queryTypeName(tool), variant: pascal(tool) }));
+function renderToolQuery(
+  tools: readonly string[],
+  branchOwners: ReadonlyMap<string, string>
+): string {
+  const queries = tools.map(tool => ({
+    tool,
+    type: queryTypeName(tool),
+    variant: pascal(tool),
+  }));
   return `/// A call's typed query: one variant per tool, wrapping that tool's query type.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ToolQuery {
@@ -199,12 +231,20 @@ ${queries.map(({ variant: name }) => `            Self::${name}(query) => ::serd
         }
     }
 }
-${queries.map(({ type, variant: name }) => toolQueryFrom(type, `Self::${name}(value)`)).join('\n')}${[...branchOwners]
-    .map(([type, tool]) => `\n${toolQueryFrom(type, `Self::${pascal(tool)}(${queryTypeName(tool)}::from(value))`)}`)
+${queries.map(({ type, variant: name }) => toolQueryFrom(type, `Self::${name}(value)`)).join('\n')}${[
+    ...branchOwners,
+  ]
+    .map(
+      ([type, tool]) =>
+        `\n${toolQueryFrom(type, `Self::${pascal(tool)}(${queryTypeName(tool)}::from(value))`)}`
+    )
     .join('')}`;
 }
 
-type DeclaredChannels = { sections: string[]; declared: Array<{ name: string; keys: string[] }> };
+type DeclaredChannels = {
+  sections: string[];
+  declared: Array<{ name: string; keys: string[] }>;
+};
 
 /** One channel enum per tool row (and its collections), plus the error channel every tool owns. */
 function renderChannels(
@@ -224,14 +264,19 @@ function renderChannels(
           entry.row,
           name,
           `/// The \`next\` keys a \`${tool}\` row may carry; a numbered key takes a zero-based suffix.`,
-          definition => (typeof definition === 'object' ? definition.owner : [tool])
+          definition =>
+            typeof definition === 'object' ? definition.owner : [tool]
         )
       );
     }
-    if (entry.collections.length > 0) out.sections.push(collectionEnum(tool, entry.collections));
+    if (entry.collections.length > 0)
+      out.sections.push(collectionEnum(tool, entry.collections));
   }
   if (Object.keys(errorChannels).length > 0) {
-    out.declared.push({ name: 'ErrorChannel', keys: Object.keys(errorChannels) });
+    out.declared.push({
+      name: 'ErrorChannel',
+      keys: Object.keys(errorChannels),
+    });
     // A recovery call retries the row's own tool, which no static type names:
     // every tool owns an error channel.
     out.sections.push(
@@ -239,7 +284,8 @@ function renderChannels(
         errorChannels,
         'ErrorChannel',
         '/// The `next` keys an error row may carry, on any tool.',
-        definition => (typeof definition === 'object' ? definition.owner : tools)
+        definition =>
+          typeof definition === 'object' ? definition.owner : tools
       )
     );
   }
@@ -276,5 +322,11 @@ export function renderDispatch(
 ): string {
   const branchOwners = branchOwnersOf(tools, channels, branches);
   const { sections, declared } = renderChannels(tools, channels, errorChannels);
-  return [CHANNEL_KIND, CHANNEL_TRAIT, renderToolQuery(tools, branchOwners), ...sections, renderChannelSpecs(declared)].join('\n');
+  return [
+    CHANNEL_KIND,
+    CHANNEL_TRAIT,
+    renderToolQuery(tools, branchOwners),
+    ...sections,
+    renderChannelSpecs(declared),
+  ].join('\n');
 }

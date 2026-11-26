@@ -79,7 +79,7 @@ through the host's real mechanism and nothing else.
 | Setting | Do | Why |
 |---|---|---|
 | `OCTOCODE_HOME` | a new empty directory per round (per agent when agents run in parallel) under `<repo>/.octocode/tmp/<round>/` (gitignored), such as `.octocode/tmp/<round>/home-<agent>/` | no caches, saved plans or config from earlier runs; first-call and repeat-call costs stay separable |
-| Config and `.octocoderc` | none beyond what the round states; record any env var you set (`OCTOCODE_ENABLE_LOCAL`, `OCTOCODE_ENABLE_CLONE`, `OCTOCODE_SECURITY_CHECKS`, …) | an arm's tools must match what a user would have |
+| Config and `.octocoderc` | none beyond what the round states; record any env var you set (`OCTOCODE_ENABLE_LOCAL`, `OCTOCODE_ENABLE_CLONE`, `OCTOCODE_ENABLE_SECURITY`, …) | an arm's tools must match what a user would have |
 | GitHub access | one token for the round, via `GH_TOKEN` or `octocode auth login`; a fresh `OCTOCODE_HOME` has no stored login | stored credentials live in `<OCTOCODE_HOME>/credentials.json`: do not copy it into a report or share it between arms |
 | Workspace | run from a neutral directory, or the clone itself, with no `.octocode/` of your own | workspace config is read from `<cwd>/.octocode/` |
 | Cache state | label every timing **cold** (nothing running, empty home) or **warm** (session server running); never mix | a repeat call answers from cache |

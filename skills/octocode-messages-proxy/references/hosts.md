@@ -1,3 +1,5 @@
+Load when `detect` reports a wrong or missing operator, or when you need a host's recognized process, own peer messaging or proxy model.
+
 # Agent hosts
 
 `detect` and `ask` find the operator as the nearest agent CLI among the launcher's ancestors. Processes decide; environment variables do not (terminals inherit them, e.g. `CLAUDE_CODE_SSE_PORT` from an editor extension). A Cursor editor ancestor counts only when no agent CLI is found (`via: editor`, an inference). Override a wrong or missing result with `--operator-vendor`.

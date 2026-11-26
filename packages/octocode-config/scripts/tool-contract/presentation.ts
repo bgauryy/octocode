@@ -142,9 +142,7 @@ export function toolHelpSection(definition: Definition): string {
  */
 export function compactFields(definition: Definition): string {
   const shown = new Set(
-    rowVariants(publishedRow(definition)).flatMap(row =>
-      Object.keys(row.shape)
-    )
+    rowVariants(publishedRow(definition)).flatMap(row => Object.keys(row.shape))
   );
   const forms = toolVariants(definition);
   const max =
@@ -241,6 +239,8 @@ function rendered(definition: Definition) {
     mcp: {
       title: definition.title,
       description: definition.description,
+      // Clauses a host drops from the description when it does not list the tool each names.
+      ...(definition.gatedClauses && { gatedClauses: definition.gatedClauses }),
       ...(definition.annotations && { annotations: definition.annotations }),
       inputSchema,
     },

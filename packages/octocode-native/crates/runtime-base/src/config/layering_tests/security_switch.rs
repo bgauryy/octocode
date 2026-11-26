@@ -1,9 +1,9 @@
-//! `tools.enableSecurityCheck`: off by default. A dependency list leaves the
+//! `tools.enableSecurity`: off by default. A dependency list leaves the
 //! machine when it is on, so a repository can never turn it on, and may turn it off.
 use super::*;
 
-const PATH: &str = "tools.enableSecurityCheck";
-const VAR: &str = "OCTOCODE_SECURITY_CHECKS";
+const PATH: &str = "tools.enableSecurity";
+const VAR: &str = "OCTOCODE_ENABLE_SECURITY";
 
 fn on(out: &ConfigOutput) -> bool {
     value_of(out, PATH) == serde_json::json!(true)
@@ -28,7 +28,7 @@ fn a_repository_cannot_turn_the_security_check_on() {
         by_env.dotenv
     );
     let by_file = resolve(Layers {
-        project_rc: Some(r#"{"tools":{"enableSecurityCheck":true}}"#),
+        project_rc: Some(r#"{"tools":{"enableSecurity":true}}"#),
         ..NONE
     });
     assert!(!on(&by_file));
@@ -38,7 +38,7 @@ fn a_repository_cannot_turn_the_security_check_on() {
     let against_off = resolve(Layers {
         global_env: Some(&home_env),
         project_env: Some(&project_env),
-        project_rc: Some(r#"{"tools":{"enableSecurityCheck":true}}"#),
+        project_rc: Some(r#"{"tools":{"enableSecurity":true}}"#),
         ..NONE
     });
     assert!(!on(&against_off));
@@ -54,7 +54,7 @@ fn the_user_turns_it_on_and_a_repository_may_turn_it_off() {
     assert!(on(&by_home_env));
     assert_eq!(by_home_env.setting_source(PATH), SettingSource::HomeEnv);
     let by_home_file = resolve(Layers {
-        global_rc: Some(r#"{"tools":{"enableSecurityCheck":true}}"#),
+        global_rc: Some(r#"{"tools":{"enableSecurity":true}}"#),
         ..NONE
     });
     assert!(on(&by_home_file));
@@ -70,8 +70,8 @@ fn the_user_turns_it_on_and_a_repository_may_turn_it_off() {
     });
     assert!(!on(&env_over_env));
     let file_over_file = resolve(Layers {
-        global_rc: Some(r#"{"tools":{"enableSecurityCheck":true}}"#),
-        project_rc: Some(r#"{"tools":{"enableSecurityCheck":false}}"#),
+        global_rc: Some(r#"{"tools":{"enableSecurity":true}}"#),
+        project_rc: Some(r#"{"tools":{"enableSecurity":false}}"#),
         ..NONE
     });
     assert!(!on(&file_over_file));
@@ -84,7 +84,7 @@ fn the_user_turns_it_on_and_a_repository_may_turn_it_off() {
     // `.env` on outranks a repository's file off.
     let home_env_over_project_file = resolve(Layers {
         global_env: Some(&home_on),
-        project_rc: Some(r#"{"tools":{"enableSecurityCheck":false}}"#),
+        project_rc: Some(r#"{"tools":{"enableSecurity":false}}"#),
         ..NONE
     });
     assert!(on(&home_env_over_project_file));

@@ -6,6 +6,7 @@ import path from 'node:path';
 import {
   DIRECT_TOOL_DEFINITIONS,
   TOOL_NAMES,
+  TOOL_POLICIES,
   toolPackage,
   isBetaTool,
 } from '@octocodeai/config/schema';
@@ -14,22 +15,35 @@ import { ROOT } from './lib/workspaces.mjs';
 import { checkVocabulary } from './check-vocabulary.mjs';
 import { gitHasPath, pinnedLinkFailures } from './docs-pinned-links.mjs';
 
-const REPO_BLOB_PREFIXES = ['octocode', 'octocode-mcp'].map(repo => `https://github.com/bgauryy/${repo}/blob/main/`);
+const REPO_BLOB_PREFIXES = ['octocode', 'octocode-mcp'].map(
+  repo => `https://github.com/bgauryy/${repo}/blob/main/`
+);
 const PUBLIC_TOOL_NAMES = DIRECT_TOOL_DEFINITIONS.map(
   definition => definition.name
 );
-// MCP opt-ins: clasify needs a key; securityCheck needs its switch.
-const needsSetup = name =>
-  name === TOOL_NAMES.CLASIFY ||
-  (name === TOOL_NAMES.SECURITY_CHECK && !DEFAULT_CONFIG.tools.enableSecurityCheck);
+// Whether each section is on for an MCP host with no setting: the default of the setting native's
+// `section_setting` names (execution/availability.rs). The external section needs none; clasify needs a key.
+const SECTION_ON_BY_DEFAULT = {
+  external: true,
+  local: DEFAULT_CONFIG.local.enabled,
+  security: DEFAULT_CONFIG.tools.enableSecurity,
+  clasify: false,
+};
+const sectionOf = name => TOOL_POLICIES[name].section;
 const CATALOG_TOOL_COUNT = PUBLIC_TOOL_NAMES.length;
-// CLI discovery includes securityCheck independently of MCP's opt-in switch.
-const CLI_DEFAULT_TOOL_NAMES = PUBLIC_TOOL_NAMES.filter(name => name !== TOOL_NAMES.CLASIFY && toolPackage(name) === 'octocode');
+// CLI discovery lists every section but the one that needs a key.
+const CLI_DEFAULT_TOOL_NAMES = PUBLIC_TOOL_NAMES.filter(
+  name => sectionOf(name) !== 'clasify' && toolPackage(name) === 'octocode'
+);
 const CLI_DEFAULT_TOOL_COUNT = CLI_DEFAULT_TOOL_NAMES.length;
-// Default MCP catalog: core tool policy decides beta tools; clone needs its own opt-in.
+// Default MCP catalog: the sections on by default, less the tools with a gate of their own (clone, beta).
 const DEFAULT_TOOL_COUNT = CLI_DEFAULT_TOOL_NAMES.filter(name => {
-  if (needsSetup(name)) return false;
-  if (name === TOOL_NAMES.GITHUB_CLONE_REPO && !DEFAULT_CONFIG.tools.enableClone) return false;
+  if (!SECTION_ON_BY_DEFAULT[sectionOf(name)]) return false;
+  if (
+    name === TOOL_NAMES.GITHUB_CLONE_REPO &&
+    !DEFAULT_CONFIG.tools.enableClone
+  )
+    return false;
   return !(isBetaTool(name) && !DEFAULT_CONFIG.local.beta);
 }).length;
 const DOC_ROOTS = [
@@ -87,9 +101,10 @@ function readMarkdownLinks(content) {
 
   while ((match = linkPattern.exec(content)) !== null) {
     const rawTarget = match[1].trim();
-    const target = rawTarget.startsWith('<') && rawTarget.endsWith('>')
-      ? rawTarget.slice(1, -1)
-      : rawTarget;
+    const target =
+      rawTarget.startsWith('<') && rawTarget.endsWith('>')
+        ? rawTarget.slice(1, -1)
+        : rawTarget;
     links.push(target.split(/\s+/)[0]);
   }
 
@@ -127,7 +142,8 @@ function readAnchors(filePath) {
       continue;
     }
     if (fence) continue;
-    for (const [, id] of line.matchAll(/<a\s+(?:id|name)=["']([^"']+)["']/g)) anchors.add(id);
+    for (const [, id] of line.matchAll(/<a\s+(?:id|name)=["']([^"']+)["']/g))
+      anchors.add(id);
     const heading = line.match(/^#{1,6}\s+(.*)$/)?.[1];
     if (heading === undefined) continue;
     const slug = headingSlug(heading);
@@ -142,7 +158,8 @@ function readAnchors(filePath) {
 // A `#fragment` into a Markdown file must name one of its anchors.
 function missingAnchor(targetPath, linkTarget) {
   const hash = linkTarget.indexOf('#');
-  if (hash < 0 || !targetPath.endsWith('.md') || !fs.existsSync(targetPath)) return null;
+  if (hash < 0 || !targetPath.endsWith('.md') || !fs.existsSync(targetPath))
+    return null;
   const fragment = decodeURIComponent(linkTarget.slice(hash + 1));
   return readAnchors(targetPath).has(fragment) ? null : fragment;
 }
@@ -151,7 +168,11 @@ function missingAnchor(targetPath, linkTarget) {
 function gitIgnoredPaths(paths) {
   if (paths.length === 0) return new Set();
   try {
-    const output = execFileSync('git', ['check-ignore', '--no-index', '--stdin'], { cwd: ROOT, input: paths.join('\n'), encoding: 'utf8' });
+    const output = execFileSync(
+      'git',
+      ['check-ignore', '--no-index', '--stdin'],
+      { cwd: ROOT, input: paths.join('\n'), encoding: 'utf8' }
+    );
     return new Set(output.split('\n').filter(Boolean));
   } catch (error) {
     if (error.status === 1) return new Set(); // nothing ignored
@@ -164,8 +185,15 @@ function validateDocsLinks() {
   const existingLocalLinks = [];
 
   const packageRoots = listPackageRoots();
-  const entryDocs = [ROOT, ...packageRoots].flatMap(dir => fs.readdirSync(dir, { withFileTypes: true }).filter(entry => entry.isFile() && entry.name.endsWith('.md')).map(entry => path.join(dir, entry.name)));
-  const docFiles = [...new Set([...DOC_ROOTS.flatMap(collectMarkdownFiles), ...entryDocs])];
+  const entryDocs = [ROOT, ...packageRoots].flatMap(dir =>
+    fs
+      .readdirSync(dir, { withFileTypes: true })
+      .filter(entry => entry.isFile() && entry.name.endsWith('.md'))
+      .map(entry => path.join(dir, entry.name))
+  );
+  const docFiles = [
+    ...new Set([...DOC_ROOTS.flatMap(collectMarkdownFiles), ...entryDocs]),
+  ];
   for (const filePath of docFiles) {
     {
       const content = fs.readFileSync(filePath, 'utf8');
@@ -173,34 +201,51 @@ function validateDocsLinks() {
         const relativeFile = path.relative(ROOT, filePath);
         if (linkTarget.startsWith('#')) {
           const fragment = missingAnchor(filePath, linkTarget);
-          if (fragment !== null) failures.push(`${relativeFile} points to missing heading "#${fragment}"`);
+          if (fragment !== null)
+            failures.push(
+              `${relativeFile} points to missing heading "#${fragment}"`
+            );
           continue;
         }
         if (
           linkTarget.startsWith('mailto:') ||
           linkTarget.startsWith('tel:') ||
-          ( /^[a-z][a-z0-9+.-]*:/i.test(linkTarget) && !linkTarget.startsWith('https://') )
+          (/^[a-z][a-z0-9+.-]*:/i.test(linkTarget) &&
+            !linkTarget.startsWith('https://'))
         ) {
           continue;
         }
 
         if (!linkTarget.startsWith('https://')) {
           const relativeTarget = decodeURIComponent(linkTarget.split('#')[0]);
-          const targetPath = path.resolve(path.dirname(filePath), relativeTarget);
+          const targetPath = path.resolve(
+            path.dirname(filePath),
+            relativeTarget
+          );
           if (!fs.existsSync(targetPath)) {
-            failures.push(`${relativeFile} points to missing relative file "${linkTarget}"`);
+            failures.push(
+              `${relativeFile} points to missing relative file "${linkTarget}"`
+            );
           } else {
             existingLocalLinks.push({ relativeFile, linkTarget, targetPath });
             if (missingAnchor(targetPath, linkTarget) !== null) {
-              failures.push(`${relativeFile} points to missing heading "${linkTarget}"`);
+              failures.push(
+                `${relativeFile} points to missing heading "${linkTarget}"`
+              );
             }
           }
           continue;
         }
 
-        failures.push(...pinnedLinkFailures(relativeFile, [linkTarget], (sha, repoPath) => gitHasPath(ROOT, sha, repoPath)));
+        failures.push(
+          ...pinnedLinkFailures(relativeFile, [linkTarget], (sha, repoPath) =>
+            gitHasPath(ROOT, sha, repoPath)
+          )
+        );
 
-        const repoPrefix = REPO_BLOB_PREFIXES.find(prefix => linkTarget.startsWith(prefix));
+        const repoPrefix = REPO_BLOB_PREFIXES.find(prefix =>
+          linkTarget.startsWith(prefix)
+        );
         if (repoPrefix) {
           const relativeTarget = linkTarget
             .slice(repoPrefix.length)
@@ -208,9 +253,13 @@ function validateDocsLinks() {
             .replace(/\/$/, '');
           const absoluteTarget = path.join(ROOT, relativeTarget);
           if (!fs.existsSync(absoluteTarget)) {
-            failures.push(`${relativeFile} points to missing repo file "${relativeTarget}"`);
+            failures.push(
+              `${relativeFile} points to missing repo file "${relativeTarget}"`
+            );
           } else if (missingAnchor(absoluteTarget, linkTarget) !== null) {
-            failures.push(`${relativeFile} points to missing heading "${linkTarget}"`);
+            failures.push(
+              `${relativeFile} points to missing heading "${linkTarget}"`
+            );
           }
         }
       }
@@ -219,12 +268,23 @@ function validateDocsLinks() {
 
   // Skills are checked for pinned links only: their relative links resolve inside an installed skill.
   for (const filePath of collectMarkdownFiles(path.join(ROOT, 'skills'))) {
-    failures.push(...pinnedLinkFailures(path.relative(ROOT, filePath), readMarkdownLinks(fs.readFileSync(filePath, 'utf8')), (sha, repoPath) => gitHasPath(ROOT, sha, repoPath)));
+    failures.push(
+      ...pinnedLinkFailures(
+        path.relative(ROOT, filePath),
+        readMarkdownLinks(fs.readFileSync(filePath, 'utf8')),
+        (sha, repoPath) => gitHasPath(ROOT, sha, repoPath)
+      )
+    );
   }
 
-  const ignored = gitIgnoredPaths([...new Set(existingLocalLinks.map(link => link.targetPath))]);
+  const ignored = gitIgnoredPaths([
+    ...new Set(existingLocalLinks.map(link => link.targetPath)),
+  ]);
   for (const { relativeFile, linkTarget, targetPath } of existingLocalLinks) {
-    if (ignored.has(targetPath)) failures.push(`${relativeFile} points to gitignored file "${linkTarget}"`);
+    if (ignored.has(targetPath))
+      failures.push(
+        `${relativeFile} points to gitignored file "${linkTarget}"`
+      );
   }
 
   return failures;
@@ -249,7 +309,9 @@ function validatePackageReadmes() {
     }
     const priorOwner = ownersByContent.get(readme);
     if (priorOwner) {
-      failures.push(`${packagePath}/README.md duplicates ${priorOwner}/README.md`);
+      failures.push(
+        `${packagePath}/README.md duplicates ${priorOwner}/README.md`
+      );
     } else {
       ownersByContent.set(readme, packagePath);
     }
@@ -261,10 +323,15 @@ function validatePackageReadmes() {
 // Every public tool is documented, and stated tool counts match the contract.
 function validateToolCatalog() {
   const failures = [];
-  const toolReference = fs.readFileSync(path.join(ROOT, 'docs', 'OCTOCODE_TOOLS.md'), 'utf8');
+  const toolReference = fs.readFileSync(
+    path.join(ROOT, 'docs', 'OCTOCODE_TOOLS.md'),
+    'utf8'
+  );
   for (const toolName of PUBLIC_TOOL_NAMES) {
     if (!toolReference.includes(`\`${toolName}\``)) {
-      failures.push(`docs/OCTOCODE_TOOLS.md is missing public tool "${toolName}"`);
+      failures.push(
+        `docs/OCTOCODE_TOOLS.md is missing public tool "${toolName}"`
+      );
     }
   }
 
@@ -274,12 +341,16 @@ function validateToolCatalog() {
     'docs/OCTOCODE_TOOLS.md': [`The catalog has ${CATALOG_TOOL_COUNT} tools.`],
     'docs/OCTOCODE_MCP.md': [`The contract has ${CATALOG_TOOL_COUNT} tools.`],
     'docs/OCTOCODE_CLI.md': [`The CLI lists ${CLI_DEFAULT_TOOL_COUNT} tools`],
-    'docs/CONFIGURATION.md': [`The CLI has ${CLI_DEFAULT_TOOL_COUNT} tools`, `MCP starts with ${DEFAULT_TOOL_COUNT}`],
+    'docs/CONFIGURATION.md': [
+      `The CLI has ${CLI_DEFAULT_TOOL_COUNT} tools`,
+      `MCP starts with ${DEFAULT_TOOL_COUNT}`,
+    ],
   };
   for (const [file, required] of Object.entries(counts)) {
     const content = fs.readFileSync(path.join(ROOT, file), 'utf8');
     for (const text of required) {
-      if (!content.includes(text)) failures.push(`${file} is missing the current tool count "${text}"`);
+      if (!content.includes(text))
+        failures.push(`${file} is missing the current tool count "${text}"`);
     }
   }
 
@@ -292,7 +363,10 @@ function main() {
     ...validatePackageReadmes(),
     ...validateToolCatalog(),
     ...validateToolExamples(),
-    ...checkVocabulary().findings.map(finding => `${finding.file}:${finding.line} \`${finding.token}\`: ${finding.message}`),
+    ...checkVocabulary().findings.map(
+      finding =>
+        `${finding.file}:${finding.line} \`${finding.token}\`: ${finding.message}`
+    ),
   ];
 
   if (failures.length > 0) {
@@ -308,7 +382,10 @@ function main() {
 
 function validateToolExamples() {
   const failures = [];
-  const content = fs.readFileSync(path.join(ROOT, 'docs/OCTOCODE_TOOLS.md'), 'utf8');
+  const content = fs.readFileSync(
+    path.join(ROOT, 'docs/OCTOCODE_TOOLS.md'),
+    'utf8'
+  );
   const sections = content.split(/^### /m);
   for (const section of sections) {
     const name = section.match(/^`(\w+)`/)?.[1];
@@ -316,16 +393,34 @@ function validateToolExamples() {
     for (const [, json] of section.matchAll(/```json\s*\n([\s\S]*?)```/g)) {
       let examples;
       try {
-        try { examples = [JSON.parse(json)]; }
-        catch { examples = json.trim().split('\n').filter(line => line.trim()).map(line => JSON.parse(line)); }
+        try {
+          examples = [JSON.parse(json)];
+        } catch {
+          examples = json
+            .trim()
+            .split('\n')
+            .filter(line => line.trim())
+            .map(line => JSON.parse(line));
+        }
         // A reference example is one query row unless it shows the whole `{queries}` input.
-        const schema = DIRECT_TOOL_DEFINITIONS.find(definition => definition.name === name).inputSchema;
+        const schema = DIRECT_TOOL_DEFINITIONS.find(
+          definition => definition.name === name
+        ).inputSchema;
         for (const example of examples) {
-          const parsed = schema.safeParse('queries' in example ? example : { queries: [example] });
-          if (!parsed.success) throw new Error(parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; '));
+          const parsed = schema.safeParse(
+            'queries' in example ? example : { queries: [example] }
+          );
+          if (!parsed.success)
+            throw new Error(
+              parsed.error.issues
+                .map(issue => `${issue.path.join('.')}: ${issue.message}`)
+                .join('; ')
+            );
         }
       } catch (error) {
-        failures.push(`docs/OCTOCODE_TOOLS.md ${name} example: ${error.message}`);
+        failures.push(
+          `docs/OCTOCODE_TOOLS.md ${name} example: ${error.message}`
+        );
       }
     }
   }

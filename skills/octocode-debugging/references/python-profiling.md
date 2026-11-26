@@ -1,6 +1,8 @@
+Load when Python CPU or wall time must be attributed to functions, on a launch or a live interpreter.
+
 # Python profiling
 
-Use the environment that runs the workload. In the examples, `py` is its Python executable, `out` is an existing capture directory, and `app.py` stands for the real entry point. A saved capture can go straight to interpretation.
+Use the environment that runs the workload. In the examples, `py` is its Python executable, `out` is an existing capture directory, and `app.py` stands for the real entry point. For a slow async handler or memory that grows across cycles, load [async latency and allocation growth](python-async-memory.md).
 
 ## Function costs and call counts
 
@@ -32,34 +34,3 @@ On CPython 3.15+ with remote sampling available, the built-in sampler can attach
 CPU mode samples threads on CPU. Wall mode includes waiting. The Gecko profile preserves time order for Firefox Profiler. Open sampled pstats with the producing interpreter’s pstats reader. Its counts represent sampled observations. Check thread coverage (`-a` includes all threads), and which process actually served the work. [CPython sampling modes and output](https://docs.python.org/3/library/profiling.sampling.html)
 
 With a compatible py-spy installed, `py-spy record --pid "$pid" --duration "$seconds" -o "$out/stacks.svg"` captures a live process. For a finite launch, use `py-spy record -o "$out/stacks.svg" -- "$py" app.py`. The SVG groups sampled stacks by weight. The `--subprocesses` option can include Python workers. A `--gil` filter hides work in extensions that release the GIL. For a NumPy or ML workload with a hot native caller, supported native sampling or a device trace can resolve work below the Python frame. External sampling reads process memory. On some hosts that requires additional privileges even when launching a child. An in-process profiler can still work with the current permissions. [py-spy sampling and platform support](https://github.com/benfred/py-spy)
-
-## Async latency
-
-With Pyinstrument installed, `"$py" -m pyinstrument --timeline -r html -o "$out/run.html" app.py` records a wall-time timeline for a launch. If it mostly shows the event loop, sampling inside the handler can reveal which await held up that request. This example runs inside an async function with a distinct output path for the capture.
-
-```python
-from pyinstrument import Profiler
-
-with Profiler(async_mode="enabled") as profile:
-    result = await operation()
-profile.write_html(output_path, timeline=True)
-```
-
-A long await locates the waiting caller. A downstream span can explain the wait. A thread-pool worker executes outside the profiled handler thread. [Pyinstrument async profiling](https://pyinstrument.readthedocs.io/en/latest/guide.html) · [Timeline options](https://pyinstrument.readthedocs.io/en/latest/reference.html)
-
-## Allocation growth
-
-For growth across work cycles, tracemalloc can compare live allocations at the same lifecycle point.
-
-```python
-import tracemalloc
-
-tracemalloc.start()
-before = tracemalloc.take_snapshot()
-run_work_cycle()
-after = tracemalloc.take_snapshot()
-for change in after.compare_to(before, "lineno")[:10]:
-    print(change)
-```
-
-Positive `size_diff` means more traced bytes survived at that allocation site. Objects allocated and freed between snapshots disappear from the difference. Untracked native buffers and allocator reserves can raise RSS while this difference stays flat. [tracemalloc snapshots](https://docs.python.org/3/library/tracemalloc.html)

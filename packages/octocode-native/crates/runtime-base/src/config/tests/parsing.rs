@@ -25,7 +25,7 @@ fn identity_digest_tracks_declared_settings_only() {
     }
     assert_ne!(
         digest(&[], Some("{\"local\":{\"enabled\":false}}")),
-        base,
+        digest(&[], Some("{\"local\":{\"enabled\":true}}")),
         "a config file edit"
     );
 }
@@ -139,7 +139,11 @@ fn invalid_field_is_dropped_alone_with_a_warning() {
         BTreeMap::new(),
         Some("{\"local\":{\"enabled\":\"no\"},\"lsp\":{\"prewarm\":\"off\"}}"),
     ));
-    assert!(out.resolved.local.enabled, "bad field → default");
+    let default = resolve_config(&input(BTreeMap::new(), None));
+    assert_eq!(
+        out.resolved.local.enabled, default.resolved.local.enabled,
+        "bad field → default"
+    );
     assert_eq!(
         out.resolved.lsp.prewarm,
         LspPrewarm::Off,

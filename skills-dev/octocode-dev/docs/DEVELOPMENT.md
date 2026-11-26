@@ -1,6 +1,12 @@
+Load when locating the code that owns a behavior, or changing a tool schema, description, instruction or limit through the contract pipeline.
+
 # Developing Octocode
 
-Where code lives, the contract pipeline, builds, checks and profiling. Repo rules and the package map: `<repo>/AGENTS.md`. `$DEV` and `$OCTO` are defined there; run from the repo root.
+Where code lives and the contract pipeline. Repo rules and the package map: `<repo>/AGENTS.md`. `$DEV` and `$OCTO` are defined there; run from the repo root.
+
+- Cargo builds, build slots, pruning, [Rust dev tools](RUST_BUILDS.md#rust-dev-tools), development environment variables: [RUST_BUILDS.md](RUST_BUILDS.md)
+- oxlint, workspace scripts, the clippy ratchet, recorded provider answers: [LINT_CHECKS.md](LINT_CHECKS.md)
+- Profiling a tool flow: [PROFILING.md](PROFILING.md)
 
 ## Where code lives
 
@@ -37,57 +43,3 @@ Where code lives, the contract pipeline, builds, checks and profiling. Repo rule
 `tool_types.rs` holds only the generated types native source names and what they reach: after a native edit that starts or stops naming one, regenerate. The binary embeds the contract it serves; there is no runtime override.
 
 A new tool field: add it in core and regenerate, implement it, then declare its effect or let it inherit its nearest declared ancestor's (`$DEV test:dev -- field_effect_coverage::` fails on an unresolved path or a stale key). A public limit lives in core `limits` and reaches native through the contract. Update `<repo>/docs/OCTOCODE_TOOLS.md`.
-
-## Checks
-
-- **oxlint**: the root `.oxlintrc.json` is the only config (type-aware, warnings denied). Older violations sit in `.oxlintrc.baseline.json`, one override per file; it only shrinks: `scripts/oxlint-baseline.mjs` fails on a stale entry or an unlisted violation, and `--write` only removes entries. The sibling core lints with copies of both files; `$DEV verify` runs `core-lint-sync.mjs`, which fails on drift and skips without the sibling.
-- **Workspace scripts**: `lint:oxlint`, `lint:own` (every other check; none in mcp-cli), `lint` (both), `verify:own` (`verify` without oxlint), `test:coverage` (floors; `test:ci` runs it). Typecheck is `tsgo --noEmit` over the root `tsconfig.base.json`. CI runs `lint:ci` and `typecheck:ci`.
-- **Clippy ratchet** (`$DEV lint:rust`, `scripts/rust-lint.mjs`, local only; CI keeps `-D warnings`): production-only lints and bans from `packages/octocode-native/clippy-ratchet.toml` (fixed sleeps, `Vec::truncate`, child processes, HTTP client construction, unbounded `fs::read`, non-atomic `fs::write`). Older findings are counted per crate in `clippy-baseline.json`: growth fails and names the files, a shrink is stale until `--write`, `--adopt` adds a newly listed lint. A site that must stay says why: `#[expect(clippy::disallowed_methods, reason = "...")]`. Tests are not judged. Clippy `pedantic` and `nursery` are never enabled wholesale: adopt single lints into the ratchet.
-- **Rules that stay tests**: `module_boundaries` (use paths and layers) and `no_error_code_is_spelled_as_a_string` (JSON strings); clippy sees neither.
-- **Recorded provider answers**: native mocks replay `test-utils/provider-answers`. `$DEV answers:record [id,...]` re-records them live through the built CLI (cases in `scripts/providers/recorded-plan.mjs`); it refuses a recording that holds the token or a private repository, loses a field path when trimmed, or makes the tool ask anything else.
-
-## Cargo builds
-
-- Judge speed and memory only on `build` or `--profile profiling`; `build:dev` is opt-level 0.
-- Machine-specific linker or sccache settings: copy `packages/octocode-native/.cargo/config.local.example.toml` to `config.local.toml` (gitignored).
-- Build slots live in `os.tmpdir()/octocode-build-slots/`, shared by every session and isolated copy. `build:dev`, `build`, `test:rust`, `coverage:rust`, `test:dev`, `lint:rust` (and `check`), `lint:own`, `check:features`, `mutants`, `fuzz`, `miri` and `llvm-lines` each hold one for the whole run; a dead holder's slot is reclaimed, a nested wrapper reuses its slot, `OCTOCODE_BUILD_SLOTS` overrides the count.
-- JS/TS test scripts run through `scripts/test-tmp.mjs`: `TMPDIR` (and Chromium's `MAC_CHROMIUM_TMPDIR`) point at `.octocode/tmp/t/<package>-<pid>/`, removed when the run ends; a checkout path too long for a unix socket under it is refused. `agents-communication` and `test:rust` keep their own roots (see `TODO.md`).
-- `test:rust`, `coverage:rust` and `test:dev` give each binary a private `TMPDIR` (`scripts/test-tmpdir.cjs`) removed at the end, as a backstop only; a test that starts a warm server owns its socket namespace and stops it (`persistent_cli`).
-- Wrappers record the units they used in `target/.keep/` and print `deps: N entries`; a climbing count means stray selections. `$DEV prune:rust` deletes `deps/`, `.fingerprint/` and `build/` entries no recent keep record lists, plus `incremental/`, `target/rust-lint/{debug,tmp}` and copied binaries; it leaves the staged `npm/<platform>/octocode`. `$DEV clean:cache` and `$DEV clean` are full resets: coordinate first.
-- Benchmark campaigns keep a `build/` snapshot so a resumed run uses the same build; remove it when the campaign is final.
-- After a `rust-toolchain.toml` bump, `cargo sweep --toolchains <new-toolchain> .` removes the old toolchain's builds, `target/platforms/` included.
-- Another platform: `yarn workspace @octocodeai/octocode-native check:target <platform>` type-checks without linking ([PUBLISHING.md](../../../packages/octocode-native/docs/PUBLISHING.md#build)); `build:all` (via `$DEV build:publish`) is release work.
-
-### Rust dev tools
-
-Versions and the dated nightly are pinned in `packages/octocode-native/dev-tools.json`; `$DEV rust:tools` prints the install command for anything missing or different and installs nothing. Package scripts run as `yarn workspace @octocodeai/octocode-native <script>`.
-
-- `test:rust`: one `cargo test --no-run` build, then libtest over every test binary (each under the `scripts/test-binaries.cjs` watchdog) and nextest over `PROCESS_TESTS` (`scripts/rust-tests.cjs`, which also holds the selections) at once. `scripts/test-watchdog.cjs` fails a test still running 10 minutes after libtest's slow-test line. A script test keeps `bacon.toml` and the `cargo dev-test` alias equal to the selections.
-- `shear` (unused dependencies, unlinked files; library crates set `doctest = false`, and a doctest fails it) and `deny` (`deny.toml`) run in `verify` and CI.
-- `coverage:rust [--html | --lcov --output-path lcov.info | --summary-only]`; delete `target/llvm-cov-target` afterwards.
-- `check:features` (cargo-hack) after changing `[features]` or `#[cfg(feature)]`.
-- `$DEV mutants --in-diff <diff>` or `-f <file>` (`.cargo/mutants.toml`): manual, copies and builds the tree.
-- `$DEV fuzz:smoke` (60 s per target), `$DEV fuzz` (600 s); `fuzz/` is its own workspace and commits only `fuzz/seeds/<target>`. A crash becomes a deterministic test in the crate it exercises, never a committed input.
-- `$DEV miri` runs the selections in `dev-tools.json` (what it cannot run is listed under `unsupported`); shorten a loop under `cfg!(miri)` instead of skipping the test.
-- `$DEV llvm-lines [package] [--timings]` for compile time or binary size; delete `target/llvm-lines` afterwards.
-
-## Profiling a tool flow
-
-```bash
-node scripts/build-slot.cjs -- cargo build --locked --profile profiling -p octocode-cli   # in packages/octocode-native
-$DEV profile localSearch '{"path":"crates","matchString":["fn "]}' --cwd packages/octocode-native --phase repeat
-samply load .octocode/octocode-dev/profile/<run>/profile.json.gz
-```
-
-`--phase` is `first` (a fresh MCP server's first call), `repeat`, `page:N` or `one` (a whole one-shot CLI process). The run prints min-of-3 retired instructions and peak footprint without a sampler, then samples a server looping that phase and writes `top.md` and `counters.json` under `.octocode/octocode-dev/profile/`. Trust instructions, not wall time. `--heap` adds what the server still holds afterwards (`malloc_history` on macOS, `heaptrack` on Linux).
-
-A plain CLI call is a thin client of the shared warm `octocode serve` process (`crates/cli/src/cli/serve.rs`), so `time -l` on it measures nothing useful. `OCTOCODE_STORAGE_MODE=memory` runs in-process but refuses any answer that needs a continuation, so it cannot measure large answers. For a graph cursor, put the snapshot in the target workspace's graph store, use that workspace as `--cwd`, request `--phase page:2`, and check the counters' error list before comparing.
-
-## Development environment variables
-
-Not user settings and never read from `.octocoderc` (user settings: `<repo>/docs/CONFIGURATION.md`).
-
-| Variable | Read by | Effect |
-|---|---|---|
-| `OCTOCODE_NATIVE_BIN` | `octocode` and `octocode-mcp` launchers | Absolute path to a native binary used instead of the platform package, honored only with `NODE_ENV` `development` or `test`. An installed `octocode` whose postinstall made its bin the native binary never reads it: run `node <package>/out/octocode.js` |
-| `XDG_CONFIG_HOME` | native `octocode install` (Linux) | Locates IDE config directories (default `~/.config`); never moves the Octocode home |

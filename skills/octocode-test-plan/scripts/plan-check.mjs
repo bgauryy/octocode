@@ -12,7 +12,7 @@ cases that no Features row maps, and a Discriminates field on every P0 case. Wit
 checks the results table against the plan: one result per case from pass, fail, blocked or skipped,
 skipped only for a case with a Skip if field, and evidence for every pass or fail.
 
-Plan format (output.md): a Features table with Source and Cases columns; under Cases, each case is a
+Plan format (output.md and its references/plan-*.md): a Features table with Source and Cases columns; under Cases, each case is a
 heading one level below it, "<ID> — <title>" (or "<ID>: <title>"), the ID one token with a digit
 such as T1; other headings there are notes. Each field starts its own line as
 "Name: text", "**Name:** text" or a "| Name | text |" row. Fields: Covers, Priority/level (naming P0,

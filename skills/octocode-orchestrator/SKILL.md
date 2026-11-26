@@ -14,12 +14,12 @@ Own the user-facing result and integration. Coordinate through the host's availa
 ## Coordinator loop
 
 1. **Observe.** Reconcile worker reports with current artifacts. Keep ownership, dependencies, acceptance, evidence and next actions in one tracker. A worker's "done" still needs your check.
-2. **Choose.** Identify the unmet condition and the action that can advance it. Map producer and consumer dependencies before releasing work, and check them as [dependency graphs](references/loops.md#dependency-graph) describes: `node <skill-folder>/scripts/dep-graph.mjs --plan <plan.json>`. Use the [execution graph](references/loops.md#execution-graph) for blocked or branching tasks.
+2. **Choose.** Identify the unmet condition and the action that can advance it. Map producer and consumer dependencies before releasing work, and check them as the [dependency graph](references/dependency-graph.md) reference describes: `node <skill-folder>/scripts/dep-graph.mjs --plan <plan.json>`. Use the [execution graph](references/loops.md#execution-graph) for blocked or branching tasks.
 3. **Assign or execute.** Give each separable task one owner and a [task contract](references/protocol-catalog.md#delegate-and-coordinate) with scope, authority, inputs, expected result and checks. Ask for each claim, its source and its check status. Add workers for distinct capabilities or independent checks. Serialize conflicting writes and shared builds.
 4. **Integrate.** Recheck decisive anchors using the [evidence rules](references/evidence.md). Resolve disagreements with a distinguishing check. Invalidate stale checks and release ready dependencies as results arrive.
 5. **Recover or finish.** Use [recovery and resume](references/recovery.md) for stalled tasks, uncertain effects, cancellation or lost context. Continue while an authorized action advances acceptance. Finish when the integrated result passes its required checks.
 
-Use host notifications or supported waits. Request status when a dependency, ownership conflict or missing result needs a decision. Set concurrency from actual capacity and shared resources.
+While relevant work is active and nothing is ready, wait through host notifications or supported waits. Request status when a dependency, ownership conflict or missing result needs a decision. Set concurrency from actual capacity and shared resources.
 
 ## Connected skills and tools
 

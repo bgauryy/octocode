@@ -11,7 +11,8 @@ export function readGenerated(path: string): string | undefined {
   try {
     return readFileSync(path, 'utf8');
   } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined;
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT')
+      return undefined;
     throw error;
   }
 }

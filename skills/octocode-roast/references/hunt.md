@@ -1,10 +1,8 @@
-Load when choosing an investigation prompt or tool for the scoped target.
+Load when choosing what to ask of the scoped target or which tool answers it.
 
-# Ask better questions
+# Hunt questions and tools
 
-Use these as investigation prompts, not a checklist to print or questions to make the user answer. Select those relevant to the target; follow new evidence beyond this list.
-
-Keep hypothetical risks separate from demonstrated defects; a useful question generates a lead, not severity.
+Pick the rows whose promise or failure the target can exhibit and run their proving check; never print the table or ask the user these questions. Follow new evidence beyond this list. An answered question is a lead: it becomes a finding only when its proving check demonstrates the defect.
 
 | Hunt | Questions to ask the code | Proving check |
 |---|---|---|
@@ -21,18 +19,18 @@ Keep hypothetical risks separate from demonstrated defects; a useful question ge
 | Change and history | Did this patch invalidate a caller, invariant or earlier fix? Is suspicious code defending against a known constraint? | Read callers, contract and relevant change history before judging. |
 | Deletion and simplification | If this branch, dependency or layer vanished, what observable behavior would change? Is alleged dead code reached indirectly? | Confirm references, entry points and dynamic registration; do not equate no text hits with unused. |
 
-## Use the local tools deliberately
+## Pick the tool
 
-Load the available tool schemas; do not invent query fields. Prefer the checkout's evidence before remote comparisons.
+Read a tool's schema before its first call; do not invent query fields. Read the checkout's evidence before any remote comparison.
 
 | Need | Tool / next step |
 |---|---|
 | Find layout, large files or likely entry points | `structureSearch` → `localFetch`; size is a lead, not a defect. |
 | Find a promise, error path, setting or duplicate owner | `localSearch` → `localFetch` at matching blocks or ranges; read guards and surrounding control flow. |
 | Find structural patterns such as calls inside loops or nested handlers | `astSearch` → exact source; syntax matches remain candidates. |
-| Confirm symbol identity, consumers and blast radius | `lspSearch` definitions, references, callers or callees at the source location. If unavailable or partial, disclose the gap and corroborate with source. |
-| Check actual behavior, working-tree diff or local history | Shell for focused tests, profiler, `git diff` or `git log`; preserve existing changes and keep critique read-only unless repairs are requested. |
+| Confirm symbol identity, consumers and blast radius | `lspSearch` definitions, references, callers or callees at the source location. If unavailable or partial, corroborate with source. |
+| Check actual behavior, working-tree diff or local history | Shell for focused tests, profiler, `git diff` or `git log`; preserve existing changes. |
 | Scout evidence too broad for exact searches | `clasify` if enabled → exact-read candidates; classification is not proof or exhaustive coverage. |
 | Explain an upstream decision or dependency | Relevant GitHub history tools or `artifactSearch`; use `securityCheck` for known vulnerability claims. |
 
-Batch independent lookups and narrow the next question from evidence. Apply the [entry’s paging and absence rules](../SKILL.md#hunt).
+Batch independent lookups. Apply the [entry’s paging, absence, coverage-disclosure](../SKILL.md#hunt) and [read-only](../SKILL.md#rank-write-deliver) rules.

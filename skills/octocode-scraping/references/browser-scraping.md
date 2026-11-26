@@ -1,5 +1,7 @@
 Load when a live browser step joins a scrape (auth, clicks, JS-only page, HAR, perf).
 
+# Browser handoff
+
 ## Session handles
 
 - One sessionId and one CDP port (chrome `--port` plus `--keep-tab`; `fetch.mjs --provider cdp --cdp-port` with the same port) keep evidence joinable; `octocode-chrome-devtools` owns live CDP, this skill owns the corpus.

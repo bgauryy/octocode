@@ -1,5 +1,9 @@
 // The authored config contract. `contractFromDeclaration` is the only way it becomes data.
-import { contractSchema, type Contract, type ContractInput } from '../schema.ts';
+import {
+  contractSchema,
+  type Contract,
+  type ContractInput,
+} from '../schema.ts';
 import { environment } from './environment.ts';
 import { sections } from './sections.ts';
 

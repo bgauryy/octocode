@@ -48,7 +48,7 @@ function isolatedEnv(home, tmp) {
   return {
     ...inherited,
     NODE_ENV: process.env.NODE_ENV === 'development' ? 'development' : 'test', ...(nativeBin && { OCTOCODE_NATIVE_BIN: nativeBin }),
-    OCTOCODE_SECURITY_CHECKS: 'true',
+    OCTOCODE_ENABLE_SECURITY: 'true',
     HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, '.config'), GH_CONFIG_DIR: path.join(home, '.gh'),
     TMPDIR: tmp, TMP: tmp, TEMP: tmp, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0',
     NO_PROXY: '127.0.0.1,localhost,::1', no_proxy: '127.0.0.1,localhost,::1',

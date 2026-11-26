@@ -113,6 +113,7 @@ fn workspace_eligibility_follows_the_workspace_dotenv_boundary() {
     let protected = ConfigFieldSpec {
         env: Some(ConfigEnvBinding {
             name: "PATH",
+            aliases: &[],
             normalize: None,
         }),
         ..CONFIG_FIELDS[1]

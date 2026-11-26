@@ -7,9 +7,9 @@
 Lead with the recommendation and confidence, then the deciding claims, strongest objection and useful next check. No effort announcement.
 
 - Cite deciding claims at the supporting sentence with exact URLs of [validated sources](references/verification.md#validated-sources) only. An unvalidated lead appears only as a named gap. Label inference, secondary evidence and unchecked scope.
-- Give each deciding claim its [status](references/critical-thinking.md#contradict-and-prove) (`proven`, `contradicted`, `unresolved`) and say which disconfirming searches it survived. Several claims or options sharing criteria read best as a table: option or claim, origin, status, supporting sources and, in the same row, the sources against it or its limits.
+- Give each deciding claim its [status](references/proof-bar.md#contradict-and-prove) (`proven`, `contradicted`, `unresolved`) and say which disconfirming searches it survived. Several claims or options sharing criteria read best as a table: option or claim, origin, status, supporting sources and, in the same row, the sources against it or its limits.
 - Include dates, source context and applicability limits when they affect the conclusion. Check numbers, dates and claimed benefits against the evidence.
-- Explain [confidence](references/critical-thinking.md#calibrated-confidence); never invent probabilities. Report changed or unresolved hypotheses when consequential.
+- Explain [confidence](references/proof-bar.md#calibrated-confidence); never invent probabilities. Report changed or unresolved hypotheses when consequential.
 - State the recommendation as plain claims, checked against [writing tells](references/writing-tells.md).
 - For a costly or irreversible choice, end with the decision the user must make and the deciding source to check themselves.
 - When judging an existing plan or artifact, separate what the evidence says to keep, change and drop.
@@ -23,7 +23,7 @@ A `Sources` list can collect validated references when useful; adjacent citation
 
 Keep a recovery note only when interruption or handoff is likely: current question, supported interim answer, deciding evidence paths, unresolved choice and next action. Add hypotheses or ledger paths only when used. Use the run's existing notes rather than creating a second state record; without one, use `<run>/state.md`.
 
-Continue authorized work; pause dependent work only for a missing decision or explicit user stop.
+When to pause or resume work: [recovery table](references/phases.md#understand-and-diverge).
 
 ## Think together
 
@@ -31,7 +31,7 @@ Show the user's view, options labeled by origin (user, yours, found), and the qu
 
 ## Presentation choices
 
-Use a comparison table for alternatives sharing criteria, a diagram for useful structure, and prose for a short result. Explain plotted scales and estimates. Follow the [shared format guide](references/report-output.md#choose-the-format) only for the selected format; load specialized syntax on demand.
+Beyond the comparison table the [response](#response) uses, add a diagram only for structure the text cannot show, and keep a short result in prose. Explain plotted scales and estimates. Follow the [shared format guide](references/report-output.md#choose-the-format) only for the selected format; load specialized syntax on demand.
 
 ## Saved report
 

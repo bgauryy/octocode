@@ -1,3 +1,5 @@
+Load when a browser frame is missed or slow, or work submitted to a GPU (CUDA, ROCm, Metal) must be followed to device execution.
+
 # Frame and GPU timelines
 
 Start with a missed frame, slow batch or other observable unit. Identify the affected work and preserve the environment needed to reproduce it; record device, viewport, warmup or build differences when they affect the comparison. Rendering can belong to the browser GPU process, compositor or terminal emulator even when the application PID is quiet.

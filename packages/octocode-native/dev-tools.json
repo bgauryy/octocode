@@ -1,5 +1,5 @@
 {
-  "description": "Pinned Rust development tools for packages/octocode-native. `node skills-dev/octocode-dev/scripts/dev.mjs rust:tools` compares this file with what is installed and prints the install command of anything missing or different; nothing installs automatically. Tasks: skills-dev/octocode-dev/docs/DEVELOPMENT.md#rust-dev-tools.",
+  "description": "Pinned Rust development tools for packages/octocode-native. `node skills-dev/octocode-dev/scripts/dev.mjs rust:tools` compares this file with what is installed and prints the install command of anything missing or different; nothing installs automatically. Tasks: skills-dev/octocode-dev/docs/RUST_BUILDS.md#rust-dev-tools.",
   "toolchains": {
     "stable": {
       "channel": "1.99.1",

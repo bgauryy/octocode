@@ -16,7 +16,7 @@ Restart the client. In a project with a README, ask your agent to read the first
 |---|---|
 | Set the project directory or troubleshoot startup | [MCP setup guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md) |
 | Inspect the available tools and workflows | Your client's `tools/list` and the [tool reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) |
-| Enable clone, advisory or classification tools | [Configuration defaults and opt-ins](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#tool-availability-cli-and-mcp) |
+| Enable local, clone, advisory or classification tools | [Configuration defaults and opt-ins](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#tool-availability-cli-and-mcp) |
 | Sign in to GitHub or use an existing token | [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md) |
 
 ## Graph tools

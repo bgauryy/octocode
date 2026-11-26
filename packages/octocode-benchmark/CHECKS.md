@@ -61,7 +61,7 @@ How to call (CLI text is what agents read; `--json` shows structure; `schema <to
 
 ```bash
 printf '%s' '{"queries":[{ … }]}' | NODE_ENV=development OCTOCODE_NATIVE_BIN=<abs path> \
-  OCTOCODE_ENABLE_LOCAL=true OCTOCODE_ENABLE_CLONE=true OCTOCODE_SECURITY_CHECKS=true \
+  OCTOCODE_ENABLE_LOCAL=true OCTOCODE_ENABLE_CLONE=true OCTOCODE_ENABLE_SECURITY=true \
   node packages/octocode/out/octocode.js <tool> --input -
 ```
 
@@ -211,7 +211,7 @@ Behavior, judged by reading, on both surfaces. The per-tool sections below list 
 - [ ] Every workflow below, in its number of calls.
 - [ ] The same calls on the published release (`npx -y octocode@latest`): any answer that got worse names
   its call.
-- [ ] Settings: each of `OCTOCODE_BETA`, `OCTOCODE_ENABLE_CLONE`, `OCTOCODE_SECURITY_CHECKS`, a classification
+- [ ] Settings: each of `OCTOCODE_BETA`, `OCTOCODE_ENABLE_CLONE`, `OCTOCODE_ENABLE_SECURITY`, a classification
   key, `TOOLS_TO_RUN` and `DISABLE_TOOLS` changes exactly its tools in MCP `tools/list` (the CLI lists all);
   listing makes no provider request; a call to a missing key's `clasify` gives `missingConfiguration`.
 - [ ] Launcher (`node packages/octocode/out/octocode.js`): argv, stdin (`--input -`), the exit code, SIGTERM

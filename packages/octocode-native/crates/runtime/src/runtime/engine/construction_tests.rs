@@ -6,9 +6,15 @@ mod construct;
 mod runtime_state;
 mod warm_run;
 
+/// An MCP runtime at `home` with the local section on, which an MCP host
+/// turns on itself; `env` overrides it and adds the rest.
 pub(super) fn runtime(home: &std::path::Path, env: &[(&str, &str)]) -> ToolRuntime {
-    let mut vars: BTreeMap<String, String> = env
+    let local = octocode_runtime_base::config::field::LOCAL_ENABLED
+        .env_name()
+        .expect("local.enabled has a variable");
+    let mut vars: BTreeMap<String, String> = [(local, "true")]
         .iter()
+        .chain(env)
         .map(|(key, value)| ((*key).into(), (*value).into()))
         .collect();
     vars.insert("OCTOCODE_HOME".into(), home.to_string_lossy().into_owned());

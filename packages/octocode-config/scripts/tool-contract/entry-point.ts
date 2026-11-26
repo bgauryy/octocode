@@ -11,6 +11,12 @@ const realOrSelf = (path: string): string => {
 };
 
 /** Whether `argv1` launched the module at `moduleUrl`: argv[1] keeps a symlinked path while import.meta.url is the real path. */
-export function isEntryPoint(argv1: string | undefined, moduleUrl: string): boolean {
-  return argv1 !== undefined && realOrSelf(argv1) === realOrSelf(fileURLToPath(moduleUrl));
+export function isEntryPoint(
+  argv1: string | undefined,
+  moduleUrl: string
+): boolean {
+  return (
+    argv1 !== undefined &&
+    realOrSelf(argv1) === realOrSelf(fileURLToPath(moduleUrl))
+  );
 }

@@ -1,6 +1,8 @@
+Load when searching for an existing skill, comparing candidates or deciding whether to create one.
+
 # Find and select skills
 
-Load when searching for an existing skill, comparing candidates or deciding whether to create one. Searching and recommending do not authorize installation or execution of fetched code.
+Searching and recommending do not authorize installation or execution of fetched code.
 
 ## Search from local to remote
 
@@ -13,4 +15,4 @@ Load when searching for an existing skill, comparing candidates or deciding whet
 
 For each viable candidate give its source URL and revision when available, skill path/name, task fit, host requirements, license and material risks or unchecked scope. Rank by fit and verified behavior, not stars or directory placement. A small shortlist is enough when one candidate clearly fits.
 
-If installation is requested, continue with the install route in `SKILL.md`, carrying the chosen source, revision, destinations, scope and conflict policy. If adaptation or creation is requested, use the writing route and retain source attribution and license obligations. Otherwise return the recommendation without writes.
+If installation is requested, continue with [install and fetch](install.md), carrying the chosen source, revision, destinations, scope and conflict policy. If adaptation or creation is requested, use [write skills](write-skills.md) and retain source attribution and license obligations. Otherwise return the recommendation without writes.

@@ -43,20 +43,29 @@ const contractFile = (name: string): string =>
 const rustPath = contractFile('tool_types.rs');
 const basePath = contractFile('tool_types_base.rs');
 
-const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex');
+const sha256 = (text: string): string =>
+  createHash('sha256').update(text).digest('hex');
 
 function corePackageVersion(): string {
   // `./schema` resolves to <core>/dist/schema.js; the manifest sits one level up.
-  const manifest = new URL('../package.json', import.meta.resolve('@octocodeai/octocode-core/schema'));
+  const manifest = new URL(
+    '../package.json',
+    import.meta.resolve('@octocodeai/octocode-core/schema')
+  );
   const parsed: unknown = JSON.parse(readFileSync(manifest, 'utf8'));
   const version =
-    typeof parsed === 'object' && parsed !== null && 'version' in parsed ? parsed.version : undefined;
-  if (typeof version !== 'string') throw new TypeError(`${manifest.pathname} has no version`);
+    typeof parsed === 'object' && parsed !== null && 'version' in parsed
+      ? parsed.version
+      : undefined;
+  if (typeof version !== 'string')
+    throw new TypeError(`${manifest.pathname} has no version`);
   return version;
 }
 
 /** Every generated file except the Rust body, plus the header it must start with. */
-export function generateToolContract(ir: EnforcementContractIr = buildEnforcementContractIr()): {
+export function generateToolContract(
+  ir: EnforcementContractIr = buildEnforcementContractIr()
+): {
   files: Map<string, string>;
   bundleJson: string;
   rustHeader: string;
@@ -75,10 +84,22 @@ export function generateToolContract(ir: EnforcementContractIr = buildEnforcemen
   return {
     files: new Map([
       [contractFile('tool-contract.json'), contractJson],
-      [contractFile('contract-fixtures.json'), `${JSON.stringify(buildNativeParityFixtures(), null, 2)}\n`],
-      [contractFile('cli-presentation.json'), `${JSON.stringify(buildCliPresentation())}\n`],
-      [contractFile('instruction-fixtures.json'), `${JSON.stringify(instructionFixtures(), null, 2)}\n`],
-      [contractFile('provenance.json'), `${JSON.stringify(provenance, null, 2)}\n`],
+      [
+        contractFile('contract-fixtures.json'),
+        `${JSON.stringify(buildNativeParityFixtures(), null, 2)}\n`,
+      ],
+      [
+        contractFile('cli-presentation.json'),
+        `${JSON.stringify(buildCliPresentation())}\n`,
+      ],
+      [
+        contractFile('instruction-fixtures.json'),
+        `${JSON.stringify(instructionFixtures(), null, 2)}\n`,
+      ],
+      [
+        contractFile('provenance.json'),
+        `${JSON.stringify(provenance, null, 2)}\n`,
+      ],
       [contractFile('tool-types.schema.json'), bundleJson],
     ]),
     bundleJson,
@@ -92,7 +113,12 @@ export function generateToolContract(ir: EnforcementContractIr = buildEnforcemen
 }
 
 function main(): void {
-  const { files, bundleJson, rustHeader: header, dispatch } = generateToolContract();
+  const {
+    files,
+    bundleJson,
+    rustHeader: header,
+    dispatch,
+  } = generateToolContract();
   if (!process.argv.includes('--check')) {
     // Finish fallible generation before publishing any part of the contract.
     const rust = renderRust(header, bundleJson, undefined, dispatch);
@@ -101,7 +127,9 @@ function main(): void {
     writeGenerated(rustPath, rust.types);
     return;
   }
-  const stale = [...files].filter(([path, content]) => readGenerated(path) !== content).map(([path]) => path);
+  const stale = [...files]
+    .filter(([path, content]) => readGenerated(path) !== content)
+    .map(([path]) => path);
   // The whole Rust files are regenerated and compared: a matching header
   // (fingerprint + bundle digest) does not prove the body was not edited.
   // renderRust fails loudly when cargo-typify is missing.

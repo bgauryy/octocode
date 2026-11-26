@@ -1,6 +1,9 @@
 use super::super::mcp_clients::{ClientSpec, EntryShape};
 use super::super::mcp_manage::{self, Method, Target};
-use super::{Existing, InstallArgs, already_installed, command_line, dry_run_text, server_spec};
+use super::{
+    Existing, InstallArgs, already_installed, command_line, dry_run_text, local_enabled_env,
+    server_spec,
+};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
@@ -34,7 +37,13 @@ pub(super) fn install(target: &Target, args: &InstallArgs) -> Result<u8, String>
     if args.remove {
         return remove(target, original.as_deref(), &root, args);
     }
-    let server = mcp_manage::server_entry(client.shape, &server_spec(args));
+    let spec = server_spec(args);
+    // Whether this entry itself turns the local section on; without it the
+    // server lists local tools only when the user's settings do.
+    let local_tools = local_enabled_env()
+        .and_then(|key| spec.env.get(key))
+        .is_some_and(|value| value == "true");
+    let server = mcp_manage::server_entry(client.shape, &spec);
     let existing = Existing::of(mcp_manage::entry_at(client, &root, keys), &server);
     if existing != Existing::Absent && !args.force && !args.dry_run {
         return already_installed(config_path, args, existing);
@@ -63,7 +72,7 @@ pub(super) fn install(target: &Target, args: &InstallArgs) -> Result<u8, String>
     .map_err(|error| error.to_string())?;
     if args.json {
         return Ok(super::super::write_json(
-            &json!({"success":true,"ide":client.id,"scope":target.scope,"configPath":config_path,"backupPath":backed_up}),
+            &json!({"success":true,"ide":client.id,"scope":target.scope,"configPath":config_path,"backupPath":backed_up,"localTools":local_tools}),
         ));
     }
     println!(
@@ -71,6 +80,12 @@ pub(super) fn install(target: &Target, args: &InstallArgs) -> Result<u8, String>
         client.id,
         config_path.display()
     );
+    if !local_tools {
+        println!(
+            "This entry lists the GitHub and package tools. To also search and read code on this machine, run `octocode install --ide {} --enable-local true --force`, or `octocode config set local.enabled true` for every client.",
+            client.id
+        );
+    }
     println!(
         "Next: restart {} so it loads the server; check GitHub access with `octocode auth status`.",
         client.id

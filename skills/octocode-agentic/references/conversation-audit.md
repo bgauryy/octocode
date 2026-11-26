@@ -20,9 +20,9 @@ Show a branching decision or improvement loop in a compact Mermaid graph with ob
 
 ## Write the two documents
 
-Write two private Markdown documents per user. Use the requested destination, otherwise a separate run folder under `<workspace>/.octocode/octocode-agentic/<YYYY-MM-DD>-<slug>/`. If files cannot be written, return two separately titled texts.
+Write two private Markdown documents per user. Use the requested destination, otherwise the [saved-result path](../output.md#saved-result). If files cannot be written, return two separately titled texts.
 
-**Prompting guide**, `prompting-practices.md`: use **Prompt patterns**, **Best practices** and **Bad practices and replacements**. Give concise, copyable questions with a trigger, action and reason. Show the smallest useful replacement for a bad practice. Keep the deciding checks in each prompt; add a label footer only when the receiver requests it. Make each participant's responsibility clear. Use conditional examples and label untested advice. Keep actual session outcomes, transcripts, quotes, IDs, ratings and counts in the record.
+**Prompting guide**, `prompting-practices.md`: use **Prompt patterns**, **Best practices** and **Bad practices and replacements**. Give concise, copyable questions with a trigger, action and reason. Show the smallest useful replacement for a bad practice. Keep the deciding checks in each prompt ([question selection](question-selection.md)). Make each participant's responsibility clear. Use conditional examples and label untested advice. Keep actual session outcomes, transcripts, quotes, IDs, ratings and counts in the record.
 
 **Private audit record**, `user-messages.md`: preserve each user submission verbatim with its stable ID, session, source and available timestamp. Keep the assessment beside it or in a ledger keyed by ID. Record the pattern, effect, attribution, confidence and supporting reply, action or reason unknown. Describe its observed contribution or why the effect is unknown; do not invent a numeric score. Map each guide pattern to supporting or qualifying IDs. Report coverage, known duplicates, uncertain authorship, missing text and inaccessible attachments. Use complete indexed parts if an output limit requires splitting.
 

@@ -1,5 +1,7 @@
 Load when an instruction describes a handoff, review, decision, reasoning procedure, stop rule, or output in ad-hoc, rigid, or repeated prose.
 
+# Rewrite instructions with protocols
+
 ## Rules vs presentation
 
 "Keep every rule" protects conditions, thresholds, outcomes, identifiers, and constraints. Presentation is free to change; name each change in your change note:
@@ -23,10 +25,7 @@ After:  Answer with the most likely cause, the measurement that supports it, and
 - Plain-word slots; define an ambiguous one (MoSCoW "won't": this release or never).
 - Project specifics stay verbatim (paths, commands, checks); a protocol never replaces a tool contract, schema, or checked field.
 - One owner per protocol line; other files point to it.
-
-## Catalog
-
-Use the shared [protocol catalog](protocol-catalog.md#catalog) for names, slots, and fit. This page owns instruction rewriting; the catalog owns protocol definitions.
+- Use the shared [protocol catalog](protocol-catalog.md#catalog) for names, slots, and fit. This page owns instruction rewriting; the catalog owns protocol definitions.
 
 ## Rewrite rigid text
 

@@ -9,7 +9,11 @@ import {
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { configFieldEnvName } from '@octocodeai/config';
 import { stageSkills } from './stage-skills.mjs';
+
+/** The variable of `local.enabled`: it lists the local tools in an MCP session. */
+const LOCAL_TOOLS_ENV = configFieldEnvName('local.enabled');
 
 /** @type {(path: string) => any} */
 export const readJson = path => JSON.parse(readFileSync(path, 'utf8'));
@@ -21,13 +25,15 @@ export const writeJson = (path, value) =>
  * @typedef {object} HostFiles
  * @property {{ version: string }} pkg The plugin package's own `package.json`.
  * @property {Record<string, unknown>} manifest The plugin's `src/plugin.json`.
- * @property {{ type: string; command: string; args: string[] }} mcpServer The `octocode-mcp` server entry.
+ * @property {{ type: string; command: string; args: string[]; env: Record<string, string> }} mcpServer The `octocode-mcp` server entry.
  */
 
 /**
  * The build every host plugin (Claude Code, Codex) shares: the public skills, including onboarding, staged with `stageSkills`, and the license. The host
  * writes only what differs (its manifest and MCP file) in `writeHostFiles({ pkg, manifest, mcpServer })`, where `mcpServer` is
- * the `octocode-mcp` server entry pinned to the current version.
+ * the `octocode-mcp` server entry pinned to the current version, with the local section on: a plugin runs inside a coding
+ * agent, where searching and reading the open project is the main use (a bare `octocode-mcp` lists the GitHub and package
+ * tools only).
  */
 /**
  * @param {object} options
@@ -58,6 +64,7 @@ export function buildPlugin({ packageRoot, label, writeHostFiles }) {
       type: 'stdio',
       command: 'npx',
       args: ['-y', `octocode-mcp@${mcp.version}`],
+      env: { [LOCAL_TOOLS_ENV]: 'true' },
     },
   });
   cpSync(join(repoRoot, 'LICENSE'), join(packageRoot, 'LICENSE'));

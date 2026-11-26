@@ -1,10 +1,12 @@
 //! The research references an MCP agent can read on demand. Each is
-//! embedded from its one skill source file; the tool-flow graphs link the
-//! others by relative path, so every file they reach is served under a URI
-//! that resolves the same relative link (`octocode://research/<file>`).
+//! embedded from its skill source: one file, or for the tool-flow guide its
+//! parts joined in order. The guide links the others by relative path, so
+//! every file it reaches is served under a URI that resolves the same
+//! relative link (`octocode://research/<file>`).
 //! The instructions name none of them: a client finds them through
 //! `resources/list`, so a session that never reads these pays nothing for them.
 use rmcp::model::{Resource, ResourceContents, ResourceTemplate};
+use std::sync::LazyLock;
 
 const MARKDOWN: &str = "text/markdown";
 
@@ -12,7 +14,7 @@ struct Reference {
     uri: &'static str,
     name: &'static str,
     title: &'static str,
-    text: &'static str,
+    text: fn() -> &'static str,
 }
 
 /// A reference's description: core's text, by the reference's name
@@ -34,35 +36,60 @@ macro_rules! reference_file {
     };
 }
 
-/// The tool-flow resource; the CLI serves [`TOOL_FLOW`] as `schema --view flow`.
+/// The tool-flow resource; the CLI serves [`tool_flow`] as `schema --view flow`.
 pub(in crate::cli) const TOOL_FLOW_URI: &str = "octocode://research/tool-flow";
-/// The tool-flow guide, from its one skill source file.
-pub(in crate::cli) const TOOL_FLOW: &str = reference_file!("tool-flow.md");
+
+/// The tool-flow guide's skill source files, in served order: the order the
+/// first part's opening line links the others.
+const TOOL_FLOW_PARTS: [&str; 4] = [
+    reference_file!("tool-flow.md"),
+    reference_file!("tool-flow-shape.md"),
+    reference_file!("tool-flow-carry.md"),
+    reference_file!("tool-flow-recover.md"),
+];
+
+/// One guide from its parts. A part opens with one line for a skill reader
+/// (when to load the file, links to the sibling files); the guide serves the
+/// parts as one text, so it leaves that line out and keeps each part's
+/// sections, a blank line between parts.
+fn joined(parts: &[&str]) -> String {
+    parts
+        .iter()
+        .map(|part| part.split_once("\n\n").map_or("", |(_, sections)| sections))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The tool-flow guide: one served text from its part files.
+pub(in crate::cli) fn tool_flow() -> &'static str {
+    static GUIDE: LazyLock<String> = LazyLock::new(|| joined(&TOOL_FLOW_PARTS));
+    &GUIDE
+}
 
 const REFERENCES: [Reference; 4] = [
     Reference {
         uri: TOOL_FLOW_URI,
         name: "tool-flow",
         title: "Octocode research tool flow",
-        text: TOOL_FLOW,
+        text: tool_flow,
     },
     Reference {
         uri: "octocode://research/evidence.md",
         name: "evidence",
         title: "Octocode evidence rules",
-        text: reference_file!("evidence.md"),
+        text: || reference_file!("evidence.md"),
     },
     Reference {
         uri: "octocode://research/protocol-catalog.md",
         name: "protocol-catalog",
         title: "Octocode protocol catalog",
-        text: reference_file!("protocol-catalog.md"),
+        text: || reference_file!("protocol-catalog.md"),
     },
     Reference {
         uri: "octocode://research/configuration.md",
         name: "configuration",
         title: "Octocode configuration",
-        text: reference_file!("configuration.md"),
+        text: || reference_file!("configuration.md"),
     },
 ];
 
@@ -135,5 +162,5 @@ pub(super) fn read(uri: &str, enabled: impl Fn(&str) -> bool) -> Option<Resource
         );
     }
     let reference = REFERENCES.iter().find(|reference| reference.uri == uri)?;
-    Some(ResourceContents::text(reference.text, reference.uri).with_mime_type(MARKDOWN))
+    Some(ResourceContents::text((reference.text)(), reference.uri).with_mime_type(MARKDOWN))
 }

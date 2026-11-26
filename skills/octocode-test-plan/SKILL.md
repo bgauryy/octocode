@@ -10,20 +10,21 @@ Identify the target, revision and executor. Write a plan runnable from the plan 
 ## Plan loop
 
 1. Identify the executor's tools, environment and permissions. Ask only when missing target or executor information changes the plan. A case the executor cannot run is a gap.
-2. Map entry → validation → state → output → consumers, documented claims and current tests. Exact-read deciding source; confirm identity with LSP or name the gap. Pin commands from manifests, CI, docs or authorized inspection; never guess flags. An unpinned command is a [gap](output.md#plan-check): `Draft`, or `Blocked` for a P0.
+2. Map entry → validation → state → output → consumers, documented claims and current tests. Exact-read deciding source; confirm identity with LSP or name the gap. Pin commands from manifests, CI, docs or authorized inspection; never guess flags. An unpinned command is a gap the [plan check](output.md#plan-check) turns into `Draft` or `Blocked`.
 3. Rank risks by impact and evidence of likelihood. Explain each `P0` (must pass to ship), distinguish `P1` (should pass) from `P2` (adds confidence), and include severe reachable failures even without a prior incident.
 4. Choose the cheapest test level that observes the risk. Derive expected results from a spec, contract, type or documented error. Disclose when the implementation is the only oracle.
 5. Preserve the reproduction and nearby boundaries for a fix. Include failure paths, fixtures, cleanup and restoration checks. Reuse existing tests where the risk and oracle match.
-6. Write the executor contract, cases, exclusions and measurable success criteria per [output.md](output.md); save the plan. Run `node <skill-folder>/scripts/plan-check.mjs <plan.md>` and apply the rest of the [plan check](output.md#plan-check).
+6. Write the executor contract, cases, exclusions and measurable success criteria per [output.md](output.md); save the plan. Run the [plan check](output.md#plan-check): its script, then its judgment checks.
 
 ## Conditional detail
 
 | Need | Read |
 |---|---|
-| Pin by input type, discover code/tests, inspect commands or map a diff | [Code-map recipes](references/code-map.md) |
-| Select technique, level, independent oracle or stable fixtures | [Case design](references/case-design.md) |
+| Pin by input type, discover code/tests, inspect commands or map a diff | [Code-map recipes](references/code-map.md) · [change scope, claims, existing tests](references/code-map-scope.md) |
+| Select technique, level, independent oracle or stable fixtures | [Case design](references/case-design.md) · [levels and oracles](references/case-oracles.md) |
+| Plan sections, case fields, executor contract, results format | [output.md](output.md) routes each section's reference |
 | Source, semantic or runtime proof limits | [Evidence rules](references/evidence.md) |
 
-Return `Ready`, `Draft` or `Blocked` (plan readiness, never passed tests), the main risk, gaps and the saved plan's link.
+Return as [output.md](output.md) leads: `Ready`, `Draft` or `Blocked` is plan readiness, never passed tests.
 
 Use `octocode-debugging` for a failure that needs reproduction first and `octocode-pr-review` for a merge verdict.

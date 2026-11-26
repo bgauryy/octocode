@@ -21,7 +21,7 @@ use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 
 /// The env name bound to the `local.enabled` config key (`OCTOCODE_ENABLE_LOCAL`).
-fn local_enabled_env() -> Option<&'static str> {
+pub(super) fn local_enabled_env() -> Option<&'static str> {
     octocode_runtime_base::config::field::LOCAL_ENABLED.env_name()
 }
 

@@ -45,7 +45,9 @@ export function nameVariants(schema: JsonObject, owner: string): JsonObject {
     return schema;
   }
   const objects = branches.filter(isObject);
-  const candidates = [...new Set(objects.flatMap(branch => Object.keys(properties(branch))))];
+  const candidates = [
+    ...new Set(objects.flatMap(branch => Object.keys(properties(branch)))),
+  ];
   // A discriminator tells branches apart: every branch holds one value of
   // it, and not all the same one.
   const discriminators = candidates.filter(
@@ -54,9 +56,10 @@ export function nameVariants(schema: JsonObject, owner: string): JsonObject {
       new Set(objects.map(branch => branchValue(branch, field))).size > 1
   );
   const [discriminator] = discriminators;
-  if (!discriminator)
-    return nameByOwnField(objects, owner, schema, key);
-  const values = objects.map((branch, index) => branchValue(branch, discriminator) ?? String(index));
+  if (!discriminator) return nameByOwnField(objects, owner, schema, key);
+  const values = objects.map(
+    (branch, index) => branchValue(branch, discriminator) ?? String(index)
+  );
   const titled = objects.map((branch, index) => {
     const value = values[index] ?? String(index);
     const peers = objects.filter(

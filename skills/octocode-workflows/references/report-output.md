@@ -32,7 +32,7 @@ Author Markdown; the template supplies presentation. Apply the [format and conte
 | `mermaid` → `sequenceDiagram` / `stateDiagram-v2` | Actor interactions / states and transitions. |
 | `mermaid` → `erDiagram` / `classDiagram` | Relationships and cardinality / types and inheritance. |
 | `mermaid` → `gantt` / `timeline` / `journey` / `gitGraph` / `mindmap` | Schedule / chronology / user stages / branching history / hierarchy. |
-| `mermaid` → `pie` / `xychart-beta` / `quadrantChart` / `sankey-beta` | Proportions / trends / two-axis trade-offs / weighted flows; sourced values. Prefer chart widgets for exact-value tables and interactive legends. |
+| `mermaid` → `pie` / `xychart` / `quadrantChart` / `sankey-beta` | Proportions / trends / two-axis trade-offs / weighted flows; sourced values. Prefer chart widgets for exact-value tables and interactive legends. |
 | `mermaid` → `block-beta` / `architecture-beta` / `C4Context` | Block placement / service topology / system context when flowchart layout obscures structure. |
 | `mermaid` → `kanban` / `packet-beta` / `requirementDiagram` | Work stages / bit fields / requirement traceability. For advanced families and exact keywords, read the [complete Mermaid chooser](report-mermaid.md), then Render check. |
 | `graph` JSON | Network inspection, search, navigation; Mermaid for small fixed explanations. |
@@ -44,22 +44,6 @@ Author Markdown; the template supplies presentation. Apply the [format and conte
 - The template owns fonts, layout, themes, search, zoom, export and fallbacks. Do not generate CSS, JavaScript, SVG, Mermaid initialization directives or a custom viewer. For an interactive graph of files, functions, layers and flows, use `octocode-graph` when installed.
 - Keep Markdown as editable source and HTML as the viewing artifact; provide JSON/CSV separately when machine reuse matters. Apply [evidence rules](evidence.md) and [communication protocols](protocol-catalog.md#catalog).
 
-## Check each save
-
-After every save of a report, before delivering it, run `node <skill-folder>/scripts/render-report.mjs <file.md> --check` (`--json`: one JSON line). It writes no HTML. It checks the file against its owner's `report-contract`: the skill whose `.octocode/<skill>/` folder holds it, else the skill whose script runs. `--help` lists the rules, the same ones `--strict` applies.
-
-| Exit | Output | Do |
-|---|---|---|
-| 0 | `passed: N reports checked against <skill>` (`"validation":"passed"`) | Deliver |
-| 2 | One `violation: <file>: <problem>` line each (`warnings[]`) | Fix each, save, rerun until exit 0 |
-| 1 | stderr names a missing file, a bad option or a malformed contract | Fix the command; never call the report checked |
-
 ## Render and retrieve
 
-Apply [HTML delivery](presentation.md#html-delivery) after completing the task. Saving Markdown does not request HTML. The commands below apply when HTML was requested or the user accepted the offer.
-
-1. Run `node <skill-folder>/scripts/render-report.mjs report.md --out report.html --json --strict`. Exit 2 means fix reported validation issues and rerun; no new HTML was written, so do not deliver an older file as the result.
-2. Success reports `render: unverified`. Open the page and run **Render check** until Ready; it checks diagrams, widgets and image loading. Inspect alt text, readable sizing and nearby source links; check other relevant links too. Correct failures or disclose unverified delivery. Browser unavailable: say rendering was not verified; generation alone is not visual verification.
-3. Rerender after edits; deliver the HTML link and useful source/data links. `--open` is opt-in. A folder renders a navigable library; `.octocode/` Markdown defaults to sibling HTML, other destinations come from the command result.
-4. Discover with `node <skill-folder>/scripts/render-report.mjs <workspace>/.octocode/<skill-name> --manifest --query "topic"`; follow returned `next` arguments for remaining records. Use `--all` only for file processing, not model context.
-5. Read relevant Markdown only; never load generated HTML just to review content. Use compact `--json` results. Do not equate artifact bytes with token savings. Viewer changes also require narrow-screen, light/dark, keyboard, long-table and print checks; disclose missing checks.
+After every save, [check the report](report-render.md#check-each-save) before delivering it. When HTML was requested or the offer accepted, [render and retrieve](report-render.md#render-and-retrieve) it.

@@ -19,7 +19,7 @@ describe('external effects guard', () => {
 
   it('leaves no credential in the environment', () => {
     const leaked = Object.keys(process.env).filter(name =>
-      /TOKEN$|^OCTOCODE_CLASSIFICATION_/.test(name)
+      /TOKEN$|^(OCTOCODE_)?CLASSIFICATION_/.test(name)
     );
     expect(leaked).toEqual([]);
   });

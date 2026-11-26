@@ -9,6 +9,7 @@ import path from 'node:path';
 import {
   API_KEYS,
   CONFIG_FIELDS,
+  ENV_ALIASES,
   ENV_TOKEN_VARS,
   HOME_TRUSTED_ENV_KEYS,
   PROTECTED_KEY_NAMES,
@@ -17,7 +18,9 @@ import {
 import { getOctocodeHome } from './home.js';
 
 /** API keys: the home `.env` value beats a workspace one (process > home > workspace). */
-const API_KEY_NAMES: ReadonlySet<string> = new Set(API_KEYS.map(key => key.name));
+const API_KEY_NAMES: ReadonlySet<string> = new Set(
+  API_KEYS.map(key => key.name)
+);
 
 /** Keys restricted by the shared dotenv policy (infrastructure and security controls). */
 export const PROTECTED_KEYS: ReadonlySet<string> = new Set(PROTECTED_KEY_NAMES);
@@ -83,10 +86,42 @@ function readTextIfExists(filePath: string): string {
   }
 }
 
-/** One `.env` file's nonblank entries. */
+/**
+ * The current name of the variable `key`: a setting's earlier name (an alias
+ * in the config contract, such as `OCTOCODE_ENABLE_LOCAL`) reads as the name
+ * that replaced it, any other key as itself.
+ */
+export function canonicalEnvName(key: string): string {
+  return Object.hasOwn(ENV_ALIASES, key) ? (ENV_ALIASES[key] as string) : key;
+}
+
+/**
+ * `env` under current names only: a value set under an earlier name moves to
+ * the current one unless that one is set too. Every source of variables (the
+ * process, each `.env` file) is read through here, so the dotenv policy sees
+ * one name per setting. The native resolver applies the same rule.
+ */
+export function canonicalEnv(
+  env: Readonly<Record<string, string | undefined>>
+): Record<string, string> {
+  const current: Record<string, string> = {};
+  const earlier: [string, string][] = [];
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined) continue;
+    const name = canonicalEnvName(key);
+    if (name === key) current[key] = value;
+    else earlier.push([name, value]);
+  }
+  for (const [name, value] of earlier) current[name] ??= value;
+  return current;
+}
+
+/** One `.env` file's nonblank entries, under current variable names. */
 export function fileEnv(filePath: string): Record<string, string> {
-  const entries = Object.entries(parseEnv(readTextIfExists(filePath))).filter(([, v]) => v.trim());
-  return Object.fromEntries(entries);
+  const entries = Object.entries(parseEnv(readTextIfExists(filePath))).filter(
+    ([, v]) => v.trim()
+  );
+  return canonicalEnv(Object.fromEntries(entries));
 }
 
 export interface LoadOctocodeEnvOptions {
@@ -123,7 +158,11 @@ export function loadOctocodeEnv({
   const workspaceEnv = cwd ? path.join(cwd, '.octocode', '.env') : undefined;
   // When cwd is the OS home, <cwd>/.octocode is the Octocode home: its .env is
   // the home layer only, never read a second time as the workspace layer.
-  if (workspaceEnv && trusted && !(home && sameFile(workspaceEnv, path.join(home, '.env')))) {
+  if (
+    workspaceEnv &&
+    trusted &&
+    !(home && sameFile(workspaceEnv, path.join(home, '.env')))
+  ) {
     for (const [k, v] of Object.entries(fileEnv(workspaceEnv))) {
       // A workspace value for a protected key is dropped later; it must not
       // also evict the trusted home value for that key.
@@ -183,8 +222,8 @@ export function applyOctocodeEnv(
   // Resolve source precedence before token-name priority. Otherwise a
   // workspace `GH_TOKEN` could outrank a process or home `GITHUB_TOKEN`.
   const shadowed = new Set<string>();
-  // What the environment set before any file.
-  const before = { ...env };
+  // What the environment set before any file, an earlier variable name read as its current one.
+  const before = canonicalEnv(env);
   const processSelected = TOKEN_NAMES.some(key => Boolean(before[key]?.trim()));
   // Tokens are API keys: a home token shadows every workspace token.
   const homeSelected = TOKEN_NAMES.some(
@@ -205,7 +244,7 @@ export function applyOctocodeEnv(
       skippedProtected.push(key);
       continue;
     }
-    const existing = env[key];
+    const existing = before[key];
     // A present-but-blank classification key is an explicit opt-out.
     if (
       Boolean(before[key]?.trim()) ||

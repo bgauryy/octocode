@@ -22,7 +22,7 @@ Load when choosing a specialized diagram. Author a `mermaid` fence; the shared v
 | Branch history | `gitGraph` | Explain branch and merge behavior; not a substitute for actual Git evidence. |
 | Hierarchy | `mindmap`, `treeView-beta` | Concept exploration / directory-like structure. |
 | Parts of a whole | `pie`, `treemap` | Few proportions / nested proportions. State units and source. |
-| Trends or comparisons | `xychart-beta`, `radar-beta` | Ordered bars/lines / profiles sharing comparable scales. Prefer bars for precise comparisons. |
+| Trends or comparisons | `xychart` (`xychart-beta` also parses), `radar-beta` | Ordered bars/lines / profiles sharing comparable scales. Prefer bars for precise comparisons. |
 | Two-axis prioritization | `quadrantChart` | Explicitly define both axes; placements require evidence or an estimate label. |
 | Weighted movement | `sankey-beta` | Conserved flows with named units; avoid invented weights. |
 | Set overlap | `venn-beta` | Membership and intersections, not causal relationships. |

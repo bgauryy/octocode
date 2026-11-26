@@ -19,7 +19,8 @@ export const environment: ContractInput['environment'] = {
     displayDefault: 'unset',
     group: 'Web search',
     docsUrl: 'https://app.tavily.com/',
-    description: 'Tavily search API credential used by the octocode-brainstorming skill.',
+    description:
+      'Tavily search API credential used by the octocode-brainstorming skill.',
   },
   EXA_API_KEY: {
     dotenv: 'all',
@@ -28,7 +29,8 @@ export const environment: ContractInput['environment'] = {
     displayDefault: 'unset',
     group: 'Web search',
     docsUrl: 'https://dashboard.exa.ai/',
-    description: 'Exa search API credential used by the octocode-brainstorming skill.',
+    description:
+      'Exa search API credential used by the octocode-brainstorming skill.',
   },
   SERPER_API_KEY: {
     dotenv: 'all',
@@ -37,7 +39,8 @@ export const environment: ContractInput['environment'] = {
     displayDefault: 'unset',
     group: 'Web search',
     docsUrl: 'https://serper.dev/',
-    description: 'Serper search API credential used by the octocode-brainstorming skill.',
+    description:
+      'Serper search API credential used by the octocode-brainstorming skill.',
   },
   DEEPSEEK_API_KEY: {
     dotenv: 'all',
@@ -46,7 +49,8 @@ export const environment: ContractInput['environment'] = {
     displayDefault: 'unset',
     group: 'Web search',
     docsUrl: 'https://platform.deepseek.com/api_keys',
-    description: 'DeepSeek search API credential used by the octocode-brainstorming skill.',
+    description:
+      'DeepSeek search API credential used by the octocode-brainstorming skill.',
   },
   // An endpoint receives its key, so a workspace may never choose one.
   TAVILY_BASE_URL: {
@@ -54,28 +58,32 @@ export const environment: ContractInput['environment'] = {
     type: 'url',
     displayDefault: 'https://api.tavily.com',
     group: 'Web search',
-    description: 'Tavily API root; receives TAVILY_API_KEY. Home-only, so a repository cannot redirect your key.',
+    description:
+      'Tavily API root; receives TAVILY_API_KEY. Home-only, so a repository cannot redirect your key.',
   },
   EXA_BASE_URL: {
     dotenv: 'home',
     type: 'url',
     displayDefault: 'https://api.exa.ai',
     group: 'Web search',
-    description: 'Exa API root; receives EXA_API_KEY. Home-only, so a repository cannot redirect your key.',
+    description:
+      'Exa API root; receives EXA_API_KEY. Home-only, so a repository cannot redirect your key.',
   },
   SERPER_BASE_URL: {
     dotenv: 'home',
     type: 'url',
     displayDefault: 'https://google.serper.dev',
     group: 'Web search',
-    description: 'Serper API root; receives SERPER_API_KEY. Home-only, so a repository cannot redirect your key.',
+    description:
+      'Serper API root; receives SERPER_API_KEY. Home-only, so a repository cannot redirect your key.',
   },
   DEEPSEEK_BASE_URL: {
     dotenv: 'home',
     type: 'url',
     displayDefault: 'https://api.deepseek.com',
     group: 'Web search',
-    description: 'DeepSeek API root; receives DEEPSEEK_API_KEY. Home-only, so a repository cannot redirect your key.',
+    description:
+      'DeepSeek API root; receives DEEPSEEK_API_KEY. Home-only, so a repository cannot redirect your key.',
   },
   GH_TOKEN: {
     dotenv: 'all',
@@ -102,19 +110,66 @@ export const environment: ContractInput['environment'] = {
     displayDefault: 'unset',
     group: 'Scraping',
     docsUrl: 'https://app.scrapingant.com/',
-    description: 'ScrapingAnt API credential used by the octocode-scraping skill.',
+    description:
+      'ScrapingAnt API credential used by the octocode-scraping skill.',
   },
   // Each can read or redirect every request, and a proxy URL can hold a password,
   // so none may come from a file a repository controls.
-  HTTPS_PROXY: { dotenv: 'never', credential: true, type: 'url', displayDefault: 'unset', description: 'Proxy for HTTPS requests and clone git. Shell, CI or MCP env block only.' },
-  HTTP_PROXY: { dotenv: 'never', credential: true, type: 'url', displayDefault: 'unset', description: 'Proxy for HTTP requests and clone git. Shell, CI or MCP env block only.' },
-  ALL_PROXY: { dotenv: 'never', credential: true, type: 'url', displayDefault: 'unset', description: 'Proxy for every protocol. Shell, CI or MCP env block only.' },
-  NO_PROXY: { dotenv: 'never', type: 'string', displayDefault: 'unset', description: 'Hosts that skip the proxy. Shell, CI or MCP env block only.' },
-  SSL_CERT_FILE: { dotenv: 'never', type: 'path', displayDefault: 'the OS trust store', description: 'Extra PEM certificates for native HTTP clients and clone git. Shell, CI or MCP env block only.' },
-  SSL_CERT_DIR: { dotenv: 'never', type: 'path', displayDefault: 'the OS trust store', description: 'Directories of extra PEM certificates. Shell, CI or MCP env block only.' },
-  GIT_SSL_CAINFO: { dotenv: 'never', description: 'CA bundle for clone git. Shell, CI or MCP env block only.' },
-  GIT_SSL_CAPATH: { dotenv: 'never', description: 'CA directory for clone git. Shell, CI or MCP env block only.' },
-  CURL_CA_BUNDLE: { dotenv: 'never', description: 'CA bundle for clone git. Shell, CI or MCP env block only.' },
+  HTTPS_PROXY: {
+    dotenv: 'never',
+    credential: true,
+    type: 'url',
+    displayDefault: 'unset',
+    description:
+      'Proxy for HTTPS requests and clone git. Shell, CI or MCP env block only.',
+  },
+  HTTP_PROXY: {
+    dotenv: 'never',
+    credential: true,
+    type: 'url',
+    displayDefault: 'unset',
+    description:
+      'Proxy for HTTP requests and clone git. Shell, CI or MCP env block only.',
+  },
+  ALL_PROXY: {
+    dotenv: 'never',
+    credential: true,
+    type: 'url',
+    displayDefault: 'unset',
+    description: 'Proxy for every protocol. Shell, CI or MCP env block only.',
+  },
+  NO_PROXY: {
+    dotenv: 'never',
+    type: 'string',
+    displayDefault: 'unset',
+    description: 'Hosts that skip the proxy. Shell, CI or MCP env block only.',
+  },
+  SSL_CERT_FILE: {
+    dotenv: 'never',
+    type: 'path',
+    displayDefault: 'the OS trust store',
+    description:
+      'Extra PEM certificates for native HTTP clients and clone git. Shell, CI or MCP env block only.',
+  },
+  SSL_CERT_DIR: {
+    dotenv: 'never',
+    type: 'path',
+    displayDefault: 'the OS trust store',
+    description:
+      'Directories of extra PEM certificates. Shell, CI or MCP env block only.',
+  },
+  GIT_SSL_CAINFO: {
+    dotenv: 'never',
+    description: 'CA bundle for clone git. Shell, CI or MCP env block only.',
+  },
+  GIT_SSL_CAPATH: {
+    dotenv: 'never',
+    description: 'CA directory for clone git. Shell, CI or MCP env block only.',
+  },
+  CURL_CA_BUNDLE: {
+    dotenv: 'never',
+    description: 'CA bundle for clone git. Shell, CI or MCP env block only.',
+  },
   OCTOCODE_GITHUB_CLIENT_ID: {
     dotenv: 'home',
     type: 'string',
@@ -125,10 +180,12 @@ export const environment: ContractInput['environment'] = {
     dotenv: 'never',
     type: 'path',
     displayDefault: '~/.octocode',
-    description: 'Overrides the Octocode configuration directory (default: <os-home>/.octocode)',
+    description:
+      'Overrides the Octocode configuration directory (default: <os-home>/.octocode)',
   },
   OCTOCODE_CARGO: {
     dotenv: 'home',
-    description: 'Override the cargo executable used for Rust dependency-graph analysis.',
+    description:
+      'Override the cargo executable used for Rust dependency-graph analysis.',
   },
 };

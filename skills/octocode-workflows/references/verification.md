@@ -2,7 +2,7 @@ Load when verifying workflow work, sharing coverage, resuming, recovering, or re
 
 # Verification and recovery
 
-The orchestrator is the sole ledger writer. Actors return raw observations keyed to its row; neither maintains a competing ledger nor accepts work. Reuse an existing task ledger; otherwise keep `coverage.md` at `<workspace>/.octocode/tmp/octocode-workflows/<YYYY-MM-DD>-<slug>/`.
+The orchestrator is the sole ledger writer; actors return raw observations keyed to its row ([orchestrator and actor contract](composition.md#orchestrator-and-actor-contract)).
 
 ## Automatically check artifact identity
 
@@ -20,7 +20,7 @@ Process-session handoff is owned by [Runtime surgery's lifecycle rule](runtime-s
 | Surface or scenario | Acceptance check | Deciding evidence and relevant conditions | State | Depends on | Gap or next action |
 |---|---|---|---|---|---|
 
-Use the existing tracker; a `coverage.md` ledger keeps this table, and a `.jsonl` ledger keeps one object per row keyed by these headings.
+Reuse an existing task ledger; otherwise keep `coverage.md` at `<workspace>/.octocode/tmp/octocode-workflows/<YYYY-MM-DD>-<slug>/`. A `coverage.md` ledger keeps this table, and a `.jsonl` ledger keeps one object per row keyed by these headings.
 
 - **Surface or scenario:** the resolved identity plus the bounded configuration/scenario identity, such as `src/api.ts:handle · empty query · default config`. Rows with the same name are duplicates.
 - **State:** `queued` (discovered), `verified` (current named check passed), `failed` (valid check contradicted acceptance), `unverified` (prerequisite blocked a valid check), or `stale` (earlier evidence no longer covers current conditions). A runtime `verified` row includes the identity guard.
@@ -29,6 +29,8 @@ Use the existing tracker; a `coverage.md` ledger keeps this table, and a `.jsonl
 After merging actor observations, and on resume, check the ledger with [ledger.mjs](../scripts/ledger.mjs): `node <skill-folder>/scripts/ledger.mjs <coverage.md>`. Exit 0: every state is valid, and `counts` holds the per-state totals for the report. Exit 1: correct each row in `invalidStates`. Exit 2: the error names the unreadable line, missing column or empty row name.
 
 Right after an owning/shared-boundary/source, generated-contract, configuration or fixture/state change, before rechecking anything, run `node <skill-folder>/scripts/ledger.mjs <coverage.md> --stale-after "<changed row or input>" --write` (repeat `--stale-after` for each changed name). It sets the changed row and every row whose Depends on chain reaches it from `verified` or `failed` to `stale`, and lists them in `staleMarked` with the `via` chain: requeue those checks. Rows it does not reach keep their evidence. Exit 2 `unknown-name`: no row or Depends on entry has that name; correct the name or the missing Depends on entries, then rerun. On resume, run `--stale-after` for each input that changed since its rows were checked; do not create a second ledger.
+
+Before a full completion claim, run `node <skill-folder>/scripts/ledger.mjs <coverage.md> --claim full`. Exit 0 allows the claim for the ledger's rows. Exit 1: each row in `blockingRows` (not `verified`, or missing its check or evidence) prevents it.
 
 ## Diagnose and replan from evidence
 
@@ -46,5 +48,3 @@ Keep each diagnosis a hypothesis test: claim, strongest rival, distinguishing ch
 | Missing access, actor, dependency, or authorization | Record prerequisite, request it through the proper owner as an SBAR (situation, background, assessment, recommendation), continue independent in-scope rows |
 
 A timeout is an unknown mutation outcome: inspect durable state and idempotency/operation identity before replay. If effect remains unknown, leave it unverified. Continue while a new observation can progress within scope and budget; stop repeating the failed attempt, not useful work. Browser mutation safeguards and sealed-evaluation integrity are stricter domain limits and remain in force.
-
-Next: return row evidence to the orchestrator for merge and domain output.

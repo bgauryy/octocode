@@ -378,7 +378,7 @@ pub(super) async fn recorded(name: &str, state: &'static str, with_paged: bool) 
     let osv_api: &'static str = Box::leak(format!("{}/v1", server.uri()).into_boxed_str());
     let mut env = support::github_api(&server).to_vec();
     env.extend([
-        ("OCTOCODE_SECURITY_CHECKS", "true".to_owned()),
+        ("OCTOCODE_ENABLE_SECURITY", "true".to_owned()),
         ("OCTOCODE_ALLOW_PRIVATE_REGISTRY", "true".to_owned()),
     ]);
     let runtime = workspace.runtime_with(

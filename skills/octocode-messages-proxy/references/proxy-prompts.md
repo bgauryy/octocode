@@ -1,3 +1,5 @@
+Load when editing or checking the instructions the launcher gives a proxy.
+
 # Proxy prompts
 
 The launcher injects these blocks into every proxy it starts: `common` on every route, `local` only for managed relays in the Octocode store. Edit them here; the launcher refuses to start when a block is missing or duplicated.

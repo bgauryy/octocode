@@ -34,10 +34,14 @@ fn version_b() -> String {
 }
 
 fn runtime(home: &Path, cwd: &Path) -> ToolRuntime {
-    let env = std::collections::BTreeMap::from([(
-        "OCTOCODE_HOME".to_owned(),
-        home.to_string_lossy().into_owned(),
-    )]);
+    // An MCP host lists the local tools only once it turns them on.
+    let env = std::collections::BTreeMap::from([
+        (
+            "OCTOCODE_HOME".to_owned(),
+            home.to_string_lossy().into_owned(),
+        ),
+        ("OCTOCODE_ENABLE_LOCAL".to_owned(), "true".to_owned()),
+    ]);
     ToolRuntime::with_limits(
         ConfigInput {
             env,

@@ -13,8 +13,6 @@ Return the document in its requested format and repository style, or a Markdown 
 
 A user-named path wins.
 
-Preserve the document's natural structure. Use [tables, diagrams or images](references/report-output.md#choose-the-format) only to clarify comparisons, relationships or UI evidence; keep prerequisites and expected results beside commands.
-
 ## Saved report
 
 Save when requested or when the review or draft needs a reusable artifact; otherwise answer in chat.
@@ -28,7 +26,7 @@ Open the `#` title with a lead stating the answer.
 | Review | `## Findings`: one table, most severe first | `## Unverified`: facts that still need a check |
 | Draft | The document | `## Destination` (where it ships), then `## Unverified` |
 
-Every saved report has either `## Findings` (a review) or `## Destination` (a draft). The findings table:
+The findings table:
 
 | Location | Issue | Correction | Severity | Verified |
 |---|---|---|---|---|

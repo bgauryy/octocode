@@ -224,6 +224,7 @@ impl ToolRuntime {
                 let mut entry = json!({
                     "name": name,
                     "title": id.title(),
+                    "section": id.section().as_str(),
                     "available": self.is_available(name),
                 });
                 if let Some(reason) = self.availability(name).and_then(

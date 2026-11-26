@@ -29,4 +29,4 @@ Take the snapshot when admitting heavy work, not before every read or edit. `oct
 
 Report contention, the affected work and its next action. Add process/resource details only where they explain the blocker or support a measurement.
 
-Sources: [Cargo build jobs](https://doc.rust-lang.org/cargo/reference/config.html#buildjobs) · [Cargo build-directory locking](https://rust-lang.github.io/rust-project-goals/2025h2/cargo-build-dir-layout.html) · [GNU make parallel execution](https://www.gnu.org/software/make/manual/html_node/Parallel.html) · [Linux memory pressure](https://docs.kernel.org/accounting/psi.html)
+Sources: [Cargo build jobs](https://doc.rust-lang.org/cargo/reference/config.html#buildjobs) · [Cargo build-directory locking](https://goals.rust-lang.org/2025h2/cargo-build-dir-layout.html) · [GNU make parallel execution](https://www.gnu.org/software/make/manual/html_node/Parallel.html) · [Linux memory pressure](https://docs.kernel.org/accounting/psi.html)

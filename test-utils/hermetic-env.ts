@@ -15,9 +15,14 @@ import { join } from 'node:path';
 export const DEAD_PROXY = 'http://127.0.0.1:9';
 export const LOOPBACK_NO_PROXY = 'localhost,127.0.0.1,::1';
 /** Any `*TOKEN` the host shell carries (GitHub, CI, editor sessions) and classifier settings. */
-export const CREDENTIAL_ENV = /TOKEN$|^OCTOCODE_CLASSIFICATION_/;
+export const CREDENTIAL_ENV = /TOKEN$|^(OCTOCODE_)?CLASSIFICATION_/;
 /** Flags that switch suites onto live services. */
-export const LIVE_ENV = ['OCTOCODE_LIVE', 'RUN_MCP_LIVE', 'RUN_CHROME_LIVE', 'OCTOCODE_CHROME_DEBUG_E2E'];
+export const LIVE_ENV = [
+  'OCTOCODE_LIVE',
+  'RUN_MCP_LIVE',
+  'RUN_CHROME_LIVE',
+  'OCTOCODE_CHROME_DEBUG_E2E',
+];
 const PROXY_ENV = ['HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY'];
 const homes = new Set<string>();
 
@@ -41,14 +46,16 @@ export function hermeticEnv(
   homes.add(home);
   const env: NodeJS.ProcessEnv = {};
   for (const [name, value] of Object.entries(base)) {
-    if (!CREDENTIAL_ENV.test(name) && !LIVE_ENV.includes(name)) env[name] = value;
+    if (!CREDENTIAL_ENV.test(name) && !LIVE_ENV.includes(name))
+      env[name] = value;
   }
   env['OCTOCODE_HOME'] = home;
   env['GH_CONFIG_DIR'] = join(home, 'gh');
   env['OCTOCODE_LSP_PREWARM'] = 'off';
   env['OCTOCODE_LSP_AUTO_INSTALL'] = 'off';
   env['OCTOCODE_TRUST_PROJECT_LSP_CONFIG'] = 'false';
-  for (const name of PROXY_ENV) env[name] = env[name.toLowerCase()] = DEAD_PROXY;
+  for (const name of PROXY_ENV)
+    env[name] = env[name.toLowerCase()] = DEAD_PROXY;
   env['NO_PROXY'] = env['no_proxy'] = LOOPBACK_NO_PROXY;
   return env;
 }

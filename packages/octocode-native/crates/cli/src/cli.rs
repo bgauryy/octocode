@@ -252,7 +252,7 @@ async fn dispatch(
             // A closed pipe (`| head`) is not a failure of the guide.
             let _ = std::io::Write::write_all(
                 &mut std::io::stdout(),
-                mcp_server::resources::TOOL_FLOW.as_bytes(),
+                mcp_server::resources::tool_flow().as_bytes(),
             );
             0
         }
