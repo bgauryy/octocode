@@ -11,6 +11,7 @@ fn hit(line: u32, value: &str) -> octocode_engine::types::TextSearchMatch {
         last_line: None,
         column: 0,
         byte_offset: 0,
+        match_len: 0,
         value: value.into(),
         value_digest: octocode_engine::types::TextSearchMatch::digest_of(value),
         count: None,

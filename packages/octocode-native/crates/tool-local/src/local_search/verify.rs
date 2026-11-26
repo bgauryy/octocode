@@ -589,11 +589,7 @@ pub(super) fn outline_for_cut(
         .into_iter()
         .filter_map(|(source, outline)| {
             let &(index, file) = indexes.get(&source)?;
-            let price = FilePrice::of(
-                file,
-                outline.as_ref(),
-                super::enclosing::declaring_symbol(scope.query),
-            );
+            let price = FilePrice::of(file, outline.as_ref());
             cut.insert(index, outline);
             Some((index, price))
         })
@@ -611,7 +607,7 @@ pub(super) fn stream_price(
     output_root: &std::path::Path,
     security: &ContentSecurity,
     file: &octocode_engine::types::TextSearchFile,
-    (prepared, declaring): (&PreparedOutlines, Option<&str>),
+    prepared: &PreparedOutlines,
 ) -> FilePrice {
     // The search thread already read and outlined the file for this commit
     // ([`prepare_outline`]): price by that read. Reading it again would
@@ -624,7 +620,7 @@ pub(super) fn stream_price(
         .remove(&file.path)
         .unwrap_or_else(|| fresh_outline(paths, &output_root.join(&file.path), security));
     match read {
-        FreshRead::Read(outline) => FilePrice::of(file, outline.as_ref(), declaring),
+        FreshRead::Read(outline) => FilePrice::of(file, outline.as_ref()),
         FreshRead::Unread => FilePrice::Unread,
     }
 }

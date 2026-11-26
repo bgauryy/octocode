@@ -15,7 +15,7 @@ Start with a local file from your terminal or coding agent. [Install Octocode an
 | Follow a cursor or interpret a partial result | [Read tool results](TOOL_DATA_CONTRACT.md) |
 | Find cached data, change storage or clear saved results | [Storage and caches](STORAGE_AND_LIMITS.md) |
 | Check which files Octocode can read and what leaves my machine | [Security](SECURITY.md) and [privacy](../PRIVACY.md) |
-| Upgrade from Octocode 19: what changed and the new tool names | [Upgrading from 19 to 20](V19_V20.md) |
+| Compare Octocode 20 with Octocode 19 and the GitHub CLI: benchmark results | [Octocode 20 against 19 and `gh`](V19_V20.md) |
 
 ## Languages and integrations
 

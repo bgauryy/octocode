@@ -48,6 +48,32 @@ pub(super) struct Blob<'a> {
     pub(super) declared: Vec<&'a GraphFactDeclaration>,
 }
 
+/// What a hit line states about the read around it, as the outline states
+/// it (`view:"symbols"`): the block declaration the line declares, or, in a
+/// Markdown file, the innermost section holding it. The read of
+/// `line..=end_line` returns it whole.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::gh_search_code) struct Declared {
+    /// The hit line it is listed for (1-based): a row lists it with that hit.
+    pub(in crate::gh_search_code) hit: u32,
+    /// Its name line (1-based): the hit line of a declaration, the heading
+    /// line of a section.
+    pub(in crate::gh_search_code) line: u32,
+    /// Its last line (1-based).
+    pub(in crate::gh_search_code) end_line: u32,
+    pub(in crate::gh_search_code) kind: String,
+    pub(in crate::gh_search_code) name: String,
+}
+
+/// The `kind` a Markdown section is listed by, as localSearch lists it.
+const SECTION_KIND: &str = "section";
+
+/// Whether a declaration spans more than one line: only then does a read
+/// of it return more than its own line.
+fn is_block(declared: &GraphFactDeclaration) -> bool {
+    declared.range.end.line > declared.range.start.line
+}
+
 /// The declarations of an outline (`declarations`, in outline order) whose
 /// name line is a `found` keyword line (the only lines a hit is scored or
 /// anchored on), by name line, outline order within one line. They borrow
@@ -98,6 +124,62 @@ impl Blob<'_> {
                         .find(&name)
                         .is_some_and(|start| start + name.len() > at)
             })
+    }
+
+    /// The block declaration each of `hits` declares ([`Self::declares`], the
+    /// rule that scores and anchors a hit), in hit order: one whose name the
+    /// listed line still shows, so no entry names what the sealed view or a
+    /// private-key block hides.
+    pub(super) fn declared_blocks(&self, hits: &[Hit]) -> Vec<Declared> {
+        hits.iter()
+            .filter_map(|hit| {
+                let declared = self
+                    .declares(hit.index, hit.at)
+                    .filter(|declared| is_block(declared))?;
+                let shown = !self.in_key_block(hit.number())
+                    && self.clean[hit.index].contains(declared.name.as_str());
+                shown.then(|| Declared {
+                    hit: hit.number(),
+                    line: hit.number(),
+                    end_line: declared.range.end.line.saturating_add(1),
+                    kind: declared.kind.clone(),
+                    name: declared.name.clone(),
+                })
+            })
+            .collect()
+    }
+
+    /// The innermost of a Markdown file's `sections` holding each of `hits`
+    /// (the shared outline a `block:true` read widens to), in hit order: a
+    /// section of more than one line whose heading the listed view still
+    /// shows. Hits of one section each list it; a row states it once.
+    pub(super) fn sections_of(
+        &self,
+        hits: &[Hit],
+        sections: &[octocode_tools_shared::source_view::sections::Section],
+    ) -> Vec<Declared> {
+        hits.iter()
+            .filter_map(|hit| {
+                let section = octocode_tools_shared::source_view::sections::innermost(
+                    sections,
+                    hit.index + 1,
+                )
+                .filter(|section| section.end > section.line && !section.name.is_empty())?;
+                let line = saturating_u32(section.line);
+                let shown = !self.in_key_block(line)
+                    && self
+                        .clean
+                        .get(section.line - 1)
+                        .is_some_and(|heading| heading.contains(section.name.as_str()));
+                shown.then(|| Declared {
+                    hit: hit.number(),
+                    line,
+                    end_line: saturating_u32(section.end),
+                    kind: SECTION_KIND.to_owned(),
+                    name: section.name.clone(),
+                })
+            })
+            .collect()
     }
 
     /// Every keyword line of the `lowered` lines, in file order, unscored.
@@ -228,7 +310,7 @@ impl Blob<'_> {
     /// unique in the file, and the sealed view leaves it unchanged.
     pub(super) fn declared_head(&self, hit: &Hit) -> Option<String> {
         self.declares(hit.index, hit.at)
-            .filter(|declared| declared.range.end.line > declared.range.start.line)?;
+            .filter(|declared| is_block(declared))?;
         let head = self.raw[hit.index].trim();
         if head.is_empty() || head.chars().count() > MAX_DECLARATION_ANCHOR_CHARS {
             return None;

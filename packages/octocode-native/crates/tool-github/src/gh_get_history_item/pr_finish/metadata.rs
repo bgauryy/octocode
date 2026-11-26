@@ -22,6 +22,11 @@ const SECTION_HEADER: &[&str] = &[
 /// summary read it (GraphQL `totalCommentsCount`); REST has no such field.
 pub(in crate::gh_get_history_item) const WHOLE_COUNT_KEY: &str = "total_comments";
 
+/// The raw pull request's key for what bots wrote in each discussion
+/// section, set when a summary counted it
+/// ([`crate::gh_get_history_item::graphql::bot_entries`]).
+pub(in crate::gh_get_history_item) const BOT_ENTRIES_KEY: &str = "bot_entries";
+
 /// Characters a summary's `bodyPreview` shows.
 const BODY_PREVIEW_CHARS: usize = 300;
 
@@ -134,8 +139,11 @@ pub(in crate::gh_get_history_item) fn pr_metadata(
         "reviewCommentsCount": nonzero(raw.get("review_comments")),
         // GitHub's whole count (conversation, inline review comments and
         // review bodies), the one ghSearchHistory sorts and filters by,
-        // once the read has it (`whole_comment_count`).
+        // once the read has it (`summary_counts`).
         "totalCommentsCount": nonzero(raw.get(WHOLE_COUNT_KEY)),
+        // What bots and apps wrote in each discussion section, so a read of
+        // one can leave them out (`bots:false`) knowing what that leaves.
+        "botEntries": raw.get(BOT_ENTRIES_KEY),
         "commitCount": nonzero(raw.get("commits")),
         // Review threads (GraphQL only): REST counts review comments, a
         // different unit, so a REST read leaves this out.

@@ -196,6 +196,7 @@ impl<'a> Reader<'a> {
         let line = self.small()?;
         let column = self.small()?;
         let byte_offset = self.small()?;
+        let match_len = self.small()?;
         let deferred = self.optional()?;
         let value = if keep {
             self.text()?
@@ -226,6 +227,7 @@ impl<'a> Reader<'a> {
             last_line,
             column,
             byte_offset,
+            match_len,
             deferred,
             value,
             value_digest,

@@ -2,7 +2,7 @@
 
 How a benchmark round is run, measured, judged and recorded. Agents run it by direct calls and
 judgement; checked-in scripts do the exact, repeated parts (`dev pin`, `dev walk`, `harness-tally.mjs`), and
-nothing else is kept as a driver. What to compare against is in [COMPARISONS.md](COMPARISONS.md); how to check each tool's
+a research round is driven by the [harness](harness/README.md) (`dev bench`). What to compare against is in [COMPARISONS.md](COMPARISONS.md); how to check each tool's
 behavior, security and skills is in [CHECKS.md](CHECKS.md). Every round ends in one
 [scorecard](briefs/SCORECARD.md).
 
@@ -129,6 +129,30 @@ The [judge brief](briefs/judge.md) is the whole procedure. In short:
 - **Variance:** one pass shows a direction. A size claim needs three passes; report each pass's
   ratio and the spread, and flag questions whose ratio changes sign between passes.
 - **Invalid and missing runs** stay in coverage counts and out of paired ratios.
+
+## Accept a cost claim
+
+A claim that one arm costs less than another per answer ("v20 costs no more than `gh`"), and any change shipped
+to make replies smaller, is accepted only when all of these hold. `dev bench analyze` and `dev bench replay`
+([harness](harness/README.md)) print each number.
+
+| Gate | Rule | Printed by |
+|---|---|---|
+| Passes | Three passes, interleaved: every arm answers pass 1 of every question before any arm starts pass 2, and the arms of one question run next to each other | `bench run` order |
+| Cost ratio | Per question, the claimed arm's cost divided by the other's, summed over passes. The 95% bootstrap upper bound of the geometric mean is at or below 1.00, and each pass's geometric mean is at or below 1.00 | `bench analyze`, cost ratio and cost ratio per pass |
+| Where the cost is | New input, cached re-reads, output and model calls are reported as the same paired ratios, with how many questions each side is lower on. They explain the cost ratio and gate nothing | `bench analyze` |
+| Facts | With a fact-level answer key, the claimed arm has no fact scored missing, wrong or unsupported that the other arm, or the same questions on the previous build, has right. The 0–10 score cannot show this near its ceiling | `bench judge`, then the facts line of `bench analyze` |
+| Evidence | For a new build: replay of the round's stored calls against the previous pinned build loses no evidence, reachable or in the first reply, beyond the changes declared with a reason | `bench replay --base <previous> --cand <new>` exits 0 |
+| Cache state | Every session's first call reads the prompt from cache, or none does. Cold and warm sessions are never pooled | first-call cached tokens and the cold count in the ledger |
+
+Verdicts: **Accept** when every gate holds. **Inconclusive** when the interval straddles 1.00, when fewer than
+three passes ran, or when a question's cost ratio changes side between passes and removing it moves the bound
+across 1.00. **Reject** when the lower bound is above 1.00. **Regression** when a fact or a replay item is lost,
+whatever the cost.
+
+Report the price of one more model call from the same round beside any trade of reply size for calls: a smaller
+first reply that needs a second request pays the cached re-read of the whole context and the output of that
+request (25 November 2026, GitHub set: $0.012 for v20, $0.009 for `gh`).
 
 ## Compare a new version
 

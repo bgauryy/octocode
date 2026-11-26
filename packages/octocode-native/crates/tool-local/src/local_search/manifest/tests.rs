@@ -36,6 +36,7 @@ fn one_match(path: &std::path::Path, line: u32, value: &str) -> TextSearchResult
                 last_line: None,
                 column: 0,
                 byte_offset: 0,
+                match_len: 0,
                 value: value.into(),
                 value_digest: TextSearchMatch::digest_of(value),
                 count: None,

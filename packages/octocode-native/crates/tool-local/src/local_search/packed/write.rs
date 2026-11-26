@@ -124,6 +124,7 @@ impl<W: Write> Writer<W> {
             self.number(u64::from(hit.line))?;
             self.number(u64::from(hit.column))?;
             self.number(u64::from(hit.byte_offset))?;
+            self.number(u64::from(hit.match_len))?;
             self.optional(hit.deferred)?;
             self.text(&hit.value)?;
             if stamps && hit.deferred.is_some() {

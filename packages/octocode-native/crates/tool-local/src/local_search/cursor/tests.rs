@@ -9,6 +9,7 @@ fn scan() -> (Vec<TextSearchFile>, TextSearchStats) {
         last_line: None,
         column: 3,
         byte_offset: 3,
+        match_len: 1,
         value: value.into(),
         value_digest: [line as u8; 32],
         count: None,
@@ -84,12 +85,13 @@ fn the_snapshot_binds_every_row_field_and_no_stamp() {
     assert!(malformed_snapshot(&query).is_none());
 
     type Edit = fn(&mut Vec<TextSearchFile>, &mut TextSearchStats);
-    let bound: [(&str, Edit); 16] = [
+    let bound: [(&str, Edit); 17] = [
         ("path", |f, _| f[0].path.push('x')),
         ("matchCount", |f, _| f[0].match_count += 1),
         ("line", |f, _| f[0].matches[0].line += 1),
         ("column", |f, _| f[0].matches[0].column += 1),
         ("byteOffset", |f, _| f[0].matches[0].byte_offset += 1),
+        ("matchLen", |f, _| f[0].matches[0].match_len += 1),
         ("value", |f, _| f[0].matches[0].value.push('x')),
         ("valueDigest", |f, _| f[0].matches[0].value_digest[0] ^= 1),
         ("rank", |f, _| f[0].matches[0].rank = Some(3)),

@@ -1035,6 +1035,7 @@ shared?: {
 data: {
 owner?: string
 repo?: string
+remote?: string
 ref?: string
 commitSha?: string
 root?: string
@@ -3662,6 +3663,7 @@ shared?: {
 data: {
 owner?: string
 repo?: string
+remote?: string
 ref?: string
 commitSha?: string
 root?: string

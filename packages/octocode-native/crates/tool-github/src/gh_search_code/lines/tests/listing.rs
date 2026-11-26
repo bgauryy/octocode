@@ -25,6 +25,7 @@ fn every_keyword_line_is_numbered_case_insensitively() {
             best: 2,
             total: 2,
             line_count: 4,
+            declared: Vec::new(),
             redacted: 0,
         }
     );

@@ -394,3 +394,90 @@ fn a_directory_skipped_for_two_causes_is_listed_once_with_both() {
         assert_eq!(named, [json!("ignored-default-excluded")], "{out}");
     }
 }
+
+/// The reason `skippedPaths` gives for the repository's own `.git`
+/// directory: the path policy's, as `localSearch` states it.
+fn git_dir_reason() -> String {
+    octocode_runtime_base::policy::discovery::withheld::WithheldKind::PolicyDir(".git")
+        .reason()
+        .into_owned()
+}
+
+/// A listing that would otherwise show the repository's `.git` says the
+/// path policy withheld it: one that lists dot entries (`includeHidden`),
+/// and one whose default prune, which leaves `.git` out anyway, is off
+/// (the rule `localSearch` counts it by). A default listing shows no dot
+/// entry and prunes `.git` anyway, so the policy took nothing from it.
+#[test]
+fn a_listing_that_would_show_the_git_directory_says_it_is_withheld() {
+    let root = Fixture::new();
+    std::fs::create_dir_all(root.0.join(".git/refs")).expect("git");
+    std::fs::write(root.0.join(".git/HEAD"), "ref: refs/heads/main\n").expect("head");
+    std::fs::create_dir(root.0.join("src")).expect("src");
+    std::fs::write(root.0.join("src/lib.rs"), "x\n").expect("lib");
+    for operation in ["tree", "files"] {
+        let listing = |flags: Value| {
+            let query = lifting(json!({"operation":operation,"path":root.0}), flags);
+            run(&root.0, query).expect("listing")
+        };
+        let plain = listing(json!({}));
+        assert_eq!(skipped_count(&plain, "withheld"), 0, "{operation}: {plain}");
+        for flags in [
+            json!({"includeHidden": true}),
+            json!({"defaultExcludes": false}),
+        ] {
+            let out = listing(flags.clone());
+            assert_eq!(
+                skipped_reasons(&out, "withheld"),
+                [(git_dir_reason(), 1)],
+                "{operation} {flags}: {out}"
+            );
+            // Named by its policy rule under the directory holding it;
+            // nothing inside it is listed or named.
+            octocode_runtime_base::test_support::checks::assert_absent(&out["files"], ".git");
+            octocode_runtime_base::test_support::checks::assert_absent(&out, "HEAD");
+            assert_listing_guides_nothing(&out);
+        }
+    }
+}
+
+/// A listing that asks for `.git` by name finds it withheld, whatever its
+/// walk flags: `skippedPaths` names the policy rule, and the empty listing
+/// neither says that no entry matches nor leads to a listing without the
+/// filter or the depth bound, which would withhold it the same.
+#[test]
+fn a_listing_that_names_a_withheld_entry_never_reads_as_a_miss() {
+    let root = Fixture::new();
+    std::fs::create_dir_all(root.0.join(".git/refs")).expect("git");
+    std::fs::create_dir(root.0.join("src")).expect("src");
+    std::fs::write(root.0.join("src/lib.rs"), "x\n").expect("lib");
+    for flags in [
+        json!({}),
+        json!({"maxDepth": 1}),
+        json!({"includeHidden": true}),
+        json!({"includeHidden": true, "includeIgnored": true, "defaultExcludes": false, "maxDepth": 1}),
+    ] {
+        let query = lifting(
+            json!({"operation":"files","path":root.0,"nameRegex":"^\\.git$"}),
+            flags,
+        );
+        let out = run(&root.0, query.clone()).expect("listing");
+        assert_eq!(out["status"], "empty", "{query}: {out}");
+        assert_eq!(
+            skipped_reasons(&out, "withheld"),
+            [(git_dir_reason(), 1)],
+            "{query}: {out}"
+        );
+        assert!(out.get("hints").is_none(), "{query}: {out}");
+        assert!(related_calls(&out).is_empty(), "{query}: {out}");
+    }
+    // A name filter that selects nothing withheld is still a plain miss,
+    // with its lead.
+    let miss = run(
+        &root.0,
+        json!({"operation":"files","path":root.0,"nameRegex":"^nomatch$"}),
+    )
+    .expect("listing");
+    assert_eq!(skipped_count(&miss, "withheld"), 0, "{miss}");
+    assert!(one_recovery(&miss).is_some(), "{miss}");
+}

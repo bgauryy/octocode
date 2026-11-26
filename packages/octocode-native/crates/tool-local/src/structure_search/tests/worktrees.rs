@@ -39,11 +39,12 @@ fn worktree(root: &Path) -> PathBuf {
     work
 }
 
-/// Listing a worktree root says nothing about its `.git` file: it is the
-/// repository's own bookkeeping, as `.git/` is, so it is neither listed nor
-/// counted as a withheld or hidden entry, with or without `includeHidden`.
+/// A worktree root's `.git` is a pointer file, the repository's own
+/// bookkeeping as `.git/` is: never listed, never counted as a hidden
+/// entry, and counted as withheld only by a listing that would otherwise
+/// show it (`includeHidden`), under the path policy's own reason for it.
 #[test]
-fn a_worktree_root_lists_no_git_file_and_warns_of_none() {
+fn a_worktree_root_lists_no_git_file_and_says_so_when_it_shows_dot_entries() {
     let root = Fixture::new();
     let work = worktree(&root.0);
     for operation in ["tree", "files"] {
@@ -58,9 +59,16 @@ fn a_worktree_root_lists_no_git_file_and_warns_of_none() {
                 "{operation} {hidden}: {out}"
             );
             octocode_runtime_base::test_support::checks::assert_absent(&out["files"], ".git");
+            let reason = octocode_runtime_base::policy::discovery::withheld::WithheldKind::GitFile
+                .reason()
+                .into_owned();
             assert_eq!(
                 skipped_reasons(&out, "withheld"),
-                Vec::<(String, u64)>::new(),
+                if hidden {
+                    vec![(reason, 1)]
+                } else {
+                    Vec::new()
+                },
                 "{operation} {hidden}: {out}"
             );
             assert_eq!(

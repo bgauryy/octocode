@@ -15,6 +15,7 @@ fn hit(line: u32) -> TextSearchMatch {
         last_line: None,
         column: 0,
         byte_offset: 0,
+        match_len: 0,
         value: format!("needle {line}"),
         value_digest: [0; 32],
         count: None,
@@ -133,6 +134,7 @@ fn names_are_charged_as_the_declarations_the_reply_delivers() {
         let byte = u32::try_from(text.find(at).expect("hit")).expect("byte");
         matches.push(TextSearchMatch {
             byte_offset: byte,
+            match_len: u32::try_from(at.len()).expect("length"),
             value: text,
             ..hit(line)
         });
@@ -147,7 +149,7 @@ fn names_are_charged_as_the_declarations_the_reply_delivers() {
         source: None,
     };
     let outline = Outline::of(&source, "price-test/names.rs").expect("rust outline");
-    let FilePrice::Owners(owners) = FilePrice::of(&file, Some(&outline), None) else {
+    let FilePrice::Owners(owners) = FilePrice::of(&file, Some(&outline)) else {
         panic!("an outlined file is priced by its owners");
     };
     let charged = owners.values().map(|owner| owner.full).sum::<usize>();

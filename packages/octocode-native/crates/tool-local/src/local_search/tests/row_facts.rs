@@ -522,3 +522,140 @@ fn a_declaration_search_names_the_declaration_it_found() {
     assert_eq!(named[0]["line"], rows[0]["line"], "{out}");
     assert_eq!(named[0]["endLine"], 8, "{out}");
 }
+
+/// Whatever pattern found a declaration's head, a hit whose match covers
+/// the name names the declaration the one-literal search names, with the
+/// same extent: a regex, one term of several, a case-insensitive pattern,
+/// PCRE2, the head up to its brace, part of the name, with context lines.
+/// A hit on the keyword alone ends before the name and declares nothing.
+#[test]
+fn any_hit_covering_a_declarations_name_states_its_extent() {
+    let dir = tempfile::tempdir().expect("fixture");
+    let root = dir.path().canonicalize().expect("real root");
+    fs::write(root.join("two.rs"), THREE_FNS).expect("fixture");
+    // (name, name line, last line) of each declaration the rows declare.
+    let named = |fields: Value| {
+        let mut query = fields;
+        query["path"] = json!(root);
+        let out = served(&root, query);
+        let file = &data(&out)["files"][0];
+        file["matches"]
+            .as_array()
+            .unwrap_or_else(|| panic!("rows: {out}"))
+            .iter()
+            .flat_map(|row| declared(file, row))
+            .map(|d| {
+                (
+                    d["symbolName"].as_str().expect("name").to_owned(),
+                    d["line"].as_u64().expect("line"),
+                    d["endLine"].as_u64().expect("last line"),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let literal = named(json!({"matchString": ["fn beta"]}));
+    assert_eq!(literal.len(), 1, "{literal:?}");
+    for fields in [
+        json!({"matchString": ["fn\\s+beta"], "regexEngine": "rust"}),
+        json!({"matchString": ["^fn beta\\b"], "regexEngine": "pcre2"}),
+        json!({"matchString": ["FN BETA"], "caseMode": "insensitive"}),
+        json!({"matchString": ["fn beta() {"]}),
+        json!({"matchString": ["fn bet"]}),
+        json!({"matchString": ["fn beta"], "contextLines": {"before": 0, "after": 1}}),
+    ] {
+        assert_eq!(named(fields.clone()), literal, "{fields}");
+    }
+    // Each term of a multi-term search names its own declaration.
+    let both = named(json!({"matchString": ["fn alpha() {", "fn beta"]}));
+    assert_eq!(both.len(), 2, "{both:?}");
+    assert_eq!(both[1], literal[0], "{both:?}");
+    // The keyword alone ends before every name.
+    let keyword = named(json!({"matchString": ["fn"], "wholeWord": true}));
+    assert_eq!(keyword, [], "{keyword:?}");
+}
+
+/// A guide whose sections nest: hits in an intro, a section, a subsection,
+/// a fenced block and on a heading line.
+const GUIDE_MD: &str = "# Guide\n\nIntro needle.\n\n## Setup\n\nRun needle.\n\n### Keys\n\nA needle key.\n\n```sh\n# needle in a fence\n```\n\n## Usage needle\n\nCall it.\n";
+
+/// A Markdown hit names one section, the innermost holding it, by the
+/// range the shared sections function gives (the range a `block:true` read
+/// of that heading returns): a hit in the text as `enclosing`, a hit on a
+/// heading line as the `declaration` that heading opens. The file lists
+/// only the sections its rows name, never the sections around them.
+#[test]
+fn a_markdown_hit_names_its_innermost_section_alone() {
+    use octocode_tools_shared::source_view::sections::{innermost, sections};
+    let dir = tempfile::tempdir().expect("fixture");
+    let root = dir.path().canonicalize().expect("real root");
+    fs::write(root.join("GUIDE.md"), GUIDE_MD).expect("fixture");
+    let shared = sections(GUIDE_MD, "GUIDE.md").expect("markdown sections");
+    assert!(shared.iter().any(|section| section.level > 2), "nested");
+    let out = served(&root, json!({"path": root, "matchString": ["needle"]}));
+    let file = &data(&out)["files"][0];
+    let listed = |index: &Value| {
+        let index = usize::try_from(index.as_u64().expect("one index")).expect("index");
+        let entry = &file["declarations"][index];
+        let row = match entry.as_str() {
+            Some(text) => {
+                octocode_runtime_base::response::symbol_outline::outline_row(text)
+                    .expect("an outline line")
+                    .1
+            }
+            None => entry.clone(),
+        };
+        (
+            row["kind"].as_str().expect("kind").to_owned(),
+            row["symbolName"].as_str().expect("name").to_owned(),
+            row["line"].as_u64().expect("line"),
+            row["endLine"]
+                .as_u64()
+                .or(row["line"].as_u64())
+                .expect("end"),
+        )
+    };
+    let rows = file["matches"].as_array().expect("rows");
+    let hit_lines = GUIDE_MD
+        .lines()
+        .zip(1u64..)
+        .filter(|(text, _)| text.contains("needle"))
+        .map(|(_, line)| line)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rows.iter()
+            .map(|row| row["line"].as_u64().expect("line"))
+            .collect::<Vec<_>>(),
+        hit_lines,
+        "{out}"
+    );
+    let mut named = std::collections::BTreeSet::new();
+    for row in rows {
+        let line = usize::try_from(row["line"].as_u64().expect("line")).expect("line");
+        let section = innermost(&shared, line).expect("a section holds every hit");
+        // A heading hit declares its section; any other hit sits in one.
+        let (field, other) = if section.line == line {
+            ("declaration", "enclosing")
+        } else {
+            ("enclosing", "declaration")
+        };
+        assert!(row.get(other).is_none(), "line {line}: {out}");
+        let (kind, name, first, last) = listed(&row[field]);
+        assert_eq!(kind, "section", "line {line}: {out}");
+        assert_eq!(
+            (name.as_str(), first, last),
+            (
+                section.name.as_str(),
+                section.line as u64,
+                section.end as u64
+            ),
+            "line {line}: {out}"
+        );
+        named.insert(first);
+    }
+    assert!(named.len() > 1, "hits in several sections: {out}");
+    assert_eq!(
+        file["declarations"].as_array().expect("declarations").len(),
+        named.len(),
+        "only the sections the rows name: {out}"
+    );
+}

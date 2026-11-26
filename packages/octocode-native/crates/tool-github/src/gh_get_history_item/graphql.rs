@@ -113,18 +113,79 @@ fn first_page_read(query: &HistoryItemRequest) -> Option<(String, Value)> {
     Some((document, variables))
 }
 
-/// The GraphQL document and variables of `query`'s whole comment count
-/// (a summary read's `totalCommentsCount`). `None` without a pull-request number.
-pub(super) fn whole_count_read(query: &HistoryItemRequest) -> Option<(String, Value)> {
+/// The GraphQL document and variables of `query`'s summary read: its whole
+/// comment count (`totalCommentsCount`) and what its bot entries are counted
+/// from ([`bot_entries`]). `None` without a pull-request number.
+pub(super) fn summary_read(query: &HistoryItemRequest) -> Option<(String, Value)> {
     let number = gh_get_history_item_query::number(query)?;
     Some((
-        document::WHOLE_COUNT_DOCUMENT.to_owned(),
+        document::summary_document(),
         json!({
             "owner": gh_get_history_item_query::owner(query),
             "repo": gh_get_history_item_query::repo(query),
             "number": number,
         }),
     ))
+}
+
+/// What bots and apps wrote in each discussion section of the pull request
+/// `pr` (a summary read's GraphQL answer), as the summary row's `botEntries`:
+/// per section with any, `count` entries and the `chars` of their bodies. A
+/// section GraphQL listed in part (past its first page) also states the
+/// entries `counted`, so the count never reads as the whole section's.
+/// `None` when no bot wrote an entry among those counted.
+pub(super) fn bot_entries(pr: &Value) -> Option<Value> {
+    fn entries(connection: &Value) -> &[Value] {
+        connection
+            .get("nodes")
+            .and_then(Value::as_array)
+            .map_or(&[], Vec::as_slice)
+    }
+    let total = |connection: &Value| connection.get("totalCount").and_then(Value::as_u64);
+    // The REST rule (`util::is_bot`) on GraphQL's author.
+    let is_bot = |entry: &&Value| {
+        super::util::str_at(entry, "/author/__typename") == Some("Bot")
+            || super::util::str_at(entry, "/author/login")
+                .is_some_and(|login| login.ends_with("[bot]"))
+    };
+    let threads = entries(&pr["reviewThreads"]);
+    let inline = threads
+        .iter()
+        .flat_map(|thread| entries(&thread["comments"]))
+        .collect::<Vec<_>>();
+    // Known only when every thread is listed, each with its own count:
+    // else the section holds more than was counted.
+    let inline_total = threads
+        .iter()
+        .map(|thread| total(&thread["comments"]))
+        .sum::<Option<u64>>()
+        .filter(|_| total(&pr["reviewThreads"]) == Some(threads.len() as u64));
+    let mut sections = serde_json::Map::new();
+    for (section, key) in [
+        (Section::Comments, "comments"),
+        (Section::ReviewComments, ""),
+        (Section::Reviews, "reviews"),
+    ] {
+        let (listed, total) = match section {
+            Section::ReviewComments => (inline.clone(), inline_total),
+            _ => (entries(&pr[key]).iter().collect(), total(&pr[key])),
+        };
+        let bots = listed.iter().copied().filter(is_bot).collect::<Vec<_>>();
+        if bots.is_empty() {
+            continue;
+        }
+        let chars = bots
+            .iter()
+            .map(|entry| super::util::str_at(entry, "/body").map_or(0, |body| body.chars().count()))
+            .sum::<usize>();
+        let mut counts = json!({"count": bots.len(), "chars": chars});
+        // Listed in part: the counts cover only the entries examined.
+        if total != Some(listed.len() as u64) {
+            counts["counted"] = json!(listed.len());
+        }
+        sections.insert(section.to_string(), counts);
+    }
+    (!sections.is_empty()).then_some(Value::Object(sections))
 }
 
 /// A batch row GraphQL can serve: what its own read would send, and what
@@ -149,7 +210,7 @@ impl PullRequestWarm {
         let (wants, (document, variables)) = if graphql_complete_collection_eligible(&query) {
             (Some(GraphqlWants::of(&query)), first_page_read(&query)?)
         } else if summary {
-            (None, whole_count_read(&query)?)
+            (None, summary_read(&query)?)
         } else {
             return None;
         };

@@ -259,6 +259,7 @@ pub(super) fn shape_pr_reviews(
                 _ => None,
             },
             "author": str_at(&review,"/user/login").unwrap_or("unknown"),
+            "bot": super::util::is_bot(&review).then_some(true),
             "state": string(review.get("state")),
             "body": (!body.is_empty()).then_some(body),
             "fullBodyChars": full_chars,

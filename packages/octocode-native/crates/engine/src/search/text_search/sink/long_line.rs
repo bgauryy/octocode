@@ -28,22 +28,27 @@ impl<M: Matcher> CollectSink<'_, M> {
         &mut self,
         bytes: &[u8],
         line: u32,
-        first_start: Option<usize>,
+        first_match: Option<(usize, usize)>,
     ) -> std::io::Result<()> {
         let failed = |error: M::Error| std::io::Error::other(error.to_string());
         let decoded = line_of(bytes);
         self.not_utf8 |= decoded.warning.is_some();
         let text = decoded.text.as_ref();
-        let start = first_start.unwrap_or(0);
-        let end = self
-            .matcher
-            .find_at(bytes, start)
-            .map_err(failed)?
-            .map_or(start, |found| found.end());
+        let (start, end) = match first_match {
+            Some(matched) => matched,
+            None => (
+                0,
+                self.matcher
+                    .find_at(bytes, 0)
+                    .map_err(failed)?
+                    .map_or(0, |found| found.end()),
+            ),
+        };
         let hit = text.floor_char_boundary(interior_offset(bytes, start).min(text.len()))
             ..text.ceil_char_boundary(interior_offset(bytes, end).min(text.len()));
         let column = saturating_u32(byte_to_utf16_offset(text, hit.start));
         let byte_offset = saturating_u32(hit.start);
+        let match_len = saturating_u32(hit.len());
         // A window of the line states where it starts, as a row window does
         // ([`super::row_window`]); one that holds the whole line is its row.
         let shown = LongLine::window_of(text, hit);
@@ -57,6 +62,7 @@ impl<M: Matcher> CollectSink<'_, M> {
                 last_line: None,
                 column,
                 byte_offset,
+                match_len,
                 value_digest: TextSearchMatch::digest_of(&value),
                 value,
                 count: None,
@@ -71,6 +77,7 @@ impl<M: Matcher> CollectSink<'_, M> {
                     line_number: line,
                     column,
                     byte_offset,
+                    match_len,
                     rank: declaration::line_rank(bytes, start),
                     window_start,
                 });
@@ -115,7 +122,7 @@ impl<M: Matcher> CollectSink<'_, M> {
             let end = columns.lossy(found.end()).min(text.len());
             let shown = text.floor_char_boundary(start)..text.ceil_char_boundary(end);
             let (_, column, byte_offset) = columns.position(start);
-            let value = judged.cut(text, shown);
+            let value = judged.cut(text, shown.clone());
             let span = TextSearchMatch {
                 deferred: None,
                 line,
@@ -123,6 +130,7 @@ impl<M: Matcher> CollectSink<'_, M> {
                 last_line: None,
                 column,
                 byte_offset,
+                match_len: saturating_u32(shown.len()),
                 value_digest: TextSearchMatch::digest_of(&value),
                 value,
                 count: None,

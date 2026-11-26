@@ -20,6 +20,7 @@ fn source_secret_guard_fails_closed_when_the_source_cannot_be_reread() {
             last_line: None,
             column: 0,
             byte_offset: 0,
+            match_len: 0,
             value: "…token = ghp_abcdefghijklmnopqrstuvwxyz0123456789".into(),
             value_digest: <sha2::Sha256 as sha2::Digest>::digest(
                 "…token = ghp_abcdefghijklmnopqrstuvwxyz0123456789".as_bytes(),
@@ -75,6 +76,7 @@ fn source_secret_guard_fails_closed_when_the_match_line_is_gone() {
             last_line: None,
             column: 0,
             byte_offset: 0,
+            match_len: 0,
             value: "…token = ghp_abcdefghijklmnopqrstuvwxyz0123456789".into(),
             value_digest: <sha2::Sha256 as sha2::Digest>::digest(
                 "…token = ghp_abcdefghijklmnopqrstuvwxyz0123456789".as_bytes(),

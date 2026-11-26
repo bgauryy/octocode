@@ -494,3 +494,53 @@ fn a_missing_path_with_a_repeated_folder_names_the_one_that_exists() {
         .expect_err("missing");
     assert!(!other.message.contains("exists"), "{}", other.message);
 }
+
+/// A search or listing root that repeats a run of its folders is read as
+/// the one folder that exists without the repeat, and the read says which
+/// path was asked; asked strictly, the same path is missing and its error
+/// names that folder. A folder that really repeats its name is read as
+/// asked, and a missing path with no such reading stays missing.
+#[test]
+fn a_root_with_a_repeated_folder_is_read_as_the_one_that_exists() {
+    let dir = tempfile::tempdir().expect("workspace");
+    let root = dir.path().canonicalize().expect("canonical workspace");
+    std::fs::create_dir_all(root.join("python/django/utils")).expect("folders");
+    std::fs::create_dir_all(root.join("real/real/src")).expect("folders");
+    let paths = crate::test_support::workspace_policy(&root);
+    for (asked, read) in [
+        ("python/python/django", "python/django"),
+        ("python/python/django/utils", "python/django/utils"),
+        ("python/django/python/django/utils", "python/django/utils"),
+    ] {
+        let asked_at = root.join(asked);
+        let meant = paths.validate_meant(&asked_at).expect("read as meant");
+        assert_eq!(meant.path.canonical, root.join(read), "{asked}");
+        let repeated = meant.repeated.expect("the asked path");
+        assert_eq!(repeated, asked, "{asked}");
+        let warning = repeated_folder_warning(&paths.shown(&meant.path.canonical), &repeated);
+        assert!(
+            warning.contains(read) && warning.contains(asked),
+            "{warning}"
+        );
+        let strict = paths.validate(&asked_at).expect_err("missing as asked");
+        assert_eq!(strict.code, PolicyErrorCode::NotFound);
+        assert!(
+            strict.message.contains(&format!("{read} exists")),
+            "{}",
+            strict.message
+        );
+    }
+    let real = paths
+        .validate_meant(root.join("real/real/src"))
+        .expect("exists");
+    assert_eq!(real.path.canonical, root.join("real/real/src"));
+    assert_eq!(real.repeated, None);
+    let missing = paths
+        .validate_meant(root.join("python/flask"))
+        .expect_err("no reading");
+    assert_eq!(missing.code, PolicyErrorCode::NotFound);
+    assert_eq!(
+        Err(missing),
+        paths.validate(root.join("python/flask")).map(|_| ())
+    );
+}

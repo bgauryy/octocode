@@ -53,6 +53,25 @@ The CLI has 14 tools by default. MCP starts with 12.
 
 MCP applies `tools.enabled` as an allowlist and gives `tools.disabled` priority. Allowlisted tools still need their opt-ins. The CLI includes graph, clone and advisory commands by default and ignores both MCP lists. [Tool examples](OCTOCODE_TOOLS.md)
 
+### Remote research profile
+
+For an MCP session that only researches GitHub repositories and packages, turn off the three tools that work on a local tree. Put this in the MCP server entry:
+
+```json
+"env": {"DISABLE_TOOLS": "lspSearch,astSearch,structureSearch"}
+```
+
+Or put `{"tools":{"disabled":["lspSearch","astSearch","structureSearch"]}}` in an `.octocoderc`. Restart MCP afterwards.
+
+| | Default | With the profile |
+|---|---:|---:|
+| MCP tools listed | 12 | 9 |
+| Tool definitions sent to the model | 40.6k characters | 28.2k characters |
+
+The server instructions drop the route lines that name those tools. `localSearch` and `localFetch` stay, so a clone or a materialized tree can still be searched and read; listing a tree, syntax search and definitions or callers are gone for that session.
+
+The saving matters where the host loads every tool definition into the prompt. A host that loads definitions on demand, as Claude Code does by default, already leaves them out. [Measured token and cost figures](../packages/octocode-benchmark/results/rounds/20.2.0-2026-11-25-v19-v20-gh/SPIKES.md#spike-1-the-fixed-prompt)
+
 ## GitHub token resolution
 
 CLI and MCP check these sources in order for the configured host.

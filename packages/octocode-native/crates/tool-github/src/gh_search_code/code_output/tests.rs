@@ -185,6 +185,7 @@ fn shaped_files_retain_repository_and_commit_identity() {
                                 best: 1,
                                 total: 1,
                                 line_count: 1,
+                                declared: Vec::new(),
                                 redacted: 0,
                             },
                         )

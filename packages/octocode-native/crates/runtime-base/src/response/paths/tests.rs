@@ -127,3 +127,50 @@ fn rows_outside_the_workspace_name_paths_from_their_root_stated_once() {
         "{graph}"
     );
 }
+
+/// A row states the checkout its evidence lies in beside the paths it now
+/// names relatively, and a refusal states the asked path's: neither sends
+/// the caller into `.git`. A graph row, naming its own root, states none.
+#[test]
+fn a_row_and_a_refusal_state_the_checkout_of_their_paths() {
+    const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+    let dir = tempfile::tempdir().expect("workspace");
+    let root = dir.path().canonicalize().expect("canonical workspace");
+    let git = root.join("repo/.git");
+    std::fs::create_dir_all(git.join("refs/heads")).expect("git dir");
+    std::fs::create_dir_all(root.join("repo/src")).expect("src");
+    std::fs::write(git.join("HEAD"), "ref: refs/heads/main\n").expect("HEAD");
+    std::fs::write(git.join("refs/heads/main"), format!("{SHA}\n")).expect("ref");
+    std::fs::write(
+        git.join("config"),
+        "[remote \"origin\"]\n\turl = https://user:secret@example.com/o/r.git\n",
+    )
+    .expect("config");
+    let file = root.join("repo/src/lib.rs").to_string_lossy().into_owned();
+    let paths = crate::test_support::workspace_policy(&root);
+    let identity = json!({"commitSha":SHA,"ref":"main","remote":"example.com/o/r"});
+    let stated = |row: &Value| {
+        let fields = row.as_object().expect("row");
+        Value::Object(
+            ["commitSha", "ref", "remote"]
+                .iter()
+                .filter_map(|field| Some(((*field).to_owned(), fields.get(*field)?.clone())))
+                .collect(),
+        )
+    };
+
+    let mut row = json!({"files":[{"path":file}]});
+    shown_paths(false, &mut row, &paths, &Value::Null);
+    assert_eq!(row["files"][0]["path"], "repo/src/lib.rs", "{row}");
+    assert_eq!(stated(&row), identity, "{row}");
+
+    let asked = json!({"path": git.join("config").to_string_lossy()});
+    let mut refused = json!({"errorCode":"pathPolicyDenied","error":"withheld"});
+    shown_paths(false, &mut refused, &paths, &asked);
+    assert_eq!(stated(&refused), identity, "{refused}");
+    assert!(!refused.to_string().contains("secret"), "{refused}");
+
+    let mut graph = json!({"files":[{"path":file}]});
+    shown_paths(true, &mut graph, &paths, &Value::Null);
+    assert_eq!(stated(&graph), json!({}), "{graph}");
+}

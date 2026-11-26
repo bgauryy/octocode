@@ -379,6 +379,7 @@ fn shown_faults(schema: &Value, defs: &Value, own: &Value, faults: &[&[String]])
                     // its error names: `"5"`, not `5`), before a sample.
                     sent.and_then(|sent| {
                         super::repair::repaired_value(schema, defs, sent)
+                            .or_else(|| number_within_range(schema, defs, sent))
                             .or_else(|| text_within_pattern(schema, defs, sent))
                             .or_else(|| nearest_member(schema, defs, sent))
                     })
@@ -469,6 +470,24 @@ fn nearest_member(schema: &Value, defs: &Value, sent: &Value) -> Option<Value> {
         .filter_map(Value::as_str)
         .min_by_key(|member| super::levenshtein(&member.to_lowercase(), &sent))
         .map(|member| Value::String(member.to_owned()))
+}
+
+/// The bound of the number `schema` declares that `sent` lies past: the
+/// valid value nearest the one sent (`110` context lines of at most `100`
+/// shows `100`), so an example asks for as much of what the caller wanted
+/// as the field takes rather than for its default. `None` for a value that
+/// is no number or lies within the bounds.
+fn number_within_range(schema: &Value, defs: &Value, sent: &Value) -> Option<Value> {
+    let shape = resolve_ref(schema, defs);
+    let sent = sent.as_f64()?;
+    let past = |bound: &str, is_past: fn(f64, f64) -> bool| {
+        shape
+            .get(bound)
+            .filter(|limit| limit.as_f64().is_some_and(|limit| is_past(sent, limit)))
+    };
+    past("minimum", |sent, least| sent < least)
+        .or_else(|| past("maximum", |sent, most| sent > most))
+        .cloned()
 }
 
 /// The text `sent` reduced to the characters its schema's `pattern`

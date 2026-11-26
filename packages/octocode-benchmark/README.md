@@ -6,14 +6,15 @@ Does Octocode give an AI agent correct, source-backed answers with less context 
 waiting than the tools an expert would otherwise use, and is each version ready? This package is the one
 home of Octocode's checks and benchmarks, as behavioral docs (what to check, what to compare it against,
 how to judge, what to record), with the question sets, the per-question baselines and the version timeline
-of stored results. Agents run it by direct calls and judgement;
-there are no driver scripts, no fixed step files and no pass/fail exit codes: questions, repositories and instructions
-define the work, and a person or agent reads the answers.
+of stored results. Checks and capability rounds are run by direct calls and judgement, with no fixed step files
+and no pass/fail exit codes: questions, repositories and instructions define the work, and a person or agent
+reads the answers. A research round is run, judged, counted and replayed by the [harness](harness/README.md).
 
 | Doc | What it owns |
 |---|---|
 | [CHECKS.md](CHECKS.md) | Every check of Octocode, core tools first: the tool review and 1–10 ratings, end to end, per tool, workflows, security, skills, and the areas other packages own |
-| [METHOD.md](METHOD.md) | Benchmark rounds: arms, isolation, what to measure, blind judging, aggregation, comparing a new version, what a round records |
+| [METHOD.md](METHOD.md) | Benchmark rounds: arms, isolation, what to measure, blind judging, aggregation, accepting a cost claim, comparing a new version, what a round records |
+| [harness/](harness/README.md) | The research-round harness, driven by a round manifest: `dev bench run`, `judge`, `analyze` (paired ratios with intervals, the per-field ledger) and `replay` (the evidence gate between two pinned builds) |
 | [COMPARISONS.md](COMPARISONS.md) | Each Octocode tool and workflow against its expert competitor (rg, ast-grep, graphify, gh and gh-lean, registries, OSV, RTK, Headroom), and what "better" means |
 | [briefs/](briefs/) | What an agent is handed: [runner](briefs/runner.md), [judge](briefs/judge.md), [arm briefs](briefs/arms/), [check-local](briefs/check-local.md) and [check-github](briefs/check-github.md) capability rounds, [independent raters](briefs/independent-raters.md) (12-dimension tool ratings), and the [scorecard](briefs/SCORECARD.md) every round fills in |
 | [questions/](questions/README.md) | Specific capability questions for all 17 tools, plus the GitHub and local research sets |
@@ -250,10 +251,11 @@ METHOD.md        benchmark rounds and version-to-version comparison
 COMPARISONS.md   Octocode against each expert competitor
 briefs/          runner, judge, arm briefs, capability-round briefs, SCORECARD template
 questions/       question sets (data), the repositories they use, judge rubrics
+harness/         research-round harness (run, judge, analyze, replay), round manifests and its tests
 local/           README (repositories, commits, clone form), FLOWS (the local flows benchmark), repos/ (clones, gitignored)
 results/         README (version timeline and index), baselines/ and rounds/ tracked; all other data gitignored
 campaigns/       raw campaign evidence (gitignored)
 ```
 
-The package has no build, tests or scripts. From the monorepo root,
-`node skills-dev/octocode-dev/scripts/dev.mjs docs:verify` checks its links.
+The package has no build. From the monorepo root, `node skills-dev/octocode-dev/scripts/dev.mjs docs:verify`
+checks its links and `node skills-dev/octocode-dev/scripts/dev.mjs bench test` runs the harness tests.

@@ -11,6 +11,9 @@ use octocode_tools_shared::empty_walk::{Cause, Walk};
 pub(in crate::structure_search) struct Uncovered {
     pub(in crate::structure_search) ignored: Vec<String>,
     pub(in crate::structure_search) withheld: octocode_runtime_base::policy::discovery::Withheld,
+    /// How many of the withheld entries the listing's name filters select
+    /// by their own name: a listing that asked for one found it, withheld.
+    pub(in crate::structure_search) withheld_named: usize,
     pub(in crate::structure_search) hidden: Vec<String>,
     pub(in crate::structure_search) pruned: Vec<String>,
     pub(in crate::structure_search) unreadable: (u32, u32),

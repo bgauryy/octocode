@@ -30,10 +30,18 @@ fn tree_follows_gitignore_and_reports_withheld_sensitive_entries() {
     )
     .expect("tree");
     assert_eq!(names(&out), [".gitignore", "main.rs"], "{out}");
-    // `.env.production`, `.npmrc`: named by policy, not by path. The
-    // repository's own `.git`, withheld from every walk, is not news.
-    let reasons = skipped_reasons(&out, "withheld");
-    assert_eq!(reasons, [("credential file".into(), 2)], "{out}");
+    // `.env.production`, `.npmrc`: named by policy, not by path. So is the
+    // repository's own `.git`, which a listing of dot entries would show.
+    let git = octocode_runtime_base::policy::discovery::withheld::WithheldKind::PolicyDir(".git")
+        .reason()
+        .into_owned();
+    let mut reasons = skipped_reasons(&out, "withheld");
+    reasons.sort();
+    let credentials = ("credential file".to_owned(), 2);
+    let mut expected = vec![(git, 1), credentials.clone()];
+    expected.sort();
+    assert_eq!(reasons, expected, "{out}");
+    // A default listing shows no dot entry: the policy took no `.git` from it.
     let files = run(&root.0, json!({"operation":"files","path":root.0})).expect("files");
     octocode_runtime_base::test_support::checks::assert_absent(&files, ".git/");
     let all = run(
@@ -47,9 +55,14 @@ fn tree_follows_gitignore_and_reports_withheld_sensitive_entries() {
         "{all}"
     );
     // Without `hidden`, dot entries are out of view; the policy withholds
-    // the credential files all the same, so they are counted the same.
+    // the credential files all the same, so they are counted the same. The
+    // default prune leaves `.git` out anyway: the policy took none.
     let plain = run(&root.0, json!({"operation":"tree","path":root.0})).expect("tree");
-    assert_eq!(skipped_reasons(&plain, "withheld"), reasons, "{plain}");
+    assert_eq!(
+        skipped_reasons(&plain, "withheld"),
+        [credentials],
+        "{plain}"
+    );
 }
 
 /// `files` leaves out `.gitignore`d entries like the tree and localSearch, and

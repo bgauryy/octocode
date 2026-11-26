@@ -8,6 +8,8 @@ Edit a question **here, once**, and every arm sees it. Local questions live in t
 
 Each file is just the title, id, and the question.
 
+Each question has a fact-level answer key in [`answers/`](answers) (`Q<n>.md`: 5 to 12 atomic facts with repository, the SHA they were verified at, path and line, facts that follow a branch marked moving, and the common wrong answers); runners never see it, and the judge re-verifies it at the answer's own SHA.
+
 | File | Title |
 |---|---|
 | [Q1.md](Q1.md) | Next.js route-regex result |

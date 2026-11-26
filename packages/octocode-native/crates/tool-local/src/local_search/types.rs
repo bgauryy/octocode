@@ -31,6 +31,11 @@ pub struct SearchMatch {
     /// line starts at the match. Read by leads, never shown.
     #[serde(skip)]
     pub byte_offset: u32,
+    /// Bytes of its line the hit covers from `byte_offset`
+    /// ([`octocode_engine::types::TextSearchMatch::match_len`]): the span a
+    /// declaration's name is looked up in. Never shown.
+    #[serde(skip)]
+    pub match_len: u32,
     /// Source line the value starts at, as the search joined it: its match
     /// line less the context lines before it, which stop at an absent
     /// neighbour (a line `testCode` left out). Read to number a window,
@@ -45,10 +50,11 @@ pub struct SearchMatch {
     /// only when overlapping/adjacent windows were merged into this one.
     #[serde(rename = "matchedLines", skip_serializing_if = "Option::is_none")]
     pub match_lines: Option<Vec<u32>>,
-    /// The byte of its line each hit of `match_lines` starts at, in order:
-    /// where each one's declaration is looked up. Never shown.
+    /// The bytes of its line each hit of `match_lines` covers, in order
+    /// (where it starts, and how many): where each one's declaration is
+    /// looked up. Never shown.
     #[serde(skip)]
-    pub match_bytes: Vec<u32>,
+    pub match_spans: Vec<(u32, u32)>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub count: Option<u32>,
     /// The declaration around this hit in the file's `declarations`.

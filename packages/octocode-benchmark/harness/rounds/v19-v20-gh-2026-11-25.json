@@ -1,0 +1,65 @@
+{
+  "round": "v19-v20-gh-2026-11-25",
+  "campaign": "packages/octocode-benchmark/campaigns/v19-v20-gh-2026-11-25",
+  "passDir": ".",
+  "passes": 1,
+  "jobs": 6,
+  "seed": "v19-v20-gh-2026-11-25",
+  "neutralCwd": "~/.cache/octocode-bench/neutral",
+  "clones": "packages/octocode-benchmark/local/repos",
+  "models": { "runner": "claude-sonnet-5-5", "judge": "claude-opus-5-5" },
+  "timeouts": { "runSeconds": 900, "judgeSeconds": 1500 },
+  "pins": {
+    "v20": {
+      "path": ".octocode/octocode-dev/pins/20.2.0+505dd250-693637dd61c2/octocode",
+      "sha256": "693637dd61c215a2e2d7243006599dabcb32063027e320d7edab309e1bb37b93"
+    }
+  },
+  "arms": {
+    "v19": {
+      "kind": "mcp",
+      "instruction": "Answer using only your Octocode tools. Cite the repository, file, line and commit SHA behind each claim.",
+      "server": {
+        "command": "node",
+        "args": ["{repo}/.octocode/tmp/octocode-19/node_modules/octocode-mcp/dist/index.js"],
+        "env": { "HOME": "{home}", "ENABLE_LOCAL": "true", "ENABLE_CLONE": "true", "DISABLE_TOOLS": "localAnalyzeGraph", "ALLOWED_PATHS": "{clones}" }
+      }
+    },
+    "v20": {
+      "kind": "mcp",
+      "pin": "v20",
+      "instruction": "Answer using only your Octocode tools. Cite the repository, file, line and commit SHA behind each claim.",
+      "server": {
+        "command": "node",
+        "args": ["{repo}/packages/octocode-mcp/dist/index.js"],
+        "env": {
+          "NODE_ENV": "development",
+          "OCTOCODE_NATIVE_BIN": "{pin}",
+          "OCTOCODE_HOME": "{home}",
+          "OCTOCODE_ENABLE_LOCAL": "true",
+          "OCTOCODE_ENABLE_CLONE": "true",
+          "OCTOCODE_SECURITY_CHECKS": "true",
+          "ALLOWED_PATHS": "{clones}",
+          "WORKSPACE_ROOT": "{clones}"
+        }
+      }
+    },
+    "gh": {
+      "kind": "shell",
+      "instruction": "Answer using only read-only `gh` commands in Bash. Cite the repository, file, line and commit SHA behind each claim. You can pipe `gh` output into jq, base64, head, tail, sed, grep, wc, sort, uniq, cut or tr; shell variables, `$(…)`, `<(…)` and `cd` are refused.",
+      "filters": ["jq", "base64", "head", "tail", "sed", "grep", "wc", "sort", "uniq", "cut", "tr"]
+    }
+  },
+  "sets": {
+    "gh": { "questions": "packages/octocode-benchmark/questions/github", "ids": "Q1-Q30", "arms": { "v19": "all", "v20": "all", "gh": "all" } },
+    "lc": { "questions": "packages/octocode-benchmark/questions/local-core", "ids": "Q1-Q30", "arms": { "v19": "all", "v20": "all" } },
+    "wf": { "questions": "packages/octocode-benchmark/questions/workflows", "ids": "W1-W10", "arms": { "v19": "all", "v20": "all", "gh": "W1-W6" } }
+  },
+  "groups": {
+    "github": { "set": "gh" },
+    "disk": { "set": "lc" },
+    "wf-github": { "set": "wf", "ids": "W1-W6" },
+    "wf-disk": { "set": "wf", "ids": "W7-W10" }
+  },
+  "compare": [["v20", "gh"], ["v20", "v19"]]
+}

@@ -38,33 +38,57 @@ fn hits_name_their_innermost_declaration_and_definitions_the_one_around() {
     assert!(!outline.declares("try_read_output", 10));
 }
 
-/// A hit declares the declaration whose name it starts on; a hit before
-/// the name declares it only as a declaration search of that name. A local
-/// binding, a use and a line outside every name declare nothing.
+/// A hit declares the declaration whose name its matched bytes cover or
+/// reach into, wherever the match starts: the name alone, part of it, the
+/// head up to it, the whole line. A match that ends before the name, a
+/// local binding, a use and a line outside every name declare nothing.
 #[test]
-fn a_hit_on_a_name_declares_it() {
+fn a_hit_covering_a_name_declares_it() {
     let outline = Outline::of(SOURCE, "enclosing-test/a.rs").expect("rust outline");
-    let byte = |line: u32, needle: &str| {
+    let declared = |line: u32, needle: &str| {
         let text = SOURCE.lines().nth(line as usize - 1).expect("line");
-        u32::try_from(text.find(needle).expect("needle")).expect("u32")
-    };
-    let declared = |line, needle, symbol| {
+        let byte = u32::try_from(text.find(needle).expect("needle")).expect("u32");
+        let len = u32::try_from(needle.len()).expect("u32");
         outline
-            .declared(line, byte(line, needle), symbol)
+            .declared(line, byte, len)
             .and_then(|index| outline.label(index))
             .map(|d| (d.symbol_name, d.line, d.end_line))
     };
     let method = Some(("try_read_output".to_owned(), 3, 6));
-    assert_eq!(declared(3, "try_read_output", None), method);
-    assert_eq!(declared(3, "fn", None), None);
-    assert_eq!(declared(3, "fn", Some("try_read_output")), method);
-    assert_eq!(declared(3, "self", None), None);
-    assert_eq!(declared(4, "x", None), None);
-    assert_eq!(declared(10, "try_read_output", None), None);
+    // Every match that reaches the name names the same declaration: the
+    // rule reads the span, not the pattern that made it.
+    for needle in [
+        "try_read_output",
+        "try_read",
+        "read_output",
+        "fn try_read_output",
+        "fn try_read_output(&self) {",
+        "fn try",
+    ] {
+        assert_eq!(declared(3, needle), method, "{needle}");
+    }
+    for needle in ["fn", "fn ", "self", "(&self)"] {
+        assert_eq!(declared(3, needle), None, "{needle}");
+    }
     assert_eq!(
-        declared(10, "try_read_output", Some("try_read_output")),
-        None
+        declared(1, "struct Harness;"),
+        Some(("Harness".to_owned(), 1, 1))
     );
+    assert_eq!(declared(4, "x"), None);
+    assert_eq!(declared(4, "let x = 1;"), None);
+    assert_eq!(declared(10, "try_read_output"), None);
+    // A hit of no known length is the byte it starts at.
+    let name = u32::try_from(
+        SOURCE
+            .lines()
+            .nth(2)
+            .expect("line")
+            .find("try")
+            .expect("name"),
+    )
+    .expect("u32");
+    assert!(outline.declared(3, name, 0).is_some());
+    assert!(outline.declared(3, 0, 0).is_none());
 }
 
 #[test]

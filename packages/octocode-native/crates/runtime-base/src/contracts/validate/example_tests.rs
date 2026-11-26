@@ -152,3 +152,29 @@ fn a_refused_list_entry_never_repeats_a_held_value() {
     let shown = shown_example("ghSearchHistory", row(json!(["number", "titel"])));
     assert_eq!(shown["fields"], json!(["number", "title"]), "{shown}");
 }
+
+/// A number past a bound is shown as that bound, the valid value nearest the
+/// one sent, never as the field's default: an example that reset 110 context
+/// lines to none would run a different read. The bound is the schema's own:
+/// one step further is refused again.
+#[test]
+fn an_out_of_range_number_is_shown_as_its_nearest_bound() {
+    for (tool, mut row) in [
+        ("localFetch", json!({"path":"a.md","matchString":["x"]})),
+        ("localSearch", json!({"path":".","matchString":["x"]})),
+    ] {
+        for (side, sent, step) in [("after", 1_000_000_i64, 1_i64), ("before", -7, -1)] {
+            row["contextLines"] = json!({ side: sent });
+            let shown = shown_example(tool, row.clone());
+            let bound = shown["contextLines"][side]
+                .as_i64()
+                .unwrap_or_else(|| panic!("{tool} {side}: a number in {shown}"));
+            let mut further = shown.clone();
+            further["contextLines"][side] = json!(bound + step);
+            assert!(
+                crate::contracts::validate(tool, json!({"queries":[further]})).is_err(),
+                "{tool} {side}: {bound} is not the bound"
+            );
+        }
+    }
+}

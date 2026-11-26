@@ -86,7 +86,18 @@ pub(super) fn scan_keeping(
         return hits;
     }
     let weight = match &hits {
-        FileHits::Lines { lines, .. } => lines.iter().map(String::len).sum::<usize>() + 64,
+        FileHits::Lines {
+            lines, declared, ..
+        } => {
+            lines.iter().map(String::len).sum::<usize>()
+                + declared
+                    .iter()
+                    .map(|declared| {
+                        std::mem::size_of_val(declared) + declared.kind.len() + declared.name.len()
+                    })
+                    .sum::<usize>()
+                + 64
+        }
         _ => 64,
     };
     SCANNED.put(key, policy, weight, hits.clone());

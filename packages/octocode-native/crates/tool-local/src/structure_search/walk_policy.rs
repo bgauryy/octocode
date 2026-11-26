@@ -1,7 +1,7 @@
 //! What a listing walk leaves out (default prune, policy)
 //! and how it counts it.
+use super::git_metadata;
 use super::probe::{FilterProbe, Uncovered};
-use super::reports_withheld;
 use super::walked::WalkMeta;
 use octocode_engine::types::TestCodeExcluded;
 use octocode_runtime_base::response::result::ToolError;
@@ -27,9 +27,8 @@ pub(super) struct TestCodeWindow {
 /// [`WalkAdmission`]: octocode_runtime_base::policy::discovery::WalkAdmission
 pub(super) struct WalkLeft<'a> {
     pub(super) admission: octocode_runtime_base::policy::discovery::WalkAdmission<'a>,
-    /// Entries the path policy withheld, by the walk position of the entry
-    /// (and whether it is a directory).
-    pub(super) withheld: std::sync::Mutex<Vec<(u32, std::path::PathBuf)>>,
+    /// Entries the path policy withheld, by the walk position of the entry.
+    pub(super) withheld: std::sync::Mutex<Vec<WithheldEntry>>,
     /// The dot entries skipped without `includeHidden`, by walk position,
     /// root-relative (a directory's with a trailing `/`).
     pub(super) hidden: std::sync::Mutex<Vec<(u32, String)>>,
@@ -38,12 +37,23 @@ pub(super) struct WalkLeft<'a> {
     pub(super) pruned: std::sync::Mutex<Vec<(u32, String)>>,
 }
 
+/// One entry the path policy withheld from a listing walk.
+#[derive(Clone)]
+pub(super) struct WithheldEntry {
+    /// Its walk position: a window counts the entries through its end.
+    position: u32,
+    path: std::path::PathBuf,
+    /// The listing's name filters select the entry itself
+    /// ([`FilterProbe::names`]): the listing asked for it by name.
+    named: bool,
+}
+
 /// What the windows of a walk-order listing left out through where it stands,
 /// which the walk that continues from there reports with its own.
 #[derive(Clone, Default)]
 pub(super) struct LeftSoFar {
     pub(super) ignored: Vec<String>,
-    withheld: Vec<(u32, std::path::PathBuf)>,
+    withheld: Vec<WithheldEntry>,
     hidden: Vec<(u32, String)>,
     pruned: Vec<(u32, String)>,
     pub(super) unreadable: (u32, u32),
@@ -58,7 +68,7 @@ impl LeftSoFar {
             + self
                 .withheld
                 .iter()
-                .map(|(_, path)| path.capacity())
+                .map(|entry| entry.path.capacity())
                 .sum::<usize>()
             + self
                 .hidden
@@ -128,7 +138,14 @@ impl<'a> WalkLeft<'a> {
                 .collect()
         }
         LeftSoFar {
-            withheld: through_position(&self.withheld, through),
+            withheld: self
+                .withheld
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .iter()
+                .filter(|entry| entry.position <= through)
+                .cloned()
+                .collect(),
             hidden: through_position(&self.hidden, through),
             pruned: through_position(&self.pruned, through),
             ..LeftSoFar::default()
@@ -174,8 +191,8 @@ impl<'a> WalkLeft<'a> {
     /// the ones `includeHidden:true` would walk (permitted, not ignored, not
     /// a pruned directory) are counted as hidden, the walk's own dot rule
     /// skipping them. Only an entry the filters could list makes a withheld one worth
-    /// naming, and a replayed entry was counted by the window this one
-    /// resumes.
+    /// naming ([`Self::discloses`] decides the repository's own `.git`), and
+    /// a replayed entry was counted by the window this one resumes.
     pub(super) fn admit(
         &self,
         policy: &WalkPolicy,
@@ -195,9 +212,11 @@ impl<'a> WalkLeft<'a> {
         };
         if let Some(position) = fresh
             && unseen
-            && reports_withheld(path)
         {
-            self.record_withheld(position, path);
+            let named = !allowed && policy.probe.names(path);
+            if self.discloses(policy, path, named) {
+                self.record_withheld(position, path, named);
+            }
         }
         if !allowed {
             return false;
@@ -230,11 +249,26 @@ impl<'a> WalkLeft<'a> {
             .push((position, relative));
     }
 
-    pub(super) fn record_withheld(&self, position: u32, path: &std::path::Path) {
+    /// Whether a withheld `path` is disclosed. The repository's own `.git`
+    /// ([`git_metadata`]) is withheld from every walk of a repository, so it
+    /// is named only when this listing would otherwise have shown it: the
+    /// listing shows dot entries (`includeHidden`), or its default prune,
+    /// which leaves `.git` out anyway, is off (the rule `localSearch` counts
+    /// it by), or its name filters select it (`named`), so an empty listing
+    /// never reads as its absence. Any other withheld entry is disclosed.
+    fn discloses(&self, policy: &WalkPolicy, path: &std::path::Path, named: bool) -> bool {
+        !git_metadata(path) || named || policy.show_hidden || !self.admission.excludes(path, true)
+    }
+
+    pub(super) fn record_withheld(&self, position: u32, path: &std::path::Path, named: bool) {
         self.withheld
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push((position, path.to_path_buf()));
+            .push(WithheldEntry {
+                position,
+                path: path.to_path_buf(),
+                named,
+            });
     }
 
     /// Whether a `filtered` listing walked past an admitted link to a
@@ -272,7 +306,7 @@ impl<'a> WalkLeft<'a> {
         let (ignored, denied): (Vec<String>, Vec<String>) =
             ignored.into_iter().partition(|entry| {
                 let path = self.root.join(entry.trim_end_matches('/'));
-                self.admission.permits(&path, None) || !reports_withheld(&path)
+                self.admission.permits(&path, None) || git_metadata(&path)
             });
         let behind_ignore = ignored
             .iter()
@@ -284,18 +318,21 @@ impl<'a> WalkLeft<'a> {
         for entry in &denied {
             withheld.record(&self.root.join(entry.trim_end_matches('/')));
         }
-        for (_, path) in self
+        let mut withheld_named = 0;
+        for entry in self
             .withheld
             .into_inner()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .iter()
-            .filter(|(position, ..)| covered(position))
+            .filter(|entry| covered(&entry.position))
         {
-            withheld.record(path);
+            withheld.record(&entry.path);
+            withheld_named += usize::from(entry.named);
         }
         Uncovered {
             ignored,
             withheld,
+            withheld_named,
             hidden: self
                 .hidden
                 .into_inner()

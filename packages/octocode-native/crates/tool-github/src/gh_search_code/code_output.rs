@@ -70,6 +70,40 @@ fn numbered_matches(lines: &[String]) -> Vec<Value> {
     lines.iter().cloned().map(Value::String).collect()
 }
 
+/// What a row's listed hits state about the reads around them, as its
+/// `declarations`: each block declaration a hit line declares and each
+/// Markdown section holding a hit, once, by line. They are objects the
+/// output gate judges field by field, which the response stage then states
+/// as line-first outline strings
+/// (`"<line>\t<kind> <symbolName> (end N)"`), the form localSearch lists
+/// its declarations in.
+pub(super) fn declared_rows(declared: &[super::lines::Declared]) -> Vec<Value> {
+    let mut listed = declared
+        .iter()
+        .map(|declared| {
+            (
+                declared.line,
+                declared.end_line,
+                &declared.kind,
+                &declared.name,
+            )
+        })
+        .collect::<Vec<_>>();
+    listed.sort_unstable();
+    listed.dedup();
+    listed
+        .into_iter()
+        .map(|(line, end_line, kind, name)| {
+            json!({
+                "symbolName": name,
+                "kind": kind,
+                "line": line,
+                "endLine": end_line,
+            })
+        })
+        .collect()
+}
+
 pub(super) fn shape_files(
     items: &mut [Value],
     query: &GhSearchCodeQuery,
@@ -124,10 +158,19 @@ pub(super) fn shape_files(
                     lines,
                     matched,
                     total,
+                    declared,
                     redacted: shown_redacted,
                     ..
                 } if reads_lines => {
                     redacted += shown_redacted;
+                    // Before the hits that need them: a split row then
+                    // delivers a declaration on its hit's part or an earlier
+                    // one. They qualify listed lines, so a pick without
+                    // `matches` lists none.
+                    if !declared.is_empty() && (query.fields.is_empty() || picks(query, "matches"))
+                    {
+                        row.insert("declarations".into(), Value::Array(declared_rows(declared)));
+                    }
                     row.insert("matches".into(), Value::Array(numbered_matches(lines)));
                     // Only a listing with context needs to say which lines are
                     // hits; a `matchedLines` pick states them anyway.

@@ -137,6 +137,7 @@ impl Cut {
             best,
             total,
             line_count,
+            declared,
             redacted,
         } = hits
         else {
@@ -152,10 +153,18 @@ impl Cut {
             .map(|line| octocode_runtime_base::security::placeholders(line))
             .sum::<usize>()
             .min(*redacted);
+        // A declaration or section is listed with the hits that state it.
+        let matched = &matched[self.start..self.end];
+        let declared = declared
+            .iter()
+            .filter(|declared| matched.binary_search(&declared.hit).is_ok())
+            .cloned()
+            .collect();
         Some((
             FileHits::Lines {
                 lines,
-                matched: matched[self.start..self.end].to_vec(),
+                matched: matched.to_vec(),
+                declared,
                 best: *best,
                 total: *total,
                 line_count: *line_count,

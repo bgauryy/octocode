@@ -17,6 +17,7 @@
 | [tool-inventory.mjs](tool-inventory.mjs) | `<tool> [--json]`: fields and their declared effects; `--schema-diff <old contract>` and `--sizes` ([tool audit](../docs/TOOL_QUALITY.md#audit-a-tool-end-to-end)) |
 | [pin.mjs](pin.mjs) | `dev pin`: freeze the built binary for a round, print path and sha256 |
 | [walk.mjs](walk.mjs) | `dev walk <tool> '<json>'`: follow every `next` of one call; exit 1 on a repeated page or a row that does not rebuild once |
+| [bench.mjs](../../../packages/octocode-benchmark/harness/bench.mjs) | `dev bench <run\|judge\|analyze\|replay\|test> <round manifest>`: the [benchmark harness](../../../packages/octocode-benchmark/harness/README.md), which lives with the benchmark and has its tests beside it |
 | [artifact-freshness.mjs](artifact-freshness.mjs) | version and contract fingerprint of staged native artifacts |
 | [brew-formula.mjs](brew-formula.mjs), [lsp-lock.mjs](lsp-lock.mjs) | `brew:formula`, `lsp:lock` |
 | [package-build.mjs](package-build.mjs) | shared by the `octocode` and `octocode-mcp` builds: `node skills-dev/octocode-dev/scripts/package-build.mjs docs <outDir>`; prepack runs `stage <outDir>` (skills + docs) |

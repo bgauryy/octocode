@@ -318,7 +318,7 @@ pub(super) fn scan_stream(
             paths,
             output_root,
             (page_budget, start),
-            stream_pricer(query, paths, output_root, limits, prepared.clone()),
+            stream_pricer(paths, output_root, limits, prepared.clone()),
         )),
         prepare: stream_preparer(query, paths, output_root, limits, prepared),
     };
@@ -385,7 +385,6 @@ pub(crate) fn searched_on_this_thread() -> u64 {
 /// What prices the enclosing names of each file the stream commits, as the
 /// page cut will ([`crate::local_search::verify::stream_price`]).
 fn stream_pricer(
-    query: &LocalSearchQuery,
     paths: &PathPolicy,
     output_root: &std::path::Path,
     limits: octocode_runtime_base::security::SourceLimits,
@@ -393,15 +392,8 @@ fn stream_pricer(
 ) -> StreamPricer {
     let (paths, output_root) = (paths.clone(), output_root.to_path_buf());
     let security = octocode_runtime_base::security::ContentSecurity::with_limits(limits);
-    let declaring = crate::local_search::enclosing::declaring_symbol(query).map(str::to_owned);
     Box::new(move |file| {
-        crate::local_search::verify::stream_price(
-            &paths,
-            &output_root,
-            &security,
-            file,
-            (&prepared, declaring.as_deref()),
-        )
+        crate::local_search::verify::stream_price(&paths, &output_root, &security, file, &prepared)
     })
 }
 

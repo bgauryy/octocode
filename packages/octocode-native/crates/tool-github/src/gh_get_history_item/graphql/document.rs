@@ -74,12 +74,27 @@ impl Connection {
     }
 }
 
-/// The whole comment count's selection: conversation, inline review
-/// comments and review bodies, the count GitHub's search sorts by.
-const WHOLE_COUNT: &str = "totalCommentsCount";
+/// Who wrote an entry and its text: what a summary counts bot entries by.
+const AUTHORED: &str = "nodes{ author{ login __typename } body }";
 
-/// A summary read's document: the pull request's whole comment count.
-pub(super) const WHOLE_COUNT_DOCUMENT: &str = "query($owner:String!,$repo:String!,$number:Int!){ repository(owner:$owner,name:$repo){ pullRequest(number:$number){ totalCommentsCount } } }";
+/// A summary read's selection: the whole comment count (conversation,
+/// inline review comments and review bodies, the count GitHub's search
+/// sorts by) and, for each discussion section, the authors and bodies of
+/// its first page (GitHub's largest), from which the summary counts what
+/// bots wrote ([`super::bot_entries`]). One request, as the count alone was.
+pub(super) fn summary_selection() -> String {
+    format!(
+        "totalCommentsCount comments(first:{CONNECTION_PAGE}){{ totalCount {AUTHORED} }} reviews(first:{CONNECTION_PAGE}){{ totalCount {AUTHORED} }} reviewThreads(first:{CONNECTION_PAGE}){{ totalCount nodes{{ comments(first:{CONNECTION_PAGE}){{ totalCount {AUTHORED} }} }} }}"
+    )
+}
+
+/// A summary read's document ([`summary_selection`]).
+pub(super) fn summary_document() -> String {
+    format!(
+        "query($owner:String!,$repo:String!,$number:Int!){{ repository(owner:$owner,name:$repo){{ pullRequest(number:$number){{ {} }} }} }}",
+        summary_selection()
+    )
+}
 
 /// The pull-request document for the collections GraphQL serves, and the
 /// page size variable each collection binds. The body is selected only when
@@ -102,15 +117,15 @@ pub(super) fn pull_request_document(wants: &GraphqlWants) -> (String, Vec<(&'sta
 /// aliased `r{i}` and binds its variables with the suffix `i`
 /// (`$owner{i}`, `$number{i}`, `$files{i}`, ...), so each alias's answer is
 /// what that row's own [`pull_request_document`] answers under `repository`.
-/// A row with no `wants` reads the whole comment count alone
-/// ([`WHOLE_COUNT_DOCUMENT`]).
+/// A row with no `wants` reads a summary's selection alone
+/// ([`summary_document`]).
 pub(super) fn pull_requests_document(rows: &[Option<GraphqlWants>]) -> String {
     let mut header = String::from("query(");
     let mut body = Vec::new();
     for (at, wants) in rows.iter().enumerate() {
         let (selection, variables) = match wants {
             Some(wants) => pull_request_selection(wants, &at.to_string()),
-            None => (WHOLE_COUNT.to_owned(), Vec::new()),
+            None => (summary_selection(), Vec::new()),
         };
         if at > 0 {
             header.push(',');

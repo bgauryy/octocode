@@ -15,6 +15,7 @@ mod page_scan;
 pub mod pagination;
 pub mod prepare;
 pub mod retained;
+pub mod sections;
 pub mod types;
 pub mod view;
 #[cfg(any(test, feature = "test-support"))]

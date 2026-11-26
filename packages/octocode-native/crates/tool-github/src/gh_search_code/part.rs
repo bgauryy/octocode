@@ -249,6 +249,7 @@ impl Runs {
             best,
             total,
             line_count,
+            declared,
             ..
         } = hits
         else {
@@ -281,14 +282,45 @@ impl Runs {
                 0
             }
         }));
+        // What a run keeps of the row's `declarations` ([`Cut::apply`]):
+        // each entry one of its hits states, once. One several hits state (a
+        // section) leaves with the last of them, so every run is priced by
+        // the distinct entries its own hits state.
+        let mut entry_ids = std::collections::HashMap::<(u32, u32), usize>::new();
+        let mut entry_chars = Vec::new();
+        let stated = matched
+            .iter()
+            .map(|hit| {
+                let at = declared.binary_search_by_key(hit, |entry| entry.hit).ok()?;
+                let own = &declared[at];
+                Some(
+                    *entry_ids
+                        .entry((own.line, own.end_line))
+                        .or_insert_with(|| {
+                            entry_chars.push(declaration_chars(own));
+                            entry_chars.len() - 1
+                        }),
+                )
+            })
+            .collect::<Vec<_>>();
+        let all_declarations = entry_chars.iter().sum::<usize>();
+        // The run that last counted each entry: a run counts an entry once.
+        let mut counted = vec![0_usize; entry_chars.len()];
         let (all_entries, all_hits) = (entries[lines.len()], hit_numbers[matched.len()]);
         let cuts = (1..matched.len())
             .filter_map(|listed| {
                 let cut = Cut::around(matched, *best, listed);
                 let range = cut.listed(lines, matched, window, count);
+                let kept_declarations = stated[cut.start..cut.end]
+                    .iter()
+                    .flatten()
+                    .filter(|&&entry| std::mem::replace(&mut counted[entry], listed) != listed)
+                    .map(|&entry| entry_chars[entry])
+                    .sum::<usize>();
                 let kept = (entries[range.end] - entries[range.start])
-                    + (hit_numbers[cut.end] - hit_numbers[cut.start]);
-                let saved = (all_entries + all_hits)
+                    + (hit_numbers[cut.end] - hit_numbers[cut.start])
+                    + kept_declarations;
+                let saved = (all_entries + all_hits + all_declarations)
                     .saturating_sub(kept)
                     .checked_sub(added)?;
                 (saved > 0).then_some((saved, cut))
@@ -316,6 +348,19 @@ impl Runs {
             .or_else(|| self.cuts.iter().max_by_key(|&&(saved, _)| saved))
             .map_or((0, None), |&(saved, cut)| (saved, Some(cut)))
     }
+}
+
+/// The chars one declaration takes in its row's `declarations`, with its
+/// comma: the line-first outline string the response stage states it as
+/// ([`octocode_runtime_base::response::symbol_outline::outline_lines`], the
+/// function this prices through). Never more than the row measured for it
+/// ([`row_chars`] counts the object or the string), so a cut never saves
+/// less than this states.
+fn declaration_chars(declared: &super::lines::Declared) -> usize {
+    let rows = super::code_output::declared_rows(std::slice::from_ref(declared));
+    octocode_runtime_base::response::symbol_outline::outline_lines(&rows)
+        .first()
+        .map_or(0, |line| utf16_units(line).unwrap_or(0) + 1)
 }
 
 /// `"matchCount":` and the comma before it: what a cut row adds besides its

@@ -283,8 +283,8 @@ pub(super) fn execute_listing<Q: Listing>(
     let walk_flags = q.walk().under(paths.global_ignore());
     note_path_in_name_regex(&mut out, q);
     note_empty(&mut out, q, &walk.meta.uncovered, walk_flags);
-    deepen_empty(&mut out, q)?;
-    broaden_empty(&mut out, &q.broadening())?;
+    deepen_empty(&mut out, q, &walk.meta.uncovered)?;
+    broaden_empty(&mut out, &q.broadening(), &walk.meta.uncovered)?;
     Ok(out)
 }
 

@@ -17,6 +17,7 @@ fn raw(text: &str, line_number: u32, column: u32) -> RawMatch {
         line_number,
         column,
         byte_offset: saturating_u32(byte),
+        match_len: 0,
         rank: super::super::declaration::line_rank(text.as_bytes(), byte),
         window_start: None,
     }

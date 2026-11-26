@@ -5,6 +5,7 @@ use octocode_runtime_base::security::scan::Passthrough;
 
 mod anchors;
 mod budget;
+mod declared;
 mod kept;
 mod listing;
 mod reads;

@@ -63,8 +63,13 @@ pub(super) const PATH_IN_NAME_REGEX: &str = "nameRegex holds a `/`, and it match
 /// those filters (`next.broadenSearch`), so a name miss gets a runnable next
 /// step, never prose alone. `query` names every default the relaxed listing
 /// must keep (the walked depth).
-pub(super) fn broaden_empty<Q: Listing>(out: &mut Value, query: &Q) -> Result<(), ToolError> {
+pub(super) fn broaden_empty<Q: Listing>(
+    out: &mut Value,
+    query: &Q,
+    seen: &Uncovered,
+) -> Result<(), ToolError> {
     if out["status"] != "empty"
+        || seen.withheld_named > 0
         || out["calls"].get("includeSkipped").is_some()
         || out["calls"].get("broadenSearch").is_some()
     {
@@ -118,8 +123,20 @@ pub(super) fn broaden_empty<Q: Listing>(out: &mut Value, query: &Q) -> Result<()
 /// level unless told otherwise) leads to the same filters without the bound
 /// (`next.broadenSearch`), since no name filter is at fault. An empty listing
 /// that skipped something worth lifting has its lead.
-pub(super) fn deepen_empty<Q: Listing>(out: &mut Value, query: &Q) -> Result<(), ToolError> {
-    if out["status"] != "empty" || out["calls"].get("includeSkipped").is_some() || !query.filtered()
+///
+/// Neither lead is offered, and no "No entry matches" is said, when the
+/// path policy withheld an entry the name filters select
+/// ([`Uncovered::withheld_named`]): the entry is there, `skippedPaths` says
+/// who withheld it, and no other listing reads it.
+pub(super) fn deepen_empty<Q: Listing>(
+    out: &mut Value,
+    query: &Q,
+    seen: &Uncovered,
+) -> Result<(), ToolError> {
+    if out["status"] != "empty"
+        || seen.withheld_named > 0
+        || out["calls"].get("includeSkipped").is_some()
+        || !query.filtered()
     {
         return Ok(());
     }
@@ -155,7 +172,11 @@ pub(super) fn deepen_empty<Q: Listing>(out: &mut Value, query: &Q) -> Result<(),
 /// admitted it: a directory may hold matches; a file must pass the name
 /// filters (include globs, extensions, basename regex) as the walk applies
 /// them, in the walk's one glob dialect.
-pub(super) struct FilterProbe(octocode_engine::search::fs_query::NameFilter);
+pub(super) struct FilterProbe {
+    filter: octocode_engine::search::fs_query::NameFilter,
+    /// The listing filters by name at all (a glob, an extension, a regex).
+    by_name: bool,
+}
 
 impl FilterProbe {
     /// The probe of a walk rooted at `root`. A glob or regex that does not
@@ -168,7 +189,10 @@ impl FilterProbe {
         name_regex: Option<&str>,
     ) -> Result<Self, ToolError> {
         octocode_engine::search::fs_query::NameFilter::new(root, include, extensions, name_regex)
-            .map(Self)
+            .map(|filter| Self {
+                filter,
+                by_name: !include.is_empty() || !extensions.is_empty() || name_regex.is_some(),
+            })
             .map_err(|error| {
                 let code = match error.kind() {
                     octocode_engine::error::ErrorKind::InvalidPattern => ErrorCode::InvalidPattern,
@@ -182,11 +206,24 @@ impl FilterProbe {
     /// matches.
     pub(super) fn could_list(&self, path: &std::path::Path) -> bool {
         path.is_dir()
-            || self.0.lists(
+            || self.filter.lists(
                 path,
                 &octocode_tools_shared::display_name(path),
                 false,
                 true,
+            )
+    }
+
+    /// Whether the listing's name filters select `path` itself: it filters
+    /// by name, and the entry (not something a directory may hold) passes.
+    pub(super) fn names(&self, path: &std::path::Path) -> bool {
+        let is_dir = path.is_dir();
+        self.by_name
+            && self.filter.lists(
+                path,
+                &octocode_tools_shared::display_name(path),
+                is_dir,
+                !is_dir,
             )
     }
 }

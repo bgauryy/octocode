@@ -67,6 +67,7 @@ fn deferred_lines_preserve_complete_values_and_every_anchor_rank_digest() {
                         a.line,
                         a.column,
                         a.byte_offset,
+                        a.match_len,
                         a.rank,
                         a.value_digest,
                         a.count
@@ -75,6 +76,7 @@ fn deferred_lines_preserve_complete_values_and_every_anchor_rank_digest() {
                         b.line,
                         b.column,
                         b.byte_offset,
+                        b.match_len,
                         b.rank,
                         b.value_digest,
                         b.count
@@ -88,11 +90,12 @@ fn deferred_lines_preserve_complete_values_and_every_anchor_rank_digest() {
                         source_line,
                         b.line,
                         b.column,
-                        b.byte_offset,
+                        (b.byte_offset, b.match_len),
                     );
                     assert_eq!(a.value, materialized.value);
                     assert_eq!(a.value_digest, materialized.value_digest);
                     assert_eq!(a.byte_offset, materialized.byte_offset);
+                    assert_eq!(a.match_len, materialized.match_len);
                     assert_eq!(a.rank, materialized.rank);
                 } else {
                     assert_eq!(a.value, b.value);

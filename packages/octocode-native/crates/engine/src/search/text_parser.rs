@@ -14,6 +14,8 @@ pub(crate) struct RawMatch {
     /// The hit's byte in its source line (not in `line_text`, which may be
     /// only a window of a long line).
     pub(crate) byte_offset: u32,
+    /// [`TextSearchMatch::match_len`].
+    pub(crate) match_len: u32,
     /// [`relevance::line_rank`](super::declaration::line_rank) of the hit,
     /// taken on its whole source line.
     pub(crate) rank: u32,
@@ -85,6 +87,7 @@ pub(crate) fn assemble_file(
                 last_line: last_line(&m.line_text, m.line_number),
                 column: m.column,
                 byte_offset: m.byte_offset,
+                match_len: m.match_len,
                 value_digest: TextSearchMatch::digest_of(&m.line_text),
                 value: m.line_text,
                 count: None,
@@ -162,6 +165,7 @@ pub(crate) fn assemble_file(
                 last_line,
                 column: m.column,
                 byte_offset: m.byte_offset,
+                match_len: m.match_len,
                 value,
                 value_digest,
                 count: None,
@@ -184,13 +188,14 @@ pub(crate) fn assemble_file(
 }
 
 /// Recreate the exact context-free snippet, rank and full-value identity of
-/// the whole line `line_text`, whose hit starts at byte `byte_offset` (UTF-16
-/// `column`): the sink knows both, so neither is scanned for again.
+/// the whole line `line_text`, whose hit covers `match_len` bytes from byte
+/// `byte_offset` (UTF-16 `column`): the sink knows them, so none is scanned
+/// for again.
 pub fn line_match(
     line_text: &str,
     line_number: u32,
     column: u32,
-    byte_offset: u32,
+    (byte_offset, match_len): (u32, u32),
 ) -> TextSearchMatch {
     let rank = super::declaration::line_rank(line_text.as_bytes(), byte_offset as usize);
     let value_digest = TextSearchMatch::digest_of(line_text);
@@ -201,6 +206,7 @@ pub fn line_match(
         last_line: last_line(line_text, line_number),
         column,
         byte_offset,
+        match_len,
         value: line_text.to_owned(),
         value_digest,
         count: None,

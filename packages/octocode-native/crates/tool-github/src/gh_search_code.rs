@@ -424,8 +424,9 @@ async fn execute_within(
 /// What a `fields` pick always keeps of a code row: its identity (path, and
 /// repository) and the facts that qualify its lines
 /// (where else the same evidence sits, how many hits exist, whether the
-/// lines were read at the ref, and the commit they were read at). No `fields`
-/// value names one but `path`: naming it would change nothing.
+/// lines were read at the ref, the commit they were read at, and the
+/// declarations its listed lines declare, stated only beside `matches`). No
+/// `fields` value names one but `path`: naming it would change nothing.
 const CODE_ROW_ID: &[&str] = &[
     "owner",
     "repo",
@@ -435,6 +436,7 @@ const CODE_ROW_ID: &[&str] = &[
     "atRef",
     "lineResolved",
     "commitSha",
+    "declarations",
 ];
 
 /// This tool's output for the shared response stages.

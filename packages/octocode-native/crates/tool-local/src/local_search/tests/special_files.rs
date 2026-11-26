@@ -43,6 +43,7 @@ fn a_fifo_in_place_of_a_source_is_refused_without_blocking() {
                 last_line: None,
                 column: 0,
                 byte_offset: 0,
+                match_len: 0,
                 value: value.into(),
                 value_digest: <sha2::Sha256 as sha2::Digest>::digest(value.as_bytes()).into(),
                 count: None,

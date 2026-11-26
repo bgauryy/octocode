@@ -207,3 +207,146 @@ async fn every_part_of_a_page_states_the_files_found() {
     assert_eq!(pagination["hasMore"], left, "{}", second.data);
     assert_eq!(second.diagnostics.continues_page, left, "{}", second.data);
 }
+
+/// A cut row lists the declarations of the hits it lists and of no other,
+/// and a page whose rows state declarations still fits its window: a
+/// declaration is priced as its hit's lines are.
+#[tokio::test]
+async fn a_cut_row_states_only_the_declarations_of_its_listed_hits() {
+    let blocks = 80_u64;
+    // Every hit line opens a three-line function: each declares a block.
+    let busy = (1..=blocks)
+        .map(|n| format!("fn needle_{n}(input: usize) -> usize {{\n    input + {n}\n}}\n"))
+        .collect::<String>();
+    let files = [
+        ("busy.rs", busy),
+        ("calm.rs", "fn needle() {\n    work();\n}\n".to_owned()),
+    ];
+    let server = MockServer::builder().start().await;
+    mount_files(&server, &files).await;
+    let provider = one_shot_provider(&server);
+    let query: GhSearchCodeQuery =
+        serde_json::from_value(json!({"owner":"a","repo":"b","keywords":["needle"]}))
+            .expect("query");
+    let context = default_context();
+    let withholds = &octocode_runtime_base::policy::discovery::is_sensitive_repository_file;
+    let page = |window: Option<usize>| {
+        super::super::run(
+            &provider,
+            &query,
+            Ok(&context),
+            &Passthrough,
+            withholds,
+            window,
+        )
+    };
+    let published = |data: &serde_json::Value| {
+        let mut published = data.as_object().cloned().expect("data");
+        octocode_runtime_base::response::hoist::apply_on(
+            octocode_runtime_base::id::ToolId::GhSearchCode,
+            &mut published,
+        );
+        serde_json::Value::Object(published)
+    };
+    let whole = page(None).await.expect("whole page");
+    let whole = published(&whole.data);
+    let all = row(&whole, "busy.rs")["declarations"]
+        .as_array()
+        .cloned()
+        .expect("declarations");
+    assert_eq!(all.len() as u64, blocks, "every hit declares a block");
+    let window = published_chars(&whole).row / 2;
+    let out = page(Some(window)).await.expect("shared page");
+    let served = published(&out.data);
+    let busy = row(&served, "busy.rs");
+    let listed = busy["matches"]
+        .as_array()
+        .expect("a run of hits")
+        .iter()
+        .map(line)
+        .collect::<Vec<_>>();
+    assert!(
+        !listed.is_empty() && (listed.len() as u64) < blocks,
+        "{busy}"
+    );
+    // The declarations of the listed hits, exactly as the whole row states them.
+    let expected = all
+        .iter()
+        .filter(|entry| listed.contains(&line(entry)))
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(busy["declarations"], json!(expected), "{busy}");
+    assert_eq!(expected.len(), listed.len(), "{busy}");
+    let chars = published_chars(&served).row;
+    assert!(
+        chars <= window,
+        "the page fits its window: {chars} > {window}"
+    );
+}
+
+/// A section several hits state leaves a cut row with the last of them, so
+/// a cut is priced by the sections its own hits state: a Markdown row cut to
+/// fit lists the largest run the window holds, not its smallest.
+#[tokio::test]
+async fn a_cut_markdown_row_lists_the_largest_run_that_fits() {
+    let (sections, hits_each) = (30_u64, 4_u64);
+    let busy = (1..=sections)
+        .map(|n| {
+            let body = (1..=hits_each)
+                .map(|hit| format!("The needle of part {n}, line {hit}, with some padding text.\n"))
+                .collect::<String>();
+            format!("## Part {n} of the guide\n\n{body}\n")
+        })
+        .collect::<String>();
+    let files = [
+        ("busy.md", busy),
+        ("calm.md", "## Calm\n\nOne needle.\n".to_owned()),
+    ];
+    let server = MockServer::builder().start().await;
+    mount_files(&server, &files).await;
+    let provider = one_shot_provider(&server);
+    let query: GhSearchCodeQuery =
+        serde_json::from_value(json!({"owner":"a","repo":"b","keywords":["needle"]}))
+            .expect("query");
+    let context = default_context();
+    let withholds = &octocode_runtime_base::policy::discovery::is_sensitive_repository_file;
+    let page = |window: Option<usize>| {
+        super::super::run(
+            &provider,
+            &query,
+            Ok(&context),
+            &Passthrough,
+            withholds,
+            window,
+        )
+    };
+    let published = |data: &serde_json::Value| {
+        let mut published = data.as_object().cloned().expect("data");
+        octocode_runtime_base::response::hoist::apply_on(
+            octocode_runtime_base::id::ToolId::GhSearchCode,
+            &mut published,
+        );
+        serde_json::Value::Object(published)
+    };
+    let whole = published(&page(None).await.expect("whole page").data);
+    let all = row(&whole, "busy.md")["matches"]
+        .as_array()
+        .map(Vec::len)
+        .expect("matches");
+    assert_eq!(all as u64, sections * hits_each, "{whole}");
+    let whole_chars = published_chars(&whole).row;
+    let window = whole_chars / 2;
+    let served = published(&page(Some(window)).await.expect("shared page").data);
+    let chars = published_chars(&served).row;
+    assert!(chars <= window, "the page fits: {chars} > {window}");
+    let busy = row(&served, "busy.md");
+    let listed = busy["matches"].as_array().map(Vec::len).expect("a run");
+    assert!(listed < all, "{busy}");
+    // One more section of hits does not fit the room the page leaves.
+    let section_chars = whole_chars / usize::try_from(sections).expect("sections");
+    assert!(
+        window - chars < 2 * section_chars,
+        "the row lists {listed} of {all} hits and leaves {} of {window} chars unused",
+        window - chars
+    );
+}

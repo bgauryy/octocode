@@ -15,6 +15,7 @@ mod budget;
 mod kept;
 mod scoring;
 
+pub(super) use blob::Declared;
 pub(super) use blob::Window;
 use blob::{Blob, Hit, hit_declarations};
 use budget::{SCANS, fan_out, scan_weight};
@@ -46,6 +47,11 @@ pub(super) enum FileHits {
         best: u32,
         total: usize,
         line_count: usize,
+        /// What the hit lines state about the reads around them, in hit
+        /// order and at most one a hit: the block declaration a line declares
+        /// ([`Blob::declared_blocks`]) or, in a Markdown file, the innermost
+        /// section holding it ([`Blob::sections_of`]).
+        declared: Vec<Declared>,
         /// Secret-shaped values `lines` show as placeholders (beyond any
         /// literal placeholder of the source): the row's text is then not
         /// verbatim.
@@ -295,8 +301,14 @@ pub(super) fn scan(
     let best = blob.anchor(&hits, &needles);
     let lines = blob.listing(&hits, window);
     let redacted = blob.redactions(&lines);
+    // A Markdown file's outline is its sections, the one a block read uses.
+    let declared = match octocode_tools_shared::source_view::sections::sections(&text, path) {
+        Some(sections) => blob.sections_of(&hits, &sections),
+        None => blob.declared_blocks(&hits),
+    };
     FileHits::Lines {
         redacted,
+        declared,
         lines,
         matched: hits.iter().map(Hit::number).collect(),
         best,

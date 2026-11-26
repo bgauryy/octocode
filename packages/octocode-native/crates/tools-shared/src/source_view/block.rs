@@ -45,24 +45,17 @@ impl Blocks {
     }
 }
 
-/// A Markdown file's sections, the outline `view:"symbols"` lists
-/// ([`octocode_runtime_base::content::markdown_headings`]): each heading
-/// through the line before the next heading of the same or a higher level,
-/// else the file's last line, so a section holds its subsections.
+/// A Markdown file's sections ([`super::sections::sections`], the ranges a
+/// search hit names its section by) as the declarations a block read
+/// widens to.
 fn sections(content: &str, path: &str) -> Option<Vec<Declared>> {
-    let headings = octocode_runtime_base::content::markdown_headings(content, path)?;
-    let last = content.lines().count();
-    let sections = headings
-        .iter()
-        .enumerate()
-        .map(|(at, heading)| Declared {
-            name: heading.text.clone(),
-            line: heading.line,
-            start: heading.line,
-            end: headings[at + 1..]
-                .iter()
-                .find(|next| next.level <= heading.level)
-                .map_or(last, |next| next.line - 1),
+    let sections = super::sections::sections(content, path)?
+        .into_iter()
+        .map(|section| Declared {
+            name: section.name,
+            line: section.line,
+            start: section.line,
+            end: section.end,
         })
         .collect();
     Some(sections)

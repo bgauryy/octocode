@@ -15,6 +15,11 @@ pub struct TextSearchMatch {
     /// 0-based byte offset of the first submatch within its line (UTF-8): where
     /// a byte-window read of a long line starts at the match.
     pub byte_offset: u32,
+    /// Byte length of the first submatch (UTF-8, counted as `byte_offset`
+    /// is): `byte_offset..byte_offset + match_len` is what the hit covers
+    /// of its line, through the line's end when the match runs past it. `0`
+    /// when the search enumerated no submatch.
+    pub match_len: u32,
     /// Complete selected match and context window.
     pub value: String,
     /// Reconstruct this ordinary, context-free line from its source before

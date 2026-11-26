@@ -180,36 +180,58 @@ impl PathPolicy {
         let resolved = self.expand_and_resolve(input);
         let shown = self.display_requested(input, &resolved);
         // A row path joined onto a folder it already starts with repeats that
-        // folder (`repos/tsx/tsx/a.ts`): the path without the repeat is named.
+        // folder (`repos/tsx/tsx/a.ts`): the path without the repeat is
+        // named, a file before a folder.
         let meant = (code == PolicyErrorCode::NotFound)
-            .then(|| self.without_repeated_run(&resolved))
+            .then(|| {
+                self.without_repeated_run(&resolved).or_else(|| {
+                    self.entry_without_repeated_run(&resolved)
+                        .map(|meant| self.shown(meant))
+                })
+            })
             .flatten()
             .map(|meant| repeated_folder_note(&meant))
             .unwrap_or_default();
         PolicyError::new(code, format!("{prefix}: {shown}{cause}{meant}")).with_path(shown)
     }
 
-    /// The existing path `resolved` means when it repeats a run of its own
+    /// The existing file `resolved` means when it repeats a run of its own
     /// folders (`a/b/a/b/c` for `a/b/c`), as the reply names it; `None` when
-    /// no such path exists or the policy withholds it.
+    /// no such file exists or the policy withholds it.
     pub fn without_repeated_run(&self, resolved: &Path) -> Option<String> {
-        let parts: Vec<_> = resolved.components().collect();
-        for len in 1..=parts.len() / 2 {
-            for start in 0..=parts.len() - 2 * len {
-                if parts[start..start + len] != parts[start + len..start + 2 * len] {
-                    continue;
-                }
-                let candidate: std::path::PathBuf = parts[..start + len]
-                    .iter()
-                    .chain(&parts[start + 2 * len..])
-                    .collect();
-                if candidate.exists() && self.validate_read(&candidate).is_ok() {
-                    return Some(self.shown(&candidate));
-                }
+        repeated_run_target(resolved, |candidate| self.validate_read(candidate).is_ok())
+            .map(|meant| self.shown(meant))
+    }
+
+    /// [`Self::without_repeated_run`] for any entry, a folder included: what
+    /// a search root that repeats a run of its folders means.
+    pub(super) fn entry_without_repeated_run(&self, resolved: &Path) -> Option<std::path::PathBuf> {
+        repeated_run_target(resolved, |candidate| self.validate(candidate).is_ok())
+    }
+}
+
+/// `resolved` without one repeated run of its folders, the shortest run
+/// and the earliest first, where that path exists and `admitted` takes it.
+fn repeated_run_target(
+    resolved: &Path,
+    admitted: impl Fn(&Path) -> bool,
+) -> Option<std::path::PathBuf> {
+    let parts: Vec<_> = resolved.components().collect();
+    for len in 1..=parts.len() / 2 {
+        for start in 0..=parts.len() - 2 * len {
+            if parts[start..start + len] != parts[start + len..start + 2 * len] {
+                continue;
+            }
+            let candidate: std::path::PathBuf = parts[..start + len]
+                .iter()
+                .chain(&parts[start + 2 * len..])
+                .collect();
+            if candidate.exists() && admitted(&candidate) {
+                return Some(candidate);
             }
         }
-        None
     }
+    None
 }
 
 /// What a missing path's message adds when the path without a repeated run
@@ -219,6 +241,13 @@ pub fn repeated_folder_note(meant: &str) -> String {
     format!(
         ". {meant} exists: send a row's path as the row states it, never joined onto another folder"
     )
+}
+
+/// What a row warns when it read `named` for the missing `requested`, which
+/// repeats a run of its folders ([`PathPolicy::validate_meant`]): the one
+/// wording every local tool states for a path it read as another.
+pub fn repeated_folder_warning(named: &str, requested: &str) -> String {
+    format!("read path as {named}: {requested} repeats a folder and does not exist.")
 }
 
 /// Whether the OS refused the path for too many link hops. Errno numbers

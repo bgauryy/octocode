@@ -30,10 +30,11 @@ pub(super) fn project_shape(
         value: String::new(),
         window_start: matched.window_start,
         byte_offset: matched.byte_offset,
+        match_len: matched.match_len,
         first_line: matched.first_line,
         end_line: matched.last_line.filter(|&last| last > matched.line),
         match_lines: None,
-        match_bytes: Vec::new(),
+        match_spans: Vec::new(),
         count: matched.count,
         enclosing: None,
         declaration: None,
@@ -192,8 +193,8 @@ pub(super) fn merge_context_windows(
         start: u32,
         lines: Vec<String>,
         match_lines: Vec<u32>,
-        /// Each hit's byte in its line, beside `match_lines`.
-        match_bytes: Vec<u32>,
+        /// The bytes of its line each hit covers, beside `match_lines`.
+        match_spans: Vec<(u32, u32)>,
     }
     // Every window is numbered `<line>\t<text>`, so a cited
     // line never has to be counted from `line`.
@@ -212,7 +213,7 @@ pub(super) fn merge_context_windows(
         head.value = value;
         if block.match_lines.len() > 1 {
             head.match_lines = Some(block.match_lines);
-            head.match_bytes = block.match_bytes;
+            head.match_spans = block.match_spans;
         }
         head
     }
@@ -245,14 +246,14 @@ pub(super) fn merge_context_windows(
         // own, numbered, its extent stated by its `endLine`.
         if row.end_line.is_some() {
             let lines = lines.into_iter().map(str::to_owned).collect();
-            let (line, byte) = (row.line, row.byte_offset);
+            let (line, span) = (row.line, (row.byte_offset, row.match_len));
             out.extend(open.take().map(flush));
             out.push(flush(Block {
                 head: row,
                 start,
                 lines,
                 match_lines: vec![line],
-                match_bytes: vec![byte],
+                match_spans: vec![span],
             }));
             continue;
         }
@@ -269,19 +270,19 @@ pub(super) fn merge_context_windows(
                     .lines
                     .extend(lines.iter().skip(fresh).map(|l| (*l).to_owned()));
                 block.match_lines.push(row.line);
-                block.match_bytes.push(row.byte_offset);
+                block.match_spans.push((row.byte_offset, row.match_len));
                 continue;
             }
         }
         let lines = lines.into_iter().map(str::to_owned).collect();
-        let (line, byte) = (row.line, row.byte_offset);
+        let (line, span) = (row.line, (row.byte_offset, row.match_len));
         out.extend(
             open.replace(Block {
                 head: row,
                 start,
                 lines,
                 match_lines: vec![line],
-                match_bytes: vec![byte],
+                match_spans: vec![span],
             })
             .map(flush),
         );

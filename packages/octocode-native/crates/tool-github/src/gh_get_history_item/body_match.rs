@@ -25,9 +25,24 @@ pub(super) fn keeps(needle: Option<&Matcher>, humans: bool, entry: &Value) -> bo
     holds(needle, entry) && !(humans && super::util::is_bot(entry))
 }
 
-/// The entries of one load a person wrote, when the read leaves bots out
-/// (`humans`); the disclosure of those it left out joins `warnings`. A scan
-/// that stopped early counts only the entries it listed.
+/// The thread a provider entry belongs to: the comment it replies to
+/// (`in_reply_to_id`, which GitHub sets to a review thread's first comment),
+/// else itself. An entry of a list without replies is its own thread.
+fn thread(entry: &Value) -> Option<String> {
+    entry
+        .get("in_reply_to_id")
+        .filter(|id| !id.is_null())
+        .or_else(|| entry.get("id"))
+        .filter(|id| !id.is_null())
+        .map(|id| id.to_string().trim_matches('"').to_owned())
+}
+
+/// The entries of one load `bots:false` keeps (`humans`): those a person
+/// wrote, and a bot's or app's in a thread a person wrote in, so an answered
+/// thread stays whole. The disclosure of those it left out joins `warnings`.
+/// A scan that stopped early counts only the entries it listed; a list with
+/// replies is read whole first (`pull_request::load::load_inline`), since a
+/// reply may follow its thread in any batch.
 pub(super) fn humans_only(
     entries: Vec<Value>,
     humans: bool,
@@ -39,15 +54,31 @@ pub(super) fn humans_only(
         return entries;
     }
     let listed = entries.len();
+    let answered = entries
+        .iter()
+        .filter(|entry| !super::util::is_bot(entry))
+        .filter_map(thread)
+        .collect::<std::collections::HashSet<_>>();
+    let bots = entries
+        .iter()
+        .filter(|entry| super::util::is_bot(entry))
+        .count();
     let kept = entries
         .into_iter()
-        .filter(|entry| !super::util::is_bot(entry))
+        .filter(|entry| {
+            !super::util::is_bot(entry)
+                || thread(entry).is_some_and(|thread| answered.contains(&thread))
+        })
         .collect::<Vec<_>>();
     let dropped = listed - kept.len();
     if dropped > 0 {
         let scanned = if exhausted { "" } else { " scanned so far" };
+        let stayed = match bots - dropped {
+            0 => String::new(),
+            stayed => format!(" {stayed} more stay: a person wrote in their thread."),
+        };
         warnings.push(format!(
-            "bots:false left out {dropped} of {listed} {noun}{scanned} that a bot or app wrote."
+            "bots:false left out {dropped} of {listed} {noun}{scanned} that a bot or app wrote.{stayed}"
         ));
     }
     kept

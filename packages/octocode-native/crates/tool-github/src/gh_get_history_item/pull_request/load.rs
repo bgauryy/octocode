@@ -157,7 +157,11 @@ pub(super) async fn load_inline(
             provider_total,
             prefetched: None,
         },
-        |entry| plan.keeps(entry),
+        // Under `bots:false` a person's reply keeps the bot entries of its
+        // thread, and a reply lies in any batch after them: no entry covers
+        // the page until the list ends, so the whole list is read and
+        // shaping keeps the same entries on every page.
+        |entry| !plan.humans && plan.keeps(entry),
         context,
     )
     .await

@@ -12,7 +12,7 @@ mod tests;
 mod walk;
 
 pub use credentials::withheld_text_by_default;
-pub use messages::repeated_folder_note;
+pub use messages::{repeated_folder_note, repeated_folder_warning};
 pub use walk::DiscoveryWalk;
 
 #[derive(Clone, Debug, Default)]
@@ -45,6 +45,18 @@ pub struct PathPolicyConfig {
 pub struct ValidatedPath {
     pub canonical: PathBuf,
     pub display: String,
+}
+
+/// A path validated as the caller meant it ([`PathPolicy::validate_meant`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MeantPath {
+    /// The path read.
+    pub path: ValidatedPath,
+    /// The missing path the request named, as a message shows it, when it
+    /// repeats a run of its folders and `path` is the one that exists
+    /// without the repeat; the row that reads it warns so
+    /// ([`repeated_folder_warning`]). `None`: the path was read as asked.
+    pub repeated: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -144,6 +156,41 @@ impl PathPolicy {
     /// file-or-directory behavior. Reads use `validate_read` to require a file.
     pub fn validate(&self, input: impl AsRef<Path>) -> Result<ValidatedPath, PolicyError> {
         self.validate_impl(input.as_ref(), Access::Read)
+    }
+
+    /// [`Self::validate`] for the root a local tool searches or lists: a
+    /// missing path that repeats a run of its own folders (a row's path
+    /// joined onto the folder it already names, `repo/repo/src`) is read as
+    /// the one path that exists without the repeat, and says so
+    /// ([`MeantPath::repeated`]). A path that exists is read as asked, so a
+    /// real `a/a` folder never changes; a missing path with no such reading
+    /// keeps its error.
+    pub fn validate_meant(&self, input: impl AsRef<Path>) -> Result<MeantPath, PolicyError> {
+        let input = input.as_ref();
+        let error = match self.validate(input) {
+            Ok(path) => {
+                return Ok(MeantPath {
+                    path,
+                    repeated: None,
+                });
+            }
+            Err(error) => error,
+        };
+        let meant = (error.code == PolicyErrorCode::NotFound)
+            .then(|| self.entry_without_repeated_run(&self.expand_and_resolve(input)))
+            .flatten()
+            .and_then(|meant| self.validate(meant).ok());
+        match meant {
+            Some(path) => Ok(MeantPath {
+                path,
+                repeated: Some(
+                    error
+                        .safe_path
+                        .unwrap_or_else(|| input.to_string_lossy().into_owned()),
+                ),
+            }),
+            None => Err(error),
+        }
     }
 
     fn validate_impl(&self, input: &Path, access: Access) -> Result<ValidatedPath, PolicyError> {

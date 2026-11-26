@@ -46,10 +46,11 @@ pub(super) async fn pull_request(
             )
         };
     // A summary states GitHub's whole comment count (`totalCommentsCount`),
-    // as ghSearchHistory does: read beside the REST pull request, not after
-    // it. REST's `comments` stays the conversation count.
+    // as ghSearchHistory does, and what bots wrote in each discussion
+    // section (`botEntries`): one GraphQL read beside the REST pull request,
+    // not after it. REST's `comments` stays the conversation count.
     let summary = wants.is_empty();
-    let (mut loads, whole_comments) = tokio::try_join!(
+    let (mut loads, counts) = tokio::try_join!(
         load_pr(
             source,
             query,
@@ -61,14 +62,18 @@ pub(super) async fn pull_request(
         ),
         async {
             if summary {
-                whole_comment_count(source, query, context).await
+                summary_counts(source, query, context).await
             } else {
                 Ok(None)
             }
         },
     )?;
+    let whole_comments = counts.as_ref().and_then(|counts| counts.whole_comments);
     if let Some(count) = whole_comments {
         loads.raw[super::pr_finish::WHOLE_COUNT_KEY] = json!(count);
+    }
+    if let Some(bots) = counts.and_then(|counts| counts.bot_entries) {
+        loads.raw[super::pr_finish::BOT_ENTRIES_KEY] = bots;
     }
     let head = str_at(&loads.raw, "/head/sha").map(str::to_owned);
     // A pin names the head by its SHA or an abbreviation of it.
@@ -139,16 +144,24 @@ fn pin_head_pages(value: &mut Value, head: &str, number: u64) {
     }
 }
 
-/// GitHub's whole comment count of the pull request (`totalCommentsCount`:
-/// conversation, inline review comments and review bodies), the count
-/// ghSearchHistory states and sorts by. `None` when GraphQL is unavailable
-/// or does not answer it; a cancelled or expired request fails the read.
-async fn whole_comment_count(
+/// What a summary reads beside the REST pull request, in one GraphQL read.
+struct SummaryCounts {
+    /// GitHub's whole comment count (`totalCommentsCount`: conversation,
+    /// inline review comments and review bodies), the count ghSearchHistory
+    /// states and sorts by; `None` when the answer does not state it.
+    whole_comments: Option<u64>,
+    /// What bots wrote per discussion section ([`super::graphql::bot_entries`]).
+    bot_entries: Option<Value>,
+}
+
+/// The summary's GraphQL counts. `None` when GraphQL is unavailable or does
+/// not answer; a cancelled or expired request fails the read.
+async fn summary_counts(
     source: &Source<'_>,
     query: &HistoryItemRequest,
     context: &RequestContext,
-) -> Result<Option<u64>, ProviderError> {
-    let Some((document, variables)) = super::graphql::whole_count_read(query) else {
+) -> Result<Option<SummaryCounts>, ProviderError> {
+    let Some((document, variables)) = super::graphql::summary_read(query) else {
         return Ok(None);
     };
     // GitHub answers GraphQL to a credential only.
@@ -162,8 +175,11 @@ async fn whole_comment_count(
         Ok(page) => Ok(page
             .data
             .as_ref()
-            .and_then(|data| data.pointer("/repository/pullRequest/totalCommentsCount"))
-            .and_then(Value::as_u64)),
+            .and_then(|data| data.pointer("/repository/pullRequest"))
+            .map(|pr| SummaryCounts {
+                whole_comments: pr.get("totalCommentsCount").and_then(Value::as_u64),
+                bot_entries: super::graphql::bot_entries(pr),
+            })),
         Err(error) if error.is_cancelled_or_timed_out() => Err(error),
         Err(_) => Ok(None),
     }

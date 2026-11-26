@@ -59,7 +59,6 @@ impl FilePrice {
     pub(crate) fn of(
         file: &octocode_engine::types::TextSearchFile,
         outline: Option<&Outline>,
-        declaring: Option<&str>,
     ) -> Self {
         Self::Owners(Arc::new(
             outline
@@ -75,7 +74,7 @@ impl FilePrice {
                             });
                             // The declaration the hit declares.
                             let declared = outline
-                                .declared(at.0, at.1, declaring)
+                                .declared(at.0, at.1, matched.match_len)
                                 .and_then(|index| outline.label(index))
                                 .map_or(0, |declaration| {
                                     DECLARATION_FIELD_CHARS + listed_chars(&declaration)

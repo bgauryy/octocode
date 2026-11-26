@@ -111,11 +111,11 @@ fn walk_error(
 
 /// The row kind a listing shows for an entry: anything that is neither a
 /// directory nor a link lists as a file.
-/// Whether a withheld entry is worth a warning: the repository's own `.git`
-/// is withheld from every walk of a repository, so naming it says nothing
-/// about this call.
-fn reports_withheld(path: &std::path::Path) -> bool {
-    display_name(path) != ".git"
+/// Whether `path` is the repository's own bookkeeping: its `.git` directory,
+/// or the `.git` pointer file a linked worktree or submodule keeps. The path
+/// policy withholds it from every walk of a repository.
+fn git_metadata(path: &std::path::Path) -> bool {
+    display_name(path) == ".git"
 }
 
 /// A continuation whose walk no longer hashes to what it pinned (`pinned`):

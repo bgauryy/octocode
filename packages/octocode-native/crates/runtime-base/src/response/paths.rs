@@ -22,7 +22,14 @@ const PATH_FIELDS: [&str; 3] = ["path", "workspaceRoot", "dir"];
 /// says the caller's rows name their paths from a root they state
 /// themselves (a graph's snapshot root, `graph.root`), so no row root is
 /// derived for them.
+///
+/// The row also states the checkout its evidence lies in (`commitSha`, `ref`,
+/// `remote`: [`super::checkout`]), found here from the row's absolute
+/// paths before they are renamed; an error row states the asked path's.
 pub fn shown_paths(states_own_root: bool, value: &mut Value, paths: &PathPolicy, asked: &Value) {
+    let checkout = (!states_own_root)
+        .then(|| super::checkout::checkout(value, paths, asked))
+        .flatten();
     // Outside the workspace, the row's own `path` that only repeats the
     // request's stays as asked: the response drops it as an echo.
     let outside = asked["path"].as_str().is_some_and(|path| {
@@ -58,6 +65,9 @@ pub fn shown_paths(states_own_root: bool, value: &mut Value, paths: &PathPolicy,
             "root".to_owned(),
             Value::String(root.to_string_lossy().into_owned()),
         );
+    }
+    if let Some(checkout) = checkout {
+        checkout.state(fields);
     }
 }
 

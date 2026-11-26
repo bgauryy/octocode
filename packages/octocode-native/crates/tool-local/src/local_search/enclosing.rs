@@ -17,12 +17,20 @@
 //! it, so no row reads as having none. A declaration search (`fn foo`)
 //! names the owners of declaring hits only.
 //!
-//! A hit that starts on a declaration's name declares it: the file lists
-//! that declaration too and the hit names it by a `declaration` index, so
-//! its `line`–`endLine` is the range that reads it. The outline is the one
-//! source of that fact: a hit the outline cannot place (a local binding, a
-//! language without an extractor, a file over [`ENCLOSING_MAX_BYTES`])
-//! carries no `declaration`.
+//! A hit whose matched bytes cover a declaration's name, or part of it,
+//! declares it, wherever the match starts (`struct Histogram {` and
+//! `Histogram` alike; a match that ends before the name, `export` alone,
+//! declares nothing): the file lists that declaration too and the hit names
+//! it by a `declaration` index, so its `line`–`endLine` is the range that
+//! reads it. The outline is the one source of that fact: a hit the outline
+//! cannot place (a local binding, a language without an extractor, a file
+//! over [`ENCLOSING_MAX_BYTES`]) carries no `declaration`.
+//!
+//! A Markdown file's outline is its sections
+//! ([`octocode_tools_shared::source_view::sections`], the ranges a
+//! `block:true` read returns): a hit names the innermost section holding
+//! it alone, a hit on a heading line the section that heading opens, so
+//! one entry per hit states the range that reads its section.
 
 use super::types::*;
 use octocode_runtime_base::security::ContentSecurity;
@@ -55,7 +63,13 @@ struct Declaration {
 #[derive(Clone)]
 pub(super) struct Outline {
     declarations: Vec<Declaration>,
+    /// The declarations are a Markdown file's sections ([`Self::sections`]):
+    /// a hit names one of them, never the sections around it.
+    sections: bool,
 }
+
+/// The `kind` a Markdown section is listed by.
+const SECTION_KIND: &str = "section";
 
 /// Outlines by the digest of the text they outline and its path, so a text
 /// a page, a later page or a repeat already outlined is not parsed again.
@@ -75,12 +89,17 @@ impl Outline {
                 .sum::<usize>()
     }
 
-    /// The outline of `source`; `None` when no extractor supports the file.
+    /// The outline of `source`; `None` when no extractor supports the file
+    /// and it is no Markdown file ([`Self::sections`]).
     /// It reads the typed declarations document of one fresh parse
     /// ([`octocode_tools_shared::declarations::file_document`]), owned by this
     /// request and never a JSON round trip.
     pub(super) fn of(source: &str, canonical_path: &str) -> Option<Self> {
-        let document = octocode_tools_shared::declarations::file_document(source, canonical_path)?;
+        let Some(document) =
+            octocode_tools_shared::declarations::file_document(source, canonical_path)
+        else {
+            return Self::sections(source, canonical_path);
+        };
         // Graph positions count UTF-16 columns on `\n` lines; hits count
         // bytes on the same lines.
         let index = octocode_engine::text::LineIndex::tree_sitter(source);
@@ -113,15 +132,52 @@ impl Outline {
                 }
             })
             .collect();
-        Some(Self { declarations })
+        Some(Self {
+            declarations,
+            sections: false,
+        })
+    }
+
+    /// The outline of a Markdown file: its sections, the ones a block read
+    /// widens to ([`octocode_tools_shared::source_view::sections`]). A
+    /// section's name is its whole heading line, so any hit on that line
+    /// declares it.
+    fn sections(source: &str, canonical_path: &str) -> Option<Self> {
+        use octocode_engine::num::saturating_u32;
+        let declarations =
+            octocode_tools_shared::source_view::sections::sections(source, canonical_path)?
+                .into_iter()
+                .filter(|section| !section.name.is_empty())
+                .map(|section| {
+                    let (line, end) = (saturating_u32(section.line), saturating_u32(section.end));
+                    Declaration {
+                        kind: SECTION_KIND.to_owned(),
+                        name: section.name,
+                        line,
+                        end,
+                        from: (line, 0),
+                        to: (end.saturating_add(1), 0),
+                        name_from: (line, 0),
+                        name_end: (line.saturating_add(1), 0),
+                    }
+                })
+                .collect();
+        Some(Self {
+            declarations,
+            sections: true,
+        })
     }
 
     /// The innermost declaration whose range holds the hit at `byte` of
     /// `line`, other than one whose header the hit sits in up to its name
     /// (its index in the outline). A hit at a declaration's end is past it;
-    /// an empty range holds the hits of its own line.
+    /// an empty range holds the hits of its own line. A hit on a Markdown
+    /// heading has none: the section it declares is its one entry.
     pub(super) fn owner(&self, line: u32, byte: u32) -> Option<usize> {
         let hit = (line, byte);
+        if self.sections && self.declarations.iter().any(|d| d.line == line) {
+            return None;
+        }
         self.declarations
             .iter()
             .enumerate()
@@ -135,11 +191,16 @@ impl Outline {
 
     /// Declaration `owner` after the declarations holding it, outermost
     /// first: a method after its class. A declaration whose range equals
-    /// the owner's is not a holder of it.
+    /// the owner's is not a holder of it. A Markdown section is listed
+    /// alone: its range reads it, and the sections around it are a read of
+    /// the file's outline away.
     pub(super) fn chain(&self, owner: usize) -> Vec<super::types::Enclosing> {
         let Some(inner) = self.declarations.get(owner) else {
             return Vec::new();
         };
+        if self.sections {
+            return self.label(owner).into_iter().collect();
+        }
         let mut holders = self
             .declarations
             .iter()
@@ -192,24 +253,26 @@ impl Outline {
             .position(|d| d.line == line && d.name == name)
     }
 
-    /// The declaration the hit at `byte` of `line` declares: the one whose
-    /// name the hit starts on (its index in the outline), or, for a
-    /// declaration search of `symbol` (a hit that starts at the head's
-    /// first word, before the name), the one named `symbol` on that line.
-    pub(super) fn declared(&self, line: u32, byte: u32, symbol: Option<&str>) -> Option<usize> {
-        let hit = (line, byte);
+    /// The declaration the hit declares (its index in the outline): the
+    /// one whose name the matched bytes, `len` from `byte` of `line`, cover
+    /// or reach into, the first such name on the line. A match that ends
+    /// before the name (a modifier or keyword alone) declares nothing. A
+    /// hit of no known length is the byte it starts at.
+    pub(super) fn declared(&self, line: u32, byte: u32, len: u32) -> Option<usize> {
+        let (from, to) = ((line, byte), (line, byte.saturating_add(len.max(1))));
         self.declarations
             .iter()
-            .position(|d| d.name_from <= hit && hit < d.name_end)
-            .or_else(|| self.named(symbol?, line))
+            .enumerate()
+            .filter(|(_, d)| d.name_from < to && from < d.name_end)
+            .min_by_key(|(_, d)| d.name_from)
+            .map(|(index, _)| index)
     }
 }
 
 /// The symbol a declaration search of `query` names (`fn foo`: `foo`),
-/// whose declarations its hits declare; `None` for any other search, and
-/// for one whose pattern does not read as written (case-insensitive, PCRE2
-/// or inverted). The page cut prices rows by it and the page names them by
-/// it, so both agree.
+/// of which only the rows declaring it name their owners
+/// ([`row_owners`]); `None` for any other search, and for one whose pattern
+/// does not read as written (case-insensitive, PCRE2 or inverted).
 pub(super) fn declaring_symbol(query: &octocode_contract_types::LocalSearchQuery) -> Option<&str> {
     use super::local_search_query;
     let pattern = local_search_query::pattern(query);
@@ -407,7 +470,7 @@ pub(super) fn annotate_enclosing(
         names.push(
             row_owners(&outline, matches, declaring)
                 .into_iter()
-                .zip(row_declared(&outline, matches, declaring))
+                .zip(row_declared(&outline, matches))
                 .collect(),
         );
     }
@@ -438,7 +501,8 @@ pub(super) fn have(rows: usize) -> &'static str {
     if rows == 1 { "has" } else { "have" }
 }
 
-/// Whether `source`'s language has a declaration outline (by extension).
+/// Whether `source`'s language has a declaration outline (by extension),
+/// or it is a Markdown file, outlined by its sections.
 pub(super) fn outlined_language(source: &std::path::Path) -> bool {
     source
         .extension()
@@ -447,6 +511,7 @@ pub(super) fn outlined_language(source: &std::path::Path) -> bool {
             octocode_engine::signatures::languages::find_entry(&extension.to_ascii_lowercase())
                 .is_some()
         })
+        || octocode_tools_shared::source_view::sections::sectioned(&source.to_string_lossy())
 }
 
 /// Each row's enclosing declaration, on every row inside one: so no row
@@ -516,16 +581,15 @@ fn declared_of(
 }
 
 /// The declarations each row's hits declare ([`Outline::declared`]), in
-/// hit order; `declaring` is the symbol of a declaration search.
+/// hit order.
 pub(super) fn row_declared(
     outline: &super::enclosing::Outline,
     rows: &[SearchMatch],
-    declaring: Option<&str>,
 ) -> Vec<Vec<super::types::Enclosing>> {
     rows.iter()
         .map(|row| {
             hits_of(row)
-                .filter_map(|(line, byte)| outline.declared(line, byte, declaring))
+                .filter_map(|(line, (byte, len))| outline.declared(line, byte, len))
                 .filter_map(|index| outline.label(index))
                 .collect()
         })
@@ -548,7 +612,7 @@ pub(super) fn row_owners(
                 return vec![None];
             }
             hits_of(row)
-                .map(|(line, byte)| {
+                .map(|(line, (byte, _))| {
                     outline
                         .owner(line, byte)
                         .map(|owner| outline.chain(owner))
@@ -559,17 +623,20 @@ pub(super) fn row_owners(
         .collect()
 }
 
-/// Each hit of `row`, by line and byte: every hit a merged window holds,
-/// or the row's one hit (a match spanning lines starts on its first).
-fn hits_of(row: &SearchMatch) -> impl Iterator<Item = (u32, u32)> + '_ {
+/// Each hit of `row`, by line and the bytes of it the hit covers (where it
+/// starts, and how many): every hit a merged window holds, or the row's
+/// one hit (a match spanning lines starts on its first).
+fn hits_of(row: &SearchMatch) -> impl Iterator<Item = (u32, (u32, u32))> + '_ {
     let merged = row
         .match_lines
         .as_deref()
-        .filter(|lines| lines.len() == row.match_bytes.len() && lines.len() > 1);
-    let one = merged.is_none().then_some((row.line, row.byte_offset));
+        .filter(|lines| lines.len() == row.match_spans.len() && lines.len() > 1);
+    let one = merged
+        .is_none()
+        .then_some((row.line, (row.byte_offset, row.match_len)));
     merged
         .into_iter()
-        .flat_map(|lines| lines.iter().copied().zip(row.match_bytes.iter().copied()))
+        .flat_map(|lines| lines.iter().copied().zip(row.match_spans.iter().copied()))
         .chain(one)
 }
 

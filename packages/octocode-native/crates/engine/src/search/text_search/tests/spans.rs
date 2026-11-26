@@ -324,3 +324,48 @@ fn empty_matches_end_with_their_line() {
     let counted = spans("x*", SearchOutput::CountMatches);
     assert_eq!(counted.stats.match_count, Some(31));
 }
+
+/// Every row states the bytes of its line its first submatch covers: from
+/// `byte_offset`, `match_len` of them are the text the pattern matched
+/// first on that line, in every view (whole lines, lines with context,
+/// spans, deferred values) and past a multi-byte character.
+#[test]
+fn every_row_states_the_bytes_of_its_line_its_first_match_covers() {
+    let t = TmpDir::new();
+    let body = "pub fn alpha() {}\n  é pub(crate) fn beta_two(x: u8) {}\nlet fn_ptr = 1;\nfn gamma() {} fn delta() {}\n";
+    t.write("a.rs", body);
+    let pattern = r"fn\s+\w+";
+    let first = regex::Regex::new(pattern).expect("pattern");
+    for (context, output, values) in [
+        (0, SearchOutput::Lines, SourceValues::Hashed),
+        (1, SearchOutput::Lines, SourceValues::Hashed),
+        (0, SearchOutput::Lines, SourceValues::Deferred),
+        (
+            0,
+            SearchOutput::Spans(SpanValues::Every),
+            SourceValues::Hashed,
+        ),
+    ] {
+        let mut options = opts(t.path(), pattern);
+        options.context = crate::types::SearchContext::symmetric(context);
+        let spans = matches!(output, SearchOutput::Spans(_));
+        options.output = output;
+        options.values = values;
+        let result = search(options).expect("search");
+        let rows = &result.files[0].matches;
+        assert!(!rows.is_empty());
+        for row in rows {
+            let line = body.lines().nth(row.line as usize - 1).expect("line");
+            let from = row.byte_offset as usize;
+            let covered = &line[from..from + row.match_len as usize];
+            if spans {
+                // A span row covers its own text, wherever it sits.
+                assert_eq!(covered, row.value, "context {context}");
+            } else {
+                let found = first.find(line).expect("a matched line");
+                assert_eq!(covered, found.as_str(), "context {context}: {line}");
+                assert_eq!(from, found.start(), "context {context}: {line}");
+            }
+        }
+    }
+}

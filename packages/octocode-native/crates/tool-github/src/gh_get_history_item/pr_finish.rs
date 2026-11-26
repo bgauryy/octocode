@@ -23,7 +23,7 @@ mod metadata;
 #[cfg(test)]
 mod tests;
 
-pub(super) use metadata::{WHOLE_COUNT_KEY, body_preview, pr_metadata};
+pub(super) use metadata::{BOT_ENTRIES_KEY, WHOLE_COUNT_KEY, body_preview, pr_metadata};
 
 /// A scope or literal that matched nothing: an empty row whose leads run the
 /// recovery ([`unmatched_leads`]), or, when other sections hold evidence, a

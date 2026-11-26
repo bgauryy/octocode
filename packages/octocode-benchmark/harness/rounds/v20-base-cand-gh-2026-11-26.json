@@ -1,0 +1,159 @@
+{
+  "round": "v20-base-cand-gh-2026-11-26",
+  "passes": 3,
+  "jobs": 6,
+  "seed": "v20-base-cand-gh-2026-11-26",
+  "neutralCwd": "~/.cache/octocode-bench/neutral",
+  "clones": "packages/octocode-benchmark/local/repos",
+  "models": {
+    "runner": "claude-sonnet-5-5",
+    "judge": "claude-opus-5-5"
+  },
+  "timeouts": {
+    "runSeconds": 900,
+    "judgeSeconds": 1500
+  },
+  "pins": {
+    "base": {
+      "path": ".octocode/tmp/owner/pins/base/octocode",
+      "sha256": "693637dd61c215a2e2d7243006599dabcb32063027e320d7edab309e1bb37b93"
+    },
+    "cand": {
+      "path": ".octocode/octocode-dev/pins/20.2.0+91434a43-eb8f75f2525f/octocode",
+      "sha256": "eb8f75f2525fef53c2e62f93d793c26ed87a29dba000dd2a398b08237229e612"
+    }
+  },
+  "arms": {
+    "v20-base": {
+      "kind": "mcp",
+      "pin": "base",
+      "instruction": "Answer using only your Octocode tools. Cite the repository, file, line and commit SHA behind each claim.",
+      "server": {
+        "command": "node",
+        "args": [
+          "{repo}/packages/octocode-mcp/dist/index.js"
+        ],
+        "env": {
+          "NODE_ENV": "development",
+          "OCTOCODE_NATIVE_BIN": "{pin}",
+          "OCTOCODE_HOME": "{home}",
+          "OCTOCODE_ENABLE_LOCAL": "true",
+          "OCTOCODE_ENABLE_CLONE": "true",
+          "OCTOCODE_SECURITY_CHECKS": "true",
+          "ALLOWED_PATHS": "{clones}",
+          "WORKSPACE_ROOT": "{clones}"
+        }
+      }
+    },
+    "v20-cand": {
+      "kind": "mcp",
+      "pin": "cand",
+      "instruction": "Answer using only your Octocode tools. Cite the repository, file, line and commit SHA behind each claim.",
+      "server": {
+        "command": "node",
+        "args": [
+          "{repo}/packages/octocode-mcp/dist/index.js"
+        ],
+        "env": {
+          "NODE_ENV": "development",
+          "OCTOCODE_NATIVE_BIN": "{pin}",
+          "OCTOCODE_HOME": "{home}",
+          "OCTOCODE_ENABLE_LOCAL": "true",
+          "OCTOCODE_ENABLE_CLONE": "true",
+          "OCTOCODE_SECURITY_CHECKS": "true",
+          "ALLOWED_PATHS": "{clones}",
+          "WORKSPACE_ROOT": "{clones}"
+        }
+      }
+    },
+    "gh": {
+      "kind": "shell",
+      "instruction": "Answer using only read-only `gh` commands in Bash. Cite the repository, file, line and commit SHA behind each claim. You can pipe `gh` output into jq, base64, head, tail, sed, grep, wc, sort, uniq, cut or tr; shell variables, `$(\u2026)`, `<(\u2026)` and `cd` are refused.",
+      "filters": [
+        "jq",
+        "base64",
+        "head",
+        "tail",
+        "sed",
+        "grep",
+        "wc",
+        "sort",
+        "uniq",
+        "cut",
+        "tr"
+      ]
+    },
+    "v20-cand-ts": {
+      "kind": "mcp",
+      "pin": "cand",
+      "instruction": "Answer using only your Octocode tools. Cite the repository, file, line and commit SHA behind each claim.",
+      "server": {
+        "command": "node",
+        "args": [
+          "{repo}/packages/octocode-mcp/dist/index.js"
+        ],
+        "env": {
+          "NODE_ENV": "development",
+          "OCTOCODE_NATIVE_BIN": "{pin}",
+          "OCTOCODE_HOME": "{home}",
+          "OCTOCODE_ENABLE_LOCAL": "true",
+          "OCTOCODE_ENABLE_CLONE": "true",
+          "OCTOCODE_SECURITY_CHECKS": "true",
+          "ALLOWED_PATHS": "{clones}",
+          "WORKSPACE_ROOT": "{clones}"
+        }
+      },
+      "toolSearch": true
+    }
+  },
+  "sets": {
+    "gh": {
+      "questions": "packages/octocode-benchmark/questions/github",
+      "ids": "Q1-Q30",
+      "arms": {
+        "v20-base": "all",
+        "v20-cand": "all",
+        "gh": "all",
+        "v20-cand-ts": "all"
+      }
+    },
+    "lc": {
+      "questions": "packages/octocode-benchmark/questions/local-core",
+      "ids": "Q1-Q30",
+      "arms": {
+        "v20-base": "all",
+        "v20-cand": "all"
+      }
+    }
+  },
+  "groups": {
+    "github": {
+      "set": "gh"
+    },
+    "disk": {
+      "set": "lc"
+    }
+  },
+  "compare": [
+    [
+      "v20-cand",
+      "gh"
+    ],
+    [
+      "v20-base",
+      "gh"
+    ],
+    [
+      "v20-cand",
+      "v20-base"
+    ],
+    [
+      "v20-cand-ts",
+      "gh"
+    ],
+    [
+      "v20-cand-ts",
+      "v20-cand"
+    ]
+  ]
+}

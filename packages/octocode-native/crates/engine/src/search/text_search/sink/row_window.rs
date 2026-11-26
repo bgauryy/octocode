@@ -9,11 +9,11 @@ use crate::search::text_parser::RawMatch;
 use crate::types::{RowWindow, TextSearchMatch};
 use grep_matcher::Matcher;
 
-/// One window of a line: its bytes in the line's text, and the raw byte of
-/// the line its first hit starts at.
+/// One window of a line: its bytes in the line's text, and the raw bytes of
+/// the line its first hit covers.
 struct Window {
     text: std::ops::Range<usize>,
-    first_hit: usize,
+    first_hit: std::ops::Range<usize>,
 }
 
 impl<M: Matcher> CollectSink<'_, M> {
@@ -56,7 +56,7 @@ impl<M: Matcher> CollectSink<'_, M> {
                 }
                 _ => windows.push(Window {
                     text: from..to,
-                    first_hit: found.start(),
+                    first_hit: found.start()..found.end(),
                 }),
             }
             true
@@ -68,9 +68,12 @@ impl<M: Matcher> CollectSink<'_, M> {
         }
         self.not_utf8 |= decoded.warning.is_some();
         for window in windows {
-            let hit = text.floor_char_boundary(columns.lossy(window.first_hit).min(text.len()));
+            let hit =
+                text.floor_char_boundary(columns.lossy(window.first_hit.start).min(text.len()));
+            let hit_end = columns.lossy(window.first_hit.end).min(text.len());
+            let match_len = crate::num::saturating_u32(hit_end.saturating_sub(hit));
             let (_, column, byte_offset) = columns.position(hit);
-            let rank = declaration::line_rank(bytes, window.first_hit);
+            let rank = declaration::line_rank(bytes, window.first_hit.start);
             let window_start = Some(crate::num::saturating_u32(window.text.start));
             // Both ends sit on char boundaries (floor/ceil above).
             let value = text.get(window.text).unwrap_or_default().to_owned();
@@ -82,6 +85,7 @@ impl<M: Matcher> CollectSink<'_, M> {
                     last_line: None,
                     column,
                     byte_offset,
+                    match_len,
                     value_digest: TextSearchMatch::digest_of(&value),
                     value,
                     count: None,
@@ -94,6 +98,7 @@ impl<M: Matcher> CollectSink<'_, M> {
                     line_number: line,
                     column,
                     byte_offset,
+                    match_len,
                     rank,
                     window_start,
                 });

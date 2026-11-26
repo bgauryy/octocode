@@ -353,7 +353,7 @@ pub fn withheld_message(display: &str, path: &Path) -> String {
         }
     };
     let commit = if sensitive_directory(&aliases) == Some(".git") {
-        " A search or read inside its checkout states the checkout's commit as commitSha."
+        " Every local row of its checkout, this one included, states what it holds of the checkout's identity: commitSha, ref (its branch) and remote (its origin)."
     } else {
         ""
     };
