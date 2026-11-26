@@ -60,7 +60,7 @@ impl ProviderContractError {
 /// A vendor's built-in defaults.
 #[derive(Debug)]
 pub struct ProviderDefaults {
-    /// API root used when `OCTOCODE_CLASSIFICATION_API_HOST` is unset.
+    /// API root used when `OCTOCODE_TYPESAFE_HOST` is unset.
     pub host: &'static str,
     /// Model used when neither the query nor configuration selects one.
     pub model: &'static str,

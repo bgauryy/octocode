@@ -445,3 +445,30 @@ fn match_windows_keep_the_source_hunk_headers_verbatim() {
         }
     }
 }
+
+/// A file kept only for a hit in a hunk header's function context shows the
+/// hunks whose header holds it, each header a counted hit, and states the
+/// whole patch's size; a hunk whose header does not hold it is left out.
+#[test]
+fn a_header_only_hit_shows_only_the_hunks_whose_header_holds_it() {
+    let patch = "@@ -40,2 +40,2 @@ import {\n keep\n-x\n+y\n@@ -90,2 +90,2 @@ export class Server {\n stay\n-a\n+b\n";
+    let query = patch_request(json_fixture(r#"{"matchString": ["import"]}"#));
+    let view = history_patch_view(patch, "a.rs", &query);
+    assert!(
+        view.text.contains("@@ -40,2 +40,2 @@ import {"),
+        "{}",
+        view.text
+    );
+    assert!(view.text.contains("+y"), "{}", view.text);
+    assert!(!view.text.contains("export class Server"), "{}", view.text);
+    assert!(!view.text.contains("+b"), "{}", view.text);
+    assert!(
+        view.narrowed,
+        "a narrowed view states the whole patch's size"
+    );
+    assert_eq!(view.hits.len(), 1, "{}", view.text);
+    // A literal in every header keeps the whole patch, unnarrowed.
+    let every = patch_request(json_fixture(r#"{"matchString": ["@@"]}"#));
+    let whole = history_patch_view(patch, "a.rs", &every);
+    assert!(whole.text.contains("export class Server"), "{}", whole.text);
+}

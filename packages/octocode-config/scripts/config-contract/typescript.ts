@@ -159,8 +159,6 @@ ${renderInterfaces(contract)}
 export type ConfigFieldKind = 'boolean' | 'string' | 'url' | 'path' | 'stringArray' | 'enum';
 export interface ConfigEnvBinding {
   name: string;
-  /** Earlier names of the variable: each reads as \`name\`, which wins when both are set. */
-  aliases?: readonly string[];
   dotenv?: 'all' | 'home' | 'never';
   normalize?: 'trim' | 'lower';
   workspaceNarrowsTo?: string;
@@ -182,8 +180,6 @@ export interface ConfigFieldSpec {
 }
 
 export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = ${JSON.stringify(metadata, null, 2)};
-/** Every earlier variable name with the name that replaced it (each binding's \`aliases\`). */
-export const ENV_ALIASES: Readonly<Record<string, string>> = ${JSON.stringify(environment.aliases)};
 export const RUNTIME_SURFACES = ${JSON.stringify(contract.config.runtimeSurfaces)} as const;
 export type RuntimeSurface = (typeof RUNTIME_SURFACES)[number];
 export const ENV_TOKEN_VARS = ${JSON.stringify(environment.tokenNames)} as const;

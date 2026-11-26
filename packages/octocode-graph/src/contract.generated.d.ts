@@ -2116,6 +2116,7 @@ before?: number
 after?: number
 }
 regexEngine?: RegexEngine
+caseMode?: CaseMode
 } | {
 owner: string
 repo: string
@@ -2144,6 +2145,7 @@ before?: number
 after?: number
 }
 regexEngine?: RegexEngine
+caseMode?: CaseMode
 } | {
 owner: string
 repo: string
@@ -2190,6 +2192,7 @@ before?: number
 after?: number
 }
 regexEngine?: RegexEngine
+caseMode?: CaseMode
 } | {
 owner: string
 repo: string
@@ -2238,6 +2241,7 @@ before?: number
 after?: number
 }
 regexEngine?: RegexEngine
+caseMode?: CaseMode
 })[]
 responseChars?: number
 }
@@ -3106,6 +3110,7 @@ workspaceRoot?: string
 limit?: number
 path: string
 operation: ("documentSymbols" | "diagnostic")
+locals?: boolean
 } | {
 workspaceRoot?: string
 limit?: number

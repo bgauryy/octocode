@@ -65,6 +65,37 @@ pub(super) fn row(
             Ok(None) => {}
             Err(out) => return *out,
         }
+    } else if let Input::Judge(Target::Source(source)) = &row.input
+        && row.assets.is_none()
+        && !row.collapse
+        && let Some(tool) = units::rows_tool(source).filter(|tool| {
+            matches!(
+                tool,
+                octocode_runtime_base::id::ToolId::LocalSearch
+                    | octocode_runtime_base::id::ToolId::StructureSearch
+                    | octocode_runtime_base::id::ToolId::AstSearch
+            )
+        })
+    {
+        // A local text tool reads only this machine: the preview runs its
+        // query through the tool's own contract and sanitization, as the
+        // live walk does, and shows the units each request would send. Tools
+        // that call out (GitHub, registries) and lspSearch, which starts
+        // language servers, stay selectors.
+        match octocode_tools_shared::source_capture::read_rows(
+            tool,
+            &source["query"],
+            None,
+            reader,
+            context,
+        ) {
+            Ok((data, _)) => {
+                let units = units::page_unit_states(&data, &source["query"]);
+                selection.insert("units".into(), json!(units.len()));
+                selection.insert("captured".into(), Value::Array(units));
+            }
+            Err(error) => return evaluate::rejected(error, None),
+        }
     }
     let mut selection = Value::Object(selection);
     // URL queries, userinfo and image encodings never appear in the preview.

@@ -16,7 +16,15 @@ pub struct Broaden<'a> {
     /// A lone keyword of several words drops one word at a time (a registry
     /// reads one keyword as several terms) instead of dropping whole.
     pub split_lone_keyword: bool,
+    /// A lone keyword of several words (an exact phrase) is asked first as
+    /// its words, each its own keyword: the same words in any order.
+    pub loosen_phrase: bool,
 }
+
+/// What an empty phrase search says when its first broader request asks the
+/// phrase's words apart ([`Broaden::loosen_phrase`]).
+pub const PHRASE_WORDS_HINT: &str =
+    "No match for the exact phrase: related asks its words as separate keywords.";
 
 /// An empty search's broader variants as one low-confidence batch lead, so
 /// the variant that returns rows names what emptied the search: `row` (the
@@ -75,6 +83,15 @@ pub fn broaden(tool: ToolId, row: &Value, drop: &Broaden<'_>, limit: usize) -> O
         }
     }
     let keywords = base["keywords"].as_array().map_or(&[][..], Vec::as_slice);
+    if let [Value::String(lone)] = keywords
+        && drop.loosen_phrase
+    {
+        let words = lone.split_whitespace().collect::<Vec<_>>();
+        if words.len() > 1 {
+            // The most of the question kept: first, before any drop.
+            variants.insert(0, with_keywords(json!(words)));
+        }
+    }
     let lone_words = match keywords {
         [Value::String(lone)] if drop.split_lone_keyword => {
             Some(lone.split_whitespace().collect::<Vec<_>>()).filter(|words| words.len() > 1)

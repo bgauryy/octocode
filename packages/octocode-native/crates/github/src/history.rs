@@ -29,6 +29,11 @@ pub struct HistoryPage {
     pub warnings: Vec<String>,
     pub listed: bool,
     pub has_more: bool,
+    /// A REST list's exact row count, when known: a complete first page, or
+    /// the last page GitHub links when the same list is read one row per page
+    /// ([`GitHubTransport::list_size`]). `None` for a search, a later page, or
+    /// a provider that links no last page.
+    pub list_total: Option<usize>,
 }
 #[derive(Clone, Debug)]
 pub struct PullListRequest {
@@ -50,8 +55,61 @@ impl GitHubTransport {
         committer: Option<&str>,
         context: &RequestContext,
     ) -> Result<HistoryPage, ProviderError> {
-        self.read_commit_list(self.commit_list_spec(r, committer)?, context)
-            .await
+        let spec = self.commit_list_spec(r, committer)?;
+        let url = spec.url.clone();
+        let page = self.read_commit_list(spec, context).await?;
+        Ok(self
+            .with_list_total(page, r.page, &url, context, "commit list")
+            .await)
+    }
+    /// `page` with its list's exact size when it is page 1 of several: one
+    /// more request, the same list one row per page. A size read that fails
+    /// or names no last page leaves the total unstated, never the page.
+    async fn with_list_total(
+        &self,
+        mut page: HistoryPage,
+        number: usize,
+        url: &reqwest::Url,
+        context: &RequestContext,
+        what: &str,
+    ) -> HistoryPage {
+        page.list_total = match (number, page.has_more) {
+            (1, false) => Some(page.items.len()),
+            (1, true) => self.list_size(url, context, what).await.ok().flatten(),
+            _ => None,
+        };
+        page
+    }
+    /// How many rows the REST list `url` names holds: read one row per page,
+    /// GitHub's `Link` names the last page, which is the row count. A list
+    /// with no next page holds the rows that read returned; one that links a
+    /// next page but no last page has no stated size (`None`). One request.
+    pub(crate) async fn list_size(
+        &self,
+        url: &reqwest::Url,
+        context: &RequestContext,
+        what: &str,
+    ) -> Result<Option<usize>, ProviderError> {
+        let kept: Vec<(String, String)> = url
+            .query_pairs()
+            .filter(|(key, _)| key != "page" && key != "per_page")
+            .map(|(key, value)| (key.into_owned(), value.into_owned()))
+            .collect();
+        let mut probe = url.clone();
+        probe
+            .query_pairs_mut()
+            .clear()
+            .extend_pairs(kept)
+            .append_pair("page", "1")
+            .append_pair("per_page", "1");
+        let (items, links): (Vec<Value>, _) = self
+            .read_json_linked(RequestSpec::get(probe), context, what)
+            .await?;
+        Ok(match (links.last_page, links.has_more) {
+            (Some(last), _) => Some(last),
+            (None, false) => Some(items.len()),
+            (None, true) => None,
+        })
     }
     /// The commit list `r` asks for, as one request.
     pub(crate) fn commit_list_spec(
@@ -96,6 +154,7 @@ impl GitHubTransport {
             warnings: Vec::new(),
             listed: true,
             has_more,
+            list_total: None,
         })
     }
     /// Confirms that `login` is a GitHub account the token can see
@@ -163,16 +222,20 @@ impl GitHubTransport {
             }
         }
         let (items, has_more): (Vec<Value>, bool) = self
-            .read_json(RequestSpec::get(url), context, "pull request list")
+            .read_json(RequestSpec::get(url.clone()), context, "pull request list")
             .await?;
-        Ok(HistoryPage {
+        let page = HistoryPage {
             total_count: 0,
             incomplete_results: false,
             items,
             warnings: Vec::new(),
             listed: true,
             has_more,
-        })
+            list_total: None,
+        };
+        Ok(self
+            .with_list_total(page, request.page, &url, context, "pull request list")
+            .await)
     }
     pub async fn search_issues(
         &self,
@@ -242,6 +305,7 @@ impl GitHubTransport {
             warnings: crate::sso_partial_warning(&withheld).into_iter().collect(),
             listed: false,
             has_more: false,
+            list_total: None,
         })
     }
 }

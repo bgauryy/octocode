@@ -659,3 +659,23 @@ fn a_markdown_hit_names_its_innermost_section_alone() {
         "only the sections the rows name: {out}"
     );
 }
+
+/// The files view states how many files hold a hit, though its rows list
+/// them: rows group by directory, so the count a claim cites is
+/// `matchedFiles`, never a tally of the rows.
+#[test]
+fn the_files_view_states_how_many_files_hold_a_hit() {
+    let dir = tempfile::tempdir().expect("fixture");
+    let root = dir.path().canonicalize().expect("real root");
+    fs::create_dir_all(root.join("sub")).expect("fixture");
+    for file in ["a.txt", "b.txt", "sub/c.txt"] {
+        fs::write(root.join(file), "needle\n").expect("fixture");
+    }
+    fs::write(root.join("miss.txt"), "nothing\n").expect("fixture");
+    let row = &served(
+        &root,
+        json!({"path": root, "matchString": ["needle"], "view": "files"}),
+    )["results"][0]["data"];
+    assert_eq!(row["matchedFiles"], 3, "{row}");
+    assert_eq!(row["filesScanned"], 4, "{row}");
+}

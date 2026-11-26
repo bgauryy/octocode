@@ -27,11 +27,8 @@ function readerType(field: FlatField): string {
 }
 
 const code = (text: string): string => `\`${text}\``;
-/** A setting's variable, then the earlier names that still set it. */
-const variable = (env: NonNullable<FlatField['env']>): string =>
-  env.aliases?.length
-    ? `${code(env.name)} (also ${env.aliases.map(code).join(', ')})`
-    : code(env.name);
+/** A setting's variable. */
+const variable = (env: NonNullable<FlatField['env']>): string => code(env.name);
 const yesNo = (value: unknown): string => (value ? 'yes' : 'no');
 const cell = (text: string): string => text.replace(/\|/g, '\\|');
 const withLink = (text: string, url?: string): string =>

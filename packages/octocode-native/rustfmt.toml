@@ -1,5 +1,5 @@
 # rustfmt configuration for octocode-native (stable options only).
-# Run: yarn fmt:rust   Check: yarn fmt:rust:check
+# Check: yarn fmt:rust:check. Format only the files you changed: rustfmt --edition 2024 <file>.
 # `edition` keeps a standalone rustfmt (an editor) on the crates' edition.
 edition = "2024"
 use_field_init_shorthand = true   # Foo { x } instead of Foo { x: x }

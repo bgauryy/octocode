@@ -26,7 +26,7 @@ describe('devOverridesAllowed', () => {
 describe('configFieldEnvName', () => {
   it('names the one variable a field binds', () => {
     expect(configFieldEnvName('classification.api')).toBe(
-      'OCTOCODE_CLASSIFICATION_API'
+      'OCTOCODE_TYPESAFE_KEY'
     );
     expect(configFieldEnvName('local.beta')).toBe('OCTOCODE_BETA');
   });

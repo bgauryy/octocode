@@ -122,10 +122,11 @@ pub(super) fn attach_file_page(
         scope: scope.as_ref(),
     }
     .page(all_files, WindowState::COMPLETE, query, include_diff);
-    // The whole comparison's count, when the listed files are not all of
-    // it (a scope or a later page). At GitHub's cap the count is only a
-    // floor: the file page's `countScope` says so and no count is claimed.
-    if !include_diff && !file_limit && files.files.len() < all_count {
+    // The whole comparison's count, also when the page lists every file:
+    // its rows group by directory, so the count a claim cites is the field.
+    // At GitHub's cap the count is only a floor: the file page's
+    // `countScope` says so and no count is claimed.
+    if !include_diff && !file_limit {
         out["changedFileCount"] = json!(all_count);
     }
     // The page's own count fact: at the cap its total is a floor.

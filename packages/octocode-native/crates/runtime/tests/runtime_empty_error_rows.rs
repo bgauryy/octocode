@@ -108,8 +108,8 @@ async fn every_tool_empty_and_error_row_meets_the_row_contract() {
             ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
             ("OCTOCODE_ALLOW_PRIVATE_REGISTRY", "true".into()),
             ("OCTOCODE_BETA", "true".into()),
-            ("OCTOCODE_CLASSIFICATION_API", "b2-secret".into()),
-            ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+            ("OCTOCODE_TYPESAFE_KEY", "b2-secret".into()),
+            ("OCTOCODE_TYPESAFE_HOST", server.uri()),
         ],
         PROVIDER_LIMITS,
     );

@@ -93,6 +93,29 @@ pub(super) struct Plan {
     pub bounded: bool,
     pub units: usize,
     pub tokens: u64,
+    /// The provider's request window `tokens` was priced in, when they are a
+    /// price (`None`: an unpriced plan): what one named request may cost.
+    pub window: Option<u64>,
+}
+
+impl Plan {
+    /// Whether the first round costs no more input tokens than the `named`
+    /// requests an unset row may send could: one window each. Only a bounded,
+    /// priced plan states a cost to compare.
+    fn within_named_spend(&self, named: u64) -> bool {
+        self.bounded
+            && self
+                .window
+                .is_some_and(|window| self.tokens <= named.saturating_mul(window))
+    }
+
+    /// The window each first-round request was priced at whole: no request
+    /// of the model was taken here yet, so nothing bounds the provider's own
+    /// prompt below it ([`octocode_tools_shared::judgment::Evaluator::tokens_at_most`]).
+    fn whole_windows(&self) -> Option<u64> {
+        self.window
+            .filter(|&window| self.first > 0 && self.tokens >= self.first.saturating_mul(window))
+    }
 }
 
 /// How a planned row runs: under its cap (`None`: an unbounded plan, which
@@ -107,10 +130,12 @@ pub(super) struct Admitted {
 /// the `retries` it shares take only what the first round leaves, and what
 /// the cap leaves unanswered is offered again at its price. Without it, the
 /// row runs when its first round sends no more requests than the `named`
-/// sources, resources and items it names, held to its own ceiling: requests
-/// its own expansion adds (a tool's rows, a glob's matches, each hit alone)
-/// are a price nobody accepted. Either way a plan past its bound sends
-/// nothing and states its price, with its whole ceiling for `next.confirm`.
+/// sources, resources and items it names, or costs no more input tokens than
+/// those could ([`Plan::within_named_spend`]), held to its own ceiling:
+/// requests its own expansion adds (a tool's rows, a glob's matches, each hit
+/// alone) past that spend are a price nobody accepted. Either way a plan past
+/// its bound sends nothing and states its price, with its whole ceiling for
+/// `next.confirm`.
 pub(super) fn admit(
     max_requests: Option<u64>,
     plan: Plan,
@@ -130,12 +155,16 @@ pub(super) fn admit(
             limit,
             room: retries,
             spent: 0,
+            whole_windows: plan.whole_windows(),
+            learned: 0,
         })
     };
     match max_requests {
         Some(max) if plan.first > max => Err(over(super::reply::Limit::Max(max))),
         Some(max) => Ok(within(max, plan, retries)),
-        None if plan.first > named => Err(over(super::reply::Limit::Named(named))),
+        None if plan.first > named && !plan.within_named_spend(named) => {
+            Err(over(super::reply::Limit::Named(named)))
+        }
         None => Ok(own_ceiling(plan, retries)),
     }
 }

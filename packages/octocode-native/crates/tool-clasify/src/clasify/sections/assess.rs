@@ -348,6 +348,7 @@ pub(super) fn plan_of(
         bounded: true,
         units: units.len(),
         tokens: 0,
+        window: None,
     }
 }
 

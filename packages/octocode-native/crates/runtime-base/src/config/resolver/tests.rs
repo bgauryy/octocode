@@ -20,7 +20,7 @@ fn blank_classification_key_in_env_is_an_opt_out_not_a_missing_value() {
         os_home: "/synthetic".into(),
         global_env: FileInput::Read {
             path: home.join(".env"),
-            text: "OCTOCODE_CLASSIFICATION_API=from-home-env".into(),
+            text: "OCTOCODE_TYPESAFE_KEY=from-home-env".into(),
         },
         project_env: FileInput::Missing {
             path: "/synthetic/cwd/.octocode/.env".into(),
@@ -35,13 +35,13 @@ fn blank_classification_key_in_env_is_an_opt_out_not_a_missing_value() {
         runtime_surface: RuntimeSurface::Mcp,
     };
     assert_eq!(
-        resolve_config(&input(BTreeMap::new())).env_value("OCTOCODE_CLASSIFICATION_API"),
+        resolve_config(&input(BTreeMap::new())).env_value("OCTOCODE_TYPESAFE_KEY"),
         Some("from-home-env")
     );
     for blank in ["", "  "] {
-        let out = resolve_config(&input(env(&[("OCTOCODE_CLASSIFICATION_API", blank)])));
+        let out = resolve_config(&input(env(&[("OCTOCODE_TYPESAFE_KEY", blank)])));
         assert_eq!(
-            out.env_value("OCTOCODE_CLASSIFICATION_API").map(str::trim),
+            out.env_value("OCTOCODE_TYPESAFE_KEY").map(str::trim),
             Some(""),
             "blank {blank:?} must not be refilled from .env or .octocoderc"
         );

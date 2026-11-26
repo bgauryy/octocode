@@ -225,11 +225,11 @@ async fn clasify_is_offered_only_with_a_key_and_the_tool() {
     let home = tempfile::tempdir().expect("home");
     for (env, expected) in [
         (vec![], false),
-        (vec![("OCTOCODE_CLASSIFICATION_API", "fixture-key")], true),
-        (vec![("OCTOCODE_CLASSIFICATION_API", "   ")], false),
+        (vec![("OCTOCODE_TYPESAFE_KEY", "fixture-key")], true),
+        (vec![("OCTOCODE_TYPESAFE_KEY", "   ")], false),
         (
             vec![
-                ("OCTOCODE_CLASSIFICATION_API", "fixture-key"),
+                ("OCTOCODE_TYPESAFE_KEY", "fixture-key"),
                 ("TOOLS_TO_RUN", "ghSearchCode"),
             ],
             false,

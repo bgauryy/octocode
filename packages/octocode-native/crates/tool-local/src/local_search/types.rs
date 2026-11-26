@@ -227,9 +227,9 @@ pub struct SearchStats {
     /// absent when none: hits inside them are not matched or counted.
     #[serde(rename = "maskedSpans", skip_serializing_if = "Option::is_none")]
     pub masked_spans: Option<u32>,
-    /// Files holding a hit over the whole scan, in the views that show hits or
-    /// their counts; absent when the scan missed content (a cap, an
-    /// unreadable file), since its file count is then not final.
+    /// Files holding a hit over the whole scan, in the views that show hits,
+    /// list their files or count them; absent when the scan missed content
+    /// (a cap, an unreadable file), since its file count is then not final.
     #[serde(rename = "matchedFiles", skip_serializing_if = "Option::is_none")]
     pub matched_files: Option<u32>,
     #[serde(skip)]

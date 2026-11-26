@@ -1305,7 +1305,8 @@ fn unknown_field_message(
             );
         }
         return format!(
-            "'{field}' is not allowed in this form of {query}; it requires {requires}."
+            "'{field}' is not allowed in this form of {query}; it requires {requires}.{}",
+            other_form_hint(field)
         );
     }
     let row_fields = if issue.path.len() == 3 {
@@ -1600,6 +1601,19 @@ fn owning_row_fields<'a>(tool_name: &str, row_fields: &'a [String], field: &str)
 }
 
 /// The row field `owner`'s object as a misplaced `field`'s hint shows it:
+/// What to send instead of a field whose form is the wrong one, when the
+/// call most likely meant a neighbouring form: `symbolFuzzy` searches the
+/// workspace by name, and a symbol of one known file is `symbolName` with
+/// `path`. Empty for any other field.
+fn other_form_hint(field: &str) -> &'static str {
+    match field {
+        "symbolFuzzy" => {
+            " To anchor a symbol of one file, send symbolName and path (and line) instead."
+        }
+        _ => "",
+    }
+}
+
 /// `field` with every member the object requires whatever its form, in
 /// declared order (`{"by":…,"order":…}` for a sort that requires `by`), so
 /// the form the hint names is one the tool accepts.

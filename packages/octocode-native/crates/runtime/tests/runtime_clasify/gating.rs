@@ -25,7 +25,7 @@ async fn retired_jev_vendor_key_does_not_enable_clasify() {
         "{response}"
     );
     assert!(
-        response.to_string().contains("OCTOCODE_CLASSIFICATION_API"),
+        response.to_string().contains("OCTOCODE_TYPESAFE_KEY"),
         "{response}"
     );
     runtime.close().await;
@@ -37,18 +37,18 @@ async fn public_clasify_requires_a_nonblank_key_regardless_of_beta() {
     for (env, missing) in [
         (
             vec![("OCTOCODE_BETA", "false".into())],
-            "OCTOCODE_CLASSIFICATION_API",
+            "OCTOCODE_TYPESAFE_KEY",
         ),
         (
             vec![("OCTOCODE_BETA", "true".into())],
-            "OCTOCODE_CLASSIFICATION_API",
+            "OCTOCODE_TYPESAFE_KEY",
         ),
         (
             vec![
                 ("OCTOCODE_BETA", "true".into()),
-                ("OCTOCODE_CLASSIFICATION_API", "  ".into()),
+                ("OCTOCODE_TYPESAFE_KEY", "  ".into()),
             ],
-            "OCTOCODE_CLASSIFICATION_API",
+            "OCTOCODE_TYPESAFE_KEY",
         ),
     ] {
         let runtime = workspace.runtime(&env);

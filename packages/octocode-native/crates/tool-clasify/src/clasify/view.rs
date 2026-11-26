@@ -127,9 +127,24 @@ fn answer(answer: &mut Value, sectioned: bool) {
         {
             fields.shift_remove("lines");
         }
+        // A choice keeps its chosen label's probability, what acting on it
+        // is weighed by; the other labels' stay in details.
+        let chosen = fields
+            .get("choice")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         for field in ANSWER_DETAIL {
-            if split && field == "probabilities" {
-                continue;
+            if field == "probabilities" {
+                if split {
+                    continue;
+                }
+                if let (Some(label), Some(Value::Object(shares))) =
+                    (chosen.as_deref(), fields.get_mut(field))
+                    && shares.contains_key(label)
+                {
+                    shares.retain(|key, _| key == label);
+                    continue;
+                }
             }
             fields.shift_remove(field);
         }

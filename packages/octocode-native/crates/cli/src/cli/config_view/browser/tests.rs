@@ -44,7 +44,7 @@ fn the_browser_never_inherits_a_credential() {
     for name in [
         "GH_TOKEN",
         "GITHUB_TOKEN",
-        "OCTOCODE_CLASSIFICATION_API",
+        "OCTOCODE_TYPESAFE_KEY",
         "OCTOCODE_HOME",
         "NODE_OPTIONS",
     ] {

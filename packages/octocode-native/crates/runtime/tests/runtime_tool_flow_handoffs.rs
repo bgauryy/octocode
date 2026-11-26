@@ -28,8 +28,8 @@ async fn wide_searches_and_unfinished_reads_offer_no_clasify_handoff() {
     }
     let runtime = workspace.runtime(&[
         ("OCTOCODE_BETA", "true".into()),
-        ("OCTOCODE_CLASSIFICATION_API", "fixture-key".into()),
-        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("OCTOCODE_TYPESAFE_KEY", "fixture-key".into()),
+        ("OCTOCODE_TYPESAFE_HOST", server.uri()),
     ]);
     for (tool, row) in [
         (

@@ -332,9 +332,11 @@ pub(crate) fn search_stats(
     };
     let files_matched = scanned.files_matched.unwrap_or(total_files);
     let whole_scan = !scanned.capped.unwrap_or(false) && scanned.error_count.unwrap_or(0) == 0;
+    // The files view lists the files with a hit: it states their count too,
+    // since its rows group by directory and a claim cites the count.
     let shows_hits = matches!(
         view,
-        View::Content | View::MatchOnly | View::CountLines | View::CountMatches
+        View::Content | View::Files | View::MatchOnly | View::CountLines | View::CountMatches
     );
     SearchStats {
         total_occurrences: counted(scanned.match_count),

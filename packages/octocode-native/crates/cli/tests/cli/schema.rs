@@ -43,7 +43,7 @@ fn schema_lists_clasify_only_with_a_key() {
         let mut command = workspace.cli();
         command.env("OCTOCODE_STORAGE_MODE", "persistent");
         if let Some(key) = key {
-            command.env("OCTOCODE_CLASSIFICATION_API", key);
+            command.env("OCTOCODE_TYPESAFE_KEY", key);
         }
         let output = command.args(args).output().expect("schema");
         assert!(output.status.success(), "{args:?}: {}", stdout(&output));
@@ -152,7 +152,7 @@ fn schema_views_and_help_examples_are_usable_without_node() {
     let clasify = query(&["schema", "clasify"]);
     assert_eq!(clasify["availability"]["enabled"], false, "{clasify}");
     assert_eq!(
-        clasify["availability"]["envVar"], "OCTOCODE_CLASSIFICATION_API",
+        clasify["availability"]["envVar"], "OCTOCODE_TYPESAFE_KEY",
         "{clasify}"
     );
     for args in [

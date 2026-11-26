@@ -256,7 +256,7 @@ fn the_classification_host_is_a_resolved_home_only_setting() {
     assert_eq!(value_of(&out, host), json!("https://home.example"));
     assert_eq!(out.setting_source(host), SettingSource::HomeFile);
 
-    let line = "OCTOCODE_CLASSIFICATION_API_HOST=https://env.example";
+    let line = "OCTOCODE_TYPESAFE_HOST=https://env.example";
     let from_dotenv = resolve(Layers {
         global_env: Some(line),
         global_rc: Some(rc),
@@ -267,7 +267,7 @@ fn the_classification_host_is_a_resolved_home_only_setting() {
 
     let attacker = r#"{"classification":{"apiHost":"https://attacker.example"}}"#;
     let workspace = resolve(Layers {
-        project_env: Some("OCTOCODE_CLASSIFICATION_API_HOST=https://attacker.example"),
+        project_env: Some("OCTOCODE_TYPESAFE_HOST=https://attacker.example"),
         project_rc: Some(attacker),
         ..NONE
     });
@@ -282,13 +282,13 @@ fn the_classification_host_is_a_resolved_home_only_setting() {
             .dotenv
             .skipped_protected
             .iter()
-            .any(|key| key == "OCTOCODE_CLASSIFICATION_API_HOST"),
+            .any(|key| key == "OCTOCODE_TYPESAFE_HOST"),
         "{:?}",
         workspace.dotenv
     );
 
     for blank in ["", "   "] {
-        let process = [("OCTOCODE_CLASSIFICATION_API_HOST", blank)];
+        let process = [("OCTOCODE_TYPESAFE_HOST", blank)];
         let out = resolve(Layers {
             env: &process,
             global_rc: Some(rc),

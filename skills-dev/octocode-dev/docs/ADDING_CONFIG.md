@@ -4,7 +4,7 @@ Load when adding, renaming or retiring a setting.
 
 How to add a setting or credential without TypeScript/Rust drift. User-facing settings: `<repo>/docs/CONFIGURATION.md`; credential flows: `<repo>/docs/AUTHENTICATION.md`. Paths below are under `packages/octocode-config/` unless they start with `crates/` (`packages/octocode-native/crates/`).
 
-- Source precedence, environment bindings, aliases and dotenv policy: [CONFIG_ENVIRONMENT.md](CONFIG_ENVIRONMENT.md)
+- Source precedence, environment bindings and dotenv policy: [CONFIG_ENVIRONMENT.md](CONFIG_ENVIRONMENT.md)
 - Credentials, tokens, and keys a skill or script reads: [CONFIG_CREDENTIALS.md](CONFIG_CREDENTIALS.md)
 
 ## Architecture
@@ -28,13 +28,12 @@ One edit in `declaration/sections.ts`, then `yarn workspace @octocodeai/config g
 
 - Field types: `boolean`, `string`, `url` (HTTP(S)), `path` (absolute or home) take `default`; `stringArray` takes `default` and optional `itemFormat: "path"`; `enum` takes `values` (the first is the default) and optional `typeName`. A `null` input means unset; a `null` default makes an optional string or nullable array.
 - A section: `"cache": { "title": "Cache", "fields": { } }` in `sections.ts`. Every section belongs to `.octocoderc` and `ResolvedConfig`, credential fields apart. Nested sections use dotted names (`parent.child`); declare the parents too.
-- Native code reads `config.resolved.<section>.<field>` (for example `config.resolved.tools.enable_clone`) and `config.env_value("OCTOCODE_CLASSIFICATION_API")`.
+- Native code reads `config.resolved.<section>.<field>` (for example `config.resolved.tools.enable_clone`) and `config.env_value("OCTOCODE_TYPESAFE_KEY")`.
 
 ## Checks
 
 ```bash
 yarn workspace @octocodeai/config generate:config-contract
-yarn workspace @octocodeai/config check:config-contract
 yarn workspace @octocodeai/config test
 node skills-dev/octocode-dev/scripts/dev.mjs test:dev --crate runtime-base -- config::
 ```

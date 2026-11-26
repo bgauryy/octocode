@@ -33,6 +33,8 @@ pub(super) use shaping::{
 use snapshots::salted_snapshot;
 #[cfg(test)]
 pub(super) use snapshots::semantic_snapshot;
+#[cfg(test)]
+mod outline_tests;
 pub(super) use snapshots::{
     items_payload, salted_items_payload, snapshot_changed, snapshot_mismatch,
 };

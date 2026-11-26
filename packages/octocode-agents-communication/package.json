@@ -17,8 +17,7 @@
   "scripts": {
     "build": "node src/build.ts",
     "clean": "rm -rf dist/ out/",
-    "catalog": "node src/emit-catalog.ts",
-    "types": "yarn catalog && node src/emit-types.ts",
+    "types": "node src/emit-catalog.ts && node src/emit-types.ts",
     "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
     "lint:own": "node src/emit-catalog.ts --check && node src/emit-types.ts --check",
     "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",

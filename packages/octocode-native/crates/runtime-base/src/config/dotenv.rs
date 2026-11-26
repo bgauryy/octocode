@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// The classification credential's variable: present-but-blank in the
 /// process env, it disables clasify and every classification feature, and no
-/// home `.env`, config-file, or vendor-key fallback may refill it.
+/// home `.env` or config-file fallback may refill it.
 pub(super) fn is_classification_kill_switch(key: &str) -> bool {
     super::field::CLASSIFICATION_API.env_name() == Some(key)
 }
@@ -149,11 +149,11 @@ fn is_protected_key(key: &str) -> bool {
                 .any(|protected| protected.eq_ignore_ascii_case(key)))
 }
 
-/// One `.env` file's nonblank entries, under current variable names.
+/// One `.env` file's nonblank entries.
 fn file_env(text: Option<&str>) -> BTreeMap<String, String> {
     let mut env = parse_env(text);
     env.retain(|_, value| !value.trim().is_empty());
-    super::canonicalize_env(env)
+    env
 }
 
 pub(crate) fn merged_env(global: Option<&str>, project: Option<&str>) -> MergedEnv {

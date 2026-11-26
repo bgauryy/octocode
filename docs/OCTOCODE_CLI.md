@@ -65,7 +65,7 @@ The default scope is `home`. Use `--scope workspace` for a project config, or `-
 |---|---|
 | Sign in, then check the active account | `octocode auth login`, then `octocode auth status --json` |
 | See every setting, its value and its source | `octocode config list` |
-| Read one value, or check whether a key is set | `octocode config get lsp.prewarm` or `octocode config check OCTOCODE_CLASSIFICATION_API` |
+| Read one value, or check whether a key is set | `octocode config get lsp.prewarm` or `octocode config check OCTOCODE_TYPESAFE_KEY` |
 | Open the settings page, or print its local URL | `octocode config view`, or `octocode config view --no-open` |
 | Find the Octocode home | `octocode config home` |
 

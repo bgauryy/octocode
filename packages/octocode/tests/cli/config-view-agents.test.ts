@@ -10,7 +10,7 @@ describe('config view keys', () => {
       settings: [],
       keys: [
         {
-          key: 'OCTOCODE_CLASSIFICATION_API',
+          key: 'OCTOCODE_TYPESAFE_KEY',
           setting: 'classification.api',
           scope: 'home',
           source: 'home',
@@ -32,7 +32,7 @@ describe('config view keys', () => {
       .controls()
       .filter(element => element.type === 'password');
     assert.ok(passwords.every(element => element.value === ''));
-    await view.type('OCTOCODE_CLASSIFICATION_API value', 'new_value');
+    await view.type('OCTOCODE_TYPESAFE_KEY value', 'new_value');
     await view.click('Replace');
     assert.deepEqual(
       view.requests.find(request => request.operation === 'setSetting'),

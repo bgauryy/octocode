@@ -182,10 +182,11 @@ async fn commit_row_carries_its_sha_and_path_stat_files() {
         json_fixture(r#"["M +1 -1 src/a.rs"]"#),
         "{out}"
     );
-    // A caller's SHA is not restated as its ref; a page listing every file
-    // restates no count.
+    // A caller's SHA is not restated as its ref. A page listing every file
+    // still states the count: rows group by directory, so a claim cites
+    // `changedFileCount`, never a tally of the rows.
     assert!(out.get("ref").is_none(), "{out}");
-    assert!(out.get("changedFileCount").is_none(), "{out}");
+    assert_eq!(out["changedFileCount"], 1, "{out}");
     // Patches: each line numbered on its own side.
     let summary = read(&server, row).await;
     let patched = &summary["next"]["patches"]["input"]["queries"][0];

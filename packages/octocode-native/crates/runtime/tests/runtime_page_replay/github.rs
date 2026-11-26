@@ -161,8 +161,8 @@ async fn saved_github_pages_check_current_home_credentials_before_any_provider_r
             ("GITHUB_TOKEN", "".into()),
             ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
             ("OCTOCODE_BETA", "true".into()),
-            ("OCTOCODE_CLASSIFICATION_API", "fixture".into()),
-            ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+            ("OCTOCODE_TYPESAFE_KEY", "fixture".into()),
+            ("OCTOCODE_TYPESAFE_HOST", server.uri()),
         ];
         let runtime = workspace.runtime(&env);
         let source = json!({"owner":"a","repo":"b","path":"src/lib.rs","ref":SHA});

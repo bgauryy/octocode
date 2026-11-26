@@ -17,7 +17,7 @@ fn cli_catalog_ignores_mcp_settings_and_follows_only_the_classification_key() {
         ],
         vec![
             ("OCTOCODE_STORAGE_MODE", "persistent"),
-            ("OCTOCODE_CLASSIFICATION_API", "  "),
+            ("OCTOCODE_TYPESAFE_KEY", "  "),
             ("OCTOCODE_ENABLE_CLONE", "false"),
         ],
     ] {
@@ -31,11 +31,11 @@ fn cli_catalog_ignores_mcp_settings_and_follows_only_the_classification_key() {
         }
         let clasify = tools.get("clasify").expect("known");
         assert_eq!(clasify.reason_code(), Some("missingConfiguration"));
-        assert_eq!(clasify.env_vars(), ["OCTOCODE_CLASSIFICATION_API"]);
+        assert_eq!(clasify.env_vars(), ["OCTOCODE_TYPESAFE_KEY"]);
     }
     let keyed = availability(
         &[
-            ("OCTOCODE_CLASSIFICATION_API", "k"),
+            ("OCTOCODE_TYPESAFE_KEY", "k"),
             ("DISABLE_TOOLS", "clasify"),
         ],
         RuntimeSurface::Cli,
@@ -50,7 +50,7 @@ fn cli_catalog_ignores_mcp_settings_and_follows_only_the_classification_key() {
 fn clasify_needs_the_same_key_on_every_surface() {
     for (key, expected) in [(None, false), (Some("  "), false), (Some("k"), true)] {
         let env: Vec<_> = key
-            .map(|key| ("OCTOCODE_CLASSIFICATION_API", key))
+            .map(|key| ("OCTOCODE_TYPESAFE_KEY", key))
             .into_iter()
             .collect();
         for surface in [RuntimeSurface::Cli, RuntimeSurface::Mcp] {
@@ -73,7 +73,7 @@ fn mcp_clone_opt_in_is_independent_of_beta_and_key_with_persistent_storage() {
                     ("OCTOCODE_ENABLE_CLONE", enabled),
                     ("OCTOCODE_BETA", beta),
                     ("OCTOCODE_STORAGE_MODE", "persistent"),
-                    ("OCTOCODE_CLASSIFICATION_API", "fixture-key"),
+                    ("OCTOCODE_TYPESAFE_KEY", "fixture-key"),
                 ],
                 RuntimeSurface::Mcp,
             );
@@ -144,7 +144,7 @@ fn each_tool_has_one_reason_with_its_variables() {
     );
     assert_eq!(listed.env_vars(), ["DISABLE_TOOLS"]);
     let clasify = cli.get("clasify").expect("known");
-    assert_eq!(clasify.env_vars(), ["OCTOCODE_CLASSIFICATION_API"]);
+    assert_eq!(clasify.env_vars(), ["OCTOCODE_TYPESAFE_KEY"]);
     assert!(cli.get("noSuchTool").is_none());
     assert!(!cli.is_available("noSuchTool"));
 }
@@ -207,7 +207,7 @@ fn a_blank_classification_key_opts_out() {
     let blank = availability(
         &[
             ("OCTOCODE_BETA", "true"),
-            ("OCTOCODE_CLASSIFICATION_API", "  "),
+            ("OCTOCODE_TYPESAFE_KEY", "  "),
         ],
         RuntimeSurface::Mcp,
     );
@@ -215,7 +215,7 @@ fn a_blank_classification_key_opts_out() {
     let set = availability(
         &[
             ("OCTOCODE_BETA", "false"),
-            ("OCTOCODE_CLASSIFICATION_API", "k"),
+            ("OCTOCODE_TYPESAFE_KEY", "k"),
         ],
         RuntimeSurface::Mcp,
     );
@@ -317,7 +317,7 @@ fn one_setting_turns_each_section_on() {
     for (section, env) in [
         (ToolSection::Local, ("OCTOCODE_ENABLE_LOCAL", "true")),
         (ToolSection::Security, ("OCTOCODE_ENABLE_SECURITY", "true")),
-        (ToolSection::Clasify, ("OCTOCODE_CLASSIFICATION_API", "k")),
+        (ToolSection::Clasify, ("OCTOCODE_TYPESAFE_KEY", "k")),
     ] {
         let off = availability(&[], RuntimeSurface::Mcp);
         let on = availability(&[env], RuntimeSurface::Mcp);

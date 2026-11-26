@@ -165,7 +165,7 @@ fn an_evaluation_keeps_each_answers_value_and_what_it_billed() {
             r#"{
                 "answers": {
                     "restart": {"noul": 0.96},
-                    "kind": {"choice": "ops"},
+                    "kind": {"choice": "ops", "probabilities": {"ops": 0.93}},
                     "risk": {"score": 1.5}
                 }
             }"#
@@ -215,7 +215,9 @@ fn a_sectioned_evaluation_keeps_lines_coverage_and_its_request_count() {
     agreed["answers"]["kind"]["probabilities"] = json_fixture(r#"{"a": 1.0, "b": 0.0}"#);
     assert_eq!(
         summary_of(&agreed)["answers"]["kind"],
-        json_fixture(r#"{"choice": "a", "lines": {"startLine": 21, "endLine": 30}}"#)
+        json_fixture(
+            r#"{"choice": "a", "probabilities": {"a": 1.0}, "lines": {"startLine": 21, "endLine": 30}}"#
+        )
     );
     assert_eq!(summary["coverage"], details["coverage"]);
     assert_eq!(summary["usage"]["calls"], 5);
@@ -319,18 +321,19 @@ fn a_section_is_its_lines_and_answers() {
                 "target": {"lines": {"startLine": 1876, "endLine": 2027}},
                 "answers": {
                     "p": {"noul": 0.96},
-                    "kind": {"choice": "ops"},
+                    "kind": {"choice": "ops", "probabilities": {"ops": 0.9}},
                     "late": {"status": "unassessed", "reason": "deadline"}
                 }
             }"#
         )
     );
-    // The owner's bound: a summary section is at most 40% of the details one.
+    // The owner's bound: a summary section is at most 45% of the details one
+    // (40% before a summary choice kept its chosen label's probability).
     let (short, long) = (
         section.to_string().len(),
         details["resources"]["mid"]["sections"][0].to_string().len(),
     );
-    assert!(short * 100 <= long * 40, "{short} of {long}");
+    assert!(short * 100 <= long * 45, "{short} of {long}");
     assert_eq!(summary["usage"], billed(&details["usage"]));
     assert_eq!(
         summary["resources"]["mid"]["coverage"],
@@ -576,8 +579,8 @@ fn a_files_rows_summary_leaves_quiet_hits_out_by_path_and_line() {
         summary["files"],
         json_fixture(
             r#"{"a.rs": {
-                "9": {"q": {"noul": 0.9}, "kind": {"choice": "a"}},
-                "3": {"q": {"noul": 0.2}, "kind": {"choice": "b"}}
+                "9": {"q": {"noul": 0.9}, "kind": {"choice": "a", "probabilities": {"a": 0.8}}},
+                "3": {"q": {"noul": 0.2}, "kind": {"choice": "b", "probabilities": {"b": 0.6}}}
             }}"#
         )
     );
@@ -622,4 +625,26 @@ fn a_sectioned_evaluation_keeps_its_loud_parts_with_their_lines() {
         json!({"lines": {"startLine": 11, "endLine": 20}})
     );
     assert_eq!(parts[0]["answers"]["q"]["noul"], 0.9, "{summary}");
+}
+
+/// A summary choice keeps the chosen label's probability, what an agent
+/// weighs acting on it by; the other labels' stay in details.
+#[test]
+fn a_summary_choice_keeps_its_labels_probability() {
+    let details = json_fixture(
+        r#"{
+            "answers": {
+                "edit": {
+                    "choice": "rename",
+                    "confidence": 0.4,
+                    "probabilities": {"rename": 0.55, "history": 0.4, "example": 0.05}
+                }
+            },
+            "usage": {"calls": 1, "inputTokens": 90, "outputTokens": 9}
+        }"#,
+    );
+    assert_eq!(
+        summary_of(&details)["answers"]["edit"],
+        json!({"choice": "rename", "probabilities": {"rename": 0.55}})
+    );
 }

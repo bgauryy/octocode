@@ -266,7 +266,7 @@ pub fn record_text_only(
         octocode_runtime_base::response::paging::push_notice(
             row,
             format!(
-                "{counted}: files outside the reach of `{name}` ({}); they cannot reference it.",
+                "{counted}: files outside the reach of `{name}` ({}) cannot reference it, so coverage stays complete without them.",
                 out.bound
             ),
         );

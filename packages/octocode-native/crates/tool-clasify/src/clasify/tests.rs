@@ -517,6 +517,8 @@ fn an_over_budget_row_states_its_price_and_offers_the_confirm_call() {
         limit: reply::Limit::Max(2),
         room: 3,
         spent: 0,
+        whole_windows: None,
+        learned: 0,
     };
     let out = reply::over_budget(&rows[0], &over, true);
     assert_eq!(out["errorCode"], "classificationOverBudget", "{out:#}");
@@ -586,6 +588,7 @@ fn a_row_is_admitted_by_its_first_round_within_its_cap_or_what_it_names() {
                 bounded: true,
                 units: 1,
                 tokens: 0,
+                window: None,
             };
             let full = octocode_tools_shared::judgment::RequestCap::ceiling(at_most, retries);
             for max in 1..=12_u64 {
@@ -648,6 +651,8 @@ fn every_bound_refusal_is_a_row_the_output_contract_takes() {
         limit,
         room: 3,
         spent,
+        whole_windows: None,
+        learned: 0,
     };
     for (row, over) in [
         (&search, over(reply::Limit::Max(2), 0)),
@@ -685,4 +690,77 @@ fn every_bound_refusal_is_a_row_the_output_contract_takes() {
         "{out:#}"
     );
     assert_row_contract(ToolId::Clasify, &out);
+}
+
+/// Without `maxRequests` a row may spend what the requests it names could:
+/// one provider window of input tokens each. A first round of more requests
+/// runs when its priced tokens fit that; before this process took a request
+/// of the model, each request is priced at its whole window, so the count it
+/// names decides as before. An unpriced plan and a `maxRequests` cap keep
+/// counting requests.
+#[test]
+fn an_unset_row_may_spend_what_its_named_requests_could() {
+    let window = 64_000;
+    let plan = |first: u64, tokens, window| super::admission::Plan {
+        first,
+        at_most: first,
+        bounded: true,
+        units: usize::try_from(first).unwrap_or(usize::MAX),
+        tokens,
+        window,
+    };
+    let admitted = |max, plan, named| super::admission::admit(max, plan, named, 3).is_ok();
+    // Thirteen small requests one named source could pay for.
+    assert!(admitted(None, plan(13, 14_139, Some(window)), 1));
+    assert!(admitted(None, plan(13, 2 * window, Some(window)), 2));
+    // Each priced at its whole window: the named count decides.
+    assert!(!admitted(None, plan(13, 13 * window, Some(window)), 1));
+    assert!(admitted(None, plan(1, window, Some(window)), 1));
+    // Past what the named requests could spend.
+    assert!(!admitted(None, plan(13, window + 1, Some(window)), 1));
+    // Unpriced, or an unbounded plan: requests are counted.
+    assert!(!admitted(None, plan(13, 0, None), 1));
+    let mut unbounded = plan(13, 14_139, Some(window));
+    unbounded.bounded = false;
+    assert!(!admitted(None, unbounded, 1));
+    // maxRequests caps requests whatever they cost.
+    assert!(!admitted(Some(2), plan(13, 14_139, Some(window)), 1));
+}
+
+/// A refusal priced at whole windows says so: no request of the model was
+/// taken here yet, which is why its token bound is that high.
+#[test]
+fn a_refusal_priced_at_whole_windows_says_why() {
+    let rows = super::rows::parse_rows(&[json!({
+        "operation": "evaluate",
+        "source": {"tool": "localSearch", "query": {"path": ".", "matchString": ["x"]}},
+        "questions": {"q": {"type": "noul", "instructions": "Is it?"}}
+    })]);
+    let window = 64_000;
+    let refused = |tokens| {
+        let over = super::admission::admit(
+            None,
+            super::admission::Plan {
+                first: 13,
+                at_most: 13,
+                bounded: true,
+                units: 22,
+                tokens,
+                window: Some(window),
+            },
+            1,
+            3,
+        )
+        .err()
+        .expect("past one named request");
+        reply::over_budget(&rows[0], &over, true)["error"]
+            .as_str()
+            .expect("error")
+            .to_owned()
+    };
+    let whole = refused(13 * window);
+    assert!(whole.contains("whole window"), "{whole}");
+    assert!(whole.contains("64000"), "{whole}");
+    let priced = refused(13 * 2_000 + window);
+    assert!(!priced.contains("whole window"), "{priced}");
 }

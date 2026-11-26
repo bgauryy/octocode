@@ -120,8 +120,19 @@ pub(super) fn document_symbols_payload(
     raw_items: &[Value],
     budget: usize,
 ) -> Value {
+    // An outline is declarations and their members; a callable's children
+    // are its body's own symbols, listed only with `locals` and counted.
+    let mut left_out = 0;
+    let outline = if lsp_search_query::locals(query) {
+        raw_items.to_vec()
+    } else {
+        raw_items
+            .iter()
+            .map(|item| without_body_symbols(item, &mut left_out))
+            .collect()
+    };
     let mut symbols = Vec::new();
-    for item in raw_items {
+    for item in &outline {
         flatten_document_symbol(item, &mut symbols, None);
     }
     symbols.sort_by_key(|symbol| {
@@ -183,6 +194,50 @@ pub(super) fn document_symbols_payload(
         },
         "pagination": pagination
     });
+    // What the outline left out is coverage: evidence rows keep warnings.
+    if left_out > 0 {
+        octocode_runtime_base::response::paging::push_warnings(
+            &mut row,
+            [format!(
+                "{} inside function and method bodies left out: locals: true lists {}.",
+                octocode_engine::text::counted(
+                    u64::try_from(left_out).unwrap_or(u64::MAX),
+                    "symbol",
+                    "symbols"
+                ),
+                if left_out == 1 { "it" } else { "them" }
+            )],
+        );
+    }
     offer_next_page(query, &mut row, next_page);
     row
+}
+
+/// The kinds whose children are a body's own symbols (its locals, the keys of
+/// an object it builds), not the file's outline.
+const CALLABLE_KINDS: [&str; 3] = ["function", "method", "constructor"];
+
+/// `symbol` with every callable's children dropped, counted in `left_out`.
+fn without_body_symbols(symbol: &Value, left_out: &mut usize) -> Value {
+    let mut symbol = symbol.clone();
+    let callable = CALLABLE_KINDS
+        .contains(&crate::lsp_search::render::symbol_kind_name(symbol.get("kind")).as_str());
+    if let Some(children) = symbol.get_mut("children").and_then(Value::as_array_mut) {
+        if callable {
+            *left_out += children.iter().map(with_descendants).sum::<usize>();
+            children.clear();
+        } else {
+            for child in children.iter_mut() {
+                *child = without_body_symbols(child, left_out);
+            }
+        }
+    }
+    symbol
+}
+
+/// A symbol and every symbol nested in it.
+fn with_descendants(symbol: &Value) -> usize {
+    1 + symbol["children"]
+        .as_array()
+        .map_or(0, |children| children.iter().map(with_descendants).sum())
 }

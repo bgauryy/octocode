@@ -162,6 +162,7 @@ fn a_saved_source_page_admits_only_what_the_walk_has_left() {
         bounded: true,
         units: 2,
         tokens: 0,
+        window: None,
     };
     let Err(over) = admission::admit(resumed.budget(), first_round, 1, 0) else {
         panic!("the page cannot fit the remaining request allowance");

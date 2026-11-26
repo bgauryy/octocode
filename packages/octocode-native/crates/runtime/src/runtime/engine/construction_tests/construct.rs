@@ -43,8 +43,8 @@ async fn section_fixture(
         home,
         &[
             ("OCTOCODE_BETA", "true"),
-            ("OCTOCODE_CLASSIFICATION_API", "secret"),
-            ("OCTOCODE_CLASSIFICATION_API_HOST", &server.uri()),
+            ("OCTOCODE_TYPESAFE_KEY", "secret"),
+            ("OCTOCODE_TYPESAFE_HOST", &server.uri()),
             ("OCTOCODE_STORAGE_MODE", mode),
         ],
     );

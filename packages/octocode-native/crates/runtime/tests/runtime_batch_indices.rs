@@ -86,9 +86,9 @@ async fn clasify_isolates_invalid_rows_before_capturing_admitted_sources() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[
         ("OCTOCODE_BETA", "true".into()),
-        ("OCTOCODE_CLASSIFICATION_API", "test-key".into()),
+        ("OCTOCODE_TYPESAFE_KEY", "test-key".into()),
         (
-            "OCTOCODE_CLASSIFICATION_API_HOST",
+            "OCTOCODE_TYPESAFE_HOST",
             "http://127.0.0.1:1".into(),
         ),
     ]);

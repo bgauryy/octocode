@@ -153,9 +153,6 @@ var CONFIG_FIELDS = [
     "notes": "Home-only, so a repository can turn it off for MCP but cannot turn it on.",
     "env": {
       "name": "OCTOCODE_ENABLE_SECURITY",
-      "aliases": [
-        "OCTOCODE_SECURITY_CHECKS"
-      ],
       "dotenv": "home",
       "workspaceNarrowsTo": "false"
     },
@@ -358,10 +355,10 @@ var CONFIG_FIELDS = [
     "type": "string",
     "resolved": false,
     "credential": true,
-    "description": "Classification provider API key. A nonblank value exposes clasify and read-tool classifiers in MCP and the CLI; without one, a CLI clasify call answers where to get a key. Discovery makes no provider request.",
+    "description": "TypeSafe classification API key. A nonblank value exposes clasify and read-tool classifiers in MCP and the CLI; without one, a CLI clasify call answers where to get a key. Discovery makes no provider request.",
     "notes": "Credential values are omitted from resolved configuration and diagnostics. Home-only, so a repository cannot turn classification on or send your evidence under its own provider account.",
     "env": {
-      "name": "OCTOCODE_CLASSIFICATION_API",
+      "name": "OCTOCODE_TYPESAFE_KEY",
       "dotenv": "home",
       "normalize": "trim"
     },
@@ -374,10 +371,10 @@ var CONFIG_FIELDS = [
     "type": "url",
     "resolved": true,
     "credential": false,
-    "description": "Classification provider API root, for a proxy, gateway or compatible provider that serves the same API.",
+    "description": "TypeSafe classification API root, for a proxy, gateway or compatible provider that serves the same API.",
     "notes": "Calls require HTTPS except on loopback, and an API root with no path. Home-only, so a repository cannot redirect your key.",
     "env": {
-      "name": "OCTOCODE_CLASSIFICATION_API_HOST",
+      "name": "OCTOCODE_TYPESAFE_HOST",
       "dotenv": "home",
       "normalize": "trim"
     },
@@ -400,7 +397,6 @@ var CONFIG_FIELDS = [
     "defaultValue": null
   }
 ];
-var ENV_ALIASES = { "OCTOCODE_SECURITY_CHECKS": "OCTOCODE_ENABLE_SECURITY" };
 var API_KEYS = [
   {
     "name": "TAVILY_API_KEY",
@@ -450,15 +446,15 @@ var API_KEYS = [
     "docsUrl": "https://app.scrapingant.com/"
   },
   {
-    "name": "OCTOCODE_CLASSIFICATION_API",
+    "name": "OCTOCODE_TYPESAFE_KEY",
     "dotenv": "home",
     "group": "Classification",
-    "description": "Classification provider API key. A nonblank value exposes clasify and read-tool classifiers in MCP and the CLI; without one, a CLI clasify call answers where to get a key. Discovery makes no provider request.",
+    "description": "TypeSafe classification API key. A nonblank value exposes clasify and read-tool classifiers in MCP and the CLI; without one, a CLI clasify call answers where to get a key. Discovery makes no provider request.",
     "docsUrl": "https://docs.typesafe.ai/introduction"
   }
 ];
-var PROTECTED_KEY_NAMES = ["PATH", "HOME", "SHELL", "USER", "LOGNAME", "PWD", "TMPDIR", "NODE_OPTIONS", "PYTHON", "TAVILY_BASE_URL", "EXA_BASE_URL", "SERPER_BASE_URL", "DEEPSEEK_BASE_URL", "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR", "GIT_SSL_CAINFO", "GIT_SSL_CAPATH", "CURL_CA_BUNDLE", "OCTOCODE_GITHUB_CLIENT_ID", "OCTOCODE_HOME", "OCTOCODE_CARGO", "GITHUB_API_URL", "OCTOCODE_ENABLE_LOCAL", "OCTOCODE_BETA", "ALLOWED_PATHS", "WORKSPACE_ROOT", "OCTOCODE_GRAPH_HOME", "OCTOCODE_ENABLE_CLONE", "OCTOCODE_ENABLE_SECURITY", "OCTOCODE_ALLOW_PRIVATE_REGISTRY", "OCTOCODE_LSP_AUTO_INSTALL", "OCTOCODE_TRUST_PROJECT_LSP_CONFIG", "OCTOCODE_LSP_TRUST_FETCHED_CODE", "OCTOCODE_REDACT_EMAILS", "OCTOCODE_REDACT_UUID", "OCTOCODE_MCP_RESULT", "OCTOCODE_CREDENTIAL_FILES", "OCTOCODE_STORAGE_MODE", "OCTOCODE_CLONE_CACHE_LIMIT", "OCTOCODE_CLASSIFICATION_API", "OCTOCODE_CLASSIFICATION_API_HOST"];
-var HOME_TRUSTED_ENV_KEYS = ["TAVILY_BASE_URL", "EXA_BASE_URL", "SERPER_BASE_URL", "DEEPSEEK_BASE_URL", "OCTOCODE_GITHUB_CLIENT_ID", "OCTOCODE_CARGO", "GITHUB_API_URL", "OCTOCODE_ENABLE_LOCAL", "OCTOCODE_BETA", "ALLOWED_PATHS", "WORKSPACE_ROOT", "OCTOCODE_GRAPH_HOME", "OCTOCODE_ENABLE_CLONE", "OCTOCODE_ENABLE_SECURITY", "OCTOCODE_ALLOW_PRIVATE_REGISTRY", "OCTOCODE_LSP_AUTO_INSTALL", "OCTOCODE_TRUST_PROJECT_LSP_CONFIG", "OCTOCODE_LSP_TRUST_FETCHED_CODE", "OCTOCODE_REDACT_EMAILS", "OCTOCODE_REDACT_UUID", "OCTOCODE_MCP_RESULT", "OCTOCODE_CREDENTIAL_FILES", "OCTOCODE_STORAGE_MODE", "OCTOCODE_CLONE_CACHE_LIMIT", "OCTOCODE_CLASSIFICATION_API", "OCTOCODE_CLASSIFICATION_API_HOST"];
+var PROTECTED_KEY_NAMES = ["PATH", "HOME", "SHELL", "USER", "LOGNAME", "PWD", "TMPDIR", "NODE_OPTIONS", "PYTHON", "TAVILY_BASE_URL", "EXA_BASE_URL", "SERPER_BASE_URL", "DEEPSEEK_BASE_URL", "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR", "GIT_SSL_CAINFO", "GIT_SSL_CAPATH", "CURL_CA_BUNDLE", "OCTOCODE_GITHUB_CLIENT_ID", "OCTOCODE_HOME", "OCTOCODE_CARGO", "GITHUB_API_URL", "OCTOCODE_ENABLE_LOCAL", "OCTOCODE_BETA", "ALLOWED_PATHS", "WORKSPACE_ROOT", "OCTOCODE_GRAPH_HOME", "OCTOCODE_ENABLE_CLONE", "OCTOCODE_ENABLE_SECURITY", "OCTOCODE_ALLOW_PRIVATE_REGISTRY", "OCTOCODE_LSP_AUTO_INSTALL", "OCTOCODE_TRUST_PROJECT_LSP_CONFIG", "OCTOCODE_LSP_TRUST_FETCHED_CODE", "OCTOCODE_REDACT_EMAILS", "OCTOCODE_REDACT_UUID", "OCTOCODE_MCP_RESULT", "OCTOCODE_CREDENTIAL_FILES", "OCTOCODE_STORAGE_MODE", "OCTOCODE_CLONE_CACHE_LIMIT", "OCTOCODE_TYPESAFE_KEY", "OCTOCODE_TYPESAFE_HOST"];
+var HOME_TRUSTED_ENV_KEYS = ["TAVILY_BASE_URL", "EXA_BASE_URL", "SERPER_BASE_URL", "DEEPSEEK_BASE_URL", "OCTOCODE_GITHUB_CLIENT_ID", "OCTOCODE_CARGO", "GITHUB_API_URL", "OCTOCODE_ENABLE_LOCAL", "OCTOCODE_BETA", "ALLOWED_PATHS", "WORKSPACE_ROOT", "OCTOCODE_GRAPH_HOME", "OCTOCODE_ENABLE_CLONE", "OCTOCODE_ENABLE_SECURITY", "OCTOCODE_ALLOW_PRIVATE_REGISTRY", "OCTOCODE_LSP_AUTO_INSTALL", "OCTOCODE_TRUST_PROJECT_LSP_CONFIG", "OCTOCODE_LSP_TRUST_FETCHED_CODE", "OCTOCODE_REDACT_EMAILS", "OCTOCODE_REDACT_UUID", "OCTOCODE_MCP_RESULT", "OCTOCODE_CREDENTIAL_FILES", "OCTOCODE_STORAGE_MODE", "OCTOCODE_CLONE_CACHE_LIMIT", "OCTOCODE_TYPESAFE_KEY", "OCTOCODE_TYPESAFE_HOST"];
 var DEFAULT_CONFIG_VALUE = { "github": { "apiUrl": "https://api.github.com" }, "local": { "enabled": false, "beta": false, "allowedPaths": [], "workspaceRoot": void 0, "graphHome": void 0 }, "tools": { "enabled": null, "disabled": null, "enableClone": false, "enableSecurity": false }, "network": { "allowPrivateRegistry": false }, "lsp": { "autoInstall": "prompt", "trustProjectConfig": false, "trustFetchedCode": false, "prewarm": "targeted" }, "output": { "redactEmails": false, "redactUuid": false, "mcpResult": "json" }, "security": { "credentialFiles": "withhold" }, "storage": { "mode": "persistent", "cloneCacheLimit": "5GiB" }, "classification": { "apiHost": void 0, "model": void 0 } };
 function getOctocodeHome(env = process.env) {
   const override = env["OCTOCODE_HOME"];
@@ -506,26 +502,11 @@ function readTextIfExists(filePath) {
     return "";
   }
 }
-function canonicalEnvName(key) {
-  return Object.hasOwn(ENV_ALIASES, key) ? ENV_ALIASES[key] : key;
-}
-function canonicalEnv(env) {
-  const current = {};
-  const earlier = [];
-  for (const [key, value] of Object.entries(env)) {
-    if (value === void 0) continue;
-    const name = canonicalEnvName(key);
-    if (name === key) current[key] = value;
-    else earlier.push([name, value]);
-  }
-  for (const [name, value] of earlier) current[name] ??= value;
-  return current;
-}
 function fileEnv(filePath) {
   const entries = Object.entries(parseEnv(readTextIfExists(filePath))).filter(
     ([, v]) => v.trim()
   );
-  return canonicalEnv(Object.fromEntries(entries));
+  return Object.fromEntries(entries);
 }
 var CLASSIFICATION_KILL_SWITCH = CONFIG_FIELDS.find(
   (field) => field.path === "classification.api"
@@ -546,10 +527,8 @@ function context(options) {
 function keyFiles(options = {}) {
   return context(options).files;
 }
-function getKey(requested, options = {}) {
-  const name = canonicalEnvName(requested);
-  const { env: processEnv, files } = context(options);
-  const env = canonicalEnv(processEnv);
+function getKey(name, options = {}) {
+  const { env, files } = context(options);
   const fromProcess = env[name]?.trim() ? env[name] : void 0;
   if (fromProcess)
     return { name, value: fromProcess.trim(), source: "process", files };

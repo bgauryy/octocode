@@ -13,8 +13,6 @@ import {
 } from './config/contract.generated.js';
 import {
   CLASSIFICATION_KILL_SWITCH,
-  canonicalEnv,
-  canonicalEnvName,
   fileEnv,
   isProtectedKey,
   sameFile,
@@ -72,11 +70,8 @@ export function keyFiles(options: KeyOptions = {}): KeyFiles {
 }
 
 /** The value of `name` and where it came from: process, then home `.env`, then workspace `.env`. */
-export function getKey(requested: string, options: KeyOptions = {}): KeyLookup {
-  // An earlier name of a setting's variable is looked up under its current one, in every source.
-  const name = canonicalEnvName(requested);
-  const { env: processEnv, files } = context(options);
-  const env = canonicalEnv(processEnv);
+export function getKey(name: string, options: KeyOptions = {}): KeyLookup {
+  const { env, files } = context(options);
   const fromProcess = env[name]?.trim() ? env[name] : undefined;
   if (fromProcess)
     return { name, value: fromProcess.trim(), source: 'process', files };

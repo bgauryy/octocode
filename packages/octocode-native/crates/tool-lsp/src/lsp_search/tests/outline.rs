@@ -32,7 +32,8 @@ fn document_symbols_are_compact_outline_rows() {
     // Rust `impl` blocks are `object` symbols; their members are listed.
     let mut implementation = symbol("impl Greeter", 19, (16, 20), (16, 5));
     implementation["children"] = serde_json::json!([symbol("new", 12, (17, 19), (17, 7))]);
-    // A function's locals are listed under it like any member.
+    // A function's locals are its body's, left out of the outline and
+    // counted; `locals: true` lists them under it.
     let mut outer = symbol("outer", 12, (22, 30), (22, 3));
     outer["children"] = serde_json::json!([symbol("x", 13, (23, 23), (23, 8))]);
     let raw = serde_json::json!([
@@ -97,8 +98,7 @@ fn document_symbols_are_compact_outline_rows() {
                         "symbolName": "outer",
                         "kind": "function",
                         "line": 23,
-                        "endLine": 31,
-                        "members": [{"symbolName": "x", "kind": "variable", "line": 24}]
+                        "endLine": 31
                     },
                     {
                         "symbolName": "a",
@@ -117,6 +117,24 @@ fn document_symbols_are_compact_outline_rows() {
         ),
         "{envelope}"
     );
+    assert_eq!(
+        envelope["warnings"],
+        serde_json::json!([
+            "1 symbol inside function and method bodies left out: locals: true lists it."
+        ]),
+        "{envelope}"
+    );
+    let mut with_locals = query.clone();
+    if let LspSearchQuery::LspDocument(document) = &mut with_locals {
+        document.locals = true;
+    }
+    let whole = items_payload(&with_locals, "documentSymbols", raw.clone(), TEST_BUDGET);
+    assert_eq!(
+        whole["symbols"][3]["members"],
+        json_fixture(r#"[{"symbolName": "x", "kind": "variable", "line": 24}]"#),
+        "{whole}"
+    );
+    assert!(whole.get("warnings").is_none(), "{whole}");
     octocode_runtime_base::contracts::validate_output("lspSearch", &public_row(&envelope))
         .expect("outline rows satisfy the output contract");
     // Every row is an object, and pages count the six top-level rows: a
@@ -141,7 +159,8 @@ fn document_symbols_are_compact_outline_rows() {
             .map(|row| 1 + row.get("members").map_or(0, served))
             .sum()
     }
-    assert_eq!(served(&envelope["symbols"]), 9, "{envelope}");
+    // Nine symbols, the local `x` left out of the outline.
+    assert_eq!(served(&envelope["symbols"]), 8, "{envelope}");
     assert_eq!(
         envelope["pagination"]["total"],
         served(&envelope["symbols"]),
@@ -159,9 +178,10 @@ fn nameless_placeholder_symbols_are_not_outline_rows() {
     // typescript-language-server names a node it cannot name `<unknown>`
     // (an object spread `...(c ? {a} : {})` arrives as `property <unknown>`):
     // no name and no true kind, so no row; what it holds stays listed under
-    // the enclosing symbol.
+    // the enclosing symbol. The method's children are its body's, listed
+    // with `locals`.
     let query: LspSearchQuery = serde_json::from_value(json_fixture(
-        r#"{"operation": "documentSymbols", "path": "file:///repo/src/a.ts"}"#,
+        r#"{"operation": "documentSymbols", "path": "file:///repo/src/a.ts", "locals": true}"#,
     ))
     .expect("document symbols query");
     let range = |start: u64, end: u64| {

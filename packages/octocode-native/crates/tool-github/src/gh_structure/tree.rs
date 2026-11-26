@@ -240,6 +240,7 @@ fn broaden_listing(pinned: &GhStructureQueryTree) -> Option<Broadened> {
             strip: &["materialize"],
             groups: &[&["include"]],
             split_lone_keyword: false,
+            loosen_phrase: false,
         },
         1,
     )?;

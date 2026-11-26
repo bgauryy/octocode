@@ -16,7 +16,7 @@ async fn schema_availability_is_independent_of_invocation_prerequisites() {
             }
             command
                 .args(["schema", tool])
-                .env("OCTOCODE_CLASSIFICATION_API_HOST", server.uri())
+                .env("OCTOCODE_TYPESAFE_HOST", server.uri())
                 .env("OCTOCODE_ENABLE_LOCAL", "false")
                 .env("OCTOCODE_ENABLE_CLONE", "false")
                 .env("OCTOCODE_STORAGE_MODE", "persistent")
@@ -24,7 +24,7 @@ async fn schema_availability_is_independent_of_invocation_prerequisites() {
                 .env("DISABLE_TOOLS", "localFetch,clasify")
                 .env("OCTOCODE_BETA", if beta { "true" } else { "false" })
                 .env(
-                    "OCTOCODE_CLASSIFICATION_API",
+                    "OCTOCODE_TYPESAFE_KEY",
                     if key { "fixture-key" } else { "" },
                 );
             let output =
@@ -49,7 +49,7 @@ async fn schema_availability_is_independent_of_invocation_prerequisites() {
         assert_eq!(clasify["enabled"], key, "{clasify}");
         assert_eq!(
             clasify["envVar"].as_str(),
-            (!key).then_some("OCTOCODE_CLASSIFICATION_API"),
+            (!key).then_some("OCTOCODE_TYPESAFE_KEY"),
             "{clasify}"
         );
     }

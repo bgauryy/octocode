@@ -116,8 +116,8 @@ async fn classification_provider(delay: std::time::Duration) -> MockServer {
 fn clasify_command(mut command: Command, server: &MockServer) -> Command {
     command
         .env("OCTOCODE_BETA", "false")
-        .env("OCTOCODE_CLASSIFICATION_API", "secret")
-        .env("OCTOCODE_CLASSIFICATION_API_HOST", server.uri());
+        .env("OCTOCODE_TYPESAFE_KEY", "secret")
+        .env("OCTOCODE_TYPESAFE_HOST", server.uri());
     command
 }
 

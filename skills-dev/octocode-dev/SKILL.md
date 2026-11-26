@@ -30,7 +30,7 @@ Run from the repo root with `$DEV` and `$OCTO` as [AGENTS.md](../../AGENTS.md#wo
 
 ## Pitfalls
 
-- `$DEV format` runs every workspace's `format` script except native's, which is `cargo fmt --all`: format only your files (`rustfmt --edition 2024 <file>`, `npx prettier --write <file>`).
+- `$DEV format` runs every workspace's `format` script (prettier over whole packages; native has none): format only your files (`rustfmt --edition 2024 <file>`, `npx prettier --write <file>`).
 - `$DEV profile --build`, `cargo dev-test` and `bacon` run cargo outside the build slots.
 - A `-p` or feature selection other than `test:rust`'s compiles a second copy of the crates; `$DEV test:dev` reuses that selection.
 - A change in `tools-shared`, `runtime-base` or `github` also runs its users' tests (`tool-local`, `tool-github`, `native`).

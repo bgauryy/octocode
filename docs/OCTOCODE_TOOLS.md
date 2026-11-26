@@ -53,7 +53,7 @@ Build a snapshot of a directory, then query the same path for importers, cycles,
 
 ### `lspSearch`
 
-Find a symbol's definition, references or callers. Start with its file and name. Without a `line` the name anchors at its one declaration in that file; add the line from a source read to anchor a use, or when the file declares the name more than once (the refusal lists each line). `octocode lsp-server status <file>` shows which language server handles the file.
+Find a symbol's definition, references or callers. Start with its file and name. A `documentSymbols` outline lists declarations and their members and counts the symbols inside function and method bodies; `locals: true` lists those too. Without a `line` the name anchors at its one declaration in that file; add the line from a source read to anchor a use, or when the file declares the name more than once (the refusal lists each line). `octocode lsp-server status <file>` shows which language server handles the file.
 
 <a id="subtypes-and-implementations-without-an-answer-in-time"></a>
 <a id="typescript-backends"></a>
@@ -68,7 +68,7 @@ Language servers are off by default for cloned repositories and materialized fil
 
 ### `ghSearchRepo`
 
-Find a repository by keyword or list an owner's repositories. Use the returned `owner` and `repo` for later reads.
+Find a repository by keyword or list an owner's repositories. Use the returned `owner` and `repo` for later reads. A keyword of several words is one exact phrase; when it finds nothing, the reply's `related` call asks the same words as separate keywords.
 
 ### `ghSearchCode`
 

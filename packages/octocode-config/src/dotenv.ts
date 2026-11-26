@@ -9,7 +9,6 @@ import path from 'node:path';
 import {
   API_KEYS,
   CONFIG_FIELDS,
-  ENV_ALIASES,
   ENV_TOKEN_VARS,
   HOME_TRUSTED_ENV_KEYS,
   PROTECTED_KEY_NAMES,
@@ -86,42 +85,12 @@ function readTextIfExists(filePath: string): string {
   }
 }
 
-/**
- * The current name of the variable `key`: a setting's earlier name (an alias
- * in the config contract, such as `OCTOCODE_ENABLE_LOCAL`) reads as the name
- * that replaced it, any other key as itself.
- */
-export function canonicalEnvName(key: string): string {
-  return Object.hasOwn(ENV_ALIASES, key) ? (ENV_ALIASES[key] as string) : key;
-}
-
-/**
- * `env` under current names only: a value set under an earlier name moves to
- * the current one unless that one is set too. Every source of variables (the
- * process, each `.env` file) is read through here, so the dotenv policy sees
- * one name per setting. The native resolver applies the same rule.
- */
-export function canonicalEnv(
-  env: Readonly<Record<string, string | undefined>>
-): Record<string, string> {
-  const current: Record<string, string> = {};
-  const earlier: [string, string][] = [];
-  for (const [key, value] of Object.entries(env)) {
-    if (value === undefined) continue;
-    const name = canonicalEnvName(key);
-    if (name === key) current[key] = value;
-    else earlier.push([name, value]);
-  }
-  for (const [name, value] of earlier) current[name] ??= value;
-  return current;
-}
-
-/** One `.env` file's nonblank entries, under current variable names. */
+/** One `.env` file's nonblank entries. */
 export function fileEnv(filePath: string): Record<string, string> {
   const entries = Object.entries(parseEnv(readTextIfExists(filePath))).filter(
     ([, v]) => v.trim()
   );
-  return canonicalEnv(Object.fromEntries(entries));
+  return Object.fromEntries(entries);
 }
 
 export interface LoadOctocodeEnvOptions {
@@ -222,8 +191,8 @@ export function applyOctocodeEnv(
   // Resolve source precedence before token-name priority. Otherwise a
   // workspace `GH_TOKEN` could outrank a process or home `GITHUB_TOKEN`.
   const shadowed = new Set<string>();
-  // What the environment set before any file, an earlier variable name read as its current one.
-  const before = canonicalEnv(env);
+  // What the environment set before any file.
+  const before: Readonly<Record<string, string | undefined>> = { ...env };
   const processSelected = TOKEN_NAMES.some(key => Boolean(before[key]?.trim()));
   // Tokens are API keys: a home token shadows every workspace token.
   const homeSelected = TOKEN_NAMES.some(

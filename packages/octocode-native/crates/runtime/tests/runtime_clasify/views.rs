@@ -81,7 +81,7 @@ async fn a_text_answer_is_its_values_and_ceiling_by_default() {
         json_fixture(
             r#"{
                 "restart": {"noul": 0.9},
-                "kind": {"choice": "ops"},
+                "kind": {"choice": "ops", "probabilities": {"ops": 1.0}},
                 "risk": {"score": 1.5}
             }"#
         ),
@@ -212,12 +212,14 @@ async fn a_section_summary_is_its_lines_and_answers() {
         );
         assert_eq!(
             section["answers"]["kind"],
-            json_fixture(r#"{"choice": "ops"}"#),
+            json_fixture(r#"{"choice": "ops", "probabilities": {"ops": 1.0}}"#),
             "{summary}"
         );
         assert!(within(section, full), "{section}\n{full}");
+        // At most 45% (40% before a summary choice kept its chosen label's
+        // probability).
         let (small, large) = (section.to_string().len(), full.to_string().len());
-        assert!(small * 100 <= large * 40, "{small} of {large}");
+        assert!(small * 100 <= large * 45, "{small} of {large}");
     }
     assert_eq!(short["coverage"], whole["coverage"], "{summary}");
     assert_eq!(short["sourceDigest"], whole["sourceDigest"], "{summary}");
@@ -375,11 +377,13 @@ async fn an_absent_view_is_a_summary_on_cli_and_mcp() {
             explicit["results"][0]["data"]["resources"], data["resources"],
             "{explicit}"
         );
+        // A summary choice keeps only its chosen label's probability.
         let answered = run(evaluate.clone()).await;
-        assert!(
-            answered["results"][0]["data"]["answers"]["kind"]
-                .get("probabilities")
-                .is_none(),
+        assert_eq!(
+            answered["results"][0]["data"]["answers"]["kind"]["probabilities"]
+                .as_object()
+                .map(serde_json::Map::len),
+            Some(1),
             "{answered}"
         );
     }

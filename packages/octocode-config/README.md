@@ -90,7 +90,7 @@ validation constraints are edited only in the Zod declaration
 (`scripts/config-contract/declaration/`, shaped by `scripts/config-contract/schema.ts`).
 `generate:config-contract` validates it with Zod and emits `config-contract.json` and
 `config-contract.schema.json`; both are generated, guarded by a drift test and
-`check:config-contract`, and never hand-edited. The generator also emits the
+`lint:own`, and never hand-edited. The generator also emits the
 field metadata and defaults this package exports and the user settings
 reference; the native build emits the resolver the runtime uses.
 

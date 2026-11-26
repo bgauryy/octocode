@@ -1,4 +1,4 @@
-Load when a setting resolves from an unexpected source, or when declaring an environment binding, alias or dotenv policy.
+Load when a setting resolves from an unexpected source, or when declaring an environment binding or dotenv policy.
 
 # Configuration sources and environment bindings
 
@@ -16,6 +16,4 @@ At most one `env` binding per setting, `{ "name": "OCTOCODE_..." }`. Every Octoc
 |---|---|
 | `dotenv` | `all` (default: workspace or home `.env`), `home` (the trusted home `.env` only), `never` (shell, CI or MCP environment only; joins the generated protected-key sets) |
 | `normalize` | `"trim"`, or `"lower"` (trims and lowercases) |
-| `aliases` | Earlier names of the variable (`OCTOCODE_SECURITY_CHECKS` for `OCTOCODE_ENABLE_SECURITY`). Both loaders rewrite every source of variables to the current name before anything reads it, so the dotenv rules apply to an alias as to the name; the name wins when both are set. A renamed variable keeps its old name here; docs and messages use the new one |
-| `keyAliases` (on the field, not the binding) | Earlier keys of the setting in its section of `.octocoderc` (`enableSecurityCheck` for `tools.enableSecurity`). Native rewrites each file to current keys before validating it; the current key wins when a file holds both |
 | `workspaceNarrowsTo` | On a `dotenv: "home"` binding, the one value a workspace may still set (as `storage.mode: memory`) |

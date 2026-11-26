@@ -55,7 +55,7 @@ pub(super) fn continuation(q: Value) -> Option<Continuation> {
 /// request's or a commit's): the same read without the literal and the
 /// `contextLines` that only shape its hits.
 pub(super) fn without_match_string(mut q: Value) -> Value {
-    for key in ["matchString", "contextLines", "regexEngine"] {
+    for key in super::matcher::MATCH_KEYS {
         remove_key(&mut q, key);
     }
     restart_query(ToolId::GhGetHistoryItem, &q)
@@ -74,16 +74,10 @@ pub(super) const INVENTORY_ALL_PATCHES_FILES: u64 = 30;
 pub(super) fn fresh_pr_query(query: &HistoryItemRequest) -> Value {
     let mut target = base_public_query(query, ItemOperation::PullRequest);
     if let Some(object) = target.as_object_mut() {
-        for key in [
-            "sections",
-            "offset",
-            "page",
-            "pageSize",
-            "headSha",
-            "matchString",
-            "contextLines",
-            "regexEngine",
-        ] {
+        for key in ["sections", "offset", "page", "pageSize", "headSha"]
+            .into_iter()
+            .chain(super::matcher::MATCH_KEYS)
+        {
             object.remove(key);
         }
     }

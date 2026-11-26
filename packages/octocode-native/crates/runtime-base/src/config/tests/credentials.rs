@@ -84,7 +84,7 @@ fn classification_key_falls_back_to_config_file_without_leaking() {
     let file = "{\"classification\":{\"api\":\"jev-secret-from-file\",\"apiHost\":\"https://jev.example.com\"}}";
     let out = resolve_config(&input(BTreeMap::new(), Some(file)));
     assert_eq!(
-        out.env_value("OCTOCODE_CLASSIFICATION_API"),
+        out.env_value("OCTOCODE_TYPESAFE_KEY"),
         Some("jev-secret-from-file")
     );
     assert_eq!(
@@ -96,12 +96,12 @@ fn classification_key_falls_back_to_config_file_without_leaking() {
     assert!(!format!("{out:?}").contains("jev-secret-from-file"));
     // Real env still wins over the file fallback.
     let env = BTreeMap::from([(
-        "OCTOCODE_CLASSIFICATION_API".into(),
+        "OCTOCODE_TYPESAFE_KEY".into(),
         "jev-secret-from-env".into(),
     )]);
     let mixed = resolve_config(&input(env, Some(file)));
     assert_eq!(
-        mixed.env_value("OCTOCODE_CLASSIFICATION_API"),
+        mixed.env_value("OCTOCODE_TYPESAFE_KEY"),
         Some("jev-secret-from-env")
     );
     // `classification` is a recognized section, not an "unknown configuration key".
@@ -116,8 +116,8 @@ fn trusted_dotenv_credentials_use_process_then_home_then_project() {
     for key in [
         "GH_TOKEN",
         "GITHUB_TOKEN",
-        "OCTOCODE_CLASSIFICATION_API",
-        "OCTOCODE_CLASSIFICATION_API_HOST",
+        "OCTOCODE_TYPESAFE_KEY",
+        "OCTOCODE_TYPESAFE_HOST",
     ] {
         // API keys keep the home value over a workspace one; home-trusted keys
         // (an endpoint, the classification key) never come from a workspace.
@@ -158,7 +158,7 @@ fn trusted_dotenv_credentials_use_process_then_home_then_project() {
                     Some(expected.as_str())
                 );
             }
-            if ENV_TOKEN_VARS.contains(&key) || key == "OCTOCODE_CLASSIFICATION_API" {
+            if ENV_TOKEN_VARS.contains(&key) || key == "OCTOCODE_TYPESAFE_KEY" {
                 assert!(!format!("{out:?}").contains("-secret"));
             }
             let view = inspector_data(&i, &out);
@@ -293,7 +293,7 @@ fn retired_classification_alias_is_not_a_credential() {
         text: "OCTOCODE_JEV_KEY=workspace-secret".into(),
     };
     let out = resolve_config(&i);
-    assert_eq!(out.env_value("OCTOCODE_CLASSIFICATION_API"), None);
+    assert_eq!(out.env_value("OCTOCODE_TYPESAFE_KEY"), None);
 }
 
 #[test]
@@ -323,19 +323,19 @@ fn whitespace_token_values_fall_back_without_leaking() {
 #[test]
 fn trusted_dotenv_preserves_classification_opt_out() {
     let mut i = input(
-        BTreeMap::from([("OCTOCODE_CLASSIFICATION_API".into(), String::new())]),
+        BTreeMap::from([("OCTOCODE_TYPESAFE_KEY".into(), String::new())]),
         Some(r#"{"classification":{"api":"file-secret"}}"#),
     );
     i.global_env = FileInput::Read {
         path: "/synthetic/home/.env".into(),
-        text: "OCTOCODE_CLASSIFICATION_API=home-secret".into(),
+        text: "OCTOCODE_TYPESAFE_KEY=home-secret".into(),
     };
     i.project_env = FileInput::Read {
         path: "/synthetic/cwd/.octocode/.env".into(),
-        text: "OCTOCODE_CLASSIFICATION_API=project-secret".into(),
+        text: "OCTOCODE_TYPESAFE_KEY=project-secret".into(),
     };
     assert_eq!(
-        resolve_config(&i).env_value("OCTOCODE_CLASSIFICATION_API"),
+        resolve_config(&i).env_value("OCTOCODE_TYPESAFE_KEY"),
         Some("")
     );
 }

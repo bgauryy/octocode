@@ -118,7 +118,6 @@ pub fn replace_private_config(
     Ok((true, saved_backup))
 }
 pub fn validate_env_edit(key: &str, value: Option<&str>, workspace: bool) -> io::Result<()> {
-    let key = super::canonical_env_name(key);
     if key.is_empty()
         || !key
             .bytes()
@@ -149,9 +148,6 @@ pub fn edit_scoped_env(
     workspace: bool,
     revision: Option<&str>,
 ) -> io::Result<bool> {
-    // An earlier name of a setting's variable is saved under its current one,
-    // replacing a line that still spells the earlier name.
-    let key = super::canonical_env_name(key);
     validate_env_edit(key, value, workspace)?;
     let original = read_private_config(path)?;
     let newline = if original.as_deref().unwrap_or("").contains("\r\n") {
@@ -162,10 +158,7 @@ pub fn edit_scoped_env(
     let mut updated = String::new();
     let mut found = false;
     for line in original.as_deref().unwrap_or("").split_inclusive('\n') {
-        if parse_env(Some(line))
-            .keys()
-            .any(|name| super::canonical_env_name(name) == key)
-        {
+        if parse_env(Some(line)).keys().any(|name| name == key) {
             if !found && let Some(value) = value {
                 updated.push_str(&format!("{key}=\"{value}\"{newline}"));
             }

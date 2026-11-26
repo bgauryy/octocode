@@ -269,7 +269,7 @@ describe('one page', () => {
         writableFrom: 'home',
       },
       {
-        key: 'OCTOCODE_CLASSIFICATION_API',
+        key: 'OCTOCODE_TYPESAFE_KEY',
         group: 'Classification',
         credential: true,
         description: 'Classification',
@@ -298,7 +298,7 @@ describe('one page', () => {
     for (const name of [
       'TAVILY_API_KEY',
       'TAVILY_BASE_URL',
-      'OCTOCODE_CLASSIFICATION_API',
+      'OCTOCODE_TYPESAFE_KEY',
       'HTTPS_PROXY',
       'OCTOCODE_CARGO',
       'lsp.prewarm',

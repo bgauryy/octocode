@@ -175,7 +175,7 @@ fn every_misuse_shape_gets_a_one_line_repair() {
                     ]
                 }"#,
             ),
-            r#"'symbolFuzzy' is not allowed in this form of queries[0]; it requires operation:"workspaceSymbol"."#,
+            r#"'symbolFuzzy' is not allowed in this form of queries[0]; it requires operation:"workspaceSymbol". To anchor a symbol of one file, send symbolName and path (and line) instead."#,
         ),
         (
             // A form-specific field names the selector that admits it, not the
@@ -1016,25 +1016,15 @@ fn a_missing_field_names_the_field_that_picked_its_form() {
 /// (`<field> needs it`) is said only when the union said nothing.
 #[test]
 fn a_missing_field_states_one_reason() {
-    let cases = [
-        (
-            "localSearch",
-            json_fixture(
-                r#"{"queries": [{"path": "docs", "matchString": ["a"], "unique": "list"}]}"#,
-            ),
-            "view",
-            "unique",
-        ),
-        (
-            "clasify",
-            json_fixture(
-                r#"{"queries": [{"operation": "evaluate", "perHit": true, "content": "abc",
+    let cases = [(
+        "clasify",
+        json_fixture(
+            r#"{"queries": [{"operation": "evaluate", "perHit": true, "content": "abc",
                     "questions": {"x": {"type": "bool", "instructions": "is it x"}}}]}"#,
-            ),
-            "source",
-            "perHit",
         ),
-    ];
+        "source",
+        "perHit",
+    )];
     for (tool, sent, field, by) in cases {
         let (_, lines) = answered(tool, &sent);
         let missing = format!("Missing required field: {field}");

@@ -166,6 +166,8 @@ fn unfollowed_refusal(
         limit: super::reply::Limit::Max(max),
         room: retries,
         spent: 0,
+        whole_windows: None,
+        learned: 0,
     }))
 }
 
@@ -229,6 +231,7 @@ impl Prepared {
                 &sends,
                 self.questions.len(),
             ),
+            window: Some(evaluator.request_window(row.long_context == Some(true))),
         }
     }
 }
@@ -602,6 +605,8 @@ fn sections_over(
             .map_or(super::reply::Limit::Named(1), super::reply::Limit::Max),
         room: retries,
         spent,
+        whole_windows: None,
+        learned: 0,
     })
 }
 
@@ -726,12 +731,14 @@ pub(super) fn resources_row(
     // The resources' plans as one: the row's transient retries are shared
     // once.
     let retries = evaluator.retry_room();
+    // Each resource's tokens are priced in the same window.
     let mut plan = super::admission::Plan {
         first: 0,
         at_most: 0,
         bounded: true,
         units: 0,
         tokens: 0,
+        window: Some(evaluator.request_window(row.long_context == Some(true))),
     };
     for (_, entry) in &prepared {
         if let Ok((_, Ok(prepared))) = entry {

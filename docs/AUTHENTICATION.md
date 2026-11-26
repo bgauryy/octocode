@@ -55,8 +55,8 @@ Put a token in the MCP server's process environment or let it use the host's Oct
 Classification is off by default. Set a Jev key in your Octocode home to enable `clasify` in the CLI and MCP. Supply the key on standard input and restart MCP. [Get a key](https://docs.typesafe.ai/introduction)
 
 ```bash
-npx -y octocode config set OCTOCODE_CLASSIFICATION_API --stdin
-npx -y octocode config check OCTOCODE_CLASSIFICATION_API
+npx -y octocode config set OCTOCODE_TYPESAFE_KEY --stdin
+npx -y octocode config check OCTOCODE_TYPESAFE_KEY
 ```
 
 A nonblank key enables discovery. A provider call verifies access. The key can also come from the process environment or home `classification.api`. A blank process variable explicitly disables classification. [Classification guide](OCTOCODE_CLASIFY.md) · [Change the provider host](CONFIGURATION.md#change-the-classification-host)

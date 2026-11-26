@@ -116,7 +116,7 @@ tightening a payload shape is a core schema change, never a hand-written type.
 - Importing the library performs no environment mutation.
 - For each environment key: non-empty process value → workspace `.octocode/.env` → home `.env`. GitHub and classification credentials follow this order.
 - Workspace dotenv loads by default. Node hosts may explicitly opt out with `trusted:false`; native `trustedProject` remains separate permission for executable LSP configuration.
-- Process bootstrap keys stay blocked in both files. Home-only keys are skipped in a workspace `.env`, except the narrowing values the contract allows. A present-but-blank process `OCTOCODE_CLASSIFICATION_API` stays an explicit opt-out.
+- Process bootstrap keys stay blocked in both files. Home-only keys are skipped in a workspace `.env`, except the narrowing values the contract allows. A present-but-blank process `OCTOCODE_TYPESAFE_KEY` stays an explicit opt-out.
 - Credential source priority applies across aliases before alias priority within the same source; token discovery, refresh, and storage remain native responsibilities.
 - Parsing is deterministic and does not execute shell syntax.
 - Consumers receive explicit environment objects where isolation matters.

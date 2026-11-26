@@ -145,6 +145,18 @@ async fn target_keeper() -> MockServer {
     server
 }
 
+/// Every question of a hit request names `path` in its label, and the
+/// shared state names no file: hits of several files can share it.
+fn assert_labels_name(body: &Value, path: &str) {
+    assert!(body["state"].get("path").is_none(), "{body}");
+    for question in body["questions"].as_object().expect("questions").values() {
+        let label = question["instructions"]["target"]
+            .as_str()
+            .expect("a hit question names its target");
+        assert!(label.starts_with(&format!("{path} line ")), "{label}");
+    }
+}
+
 /// The hit lines a request's questions name, from their `target` labels.
 fn targeted_lines(body: &Value) -> Vec<u64> {
     let mut lines = body["questions"]
@@ -156,10 +168,10 @@ fn targeted_lines(body: &Value) -> Vec<u64> {
                 .as_str()
                 .expect("a hit question names its target");
             label
-                .strip_prefix("line ")
-                .and_then(|rest| rest.split(':').next())
+                .split_once(" line ")
+                .and_then(|(_, rest)| rest.split(':').next())
                 .and_then(|line| line.parse().ok())
-                .expect("the label opens with its line")
+                .expect("the label opens with its path and line")
         })
         .collect::<Vec<u64>>();
     lines.sort_unstable();
@@ -201,7 +213,7 @@ async fn the_hits_of_a_file_share_one_request_and_only_the_passing_ones_return_u
     let bodies = sent(&server).await;
     assert_eq!(bodies.len(), 1, "{out}");
     assert_eq!(targeted_lines(&bodies[0]), [1, 2, 3, 4, 5, 6]);
-    assert_eq!(bodies[0]["state"]["path"], "dense.txt");
+    assert_labels_name(&bodies[0], "dense.txt");
     assert_eq!(
         (&data["usage"]["calls"], &data["usage"]["requestsCeiling"]),
         (&json!(1), &json!(2)),
@@ -293,7 +305,7 @@ async fn merged_search_windows_share_one_request_each_hit_with_its_own_window() 
     assert_eq!(data["usage"]["calls"], 1, "{out}");
     let body = &bodies[0];
     let state = &body["state"];
-    assert_eq!(state["path"], "walk.rs", "{body}");
+    assert_labels_name(body, "walk.rs");
     assert!(
         state["question"]
             .as_str()
@@ -306,10 +318,10 @@ async fn merged_search_windows_share_one_request_each_hit_with_its_own_window() 
     for question in body["questions"].as_object().expect("questions").values() {
         let label = question["instructions"]["target"].as_str().expect("target");
         let line = label
-            .strip_prefix("line ")
+            .strip_prefix("walk.rs line ")
             .and_then(|rest| rest.split(':').next())
             .and_then(|line| line.parse::<u64>().ok())
-            .expect("the label opens with its line");
+            .expect("the label opens with its path and line");
         let shown = label
             .lines()
             .skip(1)
@@ -640,15 +652,17 @@ async fn a_units_row_over_its_max_requests_sends_nothing_and_its_confirm_runs() 
     workspace.write("d/other.txt", dense());
     let runtime = clasify_runtime(&workspace, &server, &[]);
     let query = json_fixture(r#"{"path": "d", "matchString": ["needle"]}"#);
+    // Both files' hits would share one request; each hit alone is twelve.
     let mut row = rows_row("localSearch", query, "summary");
     row["maxRequests"] = json!(1);
+    row["perHit"] = json!(true);
     let out = clasify(&runtime, vec![row]).await;
     let data = &out["results"][0]["data"];
     assert_eq!(data["errorCode"], "classificationOverBudget", "{out}");
     assert_eq!(data["usage"]["calls"], 0, "{out}");
-    assert_eq!(data["usage"]["requestsPlanned"], 2, "one per file: {out}");
+    assert_eq!(data["usage"]["requestsPlanned"], 12, "one per hit: {out}");
     let ceiling = data["usage"]["requestsCeiling"].as_u64().expect("ceiling");
-    assert!(ceiling >= 2, "{out}");
+    assert!(ceiling >= 12, "{out}");
     assert_eq!(data["next"]["confirm"]["tool"], "clasify", "{out}");
     // The refusal always states a hard token bound, even before the
     // provider answered a request here, and has nothing to explain.
@@ -692,7 +706,7 @@ async fn a_units_row_over_its_max_requests_sends_nothing_and_its_confirm_runs() 
     );
     assert_eq!(
         sent(&server).await.len(),
-        2,
+        12,
         "the first round, within the ceiling"
     );
     let read = run("read", &again["next"]["read"]).await;

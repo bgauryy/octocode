@@ -4,7 +4,7 @@ use super::*;
 use octocode_runtime_base::config::{CONFIG_FIELDS, KNOWN_ENV};
 use std::process::Output;
 
-pub(super) const HOST_ENV: &str = "OCTOCODE_CLASSIFICATION_API_HOST";
+pub(super) const HOST_ENV: &str = "OCTOCODE_TYPESAFE_HOST";
 pub(super) const HOST_PATH: &str = "classification.apiHost";
 
 pub(super) fn home_rc(workspace: &Workspace, text: &str) {
@@ -109,7 +109,7 @@ fn get_shows_the_classification_host_but_never_the_key() {
         assert_eq!(output.status.code(), Some(0), "{}", errors(&output));
         assert_eq!(text(&output), "https://proxy.example", "{key}");
     }
-    for key in ["classification.api", "OCTOCODE_CLASSIFICATION_API"] {
+    for key in ["classification.api", "OCTOCODE_TYPESAFE_KEY"] {
         let output = config(&workspace, &["get", key]);
         assert_eq!(output.status.code(), Some(0), "{}", errors(&output));
         assert!(

@@ -6,7 +6,7 @@ the environment each session gets is in [TESTING_ENV.md](../TESTING_ENV.md).
 
 ```bash
 DEV='node skills-dev/octocode-dev/scripts/dev.mjs'
-ROUND=packages/octocode-benchmark/harness/rounds/<round>.json
+ROUND=<round manifest>.json
 $DEV bench run     $ROUND [--pass N] [--only gh-Q1,gh-Q2] [--arms v20-cand,gh] [--dry-run]
 $DEV bench judge   $ROUND first        # then: $DEV bench judge $ROUND swap
 $DEV bench analyze $ROUND
@@ -29,9 +29,7 @@ Scratch (session homes, MCP configs, the `gh` wrapper's PATH folder, the replay 
 
 ## Round manifest
 
-A JSON file in [rounds/](rounds/); paths are relative to the repository root, or start with `~`.
-[The 25 November round](rounds/v19-v20-gh-2026-11-25.json) describes a stored round;
-[the base and candidate example](rounds/v20-base-cand-gh.example.json) runs two Octocode builds side by side.
+A JSON file you write for the round; paths in it are relative to the repository root, or start with `~`.
 
 | Field | Meaning |
 |---|---|

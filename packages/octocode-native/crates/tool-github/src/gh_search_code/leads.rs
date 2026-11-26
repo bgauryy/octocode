@@ -217,6 +217,8 @@ pub(super) fn broaden_search(query: &GhSearchCodeQuery, quota_room: usize) -> Op
             strip: &["fields", "ref"],
             groups: &[&["path"], &["nameContains"], &["extensions"]],
             split_lone_keyword: false,
+            // A phrase of code is usually an exact snippet: kept whole.
+            loosen_phrase: false,
         },
         quota_room.min(BROADEN_VARIANTS),
     )

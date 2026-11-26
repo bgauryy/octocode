@@ -81,7 +81,6 @@
     "lint:own": "yarn check:manifest && prettier --check src tests",
     "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
     "lint": "yarn lint:own && yarn lint:oxlint",
-    "sync:manifest": "node scripts/sync-manifest.mjs",
     "test": "node ../../scripts/test-tmp.mjs vitest run",
     "test:coverage": "node ../../scripts/test-tmp.mjs vitest run --coverage",
     "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",

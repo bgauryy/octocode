@@ -207,7 +207,7 @@ pub fn resolve_config(input: &ConfigInput) -> ConfigOutput {
         }
     }
     let merged = merged_env(text(&input.global_env), text(&input.project_env));
-    let mut effective = super::canonicalize_env(input.env.clone());
+    let mut effective = input.env.clone();
     let mut diagnostics = Vec::new();
     let dotenv = apply_env(merged, &mut effective);
     let (project_file, project_state) =

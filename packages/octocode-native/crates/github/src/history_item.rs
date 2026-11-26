@@ -10,9 +10,9 @@ pub struct HistoryItemResponse {
 }
 
 /// What a response's `Link` header says of its list.
-struct PageLinks {
-    has_more: bool,
-    last_page: Option<usize>,
+pub(crate) struct PageLinks {
+    pub(crate) has_more: bool,
+    pub(crate) last_page: Option<usize>,
 }
 
 impl GitHubTransport {
@@ -49,7 +49,7 @@ impl GitHubTransport {
     }
 
     /// GET decoded as JSON with the pagination facts of its `Link` header.
-    async fn read_json_linked<T: serde::de::DeserializeOwned>(
+    pub(crate) async fn read_json_linked<T: serde::de::DeserializeOwned>(
         &self,
         spec: RequestSpec,
         context: &RequestContext,

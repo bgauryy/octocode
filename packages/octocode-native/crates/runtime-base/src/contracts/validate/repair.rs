@@ -355,17 +355,27 @@ pub(crate) fn same_name(left: &str, right: &str) -> bool {
     folded(left) == folded(right)
 }
 
+/// `sent` with a sort direction spelled out in full (`ascending`,
+/// `descending`) as its short literal; any other text unchanged.
+fn spelled_short(sent: &str) -> String {
+    match folded(sent).as_str() {
+        "ascending" => "asc".to_owned(),
+        "descending" => "desc".to_owned(),
+        _ => sent.to_owned(),
+    }
+}
+
 /// The literal of `schema`'s `enum` a text outside it means, when it has one
 /// reading: the one literal it spells in another case or separator style
-/// (`pypi` for `PyPI`). A former value is no reading: its error names what
-/// it is now.
+/// (`pypi` for `PyPI`), or a direction spelled out (`descending` for
+/// `desc`). A former value is no reading: its error names what it is now.
 pub(crate) fn literal_reading(schema: &Value, received: &Value) -> Option<Value> {
-    let sent = received.as_str()?;
+    let sent = spelled_short(received.as_str()?);
     let mut spelled = schema
         .get("enum")?
         .as_array()?
         .iter()
-        .filter(|literal| literal.as_str().is_some_and(|name| same_name(name, sent)));
+        .filter(|literal| literal.as_str().is_some_and(|name| same_name(name, &sent)));
     match (spelled.next(), spelled.next()) {
         (Some(only), None) => Some(only.clone()),
         _ => None,

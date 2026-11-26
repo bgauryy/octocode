@@ -156,6 +156,19 @@ impl Provider {
         ))
     }
 
+    /// One learning request ([`Evaluator::learn_prompt`]) in the default window.
+    pub(super) fn learn(&self) -> crate::judgment::Judged {
+        let gate = self.evaluator.gate();
+        let context = context(Duration::from_secs(120));
+        let budget = self.evaluator.budget(
+            octocode_runtime_base::execution::cancel::deadline_of(&context),
+            context.cancellation.clone(),
+        );
+        self.executor
+            .block_on(self.evaluator.learn_prompt(None, false, &budget, &gate))
+            .expect("learned")
+    }
+
     pub(super) fn bodies(&self) -> Vec<Value> {
         self.executor
             .block_on(self.server.received_requests())
@@ -251,12 +264,13 @@ pub(super) fn calls(judged: &UnitAnswers) -> u64 {
     judged.spends.iter().map(|spend| spend.calls).sum()
 }
 
-/// The flowD1 shape: 63 hits of three files are three requests, one per
-/// file, each hit one question naming its target and the question text the
+/// The flowD1 shape: 63 hits of three files are one request, each hit one
+/// question whose label names its path and target, and the question text the
 /// state states once; every hit is answered about itself, exactly as the
-/// unbatched path (one request per hit) answers it.
+/// unbatched path (one request per hit) answers it. A hit's window rides in
+/// its own question, so a request can hold any file's hits.
 #[test]
-fn the_hits_of_one_file_share_one_request_and_one_question_text_and_keep_their_own_answers() {
+fn hits_of_several_files_share_one_request_and_one_question_text_and_keep_their_own_answers() {
     let states = hits(
         &[
             ("docs/ref/extensions/handoff_prompt.md", 3),
@@ -270,20 +284,25 @@ fn the_hits_of_one_file_share_one_request_and_one_question_text_and_keep_their_o
     let provider = Provider::start(Judge::new());
     let packed = provider.judge(&call(&units, &questions), 1);
     let bodies = provider.bodies();
-    assert_eq!(bodies.len(), 3, "one request per file");
-    assert_eq!(calls(&packed), 3);
-    let mut held = bodies
+    assert_eq!(bodies.len(), 1, "one request for every file");
+    assert_eq!(calls(&packed), 1);
+    let held = bodies
         .iter()
         .map(|body| body["questions"].as_object().expect("questions").len())
         .collect::<Vec<_>>();
-    held.sort_unstable();
-    assert_eq!(held, [2, 3, 58], "one question per hit");
+    assert_eq!(held, [63], "one question per hit");
+    let paths = states
+        .iter()
+        .map(|state| state["path"].as_str().expect("path"))
+        .collect::<Vec<_>>();
     for body in &bodies {
         let state = &body["state"];
         assert_eq!(state["question"], *section_question().expect("scope"));
         // No context was asked: each hit is its quoted label alone, as its
         // own request shows it, and no other hit's line informs it.
         assert!(state.get("lines").is_none(), "{state}");
+        // Each label names its file; the state names none.
+        assert!(state.get("path").is_none(), "{state}");
         // The caller's words are stated once, in the state.
         assert_eq!(
             state["questions"],
@@ -292,7 +311,12 @@ fn the_hits_of_one_file_share_one_request_and_one_question_text_and_keep_their_o
         );
         for question in body["questions"].as_object().expect("questions").values() {
             let target = question["instructions"]["target"].as_str().expect("target");
-            assert!(target.starts_with("line "), "{target}");
+            assert!(
+                paths
+                    .iter()
+                    .any(|path| target.starts_with(&format!("{path} line "))),
+                "{target}"
+            );
             assert_eq!(question["instructions"]["question"], "questions.Q1");
             assert_eq!(question["type"], "noul");
         }
@@ -359,7 +383,8 @@ fn a_hit_without_a_window_reads_only_its_own_line() {
         .iter()
         .map(|state| {
             format!(
-                "line {}: {}",
+                "{} line {}: {}",
+                state["path"].as_str().expect("path"),
                 state["target"]["line"],
                 state["target"]["text"].as_str().expect("text")
             )
@@ -417,7 +442,7 @@ fn hits_with_context_read_only_their_own_window() {
             .map(|at| format!("{at}\t{}", text(at)))
             .collect::<Vec<_>>()
             .join("\n");
-        format!("line {line}: {}\n{shown}", text(line))
+        format!("w.rs line {line}: {}\n{shown}", text(line))
     };
     assert_eq!(
         labels,
@@ -425,7 +450,7 @@ fn hits_with_context_read_only_their_own_window() {
             window(4, 2..=5),
             window(6, 4..=7),
             window(12, 10..=13),
-            "line 20: step 20".to_owned()
+            "w.rs line 20: step 20".to_owned()
         ],
         "each question its own window, a window of only the hit adds nothing"
     );
@@ -477,10 +502,10 @@ fn identical_units_collapse_into_one_question() {
 }
 
 /// A refused packed request is split: its units are asked again in halves,
-/// the sibling file's request is not sent again, and every hit is answered.
+/// and every hit is answered.
 #[test]
 fn a_refusal_splits_and_retries_only_the_refused_units() {
-    let states = hits(&[("big.md", 8), ("small.md", 2)], &[0, 5, 9]);
+    let states = hits(&[("big.md", 6), ("small.md", 2)], &[0, 5, 7]);
     let questions = question();
     let units = units(&states);
     let provider = Provider::start(Judge {
@@ -489,22 +514,17 @@ fn a_refusal_splits_and_retries_only_the_refused_units() {
     });
     let judged = provider.judge(&call(&units, &questions), 1);
     let bodies = provider.bodies();
-    let of = |path: &str| {
-        bodies
-            .iter()
-            .filter(|body| body["state"]["path"] == path)
-            .map(|body| body["questions"].as_object().expect("questions").len())
-            .collect::<Vec<_>>()
-    };
-    let mut big = of("big.md");
-    big.sort_unstable();
-    assert_eq!(big, [4, 4, 8], "refused whole, then two halves");
-    assert_eq!(of("small.md"), [2], "the sibling is sent once");
+    let mut held = bodies
+        .iter()
+        .map(|body| body["questions"].as_object().expect("questions").len())
+        .collect::<Vec<_>>();
+    held.sort_unstable();
+    assert_eq!(held, [4, 4, 8], "refused whole, then two halves");
     assert_eq!(judged.refused, 1);
-    assert_eq!(calls(&judged), 4, "the refused request counts");
+    assert_eq!(calls(&judged), 3, "the refused request counts");
     let answered = values(&judged);
     for (at, answers) in answered.iter().enumerate() {
-        let expected = if [0, 5, 9].contains(&at) { 0.94 } else { 0.03 };
+        let expected = if [0, 5, 7].contains(&at) { 0.94 } else { 0.03 };
         assert_eq!(
             answers.as_ref().expect("judged")[0]["noul"],
             expected,
@@ -564,7 +584,9 @@ fn a_missing_answer_is_asked_again_once_then_reported() {
 /// request of a sibling row is not sent again and carries no calls.
 #[test]
 fn usage_sums_across_requests_and_a_twin_request_is_sent_once() {
-    let states = hits(&[("a.md", 4), ("b.md", 3)], &[2]);
+    // Hits and a whole unit never share a request: two requests.
+    let mut states = hits(&[("a.md", 4), ("b.md", 3)], &[2]);
+    states.push(json!("a whole unit"));
     let questions = question();
     let units = units(&states);
     let provider = Provider::start(Judge::new());
@@ -601,7 +623,7 @@ fn the_plan_matches_the_requests_sent() {
         .plan_units_at(&call(&units, &questions), 1);
     assert!(provider.bodies().is_empty(), "planning sends nothing");
     provider.judge(&call(&units, &questions), 1);
-    assert_eq!(plan.requests, 3);
+    assert_eq!(plan.requests, 1, "every file's hits share the request");
     assert_eq!(plan.requests, provider.bodies().len());
     assert_eq!(plan.body_bytes, provider.body_bytes());
     // Before the provider answered here, only its window bounds a request.
@@ -744,7 +766,7 @@ fn a_packed_question_names_the_callers_words_stated_once() {
             .as_str()
             .expect("target")
             .to_owned();
-        assert!(label.starts_with("line "), "{question}");
+        assert!(label.starts_with("a.md line "), "{question}");
         let caller = &questions[at % 2];
         assert_eq!(question["type"], caller["type"]);
         assert_eq!(question.get("criteria"), caller.get("criteria"));
@@ -839,8 +861,45 @@ fn isolated_hits_take_one_request_each_priced_before_sending() {
         })
         .collect::<Vec<_>>();
     assert_eq!(values(&judged), alone, "the same answer for every hit");
-    // Packed, the same hits are one request per file.
+    // Packed, the same hits of three files are one request.
     let packed = Provider::start(Judge::new());
     packed.judge(&call(&units, &questions), 1);
-    assert_eq!(packed.bodies().len(), 3);
+    assert_eq!(packed.bodies().len(), 1);
+}
+
+/// Before this endpoint answered a request of the model, only the window
+/// bounds a request's price. One learning request (a state and a question of
+/// its own, no unit's text) bounds the provider's own prompt, and the same
+/// plan is then priced near its bodies.
+#[test]
+fn one_learning_request_prices_a_plan_below_its_windows() {
+    let states = hits(&[("a.md", 6), ("b.md", 1), ("c.md", 9)], &[3]);
+    let questions = question();
+    let units = units(&states);
+    let provider = Provider::start(Judge::new());
+    let isolated = UnitCall {
+        isolate: true,
+        ..call(&units, &questions)
+    };
+    let window = provider.evaluator.request_window(false);
+    let before = provider.evaluator.plan_units_at(&isolated, 1);
+    assert!(!provider.evaluator.prices_prompt(None, false));
+    assert_eq!(before.input_tokens_at_most, window * before.requests as u64);
+    let learned = provider.learn();
+    assert_eq!(learned.provider_calls, 1);
+    assert!(provider.evaluator.prices_prompt(None, false));
+    let bodies = provider.bodies();
+    assert_eq!(bodies.len(), 1, "one learning request");
+    for state in &states {
+        let text = state["target"]["text"].as_str().expect("text");
+        assert!(!bodies[0].to_string().contains(text), "no unit was sent");
+    }
+    let after = provider.evaluator.plan_units_at(&isolated, 1);
+    assert_eq!(after.requests, before.requests);
+    assert!(
+        after.input_tokens_at_most * 10 < before.input_tokens_at_most,
+        "{} against {}",
+        after.input_tokens_at_most,
+        before.input_tokens_at_most
+    );
 }

@@ -2,6 +2,10 @@ use octocode_contract_types::LocalFetchQuery;
 use octocode_github::{ProviderError, ProviderErrorKind};
 use std::sync::{Arc, Mutex};
 
+/// The fields that shape a `matchString` read and only apply with it: a
+/// derived query that drops the literal drops all of them.
+pub(super) const MATCH_KEYS: [&str; 4] = ["matchString", "contextLines", "regexEngine", "caseMode"];
+
 #[derive(Debug)]
 pub(super) struct Matcher {
     query: LocalFetchQuery,

@@ -480,6 +480,7 @@ pub(super) fn broaden_empty(data: &mut Value, query: &ArtifactSearchQuery) {
         strip: &[],
         groups: &[],
         split_lone_keyword: true,
+        loosen_phrase: false,
     };
     let rows = octocode_runtime_base::response::result::rows_per_call(ToolId::ArtifactSearch);
     if let Some(lead) = broaden(

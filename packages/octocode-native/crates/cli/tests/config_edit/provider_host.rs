@@ -36,7 +36,7 @@ async fn the_configured_host_receives_the_request_and_the_key_from_every_home_so
             "dotenv" => std::fs::write(
                 workspace.home.join(".env"),
                 format!(
-                    "OCTOCODE_CLASSIFICATION_API=home-key\n{HOST_ENV}={}\n",
+                    "OCTOCODE_TYPESAFE_KEY=home-key\n{HOST_ENV}={}\n",
                     server.uri()
                 ),
             )
@@ -79,7 +79,7 @@ async fn an_unusable_host_fails_closed_instead_of_reaching_another_host() {
         let workspace = Workspace::new();
         std::fs::write(
             workspace.home.join(".env"),
-            format!("OCTOCODE_CLASSIFICATION_API=home-key\n{HOST_ENV}={host}\n"),
+            format!("OCTOCODE_TYPESAFE_KEY=home-key\n{HOST_ENV}={host}\n"),
         )
         .unwrap();
         let output = run_clasify(workspace.cli()).await;
@@ -105,7 +105,7 @@ async fn a_workspace_file_cannot_redirect_the_key_to_its_own_host() {
     std::fs::write(
         workspace.home.join(".env"),
         format!(
-            "OCTOCODE_CLASSIFICATION_API=home-key\n{HOST_ENV}={}\n",
+            "OCTOCODE_TYPESAFE_KEY=home-key\n{HOST_ENV}={}\n",
             trusted.uri()
         ),
     )
@@ -242,7 +242,7 @@ fn the_view_gets_each_settings_description_and_section_and_every_known_key() {
         );
     }
     for key in [
-        "OCTOCODE_CLASSIFICATION_API",
+        "OCTOCODE_TYPESAFE_KEY",
         "TAVILY_API_KEY",
         "EXA_API_KEY",
         "SERPER_API_KEY",

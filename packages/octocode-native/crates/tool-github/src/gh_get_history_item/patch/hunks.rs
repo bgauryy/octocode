@@ -83,16 +83,47 @@ pub(super) fn history_patch_view(value: &str, path: &str, query: &HistoryItemReq
         }
     }
     // No changed line holds the literal: the file was kept for a hunk
-    // header's function context, which the whole patch shows, so each such
-    // header is a hit the row counts.
-    let text = number_patch(value);
-    let hits = needle(query).map_or_else(Vec::new, |needle| header_hits(&text, &needle));
+    // header's function context. The view shows the hunks whose header holds
+    // it, each header a hit the row counts; with none (a path-only hit) or
+    // all of them, it is the whole patch.
+    let needle = needle(query);
+    let kept = needle
+        .as_deref()
+        .and_then(|needle| header_hunks(value, needle));
+    let narrowed = kept.is_some();
+    let text = number_patch(kept.as_deref().unwrap_or(value));
+    let hits = needle.map_or_else(Vec::new, |needle| header_hits(&text, &needle));
     PatchView {
         text,
-        narrowed: false,
+        narrowed,
         clipped: Vec::new(),
         hits,
     }
+}
+
+/// The hunks of `patch` whose `@@ … @@` header holds `needle`, joined in
+/// order; `None` when none or every hunk does (the whole patch is then the
+/// view).
+fn header_hunks(patch: &str, needle: &super::super::matcher::Matcher) -> Option<String> {
+    let mut hunks: Vec<String> = Vec::new();
+    for line in patch.split_inclusive('\n') {
+        match hunks.last_mut() {
+            Some(hunk) if !line.starts_with("@@ -") => hunk.push_str(line),
+            _ if line.starts_with("@@ -") => hunks.push(line.to_owned()),
+            // Text before the first hunk header is no hunk's.
+            _ => {}
+        }
+    }
+    let total = hunks.len();
+    let kept: Vec<String> = hunks
+        .into_iter()
+        .filter(|hunk| {
+            hunk.lines()
+                .next()
+                .is_some_and(|header| needle.matches(header))
+        })
+        .collect();
+    (!kept.is_empty() && kept.len() < total).then(|| kept.concat())
 }
 
 /// Char offsets of the hunk-header lines of a numbered patch holding `needle`.

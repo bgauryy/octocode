@@ -242,7 +242,7 @@ impl Evaluator {
             ClassificationError::new(
                 ErrorCode::MissingConfiguration,
                 "No classification API credential is configured.",
-                "Set OCTOCODE_CLASSIFICATION_API.",
+                &format!("Set {}.", transport::key_variable()),
             )
         })
     }
@@ -307,6 +307,45 @@ impl Evaluator {
     /// The provider's window for one whole request (`long`: the long one).
     pub fn request_window(&self, long: bool) -> u64 {
         self.provider.defaults().request_window(long)
+    }
+
+    /// Whether a request this endpoint took for `model` in this window bounds
+    /// the provider's own prompt, so a plan is priced near its bodies rather
+    /// than at whole windows ([`windows::prompt_tokens_at_most`]).
+    pub fn prices_prompt(&self, model: Option<&str>, long: bool) -> bool {
+        windows::prompt_tokens_at_most(&self.base_url, model.unwrap_or(&self.model), long, 1)
+            .is_some()
+    }
+
+    /// One request sent only to learn the provider's own prompt for `model`
+    /// in this window: a state and a question of its own, so no evidence is
+    /// sent. Its reported tokens bound the prompt ([`windows::took`]); the
+    /// answer is discarded, the spend is the caller's to state.
+    pub async fn learn_prompt(
+        &self,
+        model: Option<&str>,
+        long: bool,
+        budget: &RequestBudget,
+        gate: &GateLease,
+    ) -> Result<Judged, ClassificationError> {
+        let state = serde_json::json!({"note": "Pricing request: no evidence."});
+        let questions = [serde_json::json!({
+            "type": "noul",
+            "instructions": "The note says it holds no evidence."
+        })];
+        let input = EvaluationInput {
+            state: &state,
+            questions: &questions,
+            assets: None,
+            long_context: if long {
+                LongContext::Always
+            } else {
+                LongContext::Never
+            },
+            companions: 0,
+            cap: None,
+        };
+        self.evaluate_prepared(input, model, budget, gate).await
     }
 
     pub(crate) async fn evaluate_prepared(

@@ -31,7 +31,7 @@ fn assert_bare_error(error: &serde_json::Value) {
 /// Opens every availability gate so root help lists every contract tool.
 fn all_tools_enabled(command: &mut std::process::Command) -> &mut std::process::Command {
     command
-        .env("OCTOCODE_CLASSIFICATION_API", "fixture-key")
+        .env("OCTOCODE_TYPESAFE_KEY", "fixture-key")
         .env("OCTOCODE_BETA", "true")
         .env("OCTOCODE_ENABLE_SECURITY", "true")
         // Clone outputs (ghCloneRepo) need persistent storage.

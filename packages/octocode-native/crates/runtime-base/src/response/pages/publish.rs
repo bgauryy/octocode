@@ -247,7 +247,6 @@ fn states_reasons(data: &Map<String, Value>) -> bool {
 /// A fact that says nothing happened is absent; the row states it when it did.
 /// `shared_reasons`: the envelope states the row's partial reasons.
 fn drop_zero_disclosures(data: &mut Map<String, Value>, shared_reasons: bool) {
-    drop_complete_listing_summary(data, shared_reasons);
     state_partial_once(data, shared_reasons);
     data.retain(|key, value| match key.as_str() {
         "isPartial" => value != &Value::Bool(false),
@@ -257,26 +256,6 @@ fn drop_zero_disclosures(data: &mut Map<String, Value>, shared_reasons: bool) {
         }
         _ => true,
     });
-}
-
-/// A listing's `summary` (`fileCount`, `dirCount`, `bytes`) of a complete
-/// page is its own entries counted: a page with no `pagination` and no
-/// partial mark holds the whole listing. A paged or partial page keeps it,
-/// the only source of the whole listing's split and size.
-fn drop_complete_listing_summary(data: &mut Map<String, Value>, shared_reasons: bool) {
-    let partial =
-        data.get("isPartial") == Some(&Value::Bool(true)) || shared_reasons || states_reasons(data);
-    let counts = data
-        .get("summary")
-        .and_then(Value::as_object)
-        .is_some_and(|summary| {
-            summary
-                .keys()
-                .all(|key| matches!(key.as_str(), "fileCount" | "dirCount" | "bytes"))
-        });
-    if counts && !partial && !data.contains_key("pagination") {
-        data.remove("summary");
-    }
 }
 
 /// A partial page states it once. `partialReasons` already say so, and a

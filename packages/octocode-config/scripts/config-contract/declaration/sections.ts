@@ -105,14 +105,12 @@ export const sections: ContractInput['sections'] = {
       enableSecurity: {
         type: 'boolean',
         default: false,
-        keyAliases: ['enableSecurityCheck'],
         description:
           'Expose securityCheck through MCP: it asks OSV (api.osv.dev, operated by Google) about packages, sending each public package name and version it checks. Off, MCP leaves it out and sends nothing. The CLI always offers it, and a CLI call sends the package name to OSV only when you run it. Restart MCP after changing this setting.',
         notes:
           'Home-only, so a repository can turn it off for MCP but cannot turn it on.',
         env: {
           name: 'OCTOCODE_ENABLE_SECURITY',
-          aliases: ['OCTOCODE_SECURITY_CHECKS'],
           dotenv: 'home',
           workspaceNarrowsTo: 'false',
         },
@@ -281,9 +279,9 @@ export const sections: ContractInput['sections'] = {
         default: null,
         credential: true,
         description:
-          'Classification provider API key. A nonblank value exposes clasify and read-tool classifiers in MCP and the CLI; without one, a CLI clasify call answers where to get a key. Discovery makes no provider request.',
+          'TypeSafe classification API key. A nonblank value exposes clasify and read-tool classifiers in MCP and the CLI; without one, a CLI clasify call answers where to get a key. Discovery makes no provider request.',
         env: {
-          name: 'OCTOCODE_CLASSIFICATION_API',
+          name: 'OCTOCODE_TYPESAFE_KEY',
           dotenv: 'home',
           normalize: 'trim',
         },
@@ -297,9 +295,9 @@ export const sections: ContractInput['sections'] = {
         type: 'url',
         default: null,
         description:
-          'Classification provider API root, for a proxy, gateway or compatible provider that serves the same API.',
+          'TypeSafe classification API root, for a proxy, gateway or compatible provider that serves the same API.',
         env: {
-          name: 'OCTOCODE_CLASSIFICATION_API_HOST',
+          name: 'OCTOCODE_TYPESAFE_HOST',
           dotenv: 'home',
           normalize: 'trim',
         },

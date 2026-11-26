@@ -144,7 +144,7 @@ pub(crate) fn match_context(query: &Q) -> (usize, usize) {
     }), else => DEFAULT)
 }
 pub(crate) fn match_options(query: &Q) -> Option<(CaseMode, RegexEngine)> {
-    match_operation!(query, q => (CaseMode::Smart, q.regex_engine))
+    match_operation!(query, q => (q.case_mode, q.regex_engine))
 }
 pub(crate) fn section_names(query: &Q) -> Vec<String> {
     any_operation!(query, q => q.sections.iter().map(ToString::to_string).collect())

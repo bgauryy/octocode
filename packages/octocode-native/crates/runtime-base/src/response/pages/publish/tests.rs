@@ -186,8 +186,11 @@ fn reasons_the_rows_share_state_each_row_partial_once() {
     );
 }
 
+/// A listing's counts are stated on every page that carries them: a complete
+/// page groups its rows by directory, so the count a claim cites is the
+/// summary's, never a tally of the rows.
 #[test]
-fn a_listing_summary_is_stated_only_on_a_paged_or_partial_page() {
+fn a_listing_summary_is_stated_on_complete_paged_and_partial_pages() {
     let counts = json_fixture(r#"{"fileCount": 2, "dirCount": 1}"#);
     let mut output = json!({"results":[
         {"index":0,"data":{"files":[],"summary":counts}},
@@ -197,9 +200,9 @@ fn a_listing_summary_is_stated_only_on_a_paged_or_partial_page() {
     ]});
     publish_rows(&mut output);
     let rows = output["results"].as_array().expect("rows");
-    assert!(rows[0]["data"].get("summary").is_none(), "{}", rows[0]);
-    assert!(rows[1]["data"].get("summary").is_some(), "{}", rows[1]);
-    assert!(rows[2]["data"].get("summary").is_some(), "{}", rows[2]);
+    for row in rows {
+        assert_eq!(row["data"]["summary"], counts, "{row}");
+    }
 }
 
 #[test]

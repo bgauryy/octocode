@@ -11,9 +11,9 @@ async fn a_failed_github_source_keeps_its_transport_error_and_fresh_read() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[
         ("OCTOCODE_BETA", "true".into()),
-        ("OCTOCODE_CLASSIFICATION_API", "fixture-only".into()),
+        ("OCTOCODE_TYPESAFE_KEY", "fixture-only".into()),
         (
-            "OCTOCODE_CLASSIFICATION_API_HOST",
+            "OCTOCODE_TYPESAFE_HOST",
             crate::support::UNMOCKED_GITHUB_API_URL
                 .trim_end_matches("/api/v3")
                 .into(),

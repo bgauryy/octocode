@@ -10,6 +10,7 @@ use octocode_test_support::json_fixture;
 use serde_json::json;
 
 mod beside_cursor;
+mod ignored;
 mod readings;
 mod strictness;
 

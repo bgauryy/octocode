@@ -137,7 +137,7 @@ or renamed in one step with regeneration and the native change.
 | `local.enabled` | Turns the local section on for MCP | `sections.ts`, `OCTOCODE_ENABLE_LOCAL` | changed: default `false` |
 | `enableSecurity` (under `tools`) | Turns the security section on for MCP | `sections.ts`, `OCTOCODE_ENABLE_SECURITY` | changed: renamed from that switch / `OCTOCODE_SECURITY_CHECKS` (Q2) |
 | `tools.enableClone` | Extra opt-in of `ghCloneRepo` | `sections.ts`, `OCTOCODE_ENABLE_CLONE` | read |
-| `classification.api` | The key that turns the clasify section on, on both surfaces | `sections.ts`, `OCTOCODE_CLASSIFICATION_API` | read |
+| `classification.api` | The key that turns the clasify section on, on both surfaces | `sections.ts`, `OCTOCODE_TYPESAFE_KEY` | read |
 | `ToolFamily` | Execution and policy scope | core `names.ts`, `id.rs` | read |
 | Catalog row | One tool in `octocode schema` | native CLI | changed: gains `section` |
 
@@ -184,7 +184,7 @@ which is why the measured instructions shrink with the tool list.
 | F2 | User who wants local tools on MCP | on without acting → on after `OCTOCODE_ENABLE_LOCAL=true` in the server entry, or `octocode config set local.enabled true` | `tools/list` then names `localSearch`, `localFetch`, `structureSearch`, `astSearch`, `lspSearch` | V2, V3 |
 | F3 | Agent on MCP | `ghCloneRepo` listed with cloning on even when nothing can read the checkout → listed only when the local section is on too | `OCTOCODE_ENABLE_CLONE=true` alone: `ghCloneRepo` absent | V4 |
 | F4 | User who wants advisory checks on MCP | `OCTOCODE_SECURITY_CHECKS=true` → `OCTOCODE_ENABLE_SECURITY=true` | `tools/list` names `securityCheck` | V5 |
-| F5 | User with a classification key | `clasify` listed when the key is set → the same | `OCTOCODE_CLASSIFICATION_API=<key>` lists `clasify` | V6 |
+| F5 | User with a classification key | `clasify` listed when the key is set → the same | `OCTOCODE_TYPESAFE_KEY=<key>` lists `clasify` | V6 |
 | F6 | Agent or user reading the catalog | a tool that is off states the setting it needs → every tool also states its section | `octocode schema` rows carry `"section":"local"` | V7 |
 | F7 | Graph MCP user; user running `octocode mcp install` | graph tools listed because local tools default on → the graph launcher turns the local section on itself; the installer says local tools are off and how to turn them on | `octocode mcp install --enable-local true` writes the variable | V9, V10 |
 | F8 | Reader of the docs | docs say local tools are on by default → docs describe the four sections and the new default | [CONFIGURATION.md](../CONFIGURATION.md#tool-availability-cli-and-mcp) | V11 |
@@ -237,7 +237,7 @@ hidden tool's `unavailableReason` reads "it needs local.enabled (OCTOCODE_ENABLE
 | `local.enabled` | `OCTOCODE_ENABLE_LOCAL` | `false` | default flipped; description states that it turns the local section on for MCP |
 | `enableSecurity` (under `tools`) | `OCTOCODE_ENABLE_SECURITY` | `false` | renamed (Q2); OSV egress text unchanged |
 | `tools.enableClone` | `OCTOCODE_ENABLE_CLONE` | `false` | description adds "needs local tools on MCP" |
-| `classification.api` | `OCTOCODE_CLASSIFICATION_API` | unset | none |
+| `classification.api` | `OCTOCODE_TYPESAFE_KEY` | unset | none |
 
 `local.enabled` keeps `workspaceNarrowsTo: 'false'`. With a `false` default this makes it home-only in
 effect: the MCP server entry's environment, the home `.env` or `octocode config set local.enabled true` turn
@@ -383,7 +383,9 @@ the current name wins when both are set. One setting uses it: the security switc
 `OCTOCODE_ENABLE_SECURITY` and `tools.enableSecurity`, still read as `OCTOCODE_SECURITY_CHECKS` and as the
 enableSecurityCheck key. Tests hold that a repository's `.env` or `.octocoderc` cannot use an earlier name to
 turn on a home-only setting. Rejected: unprefixed names (collisions); a rename with no alias (breaks every
-install that set the switch). Reverses if: no 20.0–20.2 install is left to carry the old names.
+install that set the switch). Reverses if: no 20.0–20.2 install is left to carry the old names. Reversed
+2026-11-26: no 20.x release was published, so no install carries the old names; the aliases, `keyAliases`
+and the alias mechanism were removed, and only `OCTOCODE_ENABLE_SECURITY` and `tools.enableSecurity` are read.
 
 **D8: A description names another section's tool only in a gated clause.** Evidence: with the default
 session, ghGetFileContent pointed at clasify and artifactSearch at securityCheck, hedged "if available".
@@ -396,7 +398,7 @@ tool nowhere else. Rejected: the hedge alone (the agent cannot tell whether "ava
 
 | Risk | Detection or prevention |
 |---|---|
-| Users lose local tools silently on upgrade | release notes and the [upgrade guide](../V19_V20.md) lead with it; `octocode mcp install` and `octocode config --json` state that local tools are off and the variable to set |
+| Users lose local tools silently on upgrade | release notes and the [upgrade guide](../V20.md) lead with it; `octocode mcp install` and `octocode config --json` state that local tools are off and the variable to set |
 | Agents answer GitHub questions worse without clone-and-search | V8 measures it before the default ships; D4 reverses on a loss |
 | An old `OCTOCODE_SECURITY_CHECKS=true` is ignored silently | the rename table in the upgrade guide; whether config diagnostics flag an unknown `OCTOCODE_*` variable is unverified (Q3) |
 | Tests that assumed local-on-MCP by default fail | 21 Rust files reference the setting; each MCP-surface test sets it explicitly (T4) |
@@ -414,7 +416,7 @@ tool nowhere else. Rejected: the hedge alone (the agent cannot tell whether "ava
 | T5 | Rename that switch to `enableSecurity` (under `tools`), `OCTOCODE_SECURITY_CHECKS` → `OCTOCODE_ENABLE_SECURITY`, with every reader and test in one step | `sections.ts`, `availability.rs`, `docs-verify.mjs`, `skills/octocode-research/references/tool-flow-carry.md` | F4 | T3 | no match for the old names outside the upgrade guide; V5 holds | done: `OCTOCODE_ENABLE_SECURITY` and `tools.enableSecurity`; the earlier variable and file key are read as aliases (D7) |
 | T6 | Graph launcher sets `OCTOCODE_ENABLE_LOCAL`; `octocode mcp install` result states the local state; `server.json` lists the variable | `packages/octocode-graph/src/runtime/mcp-server.ts`, `crates/cli/src/cli/mcp_install.rs`, `packages/octocode-mcp/server.json` | F7 | T4 | V9 and V10 hold | done: launcher, `server.json`, and the installer names the flag when the entry leaves local tools off |
 | T7 | `docs-verify` computes the default MCP list from the contract and checks the manifest's conditional notes | `skills-dev/octocode-dev/scripts/docs-verify.mjs`, `packages/octocode-mcp/manifest.json` | F8 | T4 | `$DEV gates` docs row green; the script names no tool | done: `docs-verify` and `sync-manifest.mjs` read the section from the contract |
-| T8 | User docs: sections table, new default, local profile in place of the remote profile, settings table, rename table, tool counts | `docs/CONFIGURATION.md`, `docs/OCTOCODE_MCP.md`, `docs/OCTOCODE_TOOLS.md`, `docs/OCTOCODE_CLI.md`, `docs/V19_V20.md`, `README.md`, `packages/octocode-mcp/README.md`, `packages/octocode-benchmark/TESTING_ENV.md` | F8 | T4, T5 | V11 holds | done |
+| T8 | User docs: sections table, new default, local profile in place of the remote profile, settings table, rename table, tool counts | `docs/CONFIGURATION.md`, `docs/OCTOCODE_MCP.md`, `docs/OCTOCODE_TOOLS.md`, `docs/OCTOCODE_CLI.md`, `docs/V20.md`, `README.md`, `packages/octocode-mcp/README.md`, `packages/octocode-benchmark/TESTING_ENV.md` | F8 | T4, T5 | V11 holds | done |
 | T9 | Plugin and extension launch configs per Q1; audit public skills for local-tool assumptions | `packages/octocode-claude-plugin/.mcp.json`, `packages/octocode-codex-plugin/`, `packages/octocode-vscode/`, `skills/` | F7, P3 | T4, P3 | `$DEV skills:check` passes; each plugin's `tools/list` matches the Q1 answer | done for the launch configs (the plugins and the VS Code extension turn local tools on; the owner may reverse it); the setup skill passes `--enable-local true` |
 | T10 | Measure the GitHub set with local tools off | a round manifest under `packages/octocode-benchmark/harness/rounds/` | F1 | T3 | V8 recorded in `packages/octocode-benchmark/results/` | todo |
 
@@ -451,7 +453,7 @@ core publishes first.
   `OCTOCODE_ENABLE_LOCAL=true` added it is listed.
 - **V5 (F4):** given `OCTOCODE_ENABLE_SECURITY=true`, when the client calls `tools/list`, then
   `securityCheck` is listed; given only `OCTOCODE_SECURITY_CHECKS=true`, it is not.
-- **V6 (F5):** given a nonblank `OCTOCODE_CLASSIFICATION_API`, when the client calls `tools/list`, then
+- **V6 (F5):** given a nonblank `OCTOCODE_TYPESAFE_KEY`, when the client calls `tools/list`, then
   `clasify` is listed; given a blank value, it is not, on both surfaces.
 - **V7 (F6):** given any configuration, when a user runs `octocode schema`, then every row has a `section`
   that equals the core policy, and the CLI's tool set is the same as before the change.
@@ -499,7 +501,7 @@ Estimates, not measurements: the 2–3% cost saving and the fixed prompt of 15,0
 - [docs-verify.mjs](../../skills-dev/octocode-dev/scripts/docs-verify.mjs): the tool counts the docs must state.
 - [names.ts](https://github.com/bgauryy/octocode-mcp-host/blob/d650921462120f69db830a1c407b08a39edc5029/packages/octocode-core/src/toolContract/names.ts) and [instructions.ts](https://github.com/bgauryy/octocode-mcp-host/blob/d650921462120f69db830a1c407b08a39edc5029/packages/octocode-core/src/toolContract/instructions.ts): `ToolPolicy`, `ToolFamily`, route filtering, in `octocode-mcp-host` at commit `d650921`.
 - [CONFIGURATION.md](../CONFIGURATION.md): today's availability table, remote research profile and settings table.
-- [upgrade guide](../V19_V20.md): the renamed-settings table that T5 and T8 extend.
+- [upgrade guide](../V20.md): the renamed-settings table that T5 and T8 extend.
 - [context-efficiency RFC](context-efficiency.md): the earlier compaction of the published schemas.
 - [METHOD.md](../../packages/octocode-benchmark/METHOD.md): how a cost claim is accepted.
 - [26 November round](../../packages/octocode-benchmark/results/rounds/20.2.0-2026-11-26-local-gh/README.md): cost, calls and quality of Octocode against `gh`.

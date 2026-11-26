@@ -170,7 +170,7 @@ pub(super) async fn commit(
         }
     } else {
         let files = filter.page(loaded.items, state, query, query.include_diff());
-        commit_file_page(&mut out, files, query, path.is_none(), &commit)
+        commit_file_page(&mut out, files, query, &commit)
     };
     attach_diff_continuations(
         &mut out,
@@ -324,20 +324,10 @@ fn commit_file_page(
     out: &mut Value,
     files: FilteredPage,
     query: &HistoryItemRequest,
-    unscoped: bool,
     commit: &CommitFacts<'_>,
 ) -> FilePage {
-    // A first page that lists every changed file (no scope, no grep) needs
-    // no separate count.
-    let whole = unscoped
-        && gh_get_history_item_query::match_strings(query).is_none()
-        && files.page["countScope"] != "partial"
-        && files.page["outOfRange"] != true
-        && gh_get_history_item_query::page(query).unwrap_or(1) == 1
-        && files.page["hasMore"] != true;
-    if whole && let Some(fields) = out.as_object_mut() {
-        fields.remove("changedFileCount");
-    }
+    // A first page that lists every changed file keeps `changedFileCount`:
+    // its rows group by directory, so the count a claim cites is the field.
     shape_file_page(
         out,
         files,

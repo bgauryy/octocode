@@ -56,7 +56,7 @@ const TASKS = {
   'lint:rust': ['Local clippy ratchet: plain clippy plus production-only bans and lints, whose old findings may only shrink ([--write], [--adopt])', [script('rust-lint.mjs')]],
   lint: ['Oxlint baseline (the one oxlint run), then every workspace lint:own script', [OXLINT_BASELINE, health('run', 'lint:own', '--parallel')]],
   'lint:ci': ['Lint without native workspace scripts (the oxlint baseline still covers them)', [OXLINT_BASELINE, health('run', 'lint:own', ...CI_EXCLUDE)]],
-  format: ['Fix the formatting lint checks: every workspace `format` script except native (prettier --write); for Rust, rustfmt --edition 2024 only the files you changed', [yarn('workspaces', 'foreach', '-Apt', ...CI_EXCLUDE, 'run', 'format')]],
+  format: ['Fix the formatting lint checks: every workspace `format` script (prettier --write); for Rust, rustfmt --edition 2024 only the files you changed', [yarn('workspaces', 'foreach', '-Apt', 'run', 'format')]],
   typecheck: ['Run every workspace typecheck script', [health('run', 'typecheck', '--parallel')]],
   'typecheck:ci': ['Typecheck without native', [health('run', 'typecheck', ...CI_EXCLUDE)]],
   verify: ['Full repo contract: oxlint baseline (the one oxlint run), core lint-copy sync, dedupe, docs, per-package verify:own', [OXLINT_BASELINE, script('core-lint-sync.mjs'), health('verify')]],

@@ -26,7 +26,8 @@ pub(super) struct Paging {
     capped: bool,
     /// The provider's own match count (a search's `total_count`).
     matched: usize,
-    /// A complete one-page REST list counts its rows exactly.
+    /// A REST list's exact row count: a complete first page, or the size
+    /// the transport read for page 1 of several.
     exact_list_total: Option<usize>,
     /// Rows this page shows.
     shown: usize,
@@ -57,7 +58,7 @@ impl Paging {
             total: reach.total,
             capped: reach.capped,
             matched: result.total_count,
-            exact_list_total: (result.listed && page == 1 && !more).then_some(result.items.len()),
+            exact_list_total: result.list_total,
             shown: result.items.len(),
             listed: result.listed,
             incomplete: result.incomplete_results,
@@ -69,9 +70,9 @@ impl Paging {
     /// The page facts: where the page starts and the rows it shows, with
     /// the total when one is known. A search total the provider caps is a
     /// floor (`countScope:"capped"`), one it reported incomplete is
-    /// `partial`, and an exact one says `complete`; a REST list with more
-    /// pages states no total (the rows listed so far read as the list's
-    /// size). The cursor rides
+    /// `partial`, and an exact one says `complete`; page 1 of a REST list
+    /// states the size the transport read, and a later page or a list with
+    /// no stated size states none (the rows listed so far are not one). The cursor rides
     /// `next.nextPage`, bounded by the contract's `page` maximum.
     fn pagination(&self) -> Value {
         use octocode_runtime_base::response::pages::PageFacts;

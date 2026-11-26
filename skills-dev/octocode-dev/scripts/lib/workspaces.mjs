@@ -19,7 +19,8 @@ const PACKAGE_SCRIPT_POLICY = ['build', 'lint', 'test', 'typecheck', 'verify'];
 export const SKILL_SCRIPT_POLICY = ['build', 'lint', 'test'];
 // oxlint runs once per repo-wide run, in oxlint-baseline.mjs. A script that includes oxlint has an
 // oxlint-free variant, which repo-wide runs use instead: `lint:own` (its other checks; absent when oxlint
-// is all the workspace lints with) and `verify:own` (the full gate without oxlint; required beside `verify`).
+// is all the workspace lints with) and `verify:own` (the full gate without oxlint; required beside `verify`). A workspace
+// with no `lint:oxlint` runs no oxlint, so repo-wide runs use its `lint` as is.
 export const OWN_SCRIPTS = { lint: 'lint:own', verify: 'verify:own' };
 // Build-order edges that are not package dependencies: the consumer's build
 // reads or rewrites files another workspace's build generates, so they must

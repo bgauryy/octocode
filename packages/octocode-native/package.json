@@ -37,7 +37,6 @@
     "lint:own": "node scripts/build-slot.cjs -- cargo clippy --config 'build.warnings=\"deny\"' --locked --workspace --all-targets --all-features",
     "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
     "lint": "yarn lint:oxlint && yarn lint:own",
-    "format": "cargo fmt --all",
     "fmt:rust:check": "cargo fmt --all -- --check",
     "typecheck": "yarn run -T tsgo --noEmit",
     "mutants": "node scripts/build-slot.cjs -- cargo mutants",

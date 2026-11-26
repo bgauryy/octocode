@@ -311,8 +311,8 @@ fn config_get_masks_secrets_and_names_their_source() {
         canonical_project_env
     );
 
-    let file_key = as_json(&get("OCTOCODE_CLASSIFICATION_API", true, None));
-    assert_eq!(file_key["value"], "[REDACTED-OCTOCODE_CLASSIFICATION_API]");
+    let file_key = as_json(&get("OCTOCODE_TYPESAFE_KEY", true, None));
+    assert_eq!(file_key["value"], "[REDACTED-OCTOCODE_TYPESAFE_KEY]");
     assert_eq!(file_key["source"], "home");
     assert_eq!(
         file_key["path"],
@@ -327,7 +327,7 @@ fn config_get_masks_secrets_and_names_their_source() {
     let by_setting = get("classification.api", true, None);
     assert!(by_setting.status.success());
     let by_setting = as_json(&by_setting);
-    assert_eq!(by_setting["key"], "OCTOCODE_CLASSIFICATION_API");
+    assert_eq!(by_setting["key"], "OCTOCODE_TYPESAFE_KEY");
     assert_eq!(by_setting["value"], file_key["value"]);
     assert_eq!(by_setting["path"], file_key["path"]);
 

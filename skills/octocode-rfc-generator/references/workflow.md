@@ -22,7 +22,7 @@ Only when a consequential disagreement survives source review, no direct check s
 
 - Keep RFC revision, criteria, source evidence, proposed answers, and gaps together; [closure rules](questions.md#track-and-close-questions) still apply.
 - Delegated reviewers (when authorized): Delphi: same evidence, independent first positions, then share; keep dissent. Task contract for each: objective a different question, inputs the shared evidence, constraints read-only (you keep write authority and judgment), output a position; keep partial returns.
-- Credential: `OCTOCODE_CLASSIFICATION_API` or `classification.api` in `.octocoderc`; use [shared configuration handling](configuration.md).
+- Credential: `OCTOCODE_TYPESAFE_KEY` or `classification.api` in `.octocoderc`; use [shared configuration handling](configuration.md).
 
 1. Name the next action this judgment could change; inspect the live query: `octocode schema clasify --view query`. Check credentials without displaying them; missing access leaves review partial, never approved.
 2. Submit typed questions over the pinned evidence and competing arguments, including an uncertainty outcome. Inspect every page, error and coverage limit. Retry only for a useful repair or new evidence; otherwise preserve the partial result.

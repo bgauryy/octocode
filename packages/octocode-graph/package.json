@@ -43,6 +43,7 @@
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
+    "clean": "rm -rf dist/",
     "prepack": "yarn build",
     "format": "prettier --write \"src/**/*.ts\" \"scripts/**/*.{mjs,js}\"",
     "lint:own": "prettier --check \"src/**/*.ts\" \"scripts/**/*.{mjs,js}\" && node scripts/build.mjs --check-generated && node scripts/lint.mjs skills/octocode-graph",

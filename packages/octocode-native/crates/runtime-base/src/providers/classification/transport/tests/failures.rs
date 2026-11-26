@@ -32,7 +32,7 @@ async fn html_forbidden_preserves_request_without_claiming_the_cause() {
     .unwrap_err();
     assert_eq!(error.code, ErrorCode::ClassificationProviderError);
     assert!(error.message.contains("403"));
-    assert!(error.hints[0].contains("OCTOCODE_CLASSIFICATION_API"));
+    assert!(error.hints[0].contains("OCTOCODE_TYPESAFE_KEY"));
     assert!(!error.message.contains("firewall"));
     assert!(!error.hints.iter().any(|hint| hint.contains("key is fine")));
     let received = server.received_requests().await.unwrap();
@@ -210,4 +210,39 @@ fn retry_delay_floors_zero_and_backoff_uses_full_jitter() {
     }
     assert!(distinct.len() > 10, "backoff is not jittered");
     assert!(BACKOFF.after(None, 30) <= BACKOFF.cap);
+}
+
+/// A classification error that points at a variable names the contract's
+/// current one.
+#[test]
+fn configuration_errors_name_the_current_variables() {
+    use crate::config::field;
+    use reqwest::StatusCode;
+    let key = field::CLASSIFICATION_API.env.expect("bound");
+    let host = field::CLASSIFICATION_API_HOST.env.expect("bound");
+    let control = SecretString::from("bad\nkey".to_owned());
+    let circuit = gate::GateDenied::CircuitOpen {
+        retry_after: Duration::from_secs(1),
+    };
+    let cases = [
+        (endpoint("not a url", "v1").unwrap_err(), host.name),
+        (endpoint("http://api.example", "v1").unwrap_err(), host.name),
+        (check_key(&control).unwrap_err(), key.name),
+        (status_error(StatusCode::UNAUTHORIZED, None), key.name),
+        (status_error(StatusCode::FORBIDDEN, None), key.name),
+        (status_error(StatusCode::FOUND, None), host.name),
+        (
+            status_error(StatusCode::INTERNAL_SERVER_ERROR, None),
+            host.name,
+        ),
+        (errors::quota_exhausted(), key.name),
+        (errors::credential_rejected(), key.name),
+        (stalled(Duration::from_secs(1)), host.name),
+        (overloaded_error(503), host.name),
+        (denied(circuit), host.name),
+    ];
+    for (error, name) in cases {
+        let text = format!("{} {}", error.message, error.hints.join(" "));
+        assert!(text.contains(name), "{name}: {text}");
+    }
 }

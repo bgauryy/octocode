@@ -13,8 +13,8 @@ pub fn provider_env<'a>(
 ) -> Vec<(&'a str, String)> {
     let mut env = vec![
         ("OCTOCODE_BETA", "true".to_owned()),
-        ("OCTOCODE_CLASSIFICATION_API", "secret".to_owned()),
-        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("OCTOCODE_TYPESAFE_KEY", "secret".to_owned()),
+        ("OCTOCODE_TYPESAFE_HOST", server.uri()),
     ];
     env.extend(extra.iter().cloned());
     env

@@ -43,7 +43,7 @@ async fn clasify_provider_errors_only_on_requested_models_invocation() {
         let runtime = workspace.runtime(&provider_env(
             &server,
             &[
-                ("OCTOCODE_CLASSIFICATION_API", key.clone()),
+                ("OCTOCODE_TYPESAFE_KEY", key.clone()),
                 ("OCTOCODE_BETA", "false".into()),
             ],
         ));
@@ -85,11 +85,11 @@ async fn runtime_and_catalog_construction_never_contact_provider() {
     let server = MockServer::start().await;
     let workspace = Workspace::new();
     for env in [
-        vec![("OCTOCODE_CLASSIFICATION_API", "".into())],
-        vec![("OCTOCODE_CLASSIFICATION_API", "  ".into())],
+        vec![("OCTOCODE_TYPESAFE_KEY", "".into())],
+        vec![("OCTOCODE_TYPESAFE_KEY", "  ".into())],
         vec![("DISABLE_TOOLS", "clasify".into())],
         vec![("TOOLS_TO_RUN", "localFetch".into())],
-        vec![("OCTOCODE_CLASSIFICATION_API", "fixture-key".into())],
+        vec![("OCTOCODE_TYPESAFE_KEY", "fixture-key".into())],
     ] {
         for surface in [
             octocode_runtime_base::config::RuntimeSurface::Cli,

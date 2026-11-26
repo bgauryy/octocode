@@ -148,7 +148,17 @@ pub struct OverBudget {
     /// The requests already sent: a source the window refused whole, whose
     /// sections are what was not admitted.
     pub spent: u64,
+    /// The provider window each first-round request was priced at whole
+    /// (input tokens), when no request of the model was taken here yet.
+    pub whole_windows: Option<u64>,
+    /// Requests sent with no evidence to learn the provider's own prompt
+    /// before this price ([`LEARNED_PROMPT`]): billed, so counted in `calls`.
+    pub learned: u64,
 }
+
+/// What a row says when it spent one of the requests it names learning the
+/// provider's own prompt before pricing its first round.
+pub(super) const LEARNED_PROMPT: &str = "One request with no evidence measured the provider's own prompt before this row was priced; usage counts it.";
 
 /// What bounds a row's first round: its `maxRequests`, or, without one, the
 /// sources, resources and items it names, one request each.
@@ -261,16 +271,34 @@ pub(super) fn over_budget(row: &Row, over: &OverBudget, can_resume: bool) -> Val
             over.price.planned,
         )
     };
+    let error = if over.learned > 0 {
+        format!("{error} {LEARNED_PROMPT}")
+    } else {
+        error
+    };
+    let error = match over.whole_windows {
+        Some(window) => format!(
+            "{error} No request of this model was taken here yet, so each is priced at its whole window ({window} input tokens)."
+        ),
+        None => error,
+    };
     let mut failure = json!({
         "errorCode": ErrorCode::ClassificationOverBudget,
         "error": error,
     });
     let mut usage = Map::new();
-    usage.insert("calls".into(), json!(over.spent));
+    usage.insert(
+        "calls".into(),
+        json!(over.spent.saturating_add(over.learned)),
+    );
     if row.walk_requests > 0 {
         usage.insert(
             "walkCalls".into(),
-            json!(row.walk_requests.saturating_add(over.spent)),
+            json!(
+                row.walk_requests
+                    .saturating_add(over.spent)
+                    .saturating_add(over.learned)
+            ),
         );
     }
     usage.extend(price_fields(over.price, over.price.tokens));

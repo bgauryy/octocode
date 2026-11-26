@@ -172,30 +172,3 @@ test('analyze: totals are sums of runs, the ledger accounts for every character 
     cleanup();
   }
 });
-
-// The stored 25 November round (campaigns/ is local): analyze must reproduce the numbers its scratch harness wrote.
-const stored = path.join(HARNESS, 'rounds', 'v19-v20-gh-2026-11-25.json');
-const reference = fs.existsSync(stored) ? path.join(loadManifest(stored).campaign, 'numbers.json') : undefined;
-test('analyze reproduces the stored 25 November round', { skip: !reference || !fs.existsSync(reference) ? 'the campaign folder is not on this machine' : false }, () => {
-  const numbers = analyze(loadManifest(stored));
-  const was = JSON.parse(fs.readFileSync(reference, 'utf8'));
-  for (const [group, arms] of Object.entries(was.summary)) {
-    for (const [arm, s] of Object.entries(arms)) {
-      const now = numbers.groups[group].arms[arm];
-      for (const key of ['n', 'judged', 'quality', 'tens', 'calls', 'failed', 'cost', 'newTotal', 'cachedTotal', 'outputTotal', 'chars', 'firstCallCacheRead', 'coldPrompt']) assert.equal(now[key], s[key], `${group} ${arm} ${key}`);
-      assert.deepEqual(now[`vs_${arm === 'v20' ? 'v19' : 'v20'}`], s[`vs_${arm === 'v20' ? 'v19' : 'v20'}`]);
-    }
-  }
-  for (const [name, entry] of Object.entries(was.per)) {
-    for (const [arm, run] of Object.entries(entry.arms)) {
-      const now = numbers.per[name].passes[1].arms[arm];
-      for (const key of ['calls', 'failed', 'chars', 'new', 'cached', 'output', 'cost', 'modelCalls', 'answerChars']) assert.equal(now[key], run[key], `${name} ${arm} ${key}`);
-    }
-  }
-  const all = numbers.groups['(all questions)'].arms;
-  for (const [arm, s] of Object.entries(all)) {
-    assert.equal(s.failed, sum(Object.values(was.per).map(entry => entry.arms[arm]?.failed ?? 0)), `${arm} failed over every question`);
-    assert.equal(sum(Object.values(s.ledger.fields).map(row => row.chars)), s.charsTotal);
-    assert.ok(Math.abs(s.ledger.newInputTokens.total - s.newTotal) <= 0.02 * s.newTotal);
-  }
-});

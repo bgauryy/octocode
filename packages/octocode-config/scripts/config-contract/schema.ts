@@ -34,9 +34,6 @@ const environmentOnly = z.strictObject({
 
 const envBinding = z.strictObject({
   name: envName,
-  // Earlier names of the variable. Each reads as `name` wherever a variable is read (the process, a `.env`), with the
-  // same trust rules; `name` wins when both are set. Docs, messages and saved files use `name`.
-  aliases: z.array(envName).min(1).optional(),
   dotenv: dotenvPolicy.optional(),
   normalize: z.enum(['trim', 'lower']).optional(),
   workspaceNarrowsTo: z.string().min(1).optional(),
@@ -45,12 +42,6 @@ const envBinding = z.strictObject({
 // Properties every field kind may carry; each kind below picks the ones it allows.
 const common = {
   description: z.string().min(1),
-  // Earlier keys of this setting in its section of `.octocoderc`. A file that still spells one is read as the current
-  // key, under the same rules; the current key wins when a file holds both.
-  keyAliases: z
-    .array(z.string().regex(/^[a-z][A-Za-z0-9]*$/))
-    .min(1)
-    .optional(),
   notes: z.string().optional(),
   env: envBinding.optional(),
   displayDefault: z.string().optional(),

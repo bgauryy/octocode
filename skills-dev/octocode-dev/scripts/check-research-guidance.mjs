@@ -122,7 +122,7 @@ function resolveCli() {
       // Schema discovery performs no provider work; expose conditional fields
       // without requiring or using a developer's classification credential.
       stdio: 'pipe', timeout: 20000,
-      env: { ...process.env, OCTOCODE_BETA: '1', OCTOCODE_CLASSIFICATION_API: 'schema-validation-only' },
+      env: { ...process.env, OCTOCODE_BETA: '1', OCTOCODE_TYPESAFE_KEY: 'schema-validation-only' },
     }).toString()).querySchema;
   } catch (error) {
     // A failing selected build must not be replaced by another version on PATH.

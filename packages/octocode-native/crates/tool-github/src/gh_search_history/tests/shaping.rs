@@ -44,6 +44,7 @@ fn reaction_rankings_and_picked_fields_keep_the_provider_count() {
                     warnings: Vec::new(),
                     listed: false,
                     has_more: false,
+                    list_total: None,
                 };
                 let paging = super::shape::Paging::new(&page, 1, 10);
                 let value = super::shape::shape(&query, page, &paging, String::new());
@@ -469,6 +470,7 @@ fn the_search_terms_are_said_only_where_the_rows_do_not_explain_the_answer() {
             warnings: Vec::new(),
             listed: false,
             has_more: false,
+            list_total: None,
         };
         let paging = super::shape::Paging::new(&page, 1, 10);
         super::shape::shape(&query, page, &paging, "fix is:pr repo:o/r".to_owned())
@@ -530,6 +532,7 @@ fn shaped_page(row: Value, items: Vec<Value>) -> Value {
         warnings: Vec::new(),
         listed: false,
         has_more: false,
+        list_total: None,
     };
     let paging = super::shape::Paging::new(&page, 1, 10);
     super::shape::shape(&query, page, &paging, String::new())

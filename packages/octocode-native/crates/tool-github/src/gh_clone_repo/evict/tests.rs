@@ -108,3 +108,30 @@ fn the_commit_is_the_name_before_the_scope_key() {
     assert_eq!(commit_of(&dir), Some(sha.as_str()));
     assert_eq!(commit_of(Path::new("/h/clones/o/r/other")), None);
 }
+
+/// A checkout's size recorded when it was published is read instead of
+/// walking its files, so a cap pass reads one small file per checkout; one
+/// with no record is walked.
+#[test]
+fn a_recorded_size_decides_without_walking_the_checkout() {
+    let home = home();
+    let a = checkout(home.path(), "a", 10);
+    checkout(home.path(), "b", 20);
+    // `a` holds SIZE bytes on disk but its publish recorded 1 byte: walked,
+    // the two (2 * SIZE) pass the cap and `a` would go; recorded, they fit.
+    storage::record_size(&a, 1).unwrap();
+    assert_eq!(evict_to_cap(home.path(), SIZE + 1, |_| true), 0);
+    assert_eq!(survivors(home.path()), ["a", "b"]);
+    assert_eq!(storage::recorded_size(&a), Some(1));
+}
+
+/// A checkout an earlier build published has no recorded size: the first
+/// cap pass walks it once and records it, so the next pass reads it.
+#[test]
+fn an_unrecorded_checkout_is_walked_once_and_recorded() {
+    let home = home();
+    let old = checkout(home.path(), "old", 10);
+    assert_eq!(storage::recorded_size(&old), None);
+    assert_eq!(evict_to_cap(home.path(), 10 * SIZE, |_| true), 0);
+    assert_eq!(storage::recorded_size(&old), Some(SIZE));
+}

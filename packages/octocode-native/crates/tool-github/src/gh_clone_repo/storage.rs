@@ -440,6 +440,36 @@ fn git_dir(checkout: &Path) -> Option<PathBuf> {
     octocode_engine::search::walk::checkout_git_dir(checkout)
 }
 
+/// The checked-out size recorded inside a checkout's git directory when its
+/// stage was measured (or its reuse re-measured): the byte cap reads it
+/// instead of walking every file of every checkout. Git ignores it, and it
+/// travels with the stage when published.
+const SIZE_FILE: &str = "octocode-checked-out-bytes";
+
+/// Record that the checkout `path` holds `bytes` outside its git data.
+pub(super) fn record_size(path: &Path, bytes: u64) -> Result<(), GitError> {
+    let git_dir = git_dir(path).ok_or_else(|| {
+        GitError::new(
+            ErrorCode::FileAccessFailed,
+            "Clone checkout has no git directory to record its size in.",
+        )
+    })?;
+    octocode_io::atomic::write_atomic(
+        &git_dir.join(SIZE_FILE),
+        bytes.to_string().as_bytes(),
+        false,
+    )
+    .map_err(storage_io)
+}
+
+/// The size [`record_size`] wrote for the checkout `path`, if any.
+pub(super) fn recorded_size(path: &Path) -> Option<u64> {
+    let file = fs::File::open(git_dir(path)?.join(SIZE_FILE)).ok()?;
+    // A byte count's decimal digits: `u64::MAX` has 20.
+    let bytes = octocode_io::read::read_limited(file, 20).ok()??;
+    std::str::from_utf8(&bytes).ok()?.trim().parse().ok()
+}
+
 /// The last-use marker inside a checkout's git directory: its modification
 /// time is when the checkout was last cloned or reused. Git ignores it, so the
 /// checkout stays clean, and it travels with the stage when published.

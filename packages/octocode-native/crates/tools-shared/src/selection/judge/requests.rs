@@ -2,7 +2,10 @@
 //! not a request: the hits of one file share one state holding the union of
 //! their windows, each hit's own line included, and the question text every
 //! target shares; every question names its target line, so a state is sent
-//! once and a window informs its hit without passing it. A target whose own
+//! once and a window informs its hit without passing it. When each hit's
+//! window rides in its own question ([`Asking::own_windows`], clasify's
+//! units), the state holds no file's lines, so the hits of every file share
+//! requests, each label naming its path. A target whose own
 //! line is missing from the state is judged from its label alone, which is
 //! what a hit that lists no window (a clasify hit whose query asked no
 //! context) is meant to be. The provider judges the questions over one state
@@ -124,19 +127,19 @@ struct HitSize<'a> {
 }
 
 impl Group {
-    /// Whether the hit fits beside the group's: the same file, lines that
-    /// agree, the windows' characters under [`GROUP_STATE_CHARS`], and (when
+    /// Whether the hit fits beside the group's: the same file (any file,
+    /// `any_file`, when windows ride in their questions), lines that agree, the windows' characters under [`GROUP_STATE_CHARS`], and (when
     /// the caps ask) the state with the largest question (one question's
     /// window) and with every question (the request's) under them. An empty
     /// group takes any hit: one over the windows goes alone and the
     /// provider's own refusal decides.
-    fn accepts(&self, hit: &HitSize<'_>, fixed: usize, caps: Caps) -> bool {
+    fn accepts(&self, hit: &HitSize<'_>, fixed: usize, caps: Caps, any_file: bool) -> bool {
         let state = fixed
             .saturating_add(self.line_bytes)
             .saturating_add(hit.line_bytes);
         let largest = hit.questions.iter().copied().max().unwrap_or(0);
         self.slots.is_empty()
-            || (self.path.as_deref() == Some(hit.path)
+            || ((any_file || self.path.as_deref() == Some(hit.path))
                 && self.chars.saturating_add(hit.chars) <= GROUP_STATE_CHARS
                 && hit
                     .lines
@@ -381,7 +384,12 @@ pub(super) fn pack<'v>(
             .map(|(line, text)| format!("{line}\t{text}"))
             .collect::<Vec<_>>()
             .join("\n");
-        let mut state = json!({"path":group.path, "question":asking.hit_scope});
+        // Windows in their questions: each label names its path, the state none.
+        let mut state = if asking.own_windows {
+            json!({"question":asking.hit_scope})
+        } else {
+            json!({"path":group.path, "question":asking.hit_scope})
+        };
         if let Some(shared) = asking.shared {
             state[SHARED_QUESTIONS] = shared.clone();
         }
@@ -403,9 +411,12 @@ pub(super) fn pack<'v>(
         state
     };
     let hit_fixed = |path: &str| {
-        bytes_of(&with_shared(
-            json!({"path": path, "question": asking.hit_scope, "lines": "", "context": context}),
-        ))
+        let state = if asking.own_windows {
+            json!({"question": asking.hit_scope, "lines": "", "context": context})
+        } else {
+            json!({"path": path, "question": asking.hit_scope, "lines": "", "context": context})
+        };
+        bytes_of(&with_shared(state))
     };
     let unit_fixed = bytes_of(&with_shared(
         json!({"question": asking.unit_scope, "units": {}, "context": context}),
@@ -455,13 +466,15 @@ pub(super) fn pack<'v>(
         // A hit whose window rides in its question brings no line to the
         // shared state.
         let (lines, label) = if asking.own_windows {
-            (Vec::new(), with_window(target_label(target), &own, target))
+            let named = format!("{path} {}", target_label(target));
+            (Vec::new(), with_window(named, &own, target))
         } else {
             (own, target_label(target))
         };
         let questions = (asking.ask)(Some(&label))?;
         let sizes = questions.iter().map(question_bytes).collect::<Vec<_>>();
-        let known = group.path.as_deref() == Some(path) && group.targets.contains_key(&label);
+        let known = (asking.own_windows || group.path.as_deref() == Some(path))
+            && group.targets.contains_key(&label);
         let hit = HitSize {
             path,
             lines: &lines,
@@ -469,7 +482,7 @@ pub(super) fn pack<'v>(
             line_bytes: group.new_line_bytes(&lines),
             questions: if known { &[] } else { &sizes },
         };
-        if !group.accepts(&hit, hit_fixed(path), caps) {
+        if !group.accepts(&hit, hit_fixed(path), caps, asking.own_windows) {
             flush(&mut group, &mut requests);
         }
         group.path = Some(path.to_owned());

@@ -108,8 +108,8 @@ async fn admitted_sections_are_judged_concurrently_and_all_answer() {
     let runtime = workspace.runtime_with(
         &[
             ("OCTOCODE_BETA", "true".to_owned()),
-            ("OCTOCODE_CLASSIFICATION_API", "secret".to_owned()),
-            ("OCTOCODE_CLASSIFICATION_API_HOST", provider.uri.clone()),
+            ("OCTOCODE_TYPESAFE_KEY", "secret".to_owned()),
+            ("OCTOCODE_TYPESAFE_HOST", provider.uri.clone()),
         ],
         PROVIDER_LIMITS,
     );

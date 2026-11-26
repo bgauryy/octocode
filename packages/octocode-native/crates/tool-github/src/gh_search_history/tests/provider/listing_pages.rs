@@ -198,9 +198,87 @@ async fn a_capped_total_is_the_reachable_window() {
     }
 }
 
-/// A REST list page with more pages has no total: the rows listed so far
-/// are not stated as one, with no static warning, and the row carries no
-/// call for a count: the description routes that to a search.
+/// Page 1 of a REST list with more pages states the list's exact size: the
+/// same list read one row per page links its last page, which is the row
+/// count. Every list filter rides that read too.
+#[tokio::test]
+async fn a_rest_list_first_page_states_the_size_its_last_link_names() {
+    use wiremock::matchers::{method, path, query_param};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    let server = MockServer::builder().start().await;
+    for (operation, route, row, extra) in [
+        (
+            "commit",
+            "commits",
+            json!({"sha": "a".repeat(40), "commit": {"message": "Fix"}}),
+            json!({"path": "src"}),
+        ),
+        (
+            "pullRequest",
+            "pulls",
+            json_fixture(r#"{"number": 4, "title": "Fix", "state": "open"}"#),
+            json!({"filters": {"state": "open"}}),
+        ),
+    ] {
+        let size_link = format!(
+            "<{uri}/api/v3/repos/o/r/{route}?page=2&per_page=1>; rel=\"next\", \
+             <{uri}/api/v3/repos/o/r/{route}?page=37&per_page=1>; rel=\"last\"",
+            uri = server.uri()
+        );
+        // The size read: one row per page, the query's own filter kept.
+        let filter = if operation == "commit" {
+            ("path", "src")
+        } else {
+            ("state", "open")
+        };
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/o/r/{route}")))
+            .and(query_param("per_page", "1"))
+            .and(query_param(filter.0, filter.1))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("link", size_link.as_str())
+                    .set_body_json(json!([row.clone()])),
+            )
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        let page_link = format!(
+            "<{}/api/v3/repos/o/r/{route}?per_page=50&page=2>; rel=\"next\"",
+            server.uri()
+        );
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/o/r/{route}")))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("link", page_link.as_str())
+                    .set_body_json(json!([row])),
+            )
+            .mount(&server)
+            .await;
+        let mut input = json!({"operation": operation, "owner": "o", "repo": "r"});
+        for (key, value) in extra.as_object().expect("fields") {
+            input[key] = value.clone();
+        }
+        let query = serde_json::from_value(input).expect("query");
+        let data = execute(
+            &one_shot_provider(&server),
+            &query,
+            &default_context(),
+            &Passthrough,
+        )
+        .await
+        .expect("listing");
+        assert_eq!(data["pagination"]["hasMore"], true, "{data}");
+        assert_eq!(data["pagination"]["total"], 37, "{operation}: {data}");
+        assert!(data["pagination"].get("countScope").is_none(), "{data}");
+    }
+}
+
+/// A REST list page with more pages whose provider links no last page has no
+/// stated size: the rows listed so far are not stated as one, with no static
+/// warning, and the row carries no call for a count.
 #[tokio::test]
 async fn a_rest_list_page_with_more_states_no_total() {
     use wiremock::matchers::{method, path};

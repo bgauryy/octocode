@@ -1,6 +1,7 @@
 //! What bounds a row's provider requests before any is sent: its
 //! `maxRequests`, which admits a first round that fits it, or, without one,
-//! the sources, resources and items it names, one request each. A plan whose
+//! what the sources, resources and items it names could spend, one request
+//! window each. A plan whose
 //! own expansion passes that bound sends nothing, states its price, and
 //! offers `next.confirm`, which runs it.
 
@@ -81,13 +82,16 @@ fn assert_refused(data: &Value) -> u64 {
     planned
 }
 
-/// C1: a search source over several files, a glob over several files and
-/// `perHit` over several hits expand past the one source or key the row
-/// names: without `maxRequests` they send nothing, and their confirm runs
-/// them at their first round. What a row names runs as it did: one file's
-/// hits (one request), listed resources and `perItem` items.
+/// C1: without `maxRequests` a row spends what the sources, resources and
+/// items it names could, one provider window each. Before this process took
+/// a request of the model, nothing bounds the provider's own prompt, so a
+/// row needing more requests than it names first spends one on a request
+/// with no evidence that measures it; then `perHit` over several hits and a
+/// glob over several files cost less than their one named key could, and run. A search's hits share requests across files,
+/// so a search over several files is one request; listed resources and
+/// `perItem` items run as named.
 #[tokio::test]
-async fn without_max_requests_a_row_sends_only_what_it_names() {
+async fn without_max_requests_a_row_spends_only_what_it_names() {
     let server = provider().await;
     let workspace = Workspace::new();
     for file in ["d/a.txt", "d/b.txt", "d/c.txt"] {
@@ -95,50 +99,54 @@ async fn without_max_requests_a_row_sends_only_what_it_names() {
     }
     let runtime = clasify_runtime(&workspace, &server, &[]);
 
-    let out = clasify(&runtime, vec![row(search("d"))]).await;
-    let data = &out["results"][0]["data"];
-    let planned = assert_refused(data);
-    assert_eq!(planned, 3, "one request per file: {out}");
-    assert!(
-        data["error"]
-            .as_str()
-            .is_some_and(|error| error.contains("names")),
-        "{out}"
-    );
-    assert!(sent(&server).await.is_empty(), "nothing was sent");
-    let confirmed = run(&runtime, &data["next"]["confirm"]).await;
-    let again = &confirmed["results"][0]["data"];
-    assert!(again.get("errorCode").is_none(), "{confirmed}");
-    assert_eq!(again["usage"]["calls"], planned, "{confirmed}");
-    assert_eq!(sent(&server).await.len() as u64, planned);
-
-    let before = sent(&server).await.len();
-    let one = clasify(&runtime, vec![row(search("d/a.txt"))]).await;
-    assert!(
-        one["results"][0]["data"].get("errorCode").is_none(),
-        "{one}"
-    );
-    assert_eq!(
-        sent(&server).await.len() - before,
-        1,
-        "one file, one request"
-    );
-
+    // Nothing learned yet: `perHit` over three hits spends one of its named
+    // requests on a request with no evidence, is priced again within what
+    // that one key could cost, and runs.
     let mut each = row(search("d/a.txt"));
     each["perHit"] = json!(true);
-    let before = sent(&server).await.len();
     let out = clasify(&runtime, vec![each]).await;
-    assert_eq!(assert_refused(&out["results"][0]["data"]), 3, "{out}");
-    assert_eq!(sent(&server).await.len(), before, "nothing was sent");
+    let data = &out["results"][0]["data"];
+    assert!(data.get("errorCode").is_none(), "{out}");
+    assert_eq!(
+        data["usage"]["calls"], 4,
+        "three hits and the learning request: {out}"
+    );
+    let warnings = data["warnings"].to_string();
+    assert!(warnings.contains("no evidence"), "{out}");
+    assert!(!warnings.contains("past requestsCeiling"), "{out}");
+    let bodies = sent(&server).await;
+    assert_eq!(bodies.len(), 4, "{out}");
+    assert!(
+        !bodies[0].to_string().contains("needle entry"),
+        "the learning request holds no evidence"
+    );
 
     let resources = |resources: Value| {
         json!({"operation":"evaluate","resources":resources,
             "questions":{"q":noul("The entry names a restart.")}})
     };
+    let before = sent(&server).await.len();
     let glob = resources(json!({"d":{"tool":"localFetch","query":{"path":"d/*.txt"}}}));
     let out = clasify(&runtime, vec![glob]).await;
-    assert_eq!(assert_refused(&out["results"][0]["data"]), 3, "{out}");
-    assert_eq!(sent(&server).await.len(), before, "nothing was sent");
+    assert!(
+        out["results"][0]["data"].get("errorCode").is_none(),
+        "within what its one key could spend: {out}"
+    );
+    assert_eq!(sent(&server).await.len() - before, 3, "one per file");
+
+    let before = sent(&server).await.len();
+    let out = clasify(&runtime, vec![row(search("d"))]).await;
+    assert!(
+        out["results"][0]["data"].get("errorCode").is_none(),
+        "{out}"
+    );
+    assert_eq!(
+        sent(&server).await.len() - before,
+        1,
+        "every file's hits in one request"
+    );
+
+    let before = sent(&server).await.len();
     let listed = resources(json!({
         "a":{"tool":"localFetch","query":{"path":"d/a.txt"}},
         "b":{"tool":"localFetch","query":{"path":"d/b.txt"}},
@@ -167,9 +175,9 @@ async fn without_max_requests_a_row_sends_only_what_it_names() {
 }
 
 /// C4: `maxRequests` admits a first round that fits it, however many
-/// re-asks a missing answer could add: one file's hits share one request,
+/// re-asks a missing answer could add: a search's hits share one request,
 /// so `maxRequests: 1` runs it, held to the cap. A first round past the cap
-/// sends nothing.
+/// (each hit alone) sends nothing, whatever it costs.
 #[tokio::test]
 async fn max_requests_admits_a_first_round_that_fits_and_holds_it() {
     let server = provider().await;
@@ -187,11 +195,12 @@ async fn max_requests_admits_a_first_round_that_fits_and_holds_it() {
     assert!(ceiling <= 1, "the ceiling never passes the cap: {out}");
     assert_eq!(sent(&server).await.len(), 1);
 
-    let mut over = row(search("d"));
+    let mut over = row(search("d/b.txt"));
+    over["perHit"] = json!(true);
     over["maxRequests"] = json!(1);
     let out = clasify(&runtime, vec![over]).await;
     let data = &out["results"][0]["data"];
-    assert_eq!(assert_refused(data), 2, "{out}");
+    assert_eq!(assert_refused(data), 3, "{out}");
     assert!(
         data["error"]
             .as_str()
@@ -199,6 +208,11 @@ async fn max_requests_admits_a_first_round_that_fits_and_holds_it() {
         "{out}"
     );
     assert_eq!(sent(&server).await.len(), 1, "nothing more was sent");
+    // Its confirm runs it at its ceiling.
+    let confirmed = run(&runtime, &data["next"]["confirm"]).await;
+    let again = &confirmed["results"][0]["data"];
+    assert!(again.get("errorCode").is_none(), "{confirmed}");
+    assert_eq!(again["usage"]["calls"], 3, "{confirmed}");
     runtime.close().await;
 }
 

@@ -290,12 +290,12 @@ pub(super) enum ConfigCommand {
     List,
     /// Print a key's effective value, from the environment, either .env, either .octocoderc or its default; exit 1 when nothing sets it and it has no default value.
     Get {
-        /// Environment key or setting path, e.g. `OCTOCODE_CLASSIFICATION_API` or `classification.api`.
+        /// Environment key or setting path, e.g. `OCTOCODE_TYPESAFE_KEY` or `classification.api`.
         key: String,
     },
     /// Set a key in the global .env: `set KEY VALUE`, or `set KEY --stdin` to keep secrets out of shell history.
     Set {
-        /// Environment key or setting path, e.g. `OCTOCODE_CLASSIFICATION_API` or `classification.api`.
+        /// Environment key or setting path, e.g. `OCTOCODE_TYPESAFE_KEY` or `classification.api`.
         key: String,
         /// Value to store; omit with `--stdin`.
         value: Option<String>,

@@ -120,7 +120,7 @@ fn unknown_tool_names_warn_with_the_nearest_valid_name() {
 #[test]
 fn an_invalid_classification_api_host_env_value_is_reported_and_skipped() {
     let out = resolve(Layers {
-        env: &[("OCTOCODE_CLASSIFICATION_API_HOST", "not-a-url")],
+        env: &[("OCTOCODE_TYPESAFE_HOST", "not-a-url")],
         global_rc: Some(r#"{"classification":{"apiHost":"https://jev.example"}}"#),
         ..NONE
     });
@@ -137,7 +137,7 @@ fn an_invalid_classification_api_host_env_value_is_reported_and_skipped() {
         assert!(!d.to_string().contains("not-a-url"), "{d}");
     }
     let valid = resolve(Layers {
-        env: &[("OCTOCODE_CLASSIFICATION_API_HOST", "https://ok.example")],
+        env: &[("OCTOCODE_TYPESAFE_HOST", "https://ok.example")],
         ..NONE
     });
     assert!(valid.diagnostics.is_empty(), "{:?}", valid.diagnostics);

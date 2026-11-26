@@ -101,6 +101,11 @@ pub(crate) fn include_declaration(q: &Q) -> Option<bool> {
     variant_field!(q, each [Q::AnchoredReferences, Q::AnchoredReferencesFiles]
         query => Some(query.include_declaration), else => None)
 }
+/// Whether a `documentSymbols` outline also lists the symbols inside
+/// function and method bodies (`locals`).
+pub(crate) fn locals(q: &Q) -> bool {
+    matches!(q, Q::LspDocument(query) if query.locals)
+}
 /// The `testCode` scope of `references` and `callers`; `None` elsewhere.
 pub(crate) fn test_code(q: &Q) -> Option<octocode_contract_types::TestCode> {
     variant_field!(q, each [Q::AnchoredReferences, Q::AnchoredReferencesFiles, Q::AnchoredCallers]
@@ -164,6 +169,7 @@ pub(crate) fn document_lead(
 ) -> Option<Q> {
     Some(Q::LspDocument(LspDocument {
         limit: None,
+        locals: false,
         operation,
         page: std::num::NonZeroU64::MIN,
         path: path.try_into().ok()?,

@@ -16,8 +16,6 @@ export {
   loadOctocodeEnv,
   applyOctocodeEnv,
   propagateOctocodeEnv,
-  canonicalEnv,
-  canonicalEnvName,
 } from './dotenv.js';
 export { devOverridesAllowed } from './config/devOverrides.js';
 export { getKey, keyFiles, listKeys, setKey, runKeysCli } from './keys.js';

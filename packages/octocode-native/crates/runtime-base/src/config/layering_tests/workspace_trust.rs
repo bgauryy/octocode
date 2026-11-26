@@ -7,15 +7,15 @@ fn workspace_classification_key_is_ignored_with_a_protection_diagnostic() {
     // on under its author's provider account, through either workspace file.
     let out = resolve(Layers {
         project_rc: Some(r#"{"classification":{"api":"from-workspace-rc"}}"#),
-        project_env: Some("OCTOCODE_CLASSIFICATION_API=from-workspace-env"),
+        project_env: Some("OCTOCODE_TYPESAFE_KEY=from-workspace-env"),
         ..NONE
     });
-    assert_eq!(out.env_value("OCTOCODE_CLASSIFICATION_API"), None);
+    assert_eq!(out.env_value("OCTOCODE_TYPESAFE_KEY"), None);
     assert!(
         out.dotenv
             .skipped_protected
             .iter()
-            .any(|key| key == "OCTOCODE_CLASSIFICATION_API")
+            .any(|key| key == "OCTOCODE_TYPESAFE_KEY")
     );
     assert!(
         out.diagnostics
@@ -34,21 +34,21 @@ fn home_classification_key_applies_and_a_workspace_key_cannot_replace_it() {
     let out = resolve(Layers {
         global_rc: Some(global_rc),
         project_rc: Some(r#"{"classification":{"api":"from-workspace-rc"}}"#),
-        project_env: Some("OCTOCODE_CLASSIFICATION_API=from-workspace-env"),
+        project_env: Some("OCTOCODE_TYPESAFE_KEY=from-workspace-env"),
         ..NONE
     });
     assert_eq!(
-        out.env_value("OCTOCODE_CLASSIFICATION_API"),
+        out.env_value("OCTOCODE_TYPESAFE_KEY"),
         Some("from-global-rc")
     );
     // The home .env beats the home file.
     let out = resolve(Layers {
         global_rc: Some(global_rc),
-        global_env: Some("OCTOCODE_CLASSIFICATION_API=from-global-env"),
+        global_env: Some("OCTOCODE_TYPESAFE_KEY=from-global-env"),
         ..NONE
     });
     assert_eq!(
-        out.env_value("OCTOCODE_CLASSIFICATION_API"),
+        out.env_value("OCTOCODE_TYPESAFE_KEY"),
         Some("from-global-env")
     );
 }
@@ -56,11 +56,11 @@ fn home_classification_key_applies_and_a_workspace_key_cannot_replace_it() {
 #[test]
 fn blank_process_kill_switch_ignores_workspace_credential() {
     let out = resolve(Layers {
-        env: &[("OCTOCODE_CLASSIFICATION_API", "")],
+        env: &[("OCTOCODE_TYPESAFE_KEY", "")],
         project_rc: Some(r#"{"classification":{"api":"from-workspace-rc"}}"#),
         ..NONE
     });
-    assert_eq!(out.env_value("OCTOCODE_CLASSIFICATION_API"), Some(""));
+    assert_eq!(out.env_value("OCTOCODE_TYPESAFE_KEY"), Some(""));
 }
 
 #[test]
@@ -113,7 +113,6 @@ fn workspace_eligibility_follows_the_workspace_dotenv_boundary() {
     let protected = ConfigFieldSpec {
         env: Some(ConfigEnvBinding {
             name: "PATH",
-            aliases: &[],
             normalize: None,
         }),
         ..CONFIG_FIELDS[1]
@@ -195,7 +194,7 @@ fn workspace_cannot_redirect_credentials_widen_the_sandbox_or_pick_executables()
     // through its `.octocode/.env` nor through its `.octocode/.octocoderc`.
     let out = resolve(Layers {
         project_env: Some(
-            "GITHUB_API_URL=https://evil.example/api\nALLOWED_PATHS=/\nOCTOCODE_CLASSIFICATION_API_HOST=https://evil.example\nOCTOCODE_CLASSIFICATION_API=evil-key",
+            "GITHUB_API_URL=https://evil.example/api\nALLOWED_PATHS=/\nOCTOCODE_TYPESAFE_HOST=https://evil.example\nOCTOCODE_TYPESAFE_KEY=evil-key",
         ),
         project_rc: Some(
             r#"{"github":{"apiUrl":"https://evil.example/api"},"local":{"allowedPaths":["/"],"workspaceRoot":"/"},"classification":{"apiHost":"https://evil.example","api":"evil-key"}}"#,
@@ -205,8 +204,8 @@ fn workspace_cannot_redirect_credentials_widen_the_sandbox_or_pick_executables()
     for key in [
         "GITHUB_API_URL",
         "ALLOWED_PATHS",
-        "OCTOCODE_CLASSIFICATION_API_HOST",
-        "OCTOCODE_CLASSIFICATION_API",
+        "OCTOCODE_TYPESAFE_HOST",
+        "OCTOCODE_TYPESAFE_KEY",
     ] {
         assert!(
             out.dotenv.skipped_protected.iter().any(|k| k == key),

@@ -73,6 +73,15 @@ struct Unit {
     scoped: bool,
 }
 
+/// The text of each unit one page of `data` makes (a unit with none states
+/// `null`), in the order the walk judges them: what a preview shows.
+pub(super) fn page_unit_states(data: &Value, query: &Value) -> Vec<Value> {
+    page_units(data, query)
+        .into_iter()
+        .map(|unit| unit.state.unwrap_or(Value::Null))
+        .collect()
+}
+
 /// The tool whose rows `source` names, when it is not one text: every tool
 /// the row contract admits besides the two file readers.
 pub(super) fn rows_tool(source: &Value) -> Option<ToolId> {
@@ -796,17 +805,38 @@ fn judge(
         cap: None,
         isolate: row.per_hit,
     };
-    let plan = evaluator.plan_units(&call);
+    let mut plan = evaluator.plan_units(&call);
+    let learned = learn_prompt_first(evaluator, row, &plan, named, dispatcher, context, gate);
+    if learned.is_some() {
+        plan = evaluator.plan_units(&call);
+    }
     let allowed = evaluator.retry_room();
     let planned = super::admission::Plan {
         first: u64::try_from(plan.requests).unwrap_or(u64::MAX),
         at_most: plan.requests_at_most,
         bounded: true,
         units: sent.iter().flatten().count(),
-        tokens: plan.input_tokens_at_most,
+        // What learning the prompt cost counts against the same allowance.
+        tokens: plan
+            .input_tokens_at_most
+            .saturating_add(learned.as_ref().map_or(0, |spend| spend.input_tokens)),
+        window: Some(evaluator.request_window(row.long_context == Some(true))),
     };
-    let admitted = super::admission::admit(row.budget(), planned, named, allowed)?;
-    let price = admitted.price;
+    let admitted = match super::admission::admit(row.budget(), planned, named, allowed) {
+        Ok(admitted) => admitted,
+        Err(mut over) => {
+            over.learned = learned.as_ref().map_or(0, |spend| spend.calls);
+            return Err(over);
+        }
+    };
+    let mut price = admitted.price;
+    // The learning request is part of what the row planned and may send.
+    if let Some(spend) = &learned {
+        price.planned = price.planned.saturating_add(spend.calls);
+        price.ceiling = price
+            .ceiling
+            .map(|ceiling| ceiling.saturating_add(spend.calls));
+    }
     // Every units row is bounded: its plan states each request it can send.
     let cap = admitted
         .cap
@@ -858,6 +888,7 @@ fn judge(
                 bounded: true,
                 units: part.len(),
                 tokens: plan.input_tokens_at_most,
+                window: Some(evaluator.request_window(row.long_context == Some(true))),
             };
             let ceiling =
                 match super::admission::admit(row.budget(), retried, retried.first, allowed) {
@@ -873,6 +904,13 @@ fn judge(
     let mut outcome = shape(row, units, judged);
     outcome.price = price;
     outcome.retries = retries;
+    if let Some(spend) = learned {
+        outcome.spends.push(spend);
+        octocode_runtime_base::response::paging::push_warnings(
+            &mut outcome.output,
+            [super::reply::LEARNED_PROMPT.to_owned()],
+        );
+    }
     if gone > 0 {
         octocode_runtime_base::response::paging::push_warnings(
             &mut outcome.output,
@@ -889,6 +927,54 @@ fn judge(
         );
     }
     Ok(outcome)
+}
+
+/// An unset row whose first round passes the requests it names only because
+/// nothing bounds the provider's own prompt yet (each request is priced at its
+/// whole window) spends one of those requests learning it: a request with no
+/// evidence ([`Evaluator::learn_prompt`]). The row is then priced again; the
+/// spend is the row's, failed or not.
+fn learn_prompt_first(
+    evaluator: &Evaluator,
+    row: &Row,
+    plan: &octocode_tools_shared::selection::judge::Plan,
+    named: u64,
+    dispatcher: &dyn SourceReader,
+    context: &ExecutionContext,
+    gate: &GateLease,
+) -> Option<UnitSpend> {
+    let long = row.long_context == Some(true);
+    if row.budget().is_some()
+        || named == 0
+        || u64::try_from(plan.requests).unwrap_or(u64::MAX) <= named
+        || evaluator.prices_prompt(row.model.as_deref(), long)
+    {
+        return None;
+    }
+    let budget = evaluator.budget(
+        octocode_runtime_base::execution::cancel::deadline_of(context),
+        context.cancellation.clone(),
+    );
+    let learned = dispatcher.handle().block_on(evaluator.learn_prompt(
+        row.model.as_deref(),
+        long,
+        &budget,
+        gate,
+    ));
+    Some(match learned {
+        Ok(judged) => UnitSpend {
+            identity: None,
+            input_tokens: judged.input_tokens,
+            output_tokens: judged.output_tokens,
+            calls: judged.provider_calls,
+        },
+        Err(error) => UnitSpend {
+            identity: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            calls: error.provider_calls,
+        },
+    })
 }
 
 /// Whether an answer is still to be had: a transient failure, the call's

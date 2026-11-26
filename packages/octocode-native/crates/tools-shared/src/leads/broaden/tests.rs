@@ -20,6 +20,7 @@ fn broadening_drops_one_filter_group_or_keyword_and_keeps_public_scope() {
             strip: &[],
             groups: &[&["filters"]],
             split_lone_keyword: false,
+            loosen_phrase: false,
         },
         5,
     )
@@ -59,6 +60,7 @@ fn broadening_never_emits_a_request_with_no_search_target() {
                 strip: &[],
                 groups: &[],
                 split_lone_keyword: false,
+                loosen_phrase: false,
             },
             5
         )
@@ -116,6 +118,7 @@ fn the_broadened_hint_names_what_each_request_drops() {
         strip: &[],
         groups: &[&["filters"]],
         split_lone_keyword: false,
+        loosen_phrase: false,
     };
     let lead = broaden(ToolId::GhSearchRepo, &row, &drop, 5).expect("broader searches");
     let hints = broadened_hints(&row, lead);
@@ -140,6 +143,7 @@ fn a_field_every_broader_request_leaves_out_is_not_named() {
         strip: &["ref"],
         groups: &[],
         split_lone_keyword: false,
+        loosen_phrase: false,
     };
     let lead = broaden(ToolId::GhSearchCode, &row, &drop, 2).expect("broader searches");
     let hints = broadened_hints(&row, lead);
@@ -199,3 +203,47 @@ fn a_lone_phrase_hint_is_short_and_names_no_anding() {
 
 /// The policy bound on one hint sentence.
 const HINT_CHARS: usize = 150;
+
+/// A lone keyword of several words is an exact phrase; loosened, the first
+/// broader search asks the same words as separate keywords, in any order.
+#[test]
+fn a_lone_phrase_is_asked_first_as_its_words() {
+    let row = json_fixture(r#"{"operation": "search", "keywords": ["mcp server code research"]}"#);
+    let lead = broaden(
+        ToolId::GhSearchRepo,
+        &row,
+        &Broaden {
+            strip: &[],
+            groups: &[],
+            split_lone_keyword: false,
+            loosen_phrase: true,
+        },
+        5,
+    )
+    .expect("the phrase's words");
+    octocode_runtime_base::contracts::validate("ghSearchRepo", lead["input"].clone())
+        .expect("authored input");
+    assert_eq!(
+        lead["input"]["queries"][0]["keywords"],
+        json!(["mcp", "server", "code", "research"])
+    );
+    // A lone word has no phrase to loosen.
+    let word = json_fixture(r#"{"operation": "search", "keywords": ["mcp"]}"#);
+    let lead = broaden(
+        ToolId::GhSearchRepo,
+        &word,
+        &Broaden {
+            strip: &[],
+            groups: &[],
+            split_lone_keyword: false,
+            loosen_phrase: true,
+        },
+        5,
+    );
+    assert!(
+        lead.is_none_or(|lead| lead["input"]["queries"]
+            .as_array()
+            .is_some_and(|queries| queries.iter().all(|q| q.get("keywords").is_none()))),
+        "a word stays a word"
+    );
+}

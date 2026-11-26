@@ -3,7 +3,9 @@ use super::{FILTERS, GhSearchRepoQuery};
 use crate::qualifier_keywords::{Qualifier, qualifier};
 use octocode_runtime_base::id::ToolId;
 use octocode_runtime_base::response::result::{Continuation, ToolData, query_row};
-use octocode_tools_shared::leads::broaden::{Broaden, broaden, set_broadened, set_no_broader};
+use octocode_tools_shared::leads::broaden::{
+    Broaden, PHRASE_WORDS_HINT, broaden, set_broadened, set_no_broader,
+};
 use serde_json::{Value, json};
 
 /// The search a lead copies, from its first page: defaults and the brief
@@ -33,6 +35,7 @@ pub(super) fn broaden_search(query: &GhSearchRepoQuery) -> Option<Value> {
             strip: &[],
             groups: FILTERS,
             split_lone_keyword: false,
+            loosen_phrase: true,
         },
         octocode_runtime_base::response::result::rows_per_call(ToolId::GhSearchRepo),
     )?;
@@ -134,7 +137,16 @@ pub(super) fn repository_output(
         output.status = Some("empty");
         if !provider_incomplete {
             match broaden_search(query) {
-                Some(broader) => set_broadened(&mut output.data, &copied_search(query), broader),
+                Some(broader) => {
+                    // A lone phrase's first broader search is its words apart.
+                    if lone_phrase(query) {
+                        octocode_runtime_base::response::result::add_hints(
+                            &mut output.data,
+                            [PHRASE_WORDS_HINT],
+                        );
+                    }
+                    set_broadened(&mut output.data, &copied_search(query), broader);
+                }
                 // A lone phrase can lose words; a lone word has nothing to
                 // drop, and the empty status is the answer.
                 None if lone_phrase(query) => set_no_broader(&mut output.data),

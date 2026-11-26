@@ -234,7 +234,9 @@ pub(super) fn attach_unsearched_reads(
                 "path": path,
                 "ref": sha,
                 "matchString": needle,
-                "regexEngine":gh_get_history_item_query::match_options(query).map(|o|o.1)}))
+                "caseMode": gh_get_history_item_query::match_options(query).map(|o| o.0),
+                "regexEngine": gh_get_history_item_query::match_options(query).map(|o| o.1),
+            }))
         })
         .collect::<Vec<_>>();
     if reads.is_empty() {

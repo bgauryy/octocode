@@ -19,10 +19,10 @@ Load when choosing a first tool call, enabling an optional tool, or adding a pro
 | Graphs in MCP | Add the separate graph server as its own stdio entry: `npx -y @octocodeai/octocode-graph mcp` (Node.js 24.15 or later). Its launcher turns on `graphBuild`, `graphQuery` and the local tools; `local.beta` on the `octocode` server lists no graph tool. |
 | Cloning in MCP | `npx -y octocode config set tools.enableClone true` with local tools enabled (requires Git and persistent storage) |
 | Advisory checks in MCP | `npx -y octocode config set tools.enableSecurity true` |
-| Classification in CLI and MCP | `npx -y octocode config set OCTOCODE_CLASSIFICATION_API --stdin` |
+| Classification in CLI and MCP | `npx -y octocode config set OCTOCODE_TYPESAFE_KEY --stdin` |
 
 ## Add and configure keys
 
-Enter secrets on stdin and restart MCP after changing its environment or settings. For classification, `npx -y octocode config check OCTOCODE_CLASSIFICATION_API` exits 0 when a key is present; it does not prove access. Only a provider call verifies access, and it may incur a charge. For a custom gateway, check `classification.apiHost` before sending evidence. [Classification setup](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLASIFY.md)
+Enter secrets on stdin and restart MCP after changing its environment or settings. For classification, `npx -y octocode config check OCTOCODE_TYPESAFE_KEY` exits 0 when a key is present; it does not prove access. Only a provider call verifies access, and it may incur a charge. For a custom gateway, check `classification.apiHost` before sending evidence. [Classification setup](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLASIFY.md)
 
 Skills can have their own optional providers. Use `npx -y octocode skill info <name>` to check the skill’s requirements before adding keys.

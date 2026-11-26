@@ -19,16 +19,6 @@ test('codePoints counts a character outside the BMP once', () => {
   assert.notEqual(codePoints(text), text.length);
 });
 
-test('every round manifest in rounds/ loads', () => {
-  const files = fs.readdirSync(path.join(HARNESS, 'rounds')).filter(name => name.endsWith('.json'));
-  assert.ok(files.length > 0);
-  for (const file of files) {
-    const manifest = loadManifest(path.join(HARNESS, 'rounds', file));
-    for (const [a, b] of manifest.compare) assert.ok(manifest.arms[a] && manifest.arms[b]);
-    for (const pin of Object.values(manifest.pins)) assert.ok(path.isAbsolute(pin.path));
-  }
-});
-
 test('a manifest is refused when an arm names an undefined pin, or a set an undefined arm', () => {
   const base = { round: 'r', neutralCwd: '~/n', arms: { a: { kind: 'shell', instruction: 'x' } }, sets: { s: { questions: 'q', ids: 'Q1', arms: { a: 'all' } } } };
   assert.equal(checkManifest(base).sets.s.arms.a.has('Q1'), true);

@@ -28,7 +28,8 @@ test('repo verify runs each workspace\'s oxlint-free gate and propagates its fai
   for (const name of ['dedupe-deps.mjs', 'docs-verify.mjs', 'check-research-guidance.mjs', 'workspace-health.test.mjs']) fs.writeFileSync(path.join(scripts, name), '');
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ workspaces: ['skills/*'] }));
   for (const [name, extra] of [
-    ['oxlint-only', {}],
+    ['bundle-check', {}],
+    ['oxlint-only', { 'lint:oxlint': 'oxlint' }],
     ['plain', { 'lint:own': 'lint-own' }],
     ['recovery', { verify: 'release-smoke', 'verify:own': 'release-smoke-own' }],
   ]) {
@@ -49,8 +50,10 @@ test('repo verify runs each workspace\'s oxlint-free gate and propagates its fai
   const passing = run(false);
   assert.equal(passing.status, 0, passing.stderr);
   const calls = fs.readFileSync(trace, 'utf8').trim().split('\n').map(JSON.parse);
-  // Never `lint` or `verify`: they include oxlint, which the baseline pass runs once. A workspace without `lint:own` has no lint step.
+  // Never a `lint` or `verify` that includes oxlint, which the baseline pass runs once: an oxlint-only workspace has no lint step,
+  // and one that never runs oxlint (no `lint:oxlint`) runs its `lint` as is.
   assert.deepEqual(calls, [
+    ['workspace', 'bundle-check', 'run', 'build'], ['workspace', 'bundle-check', 'run', 'lint'], ['workspace', 'bundle-check', 'run', 'test'],
     ['workspace', 'oxlint-only', 'run', 'build'], ['workspace', 'oxlint-only', 'run', 'test'],
     ['workspace', 'plain', 'run', 'build'], ['workspace', 'plain', 'run', 'lint:own'], ['workspace', 'plain', 'run', 'test'],
     ['workspace', 'recovery', 'run', 'verify:own'],
@@ -108,12 +111,12 @@ test('check enforces the config/native layering, keeps mcp-cli standalone and pr
   assert.match(plugin.stderr, /some-plugin is published but its peerDependencies names private octocode-mcp-cli/);
 });
 
-test('run lint:own runs only the workspaces that declare it, so repo-wide lint never reaches oxlint', t => {
+test('run lint:own runs each oxlint-free lint, so repo-wide lint never reaches oxlint', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-lint-own-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const scripts = copyWorkspaceHealth(root);
   fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ workspaces: ['skills/*'] }));
-  for (const [name, extra] of [['oxlint-only', {}], ['with-own', { 'lint:own': 'lint-own' }]]) {
+  for (const [name, extra] of [['no-oxlint', {}], ['oxlint-only', { 'lint:oxlint': 'oxlint' }], ['with-own', { 'lint:own': 'lint-own', 'lint:oxlint': 'oxlint' }]]) {
     const dir = path.join(root, 'skills', name);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, scripts: { build: 'build', lint: 'lint', test: 'test', ...extra } }));
@@ -126,5 +129,8 @@ test('run lint:own runs only the workspaces that declare it, so repo-wide lint n
   delete childEnv.NODE_TEST_CONTEXT;
   const run = spawnSync(process.execPath, [path.join(scripts, 'workspace-health.mjs'), 'run', 'lint:own'], { cwd: root, encoding: 'utf8', env: childEnv, timeout: 30_000 });
   assert.equal(run.status, 0, run.stderr);
-  assert.deepEqual(fs.readFileSync(trace, 'utf8').trim().split('\n').map(JSON.parse), [['workspace', 'with-own', 'run', 'lint:own']]);
+  // A workspace that never runs oxlint (a skill bundle check) still lints; an oxlint-only one is left to the baseline pass.
+  assert.deepEqual(fs.readFileSync(trace, 'utf8').trim().split('\n').map(JSON.parse), [
+    ['workspace', 'no-oxlint', 'run', 'lint'], ['workspace', 'with-own', 'run', 'lint:own'],
+  ]);
 });

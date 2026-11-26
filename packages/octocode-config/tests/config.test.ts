@@ -53,12 +53,12 @@ const CANONICAL = [
   // Where graph snapshots are written: a repository must not choose it.
   'OCTOCODE_GRAPH_HOME',
   'OCTOCODE_ALLOW_PRIVATE_REGISTRY',
-  'OCTOCODE_CLASSIFICATION_API_HOST',
+  'OCTOCODE_TYPESAFE_HOST',
   // The clone disk cap: a repository must not lift it (0 is no cap).
   'OCTOCODE_CLONE_CACHE_LIMIT',
   // The classification key turns on provider calls that carry evidence: a
   // repository must not supply its own account's key.
-  'OCTOCODE_CLASSIFICATION_API',
+  'OCTOCODE_TYPESAFE_KEY',
   // The OAuth app a login or refresh uses: a repository must not choose it.
   'OCTOCODE_GITHUB_CLIENT_ID',
   // An API endpoint receives its key: a repository must not choose it.
@@ -162,16 +162,16 @@ describe('applyOctocodeEnv', () => {
     expect(res.skippedExisting).toContain('EXISTING');
   });
 
-  it('keeps a blank OCTOCODE_CLASSIFICATION_API as an explicit opt-out', () => {
+  it('keeps a blank OCTOCODE_TYPESAFE_KEY as an explicit opt-out', () => {
     const env: Record<string, string | undefined> = {
-      OCTOCODE_CLASSIFICATION_API: '',
+      OCTOCODE_TYPESAFE_KEY: '',
     };
     const res = applyOctocodeEnv(
-      { OCTOCODE_CLASSIFICATION_API: 'from-home' },
-      { env, sources: { OCTOCODE_CLASSIFICATION_API: 'global' } }
+      { OCTOCODE_TYPESAFE_KEY: 'from-home' },
+      { env, sources: { OCTOCODE_TYPESAFE_KEY: 'global' } }
     );
-    expect(env.OCTOCODE_CLASSIFICATION_API).toBe('');
-    expect(res.skippedExisting).toContain('OCTOCODE_CLASSIFICATION_API');
+    expect(env.OCTOCODE_TYPESAFE_KEY).toBe('');
+    expect(res.skippedExisting).toContain('OCTOCODE_TYPESAFE_KEY');
   });
 
   it('overwrites empty-string env vars (treated as unset)', () => {

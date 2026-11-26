@@ -271,7 +271,7 @@ async fn repositories_lead_nowhere_and_an_empty_search_broadens() {
 
 /// An empty search with nothing to drop (one keyword, no filter): a lone
 /// word gets no hint (ANDing cannot apply to one word; the empty status is
-/// the answer), and a lone phrase is told to change its words.
+/// the answer), and a lone phrase leads to its words as separate keywords.
 #[tokio::test]
 async fn an_empty_lone_keyword_search_hints_only_for_a_phrase() {
     let server = MockServer::builder().start().await;
@@ -300,6 +300,24 @@ async fn an_empty_lone_keyword_search_hints_only_for_a_phrase() {
     assert_eq!(
         phrase.data["hints"].as_array().map(Vec::len),
         Some(1),
+        "{}",
+        phrase.data
+    );
+    assert!(
+        phrase.data["hints"][0]
+            .as_str()
+            .is_some_and(|hint| hint.contains("separate keywords")),
+        "{}",
+        phrase.data
+    );
+    let words = octocode_runtime_base::test_support::checks::related_call(
+        &phrase.data,
+        "ghSearchRepo",
+        |_| true,
+    );
+    assert_eq!(
+        words["input"]["queries"][0]["keywords"],
+        json!(["zzqq", "yyrr"]),
         "{}",
         phrase.data
     );

@@ -347,6 +347,7 @@
     "ghGetHistoryItem": {
       "evidence": [
         "tool-github/src/gh_get_history_item/tests.rs",
+        "tool-github/src/gh_get_history_item/matcher/tests.rs",
         "runtime/tests/runtime_github_history/commits.rs",
         "runtime/tests/runtime_github_compare/pages.rs"
       ],
@@ -356,6 +357,9 @@
         ],
         "bots": [
           "filter"
+        ],
+        "caseMode": [
+          "matcher"
         ],
         "contextLines": [
           "view"
@@ -869,6 +873,9 @@
         ],
         "line": [
           "navigation"
+        ],
+        "locals": [
+          "view"
         ],
         "occurrence": [
           "navigation"

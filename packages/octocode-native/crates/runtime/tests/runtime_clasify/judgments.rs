@@ -288,6 +288,28 @@ async fn egress_preview_shows_only_selected_and_screened_local_lines() {
     runtime.close().await;
 }
 
+/// A local tool's rows are local text too: the preview runs the search
+/// offline and shows the screened hits it would send, and sends nothing.
+#[tokio::test]
+async fn egress_preview_shows_the_rows_a_local_search_source_would_send() {
+    let server = provider(0).await;
+    let workspace = Workspace::new();
+    let secret = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
+    workspace.write("a.txt", format!("throw new Missing {secret}\nother line\n"));
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let row = json!({"operation":"evaluate","preview":true,
+        "source":{"tool":"localSearch","query":{"matchString":["throw new"],"path":"."}},
+        "predicates":["reports a missing key"]});
+    let out = clasify(&runtime, vec![row]).await;
+    let capture = &out["results"][0]["data"]["preview"]["selection"]["captured"];
+    assert!(capture.to_string().contains("throw new Missing"), "{out}");
+    for hidden in ["other line", secret] {
+        assert!(!out.to_string().contains(hidden), "{out}");
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
+    runtime.close().await;
+}
+
 #[tokio::test]
 async fn egress_preview_of_nested_sources_and_images_only_names_their_destinations() {
     let server = provider(0).await;

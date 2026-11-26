@@ -84,7 +84,7 @@ Run `npx -y octocode config list` to see effective settings, defaults and source
 | Graph tools in MCP | `npx -y octocode config set local.beta true`, with local tools on |
 | Repository cloning in MCP | `npx -y octocode config set tools.enableClone true`, with local tools on |
 | Advisory lookups in MCP | `npx -y octocode config set tools.enableSecurity true` |
-| Classification in CLI and MCP | `npx -y octocode config set OCTOCODE_CLASSIFICATION_API --stdin` |
+| Classification in CLI and MCP | `npx -y octocode config set OCTOCODE_TYPESAFE_KEY --stdin` |
 
 Restart MCP after a settings change. For GitHub authentication, a process token takes precedence over a project or user `.env` token, followed by the host’s saved Octocode, OS or GitHub CLI login. [Settings, scopes and workspace permissions](docs/CONFIGURATION.md) · [GitHub token resolution](docs/AUTHENTICATION.md#github-token-resolution)
 

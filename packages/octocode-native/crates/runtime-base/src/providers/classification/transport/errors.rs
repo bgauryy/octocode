@@ -1,4 +1,4 @@
-use super::ClassificationError;
+use super::{ClassificationError, host_variable, key_variable};
 use crate::providers::classification::CIRCUIT_OPEN;
 use crate::providers::classification::gate::GateDenied;
 use octocode_contract_types::ErrorCode;
@@ -40,7 +40,18 @@ pub(super) fn stalled(stall: Duration) -> ClassificationError {
             "Classification provider accepted the request, then sent nothing for {}s; the request ended there, without retrying.",
             stall.as_secs_f64().ceil()
         ),
-        "Retry later; the evidence stays readable without classification. If it repeats, check OCTOCODE_CLASSIFICATION_API_HOST and the provider's status.",
+        &format!(
+            "Retry later; the evidence stays readable without classification. If it repeats, check {} and the provider's status.",
+            host_variable()
+        ),
+    )
+}
+
+/// What a provider that could not answer asks of the caller.
+fn availability_hint() -> String {
+    format!(
+        "Check provider availability and {}, then retry.",
+        host_variable()
     )
 }
 
@@ -77,7 +88,7 @@ pub(super) fn overloaded_error(status: u16) -> ClassificationError {
         format!(
             "Classification provider is overloaded or unavailable (HTTP {status}) and named no retry delay."
         ),
-        "Check provider availability and OCTOCODE_CLASSIFICATION_API_HOST, then retry.",
+        &availability_hint(),
     )
 }
 
@@ -145,7 +156,7 @@ pub(super) fn denied(reason: GateDenied) -> ClassificationError {
                     "Classification provider failed repeatedly; requests are paused for about {:.0}s.",
                     retry_after.as_secs_f64().ceil().max(1.0)
                 ),
-                "Check provider availability and OCTOCODE_CLASSIFICATION_API_HOST, then retry.",
+                &availability_hint(),
             )
         },
     }
@@ -156,7 +167,10 @@ pub(crate) fn quota_exhausted() -> ClassificationError {
         ErrorCode::ClassificationQuotaExhausted,
         "Classification provider billing or quota is exhausted (HTTP 402); retrying will not help.",
         // A rerun sooner is refused the same way (`gate::QUOTA_MEMO`).
-        "Add credit or quota to the OCTOCODE_CLASSIFICATION_API account, then rerun in a minute: this process repeats the refusal until then.",
+        &format!(
+            "Add credit or quota to the {} account, then rerun in a minute: this process repeats the refusal until then.",
+            key_variable()
+        ),
     )
 }
 
@@ -166,7 +180,10 @@ pub(super) fn credential_rejected() -> ClassificationError {
         ErrorCode::ClassificationProviderError,
         "Classification provider returned HTTP 401; response body omitted.",
         // A rerun sooner is refused the same way (`gate::AUTH_MEMO`).
-        "Check OCTOCODE_CLASSIFICATION_API and account access, then rerun in a minute: this process repeats the refusal until then.",
+        &format!(
+            "Check {} and account access, then rerun in a minute: this process repeats the refusal until then.",
+            key_variable()
+        ),
     )
 }
 
@@ -184,17 +201,17 @@ pub(super) fn status_error(
         return quota_exhausted();
     }
     let hint = match status.as_u16() {
-        401 | 403 => "Check OCTOCODE_CLASSIFICATION_API and account access.",
-        400 | 422 => BAD_REQUEST_HINT,
-        300..=399 => "Redirects are disabled; check OCTOCODE_CLASSIFICATION_API_HOST.",
-        _ => "Check provider availability and OCTOCODE_CLASSIFICATION_API_HOST.",
+        401 | 403 => format!("Check {} and account access.", key_variable()),
+        400 | 422 => BAD_REQUEST_HINT.to_owned(),
+        300..=399 => format!("Redirects are disabled; check {}.", host_variable()),
+        _ => format!("Check provider availability and {}.", host_variable()),
     };
     let class = classify_status(status.as_u16());
     if class.is_server() || class == StatusClass::Timeout {
         return ClassificationError::new(
             CIRCUIT_OPEN,
             format!("Classification provider returned HTTP {status}; response body omitted."),
-            hint,
+            &hint,
         );
     }
     if error_type(provider_body) == Some("max_tokens_exceeded") {
@@ -207,7 +224,7 @@ pub(super) fn status_error(
         ClassificationError::new(
             ErrorCode::ClassificationProviderError,
             format!("Classification provider returned HTTP {status}; response body omitted."),
-            hint,
+            &hint,
         )
     }
 }

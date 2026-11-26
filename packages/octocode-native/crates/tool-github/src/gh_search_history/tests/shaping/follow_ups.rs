@@ -36,6 +36,7 @@ fn a_capped_search_omits_unchanged_narrowing_and_keeps_its_page_walk() {
             warnings: Vec::new(),
             listed: false,
             has_more: false,
+            list_total: None,
         };
         let paging = super::shape::Paging::new(&page, at, 1);
         super::shape::shape(&query, page, &paging, String::new())
@@ -166,6 +167,7 @@ fn an_empty_search_hints_only_what_its_premise_holds() {
             warnings: Vec::new(),
             listed: false,
             has_more: false,
+            list_total: None,
         };
         let paging = super::shape::Paging::new(&page, 1, 10);
         let value = super::shape::shape(&query, page, &paging, String::new());

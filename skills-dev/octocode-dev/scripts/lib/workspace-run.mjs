@@ -28,28 +28,35 @@ function resolveScript(workspace, scriptName, preferScript) {
   return preferScript && scripts[preferScript] ? preferScript : scriptName;
 }
 
-/** The script a repo-wide run executes for a policy script: its oxlint-free variant, or undefined when that variant is absent. */
+/**
+ * The script a repo-wide run executes for a policy script: its oxlint-free variant (`lint:own`, `verify:own`);
+ * the policy script itself when the workspace runs no oxlint (no `lint:oxlint`); else undefined.
+ */
 function repoScript(workspace, name) {
+  const scripts = workspace.packageJson.scripts ?? {};
   const own = OWN_SCRIPTS[name];
-  if (!own) return name;
-  return workspace.packageJson.scripts?.[own] ? own : undefined;
+  if (!own || scripts[own]) return own ?? name;
+  return scripts[name] && !scripts['lint:oxlint'] ? name : undefined;
 }
 
-/** Workspaces that run `scriptName`: the policy script, or an oxlint-free variant of it that the workspace declares. */
-function eligibleFor(workspaces, scriptName) {
-  const policyName = Object.keys(OWN_SCRIPTS).find(name => OWN_SCRIPTS[name] === scriptName) ?? scriptName;
-  return workspaces.filter(
-    workspace => workspace.requiredScripts.includes(policyName) && workspace.packageJson.scripts?.[scriptName]
-  );
+/** The script each workspace runs for `scriptName`; an oxlint-free variant resolves per workspace (repoScript). */
+function scriptsFor(workspaces, scriptName) {
+  const policyName = Object.keys(OWN_SCRIPTS).find(name => OWN_SCRIPTS[name] === scriptName);
+  const runs = new Map();
+  for (const workspace of workspaces) {
+    if (!workspace.requiredScripts.includes(policyName ?? scriptName)) continue;
+    const script = policyName ? repoScript(workspace, policyName) : workspace.packageJson.scripts?.[scriptName] && scriptName;
+    if (script) runs.set(workspace.name, script);
+  }
+  return runs;
 }
 
 export function runWorkspaceScript(workspaces, scriptName, preferScript) {
-  const eligibleWorkspaces = eligibleFor(workspaces, scriptName);
-
-  const orderedWorkspaces = topologicallySort(eligibleWorkspaces);
+  const runs = scriptsFor(workspaces, scriptName);
+  const orderedWorkspaces = topologicallySort(workspaces.filter(workspace => runs.has(workspace.name)));
 
   for (const workspace of orderedWorkspaces) {
-    const script = resolveScript(workspace, scriptName, preferScript);
+    const script = resolveScript(workspace, runs.get(workspace.name), preferScript);
     console.log(`\n==> ${workspace.location}: ${script}`);
     runCommand('yarn', ['workspace', workspace.name, 'run', script]);
   }
@@ -81,7 +88,8 @@ function runPrefixed(label, command, args) {
  * starts; running ones finish, then the run exits non-zero.
  */
 export async function runWorkspaceScriptParallel(workspaces, scriptName, preferScript) {
-  const eligibleWorkspaces = eligibleFor(workspaces, scriptName);
+  const runs = scriptsFor(workspaces, scriptName);
+  const eligibleWorkspaces = workspaces.filter(workspace => runs.has(workspace.name));
   const workspaceMap = getWorkspaceMap(eligibleWorkspaces);
   const results = new Map();
   let failed = false;
@@ -93,7 +101,7 @@ export async function runWorkspaceScriptParallel(workspaces, scriptName, preferS
       workspace.name,
       Promise.all(dependencies).then(async () => {
         if (failed) return { workspace, skipped: true };
-        const script = resolveScript(workspace, scriptName, preferScript);
+        const script = resolveScript(workspace, runs.get(workspace.name), preferScript);
         const taskStarted = Date.now();
         console.log(`==> ${workspace.location}: ${script}`);
         const { status, error } = await runPrefixed(workspace.location, 'yarn', ['workspace', workspace.name, 'run', script]);

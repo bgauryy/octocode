@@ -58,9 +58,12 @@ pub(super) fn reuse_checkout(
         return Ok(None);
     }
     let withheld = git::withheld_paths(listed);
+    let size = storage::checked_out_size(clone_dir);
+    // A reuse re-measures: what the byte cap reads stays current.
+    let _ = storage::record_size(clone_dir, size);
     let checkout = Checkout {
         commit_sha: reference.to_ascii_lowercase(),
-        size: storage::checked_out_size(clone_dir),
+        size,
         symlinks: inspection.symlinks,
         root_files: plan.root_files(clone_dir),
         withheld,
@@ -165,9 +168,11 @@ fn publish_stage(
     clone_dir: &Path,
 ) -> Result<Checkout, GitError> {
     let context = plan.context;
+    let size = storage::checked_out_size(stage);
+    storage::record_size(stage, size)?;
     let checkout = Checkout {
         commit_sha: commit_sha.to_owned(),
-        size: storage::checked_out_size(stage),
+        size,
         symlinks: git::present_symlinks(stage, staged.links),
         root_files: plan.root_files(stage),
         withheld: staged.withheld,

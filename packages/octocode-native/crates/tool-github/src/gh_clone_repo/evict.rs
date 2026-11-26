@@ -108,7 +108,13 @@ fn entries(home: &Path) -> Vec<Entry> {
         .flat_map(|owner| children(owner))
         .flat_map(|repository| children(&repository))
         .map(|dir| Entry {
-            size: storage::checked_out_size(&dir),
+            // The size its publish recorded; one an earlier build published
+            // is walked once and recorded, so the next pass reads it.
+            size: storage::recorded_size(&dir).unwrap_or_else(|| {
+                let size = storage::checked_out_size(&dir);
+                let _ = storage::record_size(&dir, size);
+                size
+            }),
             used: storage::last_used(&dir),
             dir,
         })

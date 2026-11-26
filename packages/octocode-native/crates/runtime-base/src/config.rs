@@ -34,6 +34,4 @@ pub use types::*;
 pub const SHELL_DIRECTORY_ENV: &[&str] = &["PWD", "OLDPWD"];
 
 #[cfg(test)]
-mod alias_tests;
-#[cfg(test)]
 mod tests;

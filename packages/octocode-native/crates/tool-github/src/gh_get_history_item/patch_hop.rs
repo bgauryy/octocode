@@ -137,7 +137,7 @@ pub(super) fn attach_diff_continuations(
         // A commit page carries commits only; patch cursors would be inert.
         nq["sections"] = json!(["commits"]);
         super::sections::drop_idle_file_filters(&mut nq);
-        for key in ["offset", "matchString", "contextLines", "regexEngine"] {
+        for key in std::iter::once("offset").chain(super::matcher::MATCH_KEYS) {
             remove_key(&mut nq, key);
         }
         if let Some(call) = continuation(nq) {

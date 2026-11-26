@@ -26,7 +26,7 @@ fn clasify_missing_key_is_actionable() {
     assert_eq!(exit_code(&output), Some(4));
     let output = stdout(&output);
     assert!(output.contains("missingConfiguration"), "{output}");
-    assert!(output.contains("OCTOCODE_CLASSIFICATION_API"), "{output}");
+    assert!(output.contains("OCTOCODE_TYPESAFE_KEY"), "{output}");
     assert!(
         output.contains("https://docs.typesafe.ai/introduction"),
         "{output}"
@@ -35,8 +35,8 @@ fn clasify_missing_key_is_actionable() {
     let beta_off = workspace
         .cli()
         .env("OCTOCODE_BETA", "false")
-        .env("OCTOCODE_CLASSIFICATION_API", "fixture-key")
-        .env("OCTOCODE_CLASSIFICATION_API_HOST", "http://127.0.0.1:9")
+        .env("OCTOCODE_TYPESAFE_KEY", "fixture-key")
+        .env("OCTOCODE_TYPESAFE_HOST", "http://127.0.0.1:9")
         .args(["clasify", &query.to_string(), "--json"])
         .output()
         .expect("unreachable-provider execution");
@@ -60,8 +60,8 @@ fn clasify_with_unreachable_provider_exits_by_failure_class() {
         workspace
             .cli()
             .env("OCTOCODE_BETA", "false")
-            .env("OCTOCODE_CLASSIFICATION_API", "dummy")
-            .env("OCTOCODE_CLASSIFICATION_API_HOST", "http://127.0.0.1:9")
+            .env("OCTOCODE_TYPESAFE_KEY", "dummy")
+            .env("OCTOCODE_TYPESAFE_HOST", "http://127.0.0.1:9")
             .args(["clasify", &query.to_string()])
             .output()
             .expect("clasify execution")
@@ -90,8 +90,8 @@ async fn clasify_rejects_removed_question_types_without_provider_requests() {
     );
     let mut command = workspace.cli();
     command
-        .env("OCTOCODE_CLASSIFICATION_API", "dummy")
-        .env("OCTOCODE_CLASSIFICATION_API_HOST", server.uri())
+        .env("OCTOCODE_TYPESAFE_KEY", "dummy")
+        .env("OCTOCODE_TYPESAFE_HOST", server.uri())
         .env("OCTOCODE_BETA", "false")
         .args(["clasify", &query.to_string(), "--json"]);
     let output = tokio::task::spawn_blocking(move || command.output().expect("clasify"))
@@ -114,7 +114,7 @@ fn blank_classification_key_disables_clasify_despite_home_and_vendor_keys() {
     let workspace = Workspace::new();
     std::fs::write(
         workspace.home.join(".env"),
-        "OCTOCODE_CLASSIFICATION_API=from-home-env\n",
+        "OCTOCODE_TYPESAFE_KEY=from-home-env\n",
     )
     .unwrap();
     let query = json_fixture(
@@ -133,7 +133,7 @@ fn blank_classification_key_disables_clasify_despite_home_and_vendor_keys() {
     .to_string();
     let output = workspace
         .cli()
-        .env("OCTOCODE_CLASSIFICATION_API", "")
+        .env("OCTOCODE_TYPESAFE_KEY", "")
         // The retired vendor alias is not a credential.
         .env("OCTOCODE_JEV_KEY", "vendor-key")
         .args(["clasify", &query, "--json"])

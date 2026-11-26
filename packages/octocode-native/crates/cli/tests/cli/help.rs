@@ -9,7 +9,7 @@ fn root_help_lists_tools_independent_of_mcp_filters_and_clasify_only_with_a_key(
             .env("OCTOCODE_ENABLE_LOCAL", "false")
             .env("OCTOCODE_BETA", "false")
             .env("OCTOCODE_ENABLE_CLONE", "false")
-            .env("OCTOCODE_CLASSIFICATION_API", key)
+            .env("OCTOCODE_TYPESAFE_KEY", key)
             .env("TOOLS_TO_RUN", "localFetch")
             .env("DISABLE_TOOLS", "localFetch,clasify")
             .arg("--help")

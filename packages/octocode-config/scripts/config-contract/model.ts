@@ -82,21 +82,6 @@ export function orderedEnvironment(fields: FlatField[], contract: Contract) {
     if (binding.workspaceNarrowsTo)
       workspaceNarrowOnly[binding.name] = binding.workspaceNarrowsTo;
   }
-  // An alias reads as its binding's name, so it may name nothing else: no other variable, no second binding.
-  const aliases: Record<string, string> = {};
-  const names = new Set([
-    ...Object.keys(contract.environment),
-    ...fieldBindings.map(binding => binding.name),
-  ]);
-  for (const binding of fieldBindings) {
-    for (const alias of binding.aliases ?? []) {
-      if (names.has(alias) || alias in aliases)
-        throw new Error(
-          `${binding.field}: env alias ${alias} already names a variable`
-        );
-      aliases[alias] = binding.name;
-    }
-  }
   const tokens = Object.entries(contract.environment).filter(
     ([, definition]) => definition.tokenPriority !== undefined
   );
@@ -131,7 +116,6 @@ export function orderedEnvironment(fields: FlatField[], contract: Contract) {
     )
   );
   return {
-    aliases,
     apiKeys,
     fieldBindings,
     protectedNames: [...new Set(protectedNames)],

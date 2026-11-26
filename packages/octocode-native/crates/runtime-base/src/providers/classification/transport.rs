@@ -143,11 +143,24 @@ impl ClassificationError {
     }
 }
 
+/// The variable that holds the classification key, as errors name it: the
+/// contract's current name, so a rename reaches every hint.
+pub fn key_variable() -> &'static str {
+    let field = crate::config::field::CLASSIFICATION_API;
+    field.env_name().unwrap_or(field.path)
+}
+
+/// The variable that holds the classification API root, as errors name it.
+pub fn host_variable() -> &'static str {
+    let field = crate::config::field::CLASSIFICATION_API_HOST;
+    field.env_name().unwrap_or(field.path)
+}
+
 pub fn endpoint(base_url: &str, path: &str) -> Result<Url, ClassificationError> {
     let base = Url::parse(base_url).map_err(|_| {
         ClassificationError::new(
             ErrorCode::InvalidClassificationConfiguration,
-            "OCTOCODE_CLASSIFICATION_API_HOST is not a valid URL.",
+            format!("{} is not a valid URL.", host_variable()),
             "Use an HTTPS API root without a path, query, fragment, or credentials.",
         )
     })?;
@@ -164,7 +177,10 @@ pub fn endpoint(base_url: &str, path: &str) -> Result<Url, ClassificationError> 
     {
         return Err(ClassificationError::new(
             ErrorCode::InvalidClassificationConfiguration,
-            "OCTOCODE_CLASSIFICATION_API_HOST must be an HTTPS API root; HTTP is allowed only on loopback.",
+            format!(
+                "{} must be an HTTPS API root; HTTP is allowed only on loopback.",
+                host_variable()
+            ),
             "Remove paths, credentials, query strings, and fragments from the configured API root.",
         ));
     }
@@ -172,7 +188,7 @@ pub fn endpoint(base_url: &str, path: &str) -> Result<Url, ClassificationError> 
         ClassificationError::new(
             ErrorCode::InvalidClassificationConfiguration,
             "Cannot construct the classification provider endpoint.",
-            "Check OCTOCODE_CLASSIFICATION_API_HOST.",
+            &format!("Check {}.", host_variable()),
         )
     })
 }
@@ -182,7 +198,7 @@ pub fn check_key(key: &SecretString) -> Result<(), ClassificationError> {
     if key.expose_secret().chars().any(char::is_control) {
         return Err(ClassificationError::new(
             ErrorCode::InvalidClassificationConfiguration,
-            "OCTOCODE_CLASSIFICATION_API contains invalid control characters.",
+            format!("{} contains invalid control characters.", key_variable()),
             "Replace the configured key.",
         ));
     }

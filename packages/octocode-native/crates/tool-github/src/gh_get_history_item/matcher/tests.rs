@@ -31,6 +31,16 @@ fn history_uses_the_shared_matcher_for_every_match_variant() {
                 "to ken",
             ),
             (
+                json_fixture(r#"{"matchString": ["TOKEN"], "caseMode": "insensitive"}"#),
+                "token",
+                "toke",
+            ),
+            (
+                json_fixture(r#"{"matchString": ["token"], "caseMode": "sensitive"}"#),
+                "token",
+                "TOKEN",
+            ),
+            (
                 json_fixture(r#"{"matchString": ["tok.n"], "regexEngine": "literal"}"#),
                 "tok.n",
                 "token",

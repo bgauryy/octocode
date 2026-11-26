@@ -548,3 +548,27 @@ async fn the_tree_source_is_said_only_when_the_scope_keeps_a_tree_row() {
     .await;
     assert!(says(&all), "{all}");
 }
+
+/// A files section that lists every changed file still states how many there
+/// are: rows group by directory, so a claim cites `changedFileCount`, never a
+/// tally of the rows.
+#[tokio::test]
+async fn a_compare_listing_every_file_states_its_count() {
+    let server = MockServer::builder().start().await;
+    mount_long_compare(
+        &server,
+        json!([
+            changed_file("src/a.rs"),
+            changed_file("src/b.rs"),
+            changed_file("docs/c.md")
+        ]),
+    )
+    .await;
+    let listed = read(
+        &server,
+        json!({"operation":"compare","owner":"o","repo":"r","baseRef":BASE,"headRef":HEAD,
+            "sections":["files"]}),
+    )
+    .await;
+    assert_eq!(listed["changedFileCount"], 3, "{listed}");
+}

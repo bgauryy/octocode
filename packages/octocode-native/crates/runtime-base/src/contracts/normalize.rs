@@ -12,6 +12,10 @@
 //!   declared (`x-order`): that object;
 //! - a `matchString` item of a regex row that parses only with its unpaired
 //!   brackets read as text (`def route(`): those brackets escaped;
+//! - an empty text or object for an optional field: the field absent;
+//! - `unique` outside `view:"matchOnly"` and `sort` on a structureSearch
+//!   tree: dropped, and said;
+//! - a sort direction spelled out (`descending`): its literal (`desc`);
 //! - a page size beside a cursor, or a cursor as the one row of `queries`:
 //!   the cursor alone.
 //!
@@ -29,6 +33,7 @@ use super::validate::{ValidationIssue, validate_batch};
 use crate::id::ToolId;
 
 mod beside_cursor;
+mod ignored;
 mod integers;
 mod notes;
 pub use beside_cursor::{BesideCursor, drop_unopened_page_size, read_beside_cursor};
@@ -82,6 +87,9 @@ fn normalize(tool_name: &str, input: Value) -> (Value, Vec<Note>, Vec<Note>) {
     if bills(id) {
         return (input, Vec::new(), Vec::new());
     }
+    let mut request = request;
+    ignored::drop_ignored(tool_name, &mut request, &mut said);
+    ignored::drop_empty_optionals(tool_name, &mut request);
     let mut request = if request.get("queries").is_some_and(Value::is_array) {
         read_values(tool_name, id, request, &mut quiet)
     } else {

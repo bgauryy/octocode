@@ -10,7 +10,7 @@ Create `crates/runtime-base/src/providers/classification/<vendor>.rs` with a sta
 
 | Method | Supplies |
 |---|---|
-| `defaults` | Built-in defaults: API root (used when `OCTOCODE_CLASSIFICATION_API_HOST` is unset), model, classify and model-catalog paths, and the setup link shown in `missingConfiguration` errors |
+| `defaults` | Built-in defaults: API root (used when `OCTOCODE_TYPESAFE_HOST` is unset), model, classify and model-catalog paths, and the setup link shown in `missingConfiguration` errors |
 | `headers` | Capability opt-ins for image input and long context |
 | `build` | The JSON body asking one or more questions over the same state (with optional image assets); answer keys are the vendor's own |
 | `read` | Each answer of a response, validated against its question, plus the reported model and token usage |

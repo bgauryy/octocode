@@ -166,13 +166,13 @@ describe('classification key from dotenv files', () => {
   it('never applies a classification key from a workspace .env', () => {
     writeFileSync(
       join(cwd, '.octocode', '.env'),
-      'OCTOCODE_CLASSIFICATION_API=workspace-secret'
+      'OCTOCODE_TYPESAFE_KEY=workspace-secret'
     );
     for (const trusted of [undefined, true]) {
       const env: Record<string, string | undefined> = {};
       const result = propagateOctocodeEnv({ home, cwd, trusted, env });
-      expect(env.OCTOCODE_CLASSIFICATION_API).toBeUndefined();
-      expect(result.skippedProtected).toContain('OCTOCODE_CLASSIFICATION_API');
+      expect(env.OCTOCODE_TYPESAFE_KEY).toBeUndefined();
+      expect(result.skippedProtected).toContain('OCTOCODE_TYPESAFE_KEY');
       expect(JSON.stringify(result)).not.toContain('-secret');
     }
   });
@@ -180,18 +180,18 @@ describe('classification key from dotenv files', () => {
   it('preserves the explicit classification opt-out and blocks infrastructure overrides', () => {
     writeFileSync(
       join(home, '.env'),
-      'OCTOCODE_CLASSIFICATION_API=home-secret\nPATH=/bad'
+      'OCTOCODE_TYPESAFE_KEY=home-secret\nPATH=/bad'
     );
     writeFileSync(
       join(cwd, '.octocode', '.env'),
-      'OCTOCODE_CLASSIFICATION_API=project-secret\nNODE_OPTIONS=--bad\nOCTOCODE_HOME=/bad'
+      'OCTOCODE_TYPESAFE_KEY=project-secret\nNODE_OPTIONS=--bad\nOCTOCODE_HOME=/bad'
     );
     const env: Record<string, string | undefined> = {
-      OCTOCODE_CLASSIFICATION_API: '',
+      OCTOCODE_TYPESAFE_KEY: '',
     };
     const result = propagateOctocodeEnv({ home, cwd, trusted: true, env });
-    expect(env).toEqual({ OCTOCODE_CLASSIFICATION_API: '' });
-    expect(result.skippedExisting).toContain('OCTOCODE_CLASSIFICATION_API');
+    expect(env).toEqual({ OCTOCODE_TYPESAFE_KEY: '' });
+    expect(result.skippedExisting).toContain('OCTOCODE_TYPESAFE_KEY');
     expect(result.skippedProtected.sort()).toEqual([
       'NODE_OPTIONS',
       'OCTOCODE_HOME',
