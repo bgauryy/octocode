@@ -1,0 +1,274 @@
+{
+ "case": "rubygems/search",
+ "tool": "artifactSearch",
+ "query": {
+  "operation": "search",
+  "ecosystem": "rubygems",
+  "keywords": [
+   "rack-test"
+  ],
+  "limit": 5,
+  "view": "details"
+ },
+ "recordedAt": "2026-11-05",
+ "unread": [
+  "[*].authors",
+  "[*].bug_tracker_uri",
+  "[*].changelog_uri",
+  "[*].documentation_uri",
+  "[*].downloads",
+  "[*].funding_uri",
+  "[*].gem_uri",
+  "[*].mailing_list_uri",
+  "[*].metadata.bug_tracker_uri",
+  "[*].metadata.changelog_uri",
+  "[*].metadata.funding_uri",
+  "[*].metadata.mailing_list_uri",
+  "[*].metadata.rubygems_mfa_required",
+  "[*].metadata.source_code_uri",
+  "[*].metadata.wiki_uri",
+  "[*].sha",
+  "[*].source_code_uri",
+  "[*].version_downloads",
+  "[*].wiki_uri"
+ ],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://rubygems.org/api/v1/search.json?query=rack-test&page=1",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "cache-control",
+     "max-age=0, private, must-revalidate"
+    ],
+    [
+     "content-type",
+     "application/json; charset=utf-8"
+    ],
+    [
+     "etag",
+     "\"7440382ec49878b0957cffd6c8f91c87\""
+    ]
+   ],
+   "digest": "sha256:7440382ec49878b0957cffd6c8f91c87b0417b153c466342feb68bc7b6e3f75b",
+   "body": [
+    {
+     "documentation_uri": null,
+     "metadata": {
+      "bug_tracker_uri": "https://github.com/rack/rack-test/issues",
+      "mailing_list_uri": "https://github.com/rack/rack-test/discussions",
+      "changelog_uri": "https://github.com/rack/rack-test/blob/main/History.md",
+      "source_code_uri": "https://github.com/rack/rack-test"
+     },
+     "homepage_uri": "https://github.com/rack/rack-test",
+     "funding_uri": null,
+     "bug_tracker_uri": "https://github.com/rack/rack-test/issues",
+     "project_uri": "https://rubygems.org/gems/rack-test",
+     "version": "2.3.0",
+     "sha": "b118d177cc002c572fc1b6fd8d19c9ed5881a36e8d6f689f9e618f9f861241e8",
+     "platform": "ruby",
+     "changelog_uri": "https://github.com/rack/rack-test/blob/main/History.md",
+     "source_code_uri": "https://github.com/rack/rack-test",
+     "licenses": [
+      "MIT"
+     ],
+     "gem_uri": "https://rubygems.org/gems/rack-test-2.3.0.gem",
+     "downloads": 834663079,
+     "mailing_list_uri": "https://github.com/rack/rack-test/discussions",
+     "name": "rack-test",
+     "wiki_uri": null,
+     "version_downloads": 1702435,
+     "info": "Rack::Test is a small, simple testing API for Rack apps. It can be used on its\nown or as a reusable starting point for Web frameworks and testing libraries\nto build on.",
+     "authors": "Jeremy Evans, Bryan Helmkamp"
+    },
+    {
+     "documentation_uri": "https://www.rubydoc.info/gems/rack-test-rest/0.8.1",
+     "metadata": {},
+     "homepage_uri": "https://github.com/josephruscio/rack-test-rest",
+     "funding_uri": null,
+     "bug_tracker_uri": null,
+     "project_uri": "https://rubygems.org/gems/rack-test-rest",
+     "version": "0.8.1",
+     "sha": "fbd4c2a5e3ec83d3bfd3b1573bd03e66df67ba80efdacd294b0f2b2f56a5252e",
+     "platform": "ruby",
+     "changelog_uri": null,
+     "source_code_uri": null,
+     "licenses": [
+      "MIT"
+     ],
+     "gem_uri": "https://rubygems.org/gems/rack-test-rest-0.8.1.gem",
+     "downloads": 69370,
+     "mailing_list_uri": null,
+     "name": "rack-test-rest",
+     "wiki_uri": null,
+     "version_downloads": 8533,
+     "info": "Extends rack-test to simplifies the process of unit testing properly designed RESTful API's.",
+     "authors": "Joseph Ruscio"
+    },
+    {
+     "documentation_uri": null,
+     "metadata": {
+      "homepage_uri": "http://github.com/brynary/rack-test"
+     },
+     "homepage_uri": "http://github.com/brynary/rack-test",
+     "funding_uri": null,
+     "bug_tracker_uri": null,
+     "project_uri": "https://rubygems.org/gems/joebadmo-rack-test",
+     "version": "0.6.1",
+     "sha": "20b70ead878b3fe9935f917382eea6da6014139b5c1ec3eebf1d1223e96db2fd",
+     "platform": "ruby",
+     "changelog_uri": null,
+     "source_code_uri": null,
+     "licenses": null,
+     "gem_uri": "https://rubygems.org/gems/joebadmo-rack-test-0.6.1.gem",
+     "downloads": 4597,
+     "mailing_list_uri": null,
+     "name": "joebadmo-rack-test",
+     "wiki_uri": null,
+     "version_downloads": 4597,
+     "info": "Rack::Test is a small, simple testing API for Rack apps. It can be used on its\nown or as a reusable starting point for Web frameworks and testing libraries\nto build on. Most of its initial functionality is an extraction of Merb 1.0's\nrequest helpers feature.",
+     "authors": "Bryan Helmkamp"
+    },
+    {
+     "documentation_uri": null,
+     "metadata": {
+      "homepage_uri": "https://github.com/theodorton/capybara-rack_test-screenshot",
+      "allowed_push_host": "https://rubygems.org",
+      "changelog_uri": "https://github.com/theodorton/capybara-rack_test-screenshot/blob/main/CHANGELOG.md",
+      "source_code_uri": "https://github.com/theodorton/capybara-rack_test-screenshot"
+     },
+     "homepage_uri": "https://github.com/theodorton/capybara-rack_test-screenshot",
+     "funding_uri": null,
+     "bug_tracker_uri": null,
+     "project_uri": "https://rubygems.org/gems/capybara-rack_test-screenshot",
+     "version": "0.1.3",
+     "sha": "03d2d441bb86d614532519554aa404034c0085de8d244b06818761785734b96a",
+     "platform": "ruby",
+     "changelog_uri": "https://github.com/theodorton/capybara-rack_test-screenshot/blob/main/CHANGELOG.md",
+     "source_code_uri": "https://github.com/theodorton/capybara-rack_test-screenshot",
+     "licenses": [
+      "MIT"
+     ],
+     "gem_uri": "https://rubygems.org/gems/capybara-rack_test-screenshot-0.1.3.gem",
+     "downloads": 2807,
+     "mailing_list_uri": null,
+     "name": "capybara-rack_test-screenshot",
+     "wiki_uri": null,
+     "version_downloads": 1134,
+     "info": "Use playwright to generate screenshots when using RackTest",
+     "authors": "Theodor Tonum"
+    },
+    {
+     "documentation_uri": null,
+     "metadata": {
+      "funding_uri": "https://opencollective.com/split",
+      "homepage_uri": "https://github.com/splitrb/split",
+      "bug_tracker_uri": "https://github.com/splitrb/split/issues",
+      "mailing_list_uri": "https://groups.google.com/d/forum/split-ruby",
+      "wiki_uri": "https://github.com/splitrb/split/wiki",
+      "changelog_uri": "https://github.com/splitrb/split/blob/main/CHANGELOG.md",
+      "source_code_uri": "https://github.com/splitrb/split"
+     },
+     "homepage_uri": "https://github.com/splitrb/split",
+     "funding_uri": "https://opencollective.com/split",
+     "bug_tracker_uri": "https://github.com/splitrb/split/issues",
+     "project_uri": "https://rubygems.org/gems/split",
+     "version": "4.0.5",
+     "sha": "ba5666991c1445f8c2c31f2aba6352815764a3db4fc463119ef4312c93753058",
+     "platform": "ruby",
+     "changelog_uri": "https://github.com/splitrb/split/blob/main/CHANGELOG.md",
+     "source_code_uri": "https://github.com/splitrb/split",
+     "licenses": [
+      "MIT"
+     ],
+     "gem_uri": "https://rubygems.org/gems/split-4.0.5.gem",
+     "downloads": 9263417,
+     "mailing_list_uri": "https://groups.google.com/d/forum/split-ruby",
+     "name": "split",
+     "wiki_uri": "https://github.com/splitrb/split/wiki",
+     "version_downloads": 331520,
+     "info": "Rack based split testing framework",
+     "authors": "Andrew Nesbitt"
+    },
+    {
+     "documentation_uri": null,
+     "metadata": {
+      "rubygems_mfa_required": "true",
+      "changelog_uri": "https://github.com/teamcapybara/capybara/blob/master/History.md",
+      "source_code_uri": "https://github.com/teamcapybara/capybara"
+     },
+     "homepage_uri": "https://github.com/teamcapybara/capybara",
+     "funding_uri": null,
+     "bug_tracker_uri": null,
+     "project_uri": "https://rubygems.org/gems/capybara",
+     "version": "3.40.0",
+     "sha": "42dba720578ea1ca65fd7a41d163dd368502c191804558f6e0f71b391054aeef",
+     "platform": "ruby",
+     "changelog_uri": "https://github.com/teamcapybara/capybara/blob/master/History.md",
+     "source_code_uri": "https://github.com/teamcapybara/capybara",
+     "licenses": [
+      "MIT"
+     ],
+     "gem_uri": "https://rubygems.org/gems/capybara-3.40.0.gem",
+     "downloads": 367797620,
+     "mailing_list_uri": null,
+     "name": "capybara",
+     "wiki_uri": null,
+     "version_downloads": 105933374,
+     "info": "Capybara is an integration testing tool for rack based web applications. It simulates how a user would interact with a website",
+     "authors": "Thomas Walpole, Jonas Nicklas"
+    },
+    {
+     "documentation_uri": "https://www.rubydoc.info/gems/universe-rack-testing/0.1.1",
+     "metadata": {},
+     "homepage_uri": null,
+     "funding_uri": null,
+     "bug_tracker_uri": null,
+     "project_uri": "https://rubygems.org/gems/universe-rack-testing",
+     "version": "0.1.1",
+     "sha": "af6cb4985948a646f04f36100b3c86bdda9fa190f0cce88e3f693770bbba60ef",
+     "platform": "ruby",
+     "changelog_uri": null,
+     "source_code_uri": null,
+     "licenses": null,
+     "gem_uri": "https://rubygems.org/gems/universe-rack-testing-0.1.1.gem",
+     "downloads": 9163,
+     "mailing_list_uri": null,
+     "name": "universe-rack-testing",
+     "wiki_uri": null,
+     "version_downloads": 5350,
+     "info": "gem install universe-rack-testing",
+     "authors": "Konstantin Haase"
+    },
+    {
+     "documentation_uri": "https://www.rubydoc.info/gems/rack_request_blocker/1.0.0",
+     "metadata": {},
+     "homepage_uri": "https://github.com/friendsoftheweb/rack_request_blocker",
+     "funding_uri": null,
+     "bug_tracker_uri": null,
+     "project_uri": "https://rubygems.org/gems/rack_request_blocker",
+     "version": "1.0.0",
+     "sha": "1207a74f07b366ca3574e713dd39f4856e1afd1dd563870ae8997fc53e80e2a7",
+     "platform": "ruby",
+     "changelog_uri": null,
+     "source_code_uri": null,
+     "licenses": [
+      "MIT"
+     ],
+     "gem_uri": "https://rubygems.org/gems/rack_request_blocker-1.0.0.gem",
+     "downloads": 201905,
+     "mailing_list_uri": null,
+     "name": "rack_request_blocker",
+     "wiki_uri": null,
+     "version_downloads": 201905,
+     "info": "Handle race conditions in Rails JS feature tests caused by outstanding overlapping actions in your app, with rack middleware to let you wait for pending feature test actions to finish",
+     "authors": "Jonathan Rochkind"
+    }
+   ]
+  }
+ ]
+}

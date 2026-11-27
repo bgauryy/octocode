@@ -1,0 +1,1602 @@
+//! The OSV source against a recorded double: wire, states and paging.
+use super::*;
+use crate::artifact::query::artifact_type::osv_ecosystem;
+use crate::artifact::test_http::{RouteHttp, test_budget};
+use crate::security_check::ecosystem::osv_name;
+use crate::security_check::osv_double::OsvPages;
+use octocode_contract_types::ArtifactType;
+use octocode_runtime_base::providers::saved_answers::ReusedSince;
+use octocode_test_support::json_fixture;
+use serde_json::json;
+
+fn package<'a>(kind: ArtifactType, name: &'a str, version: Option<&'a str>) -> Ask<'a> {
+    Ask::Package {
+        ecosystem: osv_ecosystem(kind),
+        release: None,
+        name,
+        version,
+        import: None,
+        by_name: false,
+    }
+}
+
+async fn on(
+    http: &RouteHttp,
+    query: &Ask<'_>,
+    start: Option<&str>,
+) -> Result<SourceResult, ArtifactError> {
+    let budget = test_budget();
+    let reused = ReusedSince::default();
+    let config = crate::security_check::tests::default_config();
+    let net = Net {
+        http,
+        budget: &budget,
+        answers: None,
+        reused: &reused,
+        config: &config,
+        github: None,
+        osv_api: octocode_runtime_base::execution::RuntimeLimits::DEFAULT.osv_api,
+        share: &crate::artifact::CallShare::new(),
+    };
+    // The selection a package row asks with, as `ask` builds it.
+    let names;
+    let selection = match query {
+        Ask::Package {
+            ecosystem, name, ..
+        } => {
+            names = [(*name).to_owned()];
+            Selection::Named(*ecosystem, &names, None)
+        }
+        Ask::Commit(_) => Selection::All,
+    };
+    walk(&net, query, &selection, start).await
+}
+
+async fn run(http: &RouteHttp, start: Option<&str>) -> Result<SourceResult, ArtifactError> {
+    on(
+        http,
+        &package(ArtifactType::Npm, "lodash", Some("4.17.20")),
+        start,
+    )
+    .await
+}
+
+fn record(id: &str) -> Value {
+    json!({"id": id, "schema_version": "1.6.0", "affected": [
+        {"package": {"name": "lodash", "ecosystem": "npm", "purl": "pkg:npm/lodash"}}
+    ]})
+}
+
+/// The saved walk a stopped row carries, read back.
+fn saved_token(resume: &crate::security_check::source::Resume) -> String {
+    let saved: Value = serde_json::from_str(&resume.token).expect("saved walk");
+    saved["token"].as_str().expect("token").to_owned()
+}
+
+fn ids(walk: &SourceResult) -> Vec<&str> {
+    walk.advisories.iter().map(|row| row.id.as_str()).collect()
+}
+
+#[tokio::test]
+async fn the_request_holds_only_the_package_the_version_and_the_token() {
+    let http = RouteHttp::new().osv_pages(vec![
+        (
+            200,
+            json!({"vulns": [record("A")], "next_page_token": "t1"}),
+        ),
+        (200, json!({})),
+    ]);
+    run(&http, None).await.expect("walk");
+    let bodies = http.osv_queries();
+    assert_eq!(
+        bodies,
+        vec![
+            json_fixture(
+                r#"{
+                    "package": {"name": "lodash", "ecosystem": "npm"},
+                    "version": "4.17.20"
+                }"#
+            ),
+            json_fixture(
+                r#"{
+                    "package": {"name": "lodash", "ecosystem": "npm"},
+                    "version": "4.17.20",
+                    "page_token": "t1"
+                }"#
+            ),
+        ]
+    );
+    assert!(http.seen().iter().all(|seen| !seen.authorized));
+    assert_eq!(
+        http.seen()[0].url.as_str(),
+        "https://api.osv.dev/v1/querybatch"
+    );
+    // A name-only query carries no version key at all.
+    let http = RouteHttp::new().osv_pages(vec![(200, json!({}))]);
+    on(&http, &package(ArtifactType::Pypi, "requests", None), None)
+        .await
+        .expect("walk");
+    assert_eq!(
+        http.osv_queries(),
+        vec![json_fixture(
+            r#"{"package": {"name": "requests", "ecosystem": "PyPI"}}"#
+        )]
+    );
+}
+
+#[test]
+fn every_registry_uses_osvs_case_sensitive_ecosystem_name() {
+    for (kind, name) in [
+        (ArtifactType::Npm, "npm"),
+        (ArtifactType::Pypi, "PyPI"),
+        (ArtifactType::Crates, "crates.io"),
+        (ArtifactType::Maven, "Maven"),
+        (ArtifactType::Nuget, "NuGet"),
+        (ArtifactType::Go, "Go"),
+        (ArtifactType::Packagist, "Packagist"),
+        (ArtifactType::Rubygems, "RubyGems"),
+    ] {
+        assert_eq!(osv_name(osv_ecosystem(kind), None), name);
+    }
+}
+
+/// `{}` finishes the walk with nothing: the only empty answer.
+#[tokio::test]
+async fn an_empty_object_is_a_finished_walk_with_no_records() {
+    let http = RouteHttp::new().osv_pages(vec![(200, json!({}))]);
+    let done = run(&http, None).await.expect("walk");
+    assert!(done.advisories.is_empty());
+    assert!(done.resume.is_none());
+}
+
+/// "The response might contain only the next_page_token": a page with no
+/// `vulns` and a token is not empty, so the walk goes on.
+#[tokio::test]
+async fn a_token_only_page_walks_on() {
+    let http = RouteHttp::new().osv_pages(vec![
+        (200, json_fixture(r#"{"next_page_token": "t1"}"#)),
+        (200, json_fixture(r#"{"next_page_token": "t2"}"#)),
+        (200, json!({"vulns": [record("A")]})),
+    ]);
+    let done = run(&http, None).await.expect("walk");
+    assert_eq!(ids(&done), ["A"]);
+    assert_eq!(http.osv_queries().len(), 3);
+    assert!(done.resume.is_none());
+}
+
+#[tokio::test]
+async fn pages_join_in_order_exactly_once() {
+    let http = RouteHttp::new().osv_pages(vec![
+        (
+            200,
+            json!({"vulns": [record("A"), record("B")], "next_page_token": "t1"}),
+        ),
+        (200, json!({"vulns": [record("C")]})),
+    ]);
+    let done = run(&http, None).await.expect("walk");
+    assert_eq!(ids(&done), ["A", "B", "C"]);
+}
+
+/// A later page lost to a transient failure saves what was read with the exact
+/// token that reaches the rest: the row lists nothing until the walk finished,
+/// and then every record once, with no gap or repeat.
+#[tokio::test]
+async fn a_walk_stopped_midway_resumes_with_no_gap_or_repeat() {
+    let http = RouteHttp::new().osv_pages(vec![
+        (
+            200,
+            json!({"vulns": [record("A")], "next_page_token": "t1"}),
+        ),
+        (503, json!({})),
+    ]);
+    let stopped = run(&http, None).await.expect("partial");
+    assert!(stopped.advisories.is_empty(), "listed only once finished");
+    let resume = stopped.resume.expect("a token to resume from");
+    assert_eq!(saved_token(&resume), "t1");
+    assert!(resume.reason.contains("OSV"), "{}", resume.reason);
+    let http = RouteHttp::new().osv_pages(vec![(200, json!({"vulns": [record("B")]}))]);
+    let rest = run(&http, Some(&resume.token)).await.expect("rest");
+    assert_eq!(ids(&rest), ["A", "B"]);
+    assert_eq!(http.osv_queries()[0]["page_token"], "t1");
+}
+
+/// A token-only page at the deadline is not empty: no records, and a token.
+#[tokio::test]
+async fn a_token_only_page_at_the_deadline_is_partial_not_empty() {
+    let http = RouteHttp::new()
+        .osv_pages(vec![(200, json_fixture(r#"{"next_page_token": "t1"}"#))])
+        .post_fails_from(1, ErrorCode::Timeout);
+    let stopped = run(&http, None).await.expect("partial");
+    assert!(stopped.advisories.is_empty());
+    assert_eq!(saved_token(&stopped.resume.expect("resume")), "t1");
+}
+
+#[tokio::test]
+async fn failures_name_osv_and_never_read_as_clean() {
+    for status in [429, 500, 503, 400] {
+        let http = RouteHttp::new().osv_pages(vec![(
+            status,
+            json_fixture(r#"{"code": 3, "message": "why"}"#),
+        )]);
+        let error = run(&http, None).await.expect_err("failure");
+        assert_eq!(error.status, Some(status));
+        assert_eq!(
+            error.code,
+            ProviderErrorKind::from_status(status).code(),
+            "{status}"
+        );
+        for spelled in ["OSV", "lodash@4.17.20", "not checked"] {
+            assert!(error.message.contains(spelled), "{}", error.message);
+        }
+        assert!(!error.message.contains("registry"), "{}", error.message);
+    }
+    let http = RouteHttp::new().post_fails_from(0, ErrorCode::ProviderError);
+    let error = run(&http, None).await.expect_err("transport");
+    assert!(
+        error.message.starts_with("OSV request failed"),
+        "{}",
+        error.message
+    );
+    assert!(!error.message.contains("registry"), "{}", error.message);
+}
+
+#[tokio::test]
+async fn a_malformed_answer_fails_whole() {
+    for body in [
+        b"<html>nope</html>".to_vec(),
+        b"[]".to_vec(),
+        br#"{"vulns":[{"id":"A"}]}"#.to_vec(),
+        br#"{"results":{}}"#.to_vec(),
+        br#"{"results":[]}"#.to_vec(),
+        br#"{"results":[{},{}]}"#.to_vec(),
+        br#"{"results":[7]}"#.to_vec(),
+        br#"{"results":[{"vulns":{"id":"A"}}]}"#.to_vec(),
+        br#"{"results":[{"vulns":[{"summary":"no id"}]}]}"#.to_vec(),
+        br#"{"results":[{"vulns":[{"id":"A"}],"next_page_token":7}]}"#.to_vec(),
+    ] {
+        let http = RouteHttp::new().post_raw(body.clone());
+        let error = run(&http, None).await.expect_err("malformed");
+        assert_eq!(error.code, ErrorCode::ProviderError, "{body:?}");
+        assert!(error.message.contains("not checked"), "{}", error.message);
+    }
+    // A record OSV states in a schema this tool does not read fails the whole answer.
+    let http = RouteHttp::new().osv_pages(vec![(
+        200,
+        json_fixture(r#"{"vulns": [{"id": "A", "schema_version": "2.0.0"}]}"#),
+    )]);
+    run(&http, None).await.expect_err("fail whole");
+    // So does a record with no id.
+    let http = RouteHttp::new()
+        .json("/v1/vulns/A", json_fixture(r#"{"summary": "no id"}"#))
+        .post_raw(br#"{"results":[{"vulns":[{"id":"A"}]}]}"#.to_vec());
+    run(&http, None).await.expect_err("fail whole");
+    // A page lost to a malformed answer after the first stops the walk with
+    // the token that asks it again: nothing read is dropped.
+    let http = RouteHttp::new().osv_pages(vec![
+        (
+            200,
+            json!({"vulns": [record("A")], "next_page_token": "t1"}),
+        ),
+        (
+            200,
+            json_fixture(r#"{"results": [{"vulns": [{"summary": "no id"}]}]}"#),
+        ),
+    ]);
+    let stopped = run(&http, None).await.expect("partial");
+    assert_eq!(saved_token(&stopped.resume.expect("resume")), "t1");
+    // A token that repeats would never end.
+    let http = RouteHttp::new().osv_pages(vec![
+        (200, json_fixture(r#"{"next_page_token": "t1"}"#)),
+        (200, json_fixture(r#"{"next_page_token": "t1"}"#)),
+    ]);
+    run(&http, None).await.expect_err("a repeated token");
+}
+
+#[tokio::test]
+async fn a_non_adjacent_page_token_cycle_fails_before_requesting_it_again() {
+    let http = RouteHttp::new().osv_pages(vec![
+        (200, json_fixture(r#"{"next_page_token": "t1"}"#)),
+        (200, json_fixture(r#"{"next_page_token": "t2"}"#)),
+        (200, json_fixture(r#"{"next_page_token": "t1"}"#)),
+        (200, json!({})),
+    ]);
+    let error = run(&http, None).await.expect_err("a repeated token");
+    assert_eq!(error.code, ErrorCode::ProviderError);
+    assert!(error.message.contains("token"), "{}", error.message);
+    assert_eq!(http.osv_queries().len(), 3, "no repeated provider request");
+}
+
+#[tokio::test]
+async fn a_page_token_cycle_across_a_resumed_walk_fails() {
+    let http = RouteHttp::new().osv_pages(vec![
+        (200, json_fixture(r#"{"next_page_token": "t1"}"#)),
+        (200, json_fixture(r#"{"next_page_token": "t2"}"#)),
+        (503, json!({})),
+    ]);
+    let stopped = run(&http, None).await.expect("partial");
+    let resume = stopped.resume.expect("resumable provider failure");
+    let http = RouteHttp::new().osv_pages(vec![
+        (200, json_fixture(r#"{"next_page_token": "t1"}"#)),
+        (200, json!({})),
+    ]);
+    let error = run(&http, Some(&resume.token))
+        .await
+        .expect_err("a token from an earlier page");
+    assert_eq!(error.code, ErrorCode::ProviderError);
+    assert_eq!(http.osv_queries().len(), 1);
+}
+
+/// A rejected token does not resume: it fails, so the row is an error.
+#[tokio::test]
+async fn a_rejected_token_fails_instead_of_resuming() {
+    let http = RouteHttp::new().osv_pages(vec![
+        (
+            200,
+            json!({"vulns": [record("A")], "next_page_token": "t1"}),
+        ),
+        (
+            400,
+            json_fixture(r#"{"code": 3, "message": "invalid cursor"}"#),
+        ),
+    ]);
+    let error = run(&http, None).await.expect_err("rejected");
+    assert_eq!(error.status, Some(400));
+}
+
+#[tokio::test]
+async fn an_advisory_reads_by_id_and_a_withdrawn_one_keeps_the_field() {
+    let http = RouteHttp::new().json(
+        "/v1/vulns/GHSA-8rfx-6mr3-5jh3",
+        json_fixture(
+            r#"{
+                "id": "GHSA-8rfx-6mr3-5jh3",
+                "withdrawn": "2024-01-01T00:00:00Z",
+                "affected": [{"package": {"name": "a", "ecosystem": "NuGet"}}]
+            }"#,
+        ),
+    );
+    let budget = test_budget();
+    let reused = ReusedSince::default();
+    let config = crate::security_check::tests::default_config();
+    let net = Net {
+        http: &http,
+        budget: &budget,
+        answers: None,
+        reused: &reused,
+        config: &config,
+        github: None,
+        osv_api: octocode_runtime_base::execution::RuntimeLimits::DEFAULT.osv_api,
+        share: &crate::artifact::CallShare::new(),
+    };
+    let found = check_advisory(&net, "GHSA-8rfx-6mr3-5jh3")
+        .await
+        .expect("a record");
+    assert_eq!(
+        found.advisories[0].withdrawn.as_deref(),
+        Some("2024-01-01T00:00:00Z")
+    );
+    assert_eq!(
+        found.advisories[0].affected.len(),
+        1,
+        "every entry is its own"
+    );
+    assert_eq!(
+        http.seen()[0].url.as_str(),
+        "https://api.osv.dev/v1/vulns/GHSA-8rfx-6mr3-5jh3"
+    );
+    let missing = check_advisory(&net, "GHSA-0000-0000-0000")
+        .await
+        .expect_err("no record");
+    assert_eq!(missing.code, ErrorCode::NotFound);
+    assert!(
+        missing.message.contains("OSV has no record"),
+        "{}",
+        missing.message
+    );
+}
+
+/// A commit goes alone: OSV refuses a version beside it.
+#[tokio::test]
+async fn a_commit_query_holds_only_the_commit_and_the_token() {
+    let commit = "6879efc2c1596d11a6a6ad296f80063b558d5e0f";
+    let http = RouteHttp::new().osv_pages(vec![
+        (
+            200,
+            json_fixture(r#"{"vulns": [{"id": "OSV-2020-484"}], "next_page_token": "t1"}"#),
+        ),
+        (200, json!({})),
+    ]);
+    let done = on(&http, &Ask::Commit(commit), None).await.expect("walk");
+    assert_eq!(ids(&done), ["OSV-2020-484"]);
+    assert_eq!(
+        http.osv_queries(),
+        [
+            json!({"commit": commit}),
+            json!({"commit": commit, "page_token": "t1"})
+        ]
+    );
+}
+
+/// Records of module `golang.org/x/net`, as OSV states them: Go-database
+/// records list their import paths, GHSA twins and some records state none.
+mod go_imports {
+    use super::*;
+
+    const MODULE: &str = "golang.org/x/net";
+
+    fn go_entry(imports: Option<&[&str]>) -> Value {
+        let mut entry = json!({"package": {"name": MODULE, "ecosystem": "Go"}});
+        if let Some(paths) = imports {
+            let rows: Vec<Value> = paths.iter().map(|path| json!({"path": path})).collect();
+            entry["ecosystem_specific"] = json!({"imports": rows});
+        }
+        entry
+    }
+
+    fn go_record(id: &str, aliases: &[&str], imports: Option<&[&str]>) -> Value {
+        json!({"id": id, "schema_version": "1.6.0", "aliases": aliases,
+               "affected": [go_entry(imports)]})
+    }
+
+    fn package_path(base: &str, leaf: &str) -> String {
+        format!("{base}/{leaf}")
+    }
+
+    /// One record per case: a package-listing record with a GHSA twin that
+    /// states no imports, a sibling-package record with its twin, a module-wide
+    /// record, and a GHSA record that names the package as an entry of its own.
+    fn module_records(package: &str, sibling: &str) -> Vec<Value> {
+        vec![
+            go_record("GO-HERE", &["GHSA-HERE"], Some(&[package])),
+            go_record("GHSA-HERE", &["GO-HERE"], None),
+            go_record("GO-SIBLING", &["GHSA-SIBLING"], Some(&[sibling])),
+            go_record("GHSA-SIBLING", &["GO-SIBLING"], None),
+            go_record("GO-WIDE", &[], None),
+            json!({"id": "GHSA-NAMED", "schema_version": "1.6.0", "affected": [
+                {"package": {"name": package, "ecosystem": "Go"}}, go_entry(None)]}),
+        ]
+    }
+
+    async fn walked(import: Option<&str>) -> SourceResult {
+        let package = package_path(MODULE, "http2");
+        let sibling = package_path(MODULE, "html");
+        let http = RouteHttp::new().osv_pages(vec![(
+            200,
+            json!({"vulns": module_records(&package, &sibling)}),
+        )]);
+        let ask = Ask::Package {
+            ecosystem: osv_ecosystem(ArtifactType::Go),
+            release: None,
+            name: MODULE,
+            version: None,
+            import,
+            by_name: false,
+        };
+        on(&http, &ask, None).await.expect("walk")
+    }
+
+    fn ids_of(rows: &[crate::security_check::record::SecurityAdvisory]) -> Vec<&str> {
+        rows.iter().map(|row| row.id.as_str()).collect()
+    }
+
+    #[tokio::test]
+    async fn a_package_keeps_the_records_that_list_it_or_cover_the_whole_module() {
+        let package = package_path(MODULE, "http2");
+        let done = walked(Some(&package)).await;
+        assert_eq!(
+            ids_of(&done.advisories),
+            ["GO-HERE", "GHSA-HERE", "GO-WIDE", "GHSA-NAMED"]
+        );
+    }
+
+    #[tokio::test]
+    async fn module_records_listing_other_packages_are_set_apart_with_their_twins() {
+        let package = package_path(MODULE, "http2");
+        let done = walked(Some(&package)).await;
+        assert_eq!(ids_of(&done.module_only), ["GO-SIBLING", "GHSA-SIBLING"]);
+    }
+
+    #[tokio::test]
+    async fn a_bare_module_keeps_every_record() {
+        let done = walked(None).await;
+        assert_eq!(done.advisories.len(), module_records("a", "b").len());
+        assert!(done.module_only.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_stopped_walk_keeps_the_package_it_narrows_to() {
+        let package = package_path(MODULE, "http2");
+        let sibling = package_path(MODULE, "html");
+        let http = RouteHttp::new().osv_pages(vec![
+            (
+                200,
+                json!({"vulns": module_records(&package, &sibling), "next_page_token": "t1"}),
+            ),
+            (503, json!({})),
+        ]);
+        let ask = Ask::Package {
+            ecosystem: osv_ecosystem(ArtifactType::Go),
+            release: None,
+            name: MODULE,
+            version: None,
+            import: Some(&package),
+            by_name: false,
+        };
+        let stopped = on(&http, &ask, None).await.expect("walk");
+        let saved: Value =
+            serde_json::from_str(&stopped.resume.expect("stopped").token).expect("saved");
+        assert_eq!(saved["import"], json!(package));
+    }
+}
+
+/// An ecosystem OSV cannot order is asked by name alone, and the version is
+/// compared with each record's ranges here: the false negative of a version
+/// query that matches none of them.
+#[tokio::test]
+async fn an_ecosystem_osv_cannot_order_is_asked_by_name_and_compared_here() {
+    let record = |id: &str, fixed: &str| {
+        json!({"id": id, "schema_version": "1.6.0", "affected": [{
+            "package": {"name": "tj-actions/changed-files", "ecosystem": "GitHub Actions"},
+            "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": fixed}]}],
+        }]})
+    };
+    let ask = |version| Ask::Package {
+        ecosystem: crate::security_check::ecosystem::Ecosystem::GitHubActions,
+        release: None,
+        name: "tj-actions/changed-files",
+        version: Some(version),
+        import: None,
+        by_name: true,
+    };
+    let answer = json!({"vulns": [record("OLD", "41"), record("NEW", "46.0.1")]});
+    let http = RouteHttp::new().osv_pages(vec![(200, answer.clone())]);
+    let walked = on(&http, &ask("40.0.0"), None).await.expect("walk");
+    assert_eq!(ids(&walked), ["OLD", "NEW"]);
+    assert!(walked.compared_here && walked.unmatched.is_empty());
+    assert_eq!(
+        http.osv_queries(),
+        vec![json_fixture(
+            r#"{
+                "package": {
+                    "name": "tj-actions/changed-files",
+                    "ecosystem": "GitHub Actions"
+                }
+            }"#
+        )]
+    );
+    let http = RouteHttp::new().osv_pages(vec![(200, answer.clone())]);
+    assert_eq!(
+        ids(&on(&http, &ask("45.0.0"), None).await.expect("walk")),
+        ["NEW"]
+    );
+    let http = RouteHttp::new().osv_pages(vec![(200, answer)]);
+    let cleared = on(&http, &ask("46.0.1"), None).await.expect("walk");
+    assert!(cleared.advisories.is_empty() && cleared.compared_here);
+}
+
+/// `/v1/querybatch` and the records it lists: positional answers, OSV's batch
+/// limit, one read for each distinct record, and a walk that resumes exactly.
+mod batch_walk {
+    use super::*;
+    use octocode_runtime_base::providers::saved_answers::KeptAnswers;
+    use octocode_test_support::json_fixture;
+    use std::collections::BTreeMap;
+
+    fn net_of<'a>(
+        http: &'a dyn crate::artifact::ArtifactHttp,
+        budget: &'a octocode_io::budget::RequestBudget,
+        reused: &'a ReusedSince,
+        config: &'a octocode_runtime_base::config::ResolvedConfig,
+        answers: Option<&'a dyn octocode_github::SavedAnswers>,
+    ) -> Net<'a> {
+        Net {
+            http,
+            budget,
+            answers,
+            reused,
+            config,
+            github: None,
+            osv_api: octocode_runtime_base::execution::RuntimeLimits::DEFAULT.osv_api,
+            // Each net is a row of its own call.
+            share: Box::leak(Box::new(crate::artifact::CallShare::new())),
+        }
+    }
+
+    fn listed(id: &str, modified: &str) -> Value {
+        json!({"id": id, "modified": modified})
+    }
+
+    fn batch(results: Vec<Value>) -> Value {
+        json!({"results": results})
+    }
+
+    fn lodash(version: &str) -> Ask<'static> {
+        Ask::Package {
+            ecosystem: osv_ecosystem(ArtifactType::Npm),
+            release: None,
+            name: "lodash",
+            version: Some(Box::leak(version.to_owned().into_boxed_str())),
+            import: None,
+            by_name: false,
+        }
+    }
+
+    fn gets(http: &RouteHttp, id: &str) -> usize {
+        let target = format!("/v1/vulns/{id}");
+        http.targets().iter().filter(|got| **got == target).count()
+    }
+
+    /// Origin headers supplied independently of the existing route double.
+    struct CacheControlled {
+        inner: RouteHttp,
+        get_headers: Vec<(String, String)>,
+        post_headers: Vec<(String, String)>,
+    }
+
+    impl crate::artifact::ArtifactHttp for CacheControlled {
+        fn get<'a>(
+            &'a self,
+            request: crate::artifact::ArtifactHttpRequest,
+            budget: &'a octocode_io::budget::RequestBudget,
+        ) -> crate::artifact::ArtifactHttpFuture<'a> {
+            Box::pin(async move {
+                let mut response =
+                    crate::artifact::ArtifactHttp::get(&self.inner, request, budget).await?;
+                response.headers.extend(self.get_headers.clone());
+                Ok(response)
+            })
+        }
+
+        fn post<'a>(
+            &'a self,
+            request: crate::artifact::ArtifactHttpRequest,
+            body: Vec<u8>,
+            budget: &'a octocode_io::budget::RequestBudget,
+        ) -> crate::artifact::ArtifactHttpFuture<'a> {
+            Box::pin(async move {
+                let mut response =
+                    crate::artifact::ArtifactHttp::post(&self.inner, request, body, budget).await?;
+                response.headers.extend(self.post_headers.clone());
+                Ok(response)
+            })
+        }
+    }
+
+    fn refused_cache_policies() -> Vec<Vec<(String, String)>> {
+        [
+            vec![("cache-control", "no-store")],
+            vec![("vary", "*"), ("cache-control", "max-age=300")],
+            vec![("vary", "Accept"), ("vary", "*")],
+            vec![("cache-control", "no-cache"), ("etag", "\"e\"")],
+            vec![("cache-control", "must-revalidate, max-age=0")],
+        ]
+        .into_iter()
+        .map(|headers| {
+            headers
+                .into_iter()
+                .map(|(name, value)| (name.to_owned(), value.to_owned()))
+                .collect()
+        })
+        .collect()
+    }
+
+    #[tokio::test]
+    async fn response_cache_controls_query_lists_honor_origin_refusals() {
+        for headers in refused_cache_policies() {
+            let http = CacheControlled {
+                inner: RouteHttp::new().post_sequence(vec![
+                    (200, batch(vec![json!({"vulns":[listed("FIRST", "m")],"next_page_token":"first-page"})])),
+                    (200, batch(vec![json!({"vulns":[listed("SECOND", "m")],"next_page_token":"second-page"})])),
+                ]),
+                get_headers: Vec::new(), post_headers: headers.clone(),
+            };
+            let store = KeptAnswers::new(None);
+            let (budget, reused, config) = (
+                test_budget(),
+                ReusedSince::default(),
+                crate::security_check::tests::default_config(),
+            );
+            let ask = package(ArtifactType::Npm, "lodash", Some("1.0.0"));
+            for (id, token) in [("FIRST", "first-page"), ("SECOND", "second-page")] {
+                // Each ask is its own call: a repeat within one call is its
+                // share's, never the origin's to refuse.
+                let net = net_of(&http, &budget, &reused, &config, Some(&store));
+                let page = batch::pages(
+                    &net,
+                    &[batch::PageQuery {
+                        ask: &ask,
+                        token: None,
+                    }],
+                )
+                .await
+                .pop()
+                .expect("one query")
+                .expect("origin page");
+                assert_eq!(page.refs[0].id, id, "{headers:?}");
+                assert_eq!(page.next.as_deref(), Some(token), "{headers:?}");
+            }
+            assert_eq!(http.inner.post_bodies().len(), 2, "{headers:?}");
+            assert_eq!(
+                reused.get(),
+                None,
+                "forbidden/stale responses never answer a repeat: {headers:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn response_cache_controls_keep_origin_fresh_lists_and_disclose_only_window_reuse() {
+        for (headers, disclosed) in [
+            (Vec::new(), true),
+            (
+                vec![("cache-control".to_owned(), "max-age=300".to_owned())],
+                false,
+            ),
+        ] {
+            let http = CacheControlled {
+                inner: RouteHttp::new().post_sequence(vec![(
+                    200,
+                    batch(vec![json!({"vulns":[listed("A", "m")]})]),
+                )]),
+                get_headers: Vec::new(),
+                post_headers: headers,
+            };
+            let store = KeptAnswers::new(None);
+            let (budget, reused, config) = (
+                test_budget(),
+                ReusedSince::default(),
+                crate::security_check::tests::default_config(),
+            );
+            let ask = package(ArtifactType::Npm, "lodash", Some("1.0.0"));
+            for _ in 0..2 {
+                // Each ask is its own call.
+                let net = net_of(&http, &budget, &reused, &config, Some(&store));
+                let page = batch::pages(
+                    &net,
+                    &[batch::PageQuery {
+                        ask: &ask,
+                        token: None,
+                    }],
+                )
+                .await
+                .pop()
+                .expect("one query")
+                .expect("page");
+                assert_eq!(page.refs[0].id, "A");
+            }
+            assert_eq!(
+                http.inner.post_bodies().len(),
+                1,
+                "origin-permitted reuse remains useful"
+            );
+            assert_eq!(
+                reused.get().is_some(),
+                disclosed,
+                "only caller-window reuse needs disclosure"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn response_cache_controls_hydrated_records_honor_origin_refusals() {
+        let reference = batch::Ref {
+            id: "A".to_owned(),
+            modified: Some("m".to_owned()),
+        };
+        for headers in refused_cache_policies() {
+            let store = KeptAnswers::new(None);
+            let (budget, reused, config) = (
+                test_budget(),
+                ReusedSince::default(),
+                crate::security_check::tests::default_config(),
+            );
+            for marker in ["first", "second"] {
+                let mut body = record("A");
+                body["modified"] = json!("m");
+                body["summary"] = json!(marker);
+                let http = CacheControlled {
+                    inner: RouteHttp::new().json("/v1/vulns/A", body),
+                    get_headers: headers.clone(),
+                    post_headers: Vec::new(),
+                };
+                let net = net_of(&http, &budget, &reused, &config, Some(&store));
+                let mut known = BTreeMap::new();
+                let failed = hydrate::fetch(&net, vec![&reference], &mut known).await;
+                assert!(failed.is_empty(), "{failed:?}");
+                assert_eq!(
+                    known.values().next().expect("record")["summary"],
+                    marker,
+                    "{headers:?}"
+                );
+                assert_eq!(
+                    gets(&http.inner, "A"),
+                    1,
+                    "same id/stamp must still honor origin policy: {headers:?}"
+                );
+            }
+        }
+    }
+
+    /// More queries than one request holds go in several, each answered
+    /// positionally: result `i` of the request is query `i` of it.
+    #[tokio::test]
+    async fn queries_beyond_osvs_batch_limit_split_and_map_positionally() {
+        let asks = (0..=batch::OSV_QUERYBATCH_MAX_QUERIES)
+            .map(|index| Ask::Package {
+                ecosystem: osv_ecosystem(ArtifactType::Npm),
+                release: None,
+                name: Box::leak(format!("p{index}").into_boxed_str()),
+                version: None,
+                import: None,
+                by_name: false,
+            })
+            .collect::<Vec<_>>();
+        let mut first = vec![json!({}); batch::OSV_QUERYBATCH_MAX_QUERIES];
+        first[5] = json!({"vulns": [listed("X5", "m")]});
+        let http = RouteHttp::new().post_sequence(vec![
+            (200, batch(first)),
+            (200, batch(vec![json!({"vulns": [listed("Y0", "m")]})])),
+        ]);
+        let (budget, reused, config) = (
+            test_budget(),
+            ReusedSince::default(),
+            crate::security_check::tests::default_config(),
+        );
+        let queries = asks
+            .iter()
+            .map(|ask| batch::PageQuery { ask, token: None })
+            .collect::<Vec<_>>();
+        let pages = batch::pages(&net_of(&http, &budget, &reused, &config, None), &queries).await;
+        assert_eq!(pages.len(), asks.len());
+        let refs = |index: usize| {
+            pages[index]
+                .as_ref()
+                .expect("page")
+                .refs
+                .iter()
+                .map(|listed| listed.id.as_str())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(refs(5), ["X5"]);
+        assert_eq!(refs(batch::OSV_QUERYBATCH_MAX_QUERIES), ["Y0"]);
+        assert!(refs(4).is_empty() && refs(6).is_empty());
+        let sent = http
+            .post_bodies()
+            .iter()
+            .map(|body| body["queries"].as_array().expect("queries").len())
+            .collect::<Vec<_>>();
+        assert_eq!(sent, [batch::OSV_QUERYBATCH_MAX_QUERIES, 1]);
+        assert_eq!(
+            http.seen()[1].url.as_str(),
+            "https://api.osv.dev/v1/querybatch"
+        );
+    }
+
+    /// A request OSV refuses or loses fails exactly its own queries.
+    #[tokio::test]
+    async fn a_lost_request_fails_its_own_queries_and_spares_the_others() {
+        let asks = (0..=batch::OSV_QUERYBATCH_MAX_QUERIES)
+            .map(|_| lodash("1.0.0"))
+            .collect::<Vec<_>>();
+        let http = RouteHttp::new().post_sequence(vec![
+            (
+                200,
+                batch(vec![json!({}); batch::OSV_QUERYBATCH_MAX_QUERIES]),
+            ),
+            (
+                400,
+                json_fixture(r#"{"code": 3, "message": "too many queries"}"#),
+            ),
+        ]);
+        let (budget, reused, config) = (
+            test_budget(),
+            ReusedSince::default(),
+            crate::security_check::tests::default_config(),
+        );
+        let queries = asks
+            .iter()
+            .map(|ask| batch::PageQuery { ask, token: None })
+            .collect::<Vec<_>>();
+        let pages = batch::pages(&net_of(&http, &budget, &reused, &config, None), &queries).await;
+        assert!(
+            pages[..batch::OSV_QUERYBATCH_MAX_QUERIES]
+                .iter()
+                .all(Result::is_ok)
+        );
+        let error = pages.last().expect("last").as_ref().err().expect("error");
+        assert_eq!(error.status, Some(400));
+        assert!(
+            error.message.contains("too many queries"),
+            "{}",
+            error.message
+        );
+    }
+
+    /// Two walks listing one record read it once.
+    #[tokio::test]
+    async fn a_record_two_walks_list_is_read_once() {
+        let http = RouteHttp::new()
+            .json("/v1/vulns/A", record("A"))
+            .post_sequence(vec![(
+                200,
+                batch(vec![
+                    json!({"vulns": [listed("A", "m")]}),
+                    json!({"vulns": [listed("A", "m")]}),
+                ]),
+            )]);
+        let (budget, reused, config) = (
+            test_budget(),
+            ReusedSince::default(),
+            crate::security_check::tests::default_config(),
+        );
+        let (one, two) = (lodash("1.0.0"), lodash("2.0.0"));
+        let walked = walk::walk_all(
+            &net_of(&http, &budget, &reused, &config, None),
+            &[
+                walk::Start {
+                    ask: &one,
+                    resume: None,
+                },
+                walk::Start {
+                    ask: &two,
+                    resume: None,
+                },
+            ],
+        )
+        .await;
+        assert_eq!(walked.len(), 2);
+        assert!(
+            walked
+                .iter()
+                .all(|walked| walked.as_ref().expect("walk").read.len() == 1)
+        );
+        assert_eq!(gets(&http, "A"), 1);
+        assert_eq!(http.post_bodies().len(), 1, "one batch for both");
+    }
+
+    /// A record unchanged since it was read is not read again, by any later
+    /// call; one OSV has changed is.
+    #[tokio::test]
+    async fn a_record_is_read_again_only_when_its_modified_stamp_changed() {
+        let store = KeptAnswers::new(None);
+        let (budget, reused, config) = (
+            test_budget(),
+            ReusedSince::default(),
+            crate::security_check::tests::default_config(),
+        );
+        let stamped = |modified: &str| {
+            let mut stamped = record("A");
+            stamped["modified"] = json!(modified);
+            stamped
+        };
+        let asking = |modified: &'static str| {
+            RouteHttp::new()
+                .json("/v1/vulns/A", stamped(modified))
+                .post_sequence(vec![(
+                    200,
+                    batch(vec![json!({"vulns": [listed("A", modified)]})]),
+                )])
+        };
+        // Each call asks another version, so none reuses an earlier id list.
+        for (call, (modified, reads)) in [("m1", 1), ("m1", 0), ("m2", 1)].into_iter().enumerate() {
+            let http = asking(modified);
+            let net = net_of(&http, &budget, &reused, &config, Some(&store));
+            let walked = walk::walk_one(&net, &lodash(&format!("{call}.0.0")), None)
+                .await
+                .expect("walk");
+            assert_eq!(walked.read[0]["modified"], modified);
+            assert_eq!(gets(&http, "A"), reads, "{modified}");
+        }
+    }
+
+    /// OSV lists a stamp to the microsecond and the record states the same
+    /// instant to the nanosecond (recorded from api.osv.dev, 2026-11-11): the
+    /// record is the listed one, so the next call that lists it reads nothing.
+    /// A stamp that differs in any digit OSV listed is another version.
+    #[tokio::test]
+    async fn a_record_listed_at_lower_precision_than_it_states_is_not_read_again() {
+        let store = KeptAnswers::new(None);
+        let (budget, reused, config) = (
+            test_budget(),
+            ReusedSince::default(),
+            crate::security_check::tests::default_config(),
+        );
+        let asking = |listed_at: &'static str, stated: &'static str| {
+            let mut stamped = record("A");
+            stamped["modified"] = json!(stated);
+            RouteHttp::new()
+                .json("/v1/vulns/A", stamped)
+                .post_sequence(vec![(
+                    200,
+                    batch(vec![json!({"vulns": [listed("A", listed_at)]})]),
+                )])
+        };
+        let (listed_at, stated) = (
+            "2026-09-10T03:50:56.951750Z",
+            "2026-09-10T03:50:56.951750105Z",
+        );
+        for (call, (listed_at, stated, reads)) in [
+            (listed_at, stated, 1),
+            (listed_at, stated, 0),
+            // One listed digit later: OSV changed the record.
+            (
+                "2026-09-10T03:50:56.951751Z",
+                "2026-09-10T03:50:56.951751000Z",
+                1,
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let http = asking(listed_at, stated);
+            let net = net_of(&http, &budget, &reused, &config, Some(&store));
+            let walked = walk::walk_one(&net, &lodash(&format!("{call}.0.0")), None)
+                .await
+                .expect("walk");
+            assert_eq!(walked.read[0]["modified"], stated);
+            assert_eq!(gets(&http, "A"), reads, "call {call}");
+        }
+    }
+
+    /// A kept record that does not state the stamp it was listed with is never trusted.
+    #[tokio::test]
+    async fn a_record_newer_than_the_stamp_listed_is_kept_under_its_own() {
+        let store = KeptAnswers::new(None);
+        let (budget, reused, config) = (
+            test_budget(),
+            ReusedSince::default(),
+            crate::security_check::tests::default_config(),
+        );
+        let mut newer = record("A");
+        newer["modified"] = json!("m2");
+        let http = RouteHttp::new()
+            .json("/v1/vulns/A", newer.clone())
+            .post_sequence(vec![(
+                200,
+                batch(vec![json!({"vulns": [listed("A", "m1")]})]),
+            )]);
+        let net = net_of(&http, &budget, &reused, &config, Some(&store));
+        walk::walk_one(&net, &lodash("1.0.0"), None)
+            .await
+            .expect("walk");
+        // The next call lists `m1` again: nothing kept states it, so it is read.
+        let http = RouteHttp::new()
+            .json("/v1/vulns/A", newer)
+            .post_sequence(vec![(
+                200,
+                batch(vec![json!({"vulns": [listed("A", "m1")]})]),
+            )]);
+        let net = net_of(&http, &budget, &reused, &config, Some(&store));
+        walk::walk_one(&net, &lodash("1.0.0"), None)
+            .await
+            .expect("walk");
+        assert_eq!(gets(&http, "A"), 1);
+    }
+
+    /// A record that cannot be read stops the walk with exactly the ids still
+    /// unread: the rest reads on with no gap or repeat, and no new query.
+    #[tokio::test]
+    async fn records_lost_to_a_transient_failure_resume_exactly_once() {
+        let http = RouteHttp::new()
+            .json("/v1/vulns/A", record("A"))
+            .status("/v1/vulns/B", 503, json!({}))
+            .post_sequence(vec![(
+                200,
+                batch(vec![json!({"vulns": [listed("A", "m"), listed("B", "m")]})]),
+            )]);
+        let stopped = run(&http, None).await.expect("partial");
+        assert!(stopped.advisories.is_empty(), "listed only once finished");
+        let resume = stopped.resume.expect("a state to resume from");
+        let saved: Value = serde_json::from_str(&resume.token).expect("saved");
+        assert_eq!(
+            saved["pending"],
+            json_fixture(r#"[{"id": "B", "modified": "m"}]"#)
+        );
+        assert!(saved["token"].is_null());
+        let http = RouteHttp::new().json("/v1/vulns/B", record("B"));
+        let rest = run(&http, Some(&resume.token)).await.expect("rest");
+        assert_eq!(ids(&rest), ["A", "B"]);
+        assert!(http.post_bodies().is_empty(), "no page was asked again");
+        assert_eq!(gets(&http, "A"), 0);
+    }
+
+    /// Records that cannot be read stop the walk even when none was, since the
+    /// page was: the ids are saved. A resumed walk that fails again at once, with
+    /// nothing read, fails whole instead: a retry could only repeat it.
+    #[tokio::test]
+    async fn a_resumed_walk_that_reads_nothing_fails_whole() {
+        let http = RouteHttp::new()
+            .status("/v1/vulns/A", 503, json!({}))
+            .post_sequence(vec![(
+                200,
+                batch(vec![json!({"vulns": [listed("A", "m")]})]),
+            )]);
+        let stopped = run(&http, None).await.expect("partial");
+        let resume = stopped.resume.expect("the ids still unread");
+        let saved: Value = serde_json::from_str(&resume.token).expect("saved");
+        assert_eq!(
+            saved["pending"],
+            json_fixture(r#"[{"id": "A", "modified": "m"}]"#)
+        );
+        let error = run(&http, Some(&resume.token))
+            .await
+            .expect_err("no progress");
+        assert_eq!(error.status, Some(503));
+    }
+
+    /// A listed id OSV has no record of is never silently dropped: the walk
+    /// stops with the id saved.
+    #[tokio::test]
+    async fn a_listed_id_with_no_record_is_not_dropped() {
+        let http = RouteHttp::new().post_sequence(vec![(
+            200,
+            batch(vec![json!({"vulns": [listed("A", "m")]})]),
+        )]);
+        let stopped = run(&http, None).await.expect("partial");
+        let resume = stopped.resume.expect("the id still unread");
+        assert!(resume.reason.contains("no record of"), "{}", resume.reason);
+        assert!(resume.token.contains("\"A\""), "{}", resume.token);
+    }
+
+    /// The last page of a resumed walk may list nothing: what earlier pages
+    /// read still counts.
+    #[tokio::test]
+    async fn an_empty_final_page_keeps_what_earlier_pages_read() {
+        let saved = json!({"pending": [], "token": "t1", "read": [record("A")], "seen": ["t1"]})
+            .to_string();
+        let http = RouteHttp::new().post_sequence(vec![(200, batch(vec![json!({})]))]);
+        let done = run(&http, Some(&saved)).await.expect("walk");
+        assert_eq!(ids(&done), ["A"]);
+    }
+
+    fn stamped(id: &str) -> Value {
+        let mut stamped = record(id);
+        stamped["modified"] = json!("m");
+        stamped
+    }
+
+    /// A transport that answers after a fixed latency, as OSV does.
+    struct Slow {
+        inner: RouteHttp,
+        latency: std::time::Duration,
+    }
+
+    impl crate::artifact::ArtifactHttp for Slow {
+        fn get<'a>(
+            &'a self,
+            request: crate::artifact::ArtifactHttpRequest,
+            budget: &'a octocode_io::budget::RequestBudget,
+        ) -> crate::artifact::ArtifactHttpFuture<'a> {
+            Box::pin(async move {
+                tokio::time::sleep(self.latency).await;
+                self.inner.get(request, budget).await
+            })
+        }
+
+        fn post<'a>(
+            &'a self,
+            request: crate::artifact::ArtifactHttpRequest,
+            body: Vec<u8>,
+            budget: &'a octocode_io::budget::RequestBudget,
+        ) -> crate::artifact::ArtifactHttpFuture<'a> {
+            self.inner.post(request, body, budget)
+        }
+    }
+
+    /// A repeated question within the search window reuses the id list OSV
+    /// gave (OSV sends no validator for `/v1/querybatch`) and discloses when
+    /// it was observed, so a reused list never reads as current. Records stay
+    /// exact under `(id, modified)`, so an unchanged one is not read again.
+    /// A list kept past the window is asked for again.
+    #[tokio::test]
+    async fn a_repeated_query_reuses_the_list_disclosed_and_unchanged_records() {
+        let store = KeptAnswers::new(None);
+        let (budget, config) = (
+            test_budget(),
+            crate::security_check::tests::default_config(),
+        );
+        let asking = || {
+            RouteHttp::new()
+                .json("/v1/vulns/A", stamped("A"))
+                .post_sequence(vec![(
+                    200,
+                    batch(vec![json!({"vulns": [listed("A", "m")]})]),
+                )])
+        };
+        let first = asking();
+        let reused = ReusedSince::default();
+        let net = net_of(&first, &budget, &reused, &config, Some(&store));
+        let walked = walk::walk_one(&net, &lodash("1.0.0"), None)
+            .await
+            .expect("walk");
+        assert_eq!(walked.read.len(), 1);
+        assert_eq!(first.post_bodies().len(), 1);
+        assert_eq!(reused.get(), None, "a fresh answer discloses nothing");
+
+        let again = asking();
+        let reused = ReusedSince::default();
+        let net = net_of(&again, &budget, &reused, &config, Some(&store));
+        let walked = walk::walk_one(&net, &lodash("1.0.0"), None)
+            .await
+            .expect("walk");
+        assert_eq!(walked.read.len(), 1);
+        assert_eq!(again.post_bodies().len(), 0, "the kept list answers");
+        assert_eq!(
+            gets(&again, "A"),
+            0,
+            "an unchanged record is not read again"
+        );
+        assert!(reused.get().is_some(), "a reused list is disclosed");
+
+        // The same list observed before the window opened is asked again.
+        let asked = first.post_bodies().remove(0);
+        let (scope, identity) = super::batch::list_key(&net, &asked).expect("key");
+        let mut saved =
+            octocode_github::SavedAnswers::load(&store, &scope, &identity).expect("kept list");
+        saved.observed_ms = saved.observed_ms.saturating_sub(
+            u64::try_from(octocode_github::SEARCH_REUSE_WINDOW.as_millis()).unwrap_or(u64::MAX),
+        );
+        octocode_github::SavedAnswers::save(&store, &scope, &identity, saved);
+        let stale = asking();
+        let reused = ReusedSince::default();
+        let net = net_of(&stale, &budget, &reused, &config, Some(&store));
+        walk::walk_one(&net, &lodash("1.0.0"), None)
+            .await
+            .expect("walk");
+        assert_eq!(
+            stale.post_bodies().len(),
+            1,
+            "an expired list is asked again"
+        );
+        assert_eq!(reused.get(), None, "{:?}", reused.get());
+    }
+
+    #[tokio::test]
+    async fn the_same_query_observes_a_changed_advisory_list_and_record_after_its_window() {
+        let store = KeptAnswers::new(None);
+        let (budget, config) = (
+            test_budget(),
+            crate::security_check::tests::default_config(),
+        );
+        let asking = |id: &str, modified: &str| {
+            let mut body = record(id);
+            body["modified"] = json!(modified);
+            RouteHttp::new()
+                .json(&format!("/v1/vulns/{id}"), body)
+                .post_sequence(vec![(
+                    200,
+                    batch(vec![json!({"vulns": [listed(id, modified)]})]),
+                )])
+        };
+        let query = lodash("1.0.0");
+        let first = asking("A", "2026-01-01T00:00:00Z");
+        let reused = ReusedSince::default();
+        let net = net_of(&first, &budget, &reused, &config, Some(&store));
+        let walked = walk::walk_one(&net, &query, None)
+            .await
+            .expect("first observation");
+        assert_eq!(
+            walked
+                .read
+                .iter()
+                .map(|record| record["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["A"]
+        );
+        assert_eq!(first.post_bodies().len(), 1);
+        assert_eq!(gets(&first, "A"), 1);
+        assert_eq!(reused.get(), None);
+
+        // The provider now lists B instead of A. Within the declared window,
+        // the existing list answers with its observation time disclosed.
+        let changed = asking("B", "2026-01-02T00:00:00Z");
+        let reused = ReusedSince::default();
+        let net = net_of(&changed, &budget, &reused, &config, Some(&store));
+        let walked = walk::walk_one(&net, &query, None)
+            .await
+            .expect("disclosed reuse");
+        assert_eq!(
+            walked
+                .read
+                .iter()
+                .map(|record| record["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["A"]
+        );
+        assert!(changed.post_bodies().is_empty());
+        assert_eq!(gets(&changed, "B"), 0);
+        assert!(reused.get().is_some());
+
+        // Advance only this cached list by its owning window, without sleeping.
+        let asked = first.post_bodies().remove(0);
+        let (scope, identity) = super::batch::list_key(&net, &asked).expect("list key");
+        let mut saved =
+            octocode_github::SavedAnswers::load(&store, &scope, &identity).expect("list");
+        saved.observed_ms = saved.observed_ms.saturating_sub(
+            u64::try_from(octocode_github::SEARCH_REUSE_WINDOW.as_millis()).unwrap_or(u64::MAX),
+        );
+        octocode_github::SavedAnswers::save(&store, &scope, &identity, saved);
+        let fresh = asking("B", "2026-01-02T00:00:00Z");
+        let reused = ReusedSince::default();
+        let net = net_of(&fresh, &budget, &reused, &config, Some(&store));
+        let walked = walk::walk_one(&net, &query, None)
+            .await
+            .expect("changed provider observation");
+        assert_eq!(
+            walked
+                .read
+                .iter()
+                .map(|record| record["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["B"]
+        );
+        assert_eq!(walked.read[0]["modified"], "2026-01-02T00:00:00Z");
+        assert_eq!(fresh.post_bodies().len(), 1);
+        assert_eq!(gets(&fresh, "A"), 0);
+        assert_eq!(gets(&fresh, "B"), 1);
+        assert_eq!(reused.get(), None);
+    }
+
+    /// Listed records are read together, not one after another: five records
+    /// at one latency each finish in under two latencies.
+    #[tokio::test]
+    async fn listed_records_are_read_concurrently() {
+        let latency = std::time::Duration::from_millis(100);
+        let ids = ["A", "B", "C", "D", "E"];
+        let mut inner = RouteHttp::new();
+        for id in ids {
+            inner = inner.json(&format!("/v1/vulns/{id}"), stamped(id));
+        }
+        let listed_all = ids.iter().map(|id| listed(id, "m")).collect::<Vec<_>>();
+        let http = Slow {
+            inner: inner.post_sequence(vec![(200, batch(vec![json!({"vulns": listed_all})]))]),
+            latency,
+        };
+        assert!(ids.len() <= CONCURRENT_READS, "the bound allows one round");
+        let (budget, reused, config) = (
+            test_budget(),
+            ReusedSince::default(),
+            crate::security_check::tests::default_config(),
+        );
+        let net = Net {
+            http: &http,
+            budget: &budget,
+            answers: None,
+            reused: &reused,
+            config: &config,
+            github: None,
+            osv_api: octocode_runtime_base::execution::RuntimeLimits::DEFAULT.osv_api,
+            share: &crate::artifact::CallShare::new(),
+        };
+        let started = std::time::Instant::now();
+        let walked = walk::walk_one(&net, &lodash("1.0.0"), None)
+            .await
+            .expect("walk");
+        assert_eq!(walked.read.len(), ids.len());
+        assert!(
+            started.elapsed() < latency * 2,
+            "{:?} for {} records",
+            started.elapsed(),
+            ids.len()
+        );
+    }
+
+    /// Counts the requests in flight at once, each held for `latency`.
+    struct Counting {
+        inner: RouteHttp,
+        latency: std::time::Duration,
+        now: std::sync::atomic::AtomicUsize,
+        peak: std::sync::atomic::AtomicUsize,
+    }
+
+    impl Counting {
+        fn new(inner: RouteHttp) -> Self {
+            Self {
+                inner,
+                latency: std::time::Duration::from_millis(20),
+                now: std::sync::atomic::AtomicUsize::new(0),
+                peak: std::sync::atomic::AtomicUsize::new(0),
+            }
+        }
+
+        async fn held<T>(&self, answer: impl std::future::Future<Output = T>) -> T {
+            use std::sync::atomic::Ordering;
+            let now = self.now.fetch_add(1, Ordering::SeqCst) + 1;
+            self.peak.fetch_max(now, Ordering::SeqCst);
+            tokio::time::sleep(self.latency).await;
+            let answer = answer.await;
+            self.now.fetch_sub(1, Ordering::SeqCst);
+            answer
+        }
+
+        fn peak(&self) -> usize {
+            self.peak.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    impl crate::artifact::ArtifactHttp for Counting {
+        fn get<'a>(
+            &'a self,
+            request: crate::artifact::ArtifactHttpRequest,
+            budget: &'a octocode_io::budget::RequestBudget,
+        ) -> crate::artifact::ArtifactHttpFuture<'a> {
+            Box::pin(self.held(self.inner.get(request, budget)))
+        }
+
+        fn post<'a>(
+            &'a self,
+            request: crate::artifact::ArtifactHttpRequest,
+            body: Vec<u8>,
+            budget: &'a octocode_io::budget::RequestBudget,
+        ) -> crate::artifact::ArtifactHttpFuture<'a> {
+            Box::pin(self.held(self.inner.post(request, body, budget)))
+        }
+    }
+
+    /// A row of the call `share` belongs to.
+    fn row_of<'a>(
+        http: &'a dyn crate::artifact::ArtifactHttp,
+        budget: &'a octocode_io::budget::RequestBudget,
+        reused: &'a ReusedSince,
+        config: &'a octocode_runtime_base::config::ResolvedConfig,
+        share: &'a crate::artifact::CallShare,
+    ) -> Net<'a> {
+        Net {
+            http,
+            budget,
+            answers: None,
+            reused,
+            config,
+            github: None,
+            osv_api: octocode_runtime_base::execution::RuntimeLimits::DEFAULT.osv_api,
+            share,
+        }
+    }
+
+    /// Walks lodash at 4.17.20, 4.17.15 and 4.17.20 again as three rows, the
+    /// `n`th on `shares[n]`; each reads `records` records.
+    async fn three_rows(
+        http: &RouteHttp,
+        shares: [&crate::artifact::CallShare; 3],
+        records: usize,
+    ) {
+        let (budget, config) = (
+            test_budget(),
+            crate::security_check::tests::default_config(),
+        );
+        let reused = [(); 3].map(|()| ReusedSince::default());
+        let nets = [0, 1, 2].map(|row| row_of(http, &budget, &reused[row], &config, shares[row]));
+        let asks = [lodash("4.17.20"), lodash("4.17.15"), lodash("4.17.20")];
+        let (first, second, third) = tokio::join!(
+            walk::walk_one(&nets[0], &asks[0], None),
+            walk::walk_one(&nets[1], &asks[1], None),
+            walk::walk_one(&nets[2], &asks[2], None),
+        );
+        for walked in [first, second, third] {
+            assert_eq!(walked.expect("walk").read.len(), records);
+        }
+    }
+
+    /// Rows of one call that list the same records read each once, and rows
+    /// that send the same query body send it once (hoist X12: two versions of
+    /// one package, and the same package twice). Rows of separate calls read
+    /// alone, as before.
+    #[tokio::test]
+    async fn rows_of_one_call_read_each_record_and_each_list_once() {
+        let ids = ["A", "B", "C"];
+        let routes = || {
+            let mut http = RouteHttp::new();
+            for id in ids {
+                http = http.json(&format!("/v1/vulns/{id}"), stamped(id));
+            }
+            let listing =
+                json!({"vulns": ids.iter().map(|id| listed(id, "m")).collect::<Vec<_>>()});
+            http.post_sequence(vec![(200, batch(vec![listing])); 3])
+        };
+        let shared = routes();
+        let call = crate::artifact::CallShare::new();
+        three_rows(&shared, [&call; 3], ids.len()).await;
+        assert_eq!(shared.post_bodies().len(), 2, "two distinct bodies");
+        for id in ids {
+            assert_eq!(gets(&shared, id), 1, "{id}");
+        }
+        let apart = routes();
+        let calls = [(); 3].map(|()| crate::artifact::CallShare::new());
+        three_rows(&apart, [&calls[0], &calls[1], &calls[2]], ids.len()).await;
+        assert_eq!(apart.post_bodies().len(), 3);
+        for id in ids {
+            assert_eq!(gets(&apart, id), 3, "{id}");
+        }
+    }
+
+    /// The bound on OSV requests in flight is the call's, not each row's:
+    /// three rows of six records each never have more than
+    /// [`CONCURRENT_READS`] requests out at once.
+    #[tokio::test]
+    async fn one_bound_holds_every_row_of_a_call() {
+        let rows: [Vec<String>; 3] =
+            [0, 1, 2].map(|row| (0..6).map(|n| format!("R{row}-{n}")).collect());
+        let mut inner = RouteHttp::new();
+        for id in rows.iter().flatten() {
+            inner = inner.json(&format!("/v1/vulns/{id}"), stamped(id));
+        }
+        // Each row's query names its own package, so no list is shared;
+        // the sequence answers them in whatever order they arrive, so each
+        // answer lists one row's records and each row reads what it was told.
+        let answers = rows
+            .iter()
+            .map(|ids| {
+                (
+                    200,
+                    batch(vec![
+                        json!({"vulns": ids.iter().map(|id| listed(id, "m")).collect::<Vec<_>>()}),
+                    ]),
+                )
+            })
+            .collect();
+        let http = Counting::new(inner.post_sequence(answers));
+        let (budget, config) = (
+            test_budget(),
+            crate::security_check::tests::default_config(),
+        );
+        let reused = [(); 3].map(|()| ReusedSince::default());
+        let share = crate::artifact::CallShare::new();
+        let nets = [0, 1, 2].map(|row| row_of(&http, &budget, &reused[row], &config, &share));
+        let asks = [lodash("1.0.0"), lodash("2.0.0"), lodash("3.0.0")];
+        let (first, second, third) = tokio::join!(
+            walk::walk_one(&nets[0], &asks[0], None),
+            walk::walk_one(&nets[1], &asks[1], None),
+            walk::walk_one(&nets[2], &asks[2], None),
+        );
+        let read = [first, second, third]
+            .into_iter()
+            .map(|walked| walked.expect("walk").read.len())
+            .sum::<usize>();
+        assert_eq!(read, 18);
+        assert!(
+            http.peak() <= CONCURRENT_READS,
+            "{} requests in flight at once",
+            http.peak()
+        );
+        assert!(http.peak() > 1, "the rows still read together");
+    }
+
+    /// A record read by id (the advisory and repository operations) names no
+    /// stamp to keep it by, so it is kept as a search answer: a repeat within
+    /// the window reads nothing and says when the record was observed (perf
+    /// P16: axios/axios read its 51 records again on every call).
+    #[tokio::test]
+    async fn a_record_read_by_id_is_kept_for_the_search_window() {
+        let store = KeptAnswers::new(None);
+        let http = RouteHttp::new().json("/v1/vulns/GHSA-1", stamped("GHSA-1"));
+        let (budget, config) = (
+            test_budget(),
+            crate::security_check::tests::default_config(),
+        );
+        let first = ReusedSince::default();
+        let net = net_of(&http, &budget, &first, &config, Some(&store));
+        check_advisory(&net, "GHSA-1").await.expect("first read");
+        assert_eq!(first.get(), None);
+        let repeat = ReusedSince::default();
+        let net = net_of(&http, &budget, &repeat, &config, Some(&store));
+        let again = check_advisory(&net, "GHSA-1").await.expect("repeat");
+        assert_eq!(ids(&again), ["GHSA-1"]);
+        assert_eq!(gets(&http, "GHSA-1"), 1);
+        assert!(repeat.get().is_some(), "the reuse is disclosed");
+        // Past the window it is read again.
+        let (scope, _) = super::batch::list_key(&net, &json!({})).expect("scope");
+        let identity = "OSV record GHSA-1";
+        let mut saved =
+            octocode_github::SavedAnswers::load(&store, &scope, identity).expect("kept");
+        saved.observed_ms = saved.observed_ms.saturating_sub(
+            u64::try_from(octocode_github::SEARCH_REUSE_WINDOW.as_millis()).unwrap_or(u64::MAX) + 1,
+        );
+        octocode_github::SavedAnswers::save(&store, &scope, identity, saved);
+        let later = ReusedSince::default();
+        let net = net_of(&http, &budget, &later, &config, Some(&store));
+        check_advisory(&net, "GHSA-1")
+            .await
+            .expect("past the window");
+        assert_eq!(gets(&http, "GHSA-1"), 2);
+    }
+}

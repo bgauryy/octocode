@@ -1,0 +1,386 @@
+mod crates;
+mod go;
+mod http;
+mod link_directory;
+pub mod lookalike;
+mod maven;
+mod npm;
+mod npmrc;
+mod nuget;
+mod packagist;
+mod pins;
+pub(crate) mod preview;
+mod pypi;
+pub mod query;
+mod release_ref;
+mod rubygems;
+mod share;
+#[cfg(test)]
+pub mod test_http;
+pub mod types;
+mod util;
+mod versions;
+
+use crate::artifact::query::artifact_search_query;
+use crate::artifact::query::artifact_type;
+#[cfg(test)]
+pub(crate) use http::ArtifactHttpFuture;
+pub use http::{
+    ArtifactHttp, ArtifactHttpRequest, ArtifactHttpResponse, JSON, SystemArtifactHttp,
+    rejection_detail,
+};
+pub use npm::registry::invalid_registry_url;
+pub(crate) use npm::registry::validate_base as validate_npm_base;
+pub use npmrc::npm_authorization;
+use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
+pub use pins::{Pin, exact_pins};
+pub use release_ref::{
+    CheckFailure, CommitCheck, CommitFuture, FailedTags, ReleaseTag, ReleaseTags, TagCommitFuture,
+    TagCommitsFuture, TagRefsFuture, TreeFiles, TreeFilesFuture,
+};
+pub use types::alias_groups;
+pub use types::{
+    Advisory, ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState,
+    RepositoryStatus, ResolvedNpmRegistry, TagAbsence, TerminalLimit,
+};
+pub use util::release_ref_in;
+pub use util::{github_repository, github_slug};
+
+use http::RegistryClient;
+use octocode_io::budget::RequestBudget;
+pub use share::CallShare;
+use versions::is_range;
+pub use versions::suggested;
+#[cfg(test)]
+pub(crate) use versions::version_not_found;
+pub(crate) use versions::{VersionOrder, order_of};
+
+pub struct ArtifactProviderContext<'a> {
+    pub http: &'a dyn ArtifactHttp,
+    pub budget: &'a RequestBudget,
+    pub npm_registry: Option<&'a ResolvedNpmRegistry>,
+    /// Opt-in escape hatch for the npm registry SSRF guard (see NetworkConfig).
+    pub allow_private_registry: bool,
+    /// Registry answers kept across calls; `None` keeps none.
+    pub answers: Option<&'a dyn octocode_github::SavedAnswers>,
+    /// When an answer this call reused unasked was observed.
+    pub reused: &'a octocode_runtime_base::providers::saved_answers::ReusedSince,
+    /// Upstream release-tag checks through the GitHub API; `None` reads no tags.
+    pub tags: Option<&'a dyn ReleaseTags>,
+    /// What the rows of this call share; `None` shares nothing.
+    pub share: Option<&'a CallShare>,
+}
+
+pub async fn execute_artifact(
+    query: &ArtifactSearchQuery,
+    context: &ArtifactProviderContext<'_>,
+) -> Result<ArtifactProviderPage, ArtifactError> {
+    // Rows of one call check each release tag once.
+    let shared;
+    let tags = match (context.tags, context.share) {
+        (Some(inner), Some(share)) => {
+            shared = release_ref::SharedTags {
+                inner,
+                share: &share.tags,
+            };
+            Some(&shared as &dyn ReleaseTags)
+        }
+        (tags, _) => tags,
+    };
+    let client = RegistryClient {
+        http: context.http,
+        budget: context.budget,
+        tags,
+        answers: context.answers,
+        reused: context.reused,
+        share: context.share,
+    };
+    let state = page_state(query);
+    validate_cursor_state(
+        artifact_search_query::artifact_type(query),
+        &state,
+        artifact_search_query::page_size(query),
+    )?;
+    // An ecosystem that takes exact versions has no range to resolve: a
+    // range is refused as such, never looked up as a version.
+    if let Some(version) = artifact_search_query::version(query)
+        && is_range(version)
+    {
+        let ecosystem = artifact_type::as_str(artifact_search_query::artifact_type(query));
+        if version_support(ecosystem) == Some("exact") {
+            return Err(ArtifactError::new(
+                ErrorCode::CapabilityUnavailable,
+                format!(
+                    "{ecosystem} takes exact versions only, not the range \"{version}\"; omit version for the latest release."
+                ),
+            ));
+        }
+    }
+    let mut page = match artifact_search_query::artifact_type(query) {
+        ArtifactType::Npm => {
+            let default_registry;
+            let registry = match context.npm_registry {
+                Some(registry) => registry,
+                None => {
+                    default_registry = ResolvedNpmRegistry::npmjs();
+                    &default_registry
+                }
+            };
+            npm::npm(
+                query,
+                &state,
+                registry,
+                &client,
+                context.allow_private_registry,
+            )
+            .await
+        }
+        ArtifactType::Pypi => pypi::pypi(query, &client).await,
+        ArtifactType::Crates => crates::crates(query, &state, &client).await,
+        ArtifactType::Go => go::go(query, &state, &client).await,
+        ArtifactType::Packagist => packagist::packagist(query, &state, &client).await,
+        ArtifactType::Rubygems => rubygems::rubygems(query, &state, &client).await,
+        ArtifactType::Maven => maven::maven(query, &state, &client).await,
+        ArtifactType::Nuget => nuget::nuget(query, &state, &client).await,
+    }?;
+    // A source link below a ref names its directory only once the ref's end
+    // is known. A search summary states no directory, so it asks nothing for
+    // one.
+    let search_summary = artifact_search_query::package_name(query).is_none()
+        && artifact_search_query::view(query)
+            == octocode_contract_types::ArtifactSearchView::Summary;
+    if search_summary {
+        for artifact in &mut page.artifacts {
+            artifact.link_below_ref = None;
+        }
+    } else {
+        link_directory::settle(&mut page.artifacts, &client).await?;
+    }
+    Ok(page)
+}
+
+/// The provider position of the saved private `page`: an item offset for
+/// offset-addressed registries, the page itself for page-addressed ones.
+/// Every page starts at `(page - 1) * policy page size`, so consecutive pages tile
+/// the result list without gaps; an ANDed npm page starts at the npm row its
+/// `registryCursor` names, since its pages consume npm rows unevenly.
+/// A token-paged registry's saved state also carries `registryCursor`, the
+/// registry token that starts it (the contract bounds its length).
+fn page_state(query: &ArtifactSearchQuery) -> ArtifactProviderState {
+    let page = artifact_search_query::page(query);
+    let size = artifact_search_query::page_size(query) as u64;
+    let token = artifact_search_query::cursor(query).map(str::to_owned);
+    match artifact_search_query::artifact_type(query) {
+        ArtifactType::Crates | ArtifactType::Packagist | ArtifactType::Go => {
+            ArtifactProviderState {
+                page: Some(page),
+                token,
+                ..Default::default()
+            }
+        }
+        // An ANDed npm walk's token is the npm row its page starts at.
+        ArtifactType::Npm => ArtifactProviderState {
+            offset: Some(
+                token
+                    .as_deref()
+                    .and_then(|token| token.parse::<u64>().ok())
+                    .unwrap_or_else(|| page.saturating_sub(1).saturating_mul(size)),
+            ),
+            token,
+            ..Default::default()
+        },
+        _ => ArtifactProviderState {
+            offset: Some(page.saturating_sub(1).saturating_mul(size)),
+            token,
+            ..Default::default()
+        },
+    }
+}
+
+/// The limit a discovery `query` ends at when its page maps to a registry
+/// position past the paging range; `None` when the registry can serve it.
+/// A next-page lead names only a page this admits.
+pub fn page_out_of_range(query: &ArtifactSearchQuery) -> Option<TerminalLimit> {
+    let artifact_type = artifact_search_query::artifact_type(query);
+    let page = artifact_search_query::page(query);
+    let warning = match crossed_bound(
+        artifact_type,
+        &page_state(query),
+        artifact_search_query::page_size(query),
+    )? {
+        CrossedBound::Page(max_page) => {
+            format!(
+                "page {page} is past page {max_page}, the last page {artifact_type} search serves."
+            )
+        }
+        CrossedBound::Start(max_start) => format!(
+            "page {page} starts past result {max_start}, the deepest {artifact_type} search pages."
+        ),
+    };
+    Some(TerminalLimit::result_cap(warning))
+}
+
+/// The deepest result a registry without its own entry in [`reach`] serves:
+/// rubygems.org's search window (its search API errors from the page that
+/// crosses row 10,000: page 334 of 30 rows, measured 2026-10-31). A page
+/// past it fails loudly rather than serving a wrong page labeled as final
+/// data. A page number is bounded only by the row it starts at.
+const MAX_CURSOR_OFFSET: u64 = 10_000;
+
+/// How deep a registry's discovery results reach: the one table every
+/// page bound derives from.
+struct Reach {
+    /// The deepest result position a discovery page may start at.
+    max_start: u64,
+    /// The result position no row is served past, when the registry ends
+    /// its results there rather than at a page's start; `None` when only
+    /// the start of a page is bounded.
+    end: Option<u64>,
+    /// The highest page number a page-addressed registry serves, whatever
+    /// the page size; `None` when only result positions bound its pages.
+    max_page: Option<u64>,
+}
+
+impl Reach {
+    /// A registry that serves rows up to `end`: the last page starts at
+    /// its final row.
+    const fn ending_at(end: u64) -> Self {
+        Self {
+            max_start: end - 1,
+            end: Some(end),
+            max_page: None,
+        }
+    }
+
+    /// The same reach on a registry that also serves no page number past
+    /// `max_page`, whatever the page size.
+    const fn through_page(self, max_page: u64) -> Self {
+        Self {
+            max_page: Some(max_page),
+            ..self
+        }
+    }
+
+    const fn starting_at_most(max_start: u64) -> Self {
+        Self {
+            max_start,
+            end: None,
+            max_page: None,
+        }
+    }
+}
+
+fn reach(artifact_type: ArtifactType) -> Reach {
+    match artifact_type {
+        ArtifactType::Npm => Reach::ending_at(npm::NPM_REACHABLE_END),
+        ArtifactType::Crates => {
+            Reach::ending_at(crates::CRATES_RELEVANCE_LIMIT).through_page(crates::CRATES_MAX_PAGE)
+        }
+        ArtifactType::Maven => Reach::ending_at(maven::REACHABLE_END),
+        ArtifactType::Nuget => Reach::ending_at(nuget::REACHABLE_END),
+        ArtifactType::Go => Reach::ending_at(go::GO_SEARCH_CAP),
+        _ => Reach::starting_at_most(MAX_CURSOR_OFFSET),
+    }
+}
+
+/// The result position a discovery of `artifact_type` reaches no row past
+/// ([`Reach::end`]).
+pub fn reachable_end(artifact_type: ArtifactType) -> Option<u64> {
+    reach(artifact_type).end
+}
+
+/// The result position a page of `page_size` rows starts at: the offset of
+/// an offset-addressed registry, `(page - 1) * page_size` of a
+/// page-addressed one.
+fn page_start(state: &ArtifactProviderState, page_size: usize) -> u64 {
+    state.offset.unwrap_or_else(|| {
+        state
+            .page
+            .unwrap_or(1)
+            .saturating_sub(1)
+            .saturating_mul(page_size as u64)
+    })
+}
+
+/// The registry bound a page of `page_size` rows at `state` crosses: its
+/// page number past the registry's page cap, or its start past the deepest
+/// result position; `None` when the registry serves it.
+fn crossed_bound(
+    artifact_type: ArtifactType,
+    state: &ArtifactProviderState,
+    page_size: usize,
+) -> Option<CrossedBound> {
+    let reach = reach(artifact_type);
+    if let (Some(page), Some(max_page)) = (state.page, reach.max_page)
+        && page > max_page
+    {
+        return Some(CrossedBound::Page(max_page));
+    }
+    (page_start(state, page_size) > reach.max_start).then_some(CrossedBound::Start(reach.max_start))
+}
+
+/// Which of a registry's [`Reach`] bounds a page crosses.
+enum CrossedBound {
+    /// The page number is past the registry's page cap.
+    Page(u64),
+    /// The page starts past the deepest result position.
+    Start(u64),
+}
+
+fn validate_cursor_state(
+    artifact_type: ArtifactType,
+    state: &ArtifactProviderState,
+    page_size: usize,
+) -> Result<(), ArtifactError> {
+    let out_of_range =
+        crossed_bound(artifact_type, state, page_size).is_some() || state.page == Some(0);
+    if out_of_range {
+        return Err(ArtifactError::new(
+            ErrorCode::InvalidInput,
+            "page is outside the supported paging range; narrow the keywords.",
+        ));
+    }
+    Ok(())
+}
+
+/// The contract's `version` capability table (`x-versionSupport` on the
+/// artifactSearch `version` field): ecosystem → `range` or `exact`, in the
+/// contract's order.
+fn version_table() -> &'static [(String, String)] {
+    static TABLE: std::sync::OnceLock<Vec<(String, String)>> = std::sync::OnceLock::new();
+    TABLE.get_or_init(|| {
+        octocode_runtime_base::contracts::query_schema_value(
+            octocode_runtime_base::id::ToolId::ArtifactSearch,
+            None,
+            "version",
+            "x-versionSupport",
+        )
+        .and_then(serde_json::Value::as_object)
+        .map(|table| {
+            table
+                .iter()
+                .filter_map(|(ecosystem, level)| {
+                    Some((ecosystem.clone(), level.as_str()?.to_owned()))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+    })
+}
+
+/// `range` or `exact`; an ecosystem the table omits takes neither.
+fn version_support(ecosystem: &str) -> Option<&'static str> {
+    version_table()
+        .iter()
+        .find(|(name, _)| name == ecosystem)
+        .map(|(_, level)| level.as_str())
+}
+
+#[cfg(test)]
+mod cursor_state_tests;
+
+#[cfg(test)]
+mod version_gate_tests;
+
+#[cfg(test)]
+mod exact_lookup_tests;

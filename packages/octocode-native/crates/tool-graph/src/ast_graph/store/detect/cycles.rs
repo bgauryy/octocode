@@ -1,0 +1,288 @@
+//! The file import graph and the file and directory cycle detectors.
+use super::*;
+use octocode_engine::graph::FileGraphNode;
+
+/// The file graph the stored tables hold, over the files `keep` admits:
+/// each production `imports` edge between them under its kind, and each
+/// Rust `mod` declaration (a `contains` edge) as a module-tree edge — the
+/// input of the one cycle engine ([`Cycles`]). Test edges close no cycle,
+/// and neither do `use` edges within one Rust module tree (`use super::x`
+/// from a child, `use child::y` from its parent): the `mod` edge already
+/// draws that tree once, downward.
+pub(crate) fn file_graph(
+    t: &GraphTables,
+    keep: &dyn Fn(u32) -> bool,
+) -> BTreeMap<String, FileGraphNode> {
+    let mut graph = BTreeMap::<String, FileGraphNode>::new();
+    for (id, node) in t.nodes.iter().enumerate() {
+        let Ok(id) = u32::try_from(id) else { break };
+        if node.kind != NodeKind::File || !keep(id) {
+            continue;
+        }
+        let entry = graph.entry(t.str(node.key).to_owned()).or_default();
+        for edge in t.out(id) {
+            let target = &t.nodes[edge.dst as usize];
+            if target.kind != NodeKind::File || !keep(edge.dst) || edge.test {
+                continue;
+            }
+            let kind = match edge.kind {
+                EdgeKind::Imports if rust_lineage(t, id, edge.dst) => continue,
+                EdgeKind::Imports => t.str(edge.detail),
+                EdgeKind::Contains if t.str(edge.detail) == MODULE_DETAIL => RUST_MODULE,
+                _ => continue,
+            };
+            entry
+                .edges
+                .entry(t.str(target.key).to_owned())
+                .or_default()
+                .insert(
+                    kind.to_owned(),
+                    if edge.line == NONE { 0 } else { edge.line },
+                );
+        }
+    }
+    graph
+}
+
+pub(super) fn detect_cycles(c: &mut Ctx) {
+    c.judges_file_level(&["cycle"]);
+    let v = &c.v;
+    // Go forbids import cycles between packages; file-level SCCs inside one
+    // package are normal.
+    let graph = file_graph(v.t, &|f| v.file_level(f));
+    let cycles = Cycles::of(&graph);
+    let ids = v
+        .files
+        .iter()
+        .map(|id| (v.key(*id), *id))
+        .collect::<BTreeMap<_, _>>();
+    let id_of = |file: &str| ids.get(file).copied();
+    // Witnesses and cuts follow the dependency edges the groups were found on.
+    let adj = |id: u32| {
+        cycles
+            .uses
+            .get(v.key(id))
+            .into_iter()
+            .flat_map(|node| node.edges.keys())
+            .filter_map(|target| id_of(target))
+            .collect::<Vec<_>>()
+    };
+    let mut found = Vec::new();
+    for (_, files) in cycles.groups() {
+        let members = files.iter().filter_map(|f| id_of(f)).collect::<Vec<_>>();
+        if members.is_empty() {
+            continue;
+        }
+        let set = members.iter().copied().collect::<BTreeSet<_>>();
+        let names = files.iter().cloned().collect::<BTreeSet<_>>();
+        let load = cycles.load_within(&names);
+        let witness = witness_cycle(members[0], &set, &adj);
+        let cuts = feedback_arcs(&members, &adj);
+        let rust = members.iter().all(|m| v.language(*m) == "rust");
+        let impact = members.iter().map(|m| v.impact(*m)).fold(0.0, f64::max);
+        let member_keys = members.iter().map(|m| v.key(*m)).collect::<Vec<_>>();
+        let hop = |a: u32, b: u32| {
+            let mut hop = json!({"from": v.key(a), "to": v.key(b)});
+            if let Some(line) = v.line(a, b) {
+                hop["line"] = json!(line);
+            }
+            hop
+        };
+        let evidence = json!({
+            "size": members.len(),
+            "runtime": load.as_json(),
+            "members": member_keys,
+            "witness": witness.windows(2).map(|w| hop(w[0], w[1])).collect::<Vec<_>>(),
+            "suggestedCuts": cuts.iter().map(|(a, b)| hop(*a, *b)).collect::<Vec<_>>(),
+            "cutCount": cuts.len(),
+        });
+        let (kind, mut confidence, mut controls) = match load {
+            CycleLoad::Runtime => (
+                "Runtime import cycle",
+                0.85,
+                vec!["module-load imports alone close it"],
+            ),
+            CycleLoad::Unknown => (
+                "Import cycle of unknown load",
+                0.5,
+                vec![
+                    "it closes through an import of unknown load: one in a file oxc could not parse (see parser-fallback diagnostics), or a TypeScript import used only as a type, which the project's emit settings keep or elide",
+                ],
+            ),
+            CycleLoad::NoLoad => (
+                "Import cycle",
+                0.35,
+                vec![
+                    "no module-load loop: it closes only through type-only, deferred or compile-time imports",
+                ],
+            ),
+        };
+        // The groups are found over production files only (`file_level`),
+        // unlike the `cycles` operation, which reads every file
+        // (`file_graph(|_| true)`): a loop that only test or config files
+        // close is not a production finding.
+        controls.push("test and config files left out");
+        if rust {
+            confidence = f64::min(confidence, 0.35);
+            controls.push("rust modules within one crate may legally cycle");
+        }
+        found.push((
+            member_keys[0].to_owned(),
+            member_keys.join(","),
+            format!(
+                "{kind} of {} files; {} import(s) break it",
+                members.len(),
+                cuts.len()
+            ),
+            0.7 * magnitude(members.len()),
+            confidence,
+            impact,
+            evidence,
+            controls,
+        ));
+    }
+    for (subject, all, title, severity, confidence, impact, evidence, controls) in found {
+        push(
+            &mut c.findings,
+            Draft {
+                detector: "cycle",
+                subject,
+                id_parts: &[&all],
+                title,
+                severity,
+                confidence,
+                impact,
+                evidence,
+                controls,
+            },
+        );
+    }
+}
+
+/// Each production file's directory unit: its directory, except a module
+/// root file `d/x.ext` beside a folder `d/x/` of production files
+/// (`live.ts` and `live/`, Rust `response.rs` and `response/`), which
+/// belongs to `d/x`: the facade and the files below it are one module.
+pub(super) fn dir_units<'a>(v: &View<'a>) -> BTreeMap<u32, &'a str> {
+    let production = v
+        .files
+        .iter()
+        .copied()
+        .filter(|f| v.production(*f))
+        .collect::<Vec<_>>();
+    let mut dirs = BTreeSet::new();
+    for file in &production {
+        let mut dir = dirname(v.key(*file));
+        // Every ancestor too: `d/x/` exists when only `d/x/y/z.ts` does.
+        while dirs.insert(dir) {
+            match dir.rsplit_once('/') {
+                Some((parent, _)) => dir = parent,
+                None => break,
+            }
+        }
+    }
+    production
+        .into_iter()
+        .map(|file| {
+            let key = v.key(file);
+            let name = key.rsplit('/').next().unwrap_or(key);
+            let stem = name.split('.').next().unwrap_or(name);
+            let module = &key[..key.len() - name.len() + stem.len()];
+            let unit = if !stem.is_empty() && dirs.contains(module) {
+                module
+            } else {
+                dirname(key)
+            };
+            (file, unit)
+        })
+        .collect()
+}
+
+pub(super) fn detect_dir_cycles(c: &mut Ctx) {
+    let v = &c.v;
+    let units = dir_units(v);
+    let unit_of = |file: u32| units.get(&file).copied();
+    let mut dirs = BTreeMap::<&str, u32>::new();
+    let mut names = Vec::new();
+    for file in &v.files {
+        if let Some(dir) = unit_of(*file)
+            && v.language(*file) != "go"
+            && !dirs.contains_key(dir)
+        {
+            dirs.insert(dir, octocode_engine::num::saturating_u32(names.len()));
+            names.push(dir);
+        }
+    }
+    let mut adj = vec![BTreeMap::<u32, (u32, u32)>::new(); names.len()];
+    for file in &v.files {
+        let Some(&from) = unit_of(*file).and_then(|dir| dirs.get(dir)) else {
+            continue;
+        };
+        for target in &v.out[*file as usize] {
+            if let Some(&to) = unit_of(*target).and_then(|dir| dirs.get(dir))
+                && from != to
+                && !rust_lineage(v.t, *file, *target)
+            {
+                adj[from as usize].entry(to).or_insert((*file, *target));
+            }
+        }
+    }
+    let nodes = (0..=u32::MAX).take(names.len()).collect::<Vec<_>>();
+    let succ = |id: u32| adj[id as usize].keys().copied().collect::<Vec<_>>();
+    let components = strongly_connected(&nodes, &succ, names.len());
+    let mut found = Vec::new();
+    for members in components {
+        let set = members.iter().copied().collect::<BTreeSet<_>>();
+        let witness = witness_cycle(members[0], &set, &succ);
+        let rust = witness
+            .iter()
+            .filter_map(|d| adj[*d as usize].values().next())
+            .all(|(f, _)| v.language(*f) == "rust");
+        let hops = witness
+            .windows(2)
+            .map(|w| {
+                let (f, t) = adj[w[0] as usize][&w[1]];
+                let mut via = json!({"from": v.key(f), "to": v.key(t)});
+                if let Some(line) = v.line(f, t) {
+                    via["line"] = json!(line);
+                }
+                json!({"from": names[w[0] as usize], "to": names[w[1] as usize], "via": via})
+            })
+            .collect::<Vec<_>>();
+        let keys = members
+            .iter()
+            .map(|m| names[*m as usize])
+            .collect::<Vec<_>>();
+        // The highest PageRank percentile among the member directories' files.
+        let impact = v
+            .files
+            .iter()
+            .filter(|file| unit_of(**file).is_some_and(|unit| keys.contains(&unit)))
+            .map(|file| v.impact(*file))
+            .fold(0.0, f64::max);
+        found.push((keys.clone(), hops, rust, impact));
+    }
+    for (keys, hops, rust, impact) in found {
+        let mut controls = vec!["directory projection of runtime file imports"];
+        if rust {
+            controls.push("rust module directories within one crate may legally cycle");
+        }
+        push(
+            &mut c.findings,
+            Draft {
+                detector: "dir-cycle",
+                subject: keys[0].to_owned(),
+                id_parts: &[&keys.join(",")],
+                title: format!(
+                    "Directories depend on each other in a cycle ({} dirs)",
+                    keys.len()
+                ),
+                severity: 0.5 * magnitude(keys.len()),
+                confidence: if rust { 0.3 } else { 0.7 },
+                impact,
+                evidence: json!({"dirs": keys, "witness": hops}),
+                controls,
+            },
+        );
+    }
+}

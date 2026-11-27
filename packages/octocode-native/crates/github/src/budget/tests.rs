@@ -1,0 +1,167 @@
+//! Executor budget: limiter keys, reset waits and primary buckets; each
+//! admission behavior is a child module.
+use super::*;
+
+mod admission;
+mod gates;
+mod quota;
+mod spacing;
+
+/// Account-key churn (many short-lived tokens) does not grow the
+/// registry for the process lifetime: idle keys past the retention cap
+/// are dropped, while a key that is still throttled keeps its state.
+#[test]
+fn idle_keys_are_dropped_past_the_cap_but_throttled_ones_stay() {
+    let budget = super::GitHubBudget::with_config(super::ExecutorConfig::octokit());
+    let throttled = budget.key_state(&super::LimiterKey::new("github.com", Some("hot")), None);
+    throttled.cool_down(super::now_ms() + 60_000);
+    drop(throttled);
+    let held = budget.key_state(&super::LimiterKey::new("github.com", Some("held")), None);
+    for n in 0..(super::KEY_RETENTION * 3) {
+        budget.key_state(
+            &super::LimiterKey::new("github.com", Some(&format!("token-{n}"))),
+            None,
+        );
+    }
+    let keys = budget.keys.lock().unwrap();
+    assert!(
+        keys.len() <= super::KEY_RETENTION + 1,
+        "{} keys",
+        keys.len()
+    );
+    assert!(keys.contains_key(&super::LimiterKey::new("github.com", Some("hot"))));
+    assert!(keys.contains_key(&super::LimiterKey::new("github.com", Some("held"))));
+    drop(held);
+}
+
+#[test]
+fn reset_wait_is_the_reset_plus_grace_from_now() {
+    let config = super::ExecutorConfig::octokit();
+    let now = super::now_ms() / 1000;
+    assert_eq!(config.reset_wait(now.saturating_sub(10)), Duration::ZERO);
+    let wait = config.reset_wait(now + 10);
+    assert!(
+        wait > Duration::from_secs(9) && wait <= Duration::from_secs(11),
+        "{wait:?}"
+    );
+    assert_eq!(config.reset_until_ms(5), 6_000);
+}
+#[test]
+fn limiter_keys_fold_api_host_and_hash_tokens() {
+    let api = LimiterKey::for_url(
+        &Url::parse("https://api.github.com/").expect("url"),
+        Some("t1"),
+    );
+    let web = LimiterKey::for_url(
+        &Url::parse("https://github.com/a/b.git").expect("url"),
+        Some("t1"),
+    );
+    assert_eq!(api, web);
+    assert_ne!(api, LimiterKey::new("github.com", Some("t2")));
+    assert_eq!(LimiterKey::new("github.com", None).token, "anon");
+    assert!(!api.file_name().contains("t1"));
+    let ported = LimiterKey::for_url(
+        &Url::parse("http://127.0.0.1:8080/api/v3").expect("url"),
+        None,
+    );
+    assert_eq!(ported.file_name(), "127.0.0.1_8080-anon.json");
+}
+
+#[test]
+fn primary_bucket_blocks_until_reset_and_isolates_keys() {
+    let budget = GitHubBudget::relaxed();
+    let one = budget.key_state(&LimiterKey::new("github.com", Some("one")), None);
+    let two = budget.key_state(&LimiterKey::new("github.com", Some("two")), None);
+    let reset = now_ms() / 1000 + 120;
+    one.exhaust("core", reset);
+    let block = one
+        .blocked("core", budget.config())
+        .expect("exhausted bucket blocks");
+    assert_eq!(block.reset, Some(reset));
+    assert!(one.blocked("search", budget.config()).is_none());
+    assert!(two.blocked("core", budget.config()).is_none());
+    let error = block.error(now_ms());
+    assert_eq!(error.kind, ProviderErrorKind::RateLimited);
+    let rate = error.rate_limit.expect("metadata");
+    assert_eq!(rate.resource.as_deref(), Some("core"));
+    assert!(rate.retry_after_seconds.unwrap_or_default() >= 119);
+}
+
+impl KeyState {
+    /// Report 1000 requests left for `bucket`, resetting 1000 × `spacing` +
+    /// 10 s from now (under zero reset grace). Covered admissions burst;
+    /// `spacing` is the reference interval for tests that contrast that burst
+    /// with the old even-spreading rule.
+    pub(in crate::budget) fn report_quota(self: &Arc<Self>, bucket: &str, spacing: Duration) {
+        let reset = now_ms() / 1000 + 10 + millis(spacing);
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("x-ratelimit-remaining", "1000".parse().expect("header"));
+        headers.insert(
+            "x-ratelimit-reset",
+            reset.to_string().parse().expect("header"),
+        );
+        self.observe(&headers, bucket);
+    }
+}
+
+/// A budget under `config` and its state for one host key.
+fn limited(config: ExecutorConfig) -> (Arc<GitHubBudget>, Arc<KeyState>) {
+    let budget = Arc::new(GitHubBudget::with_config(config));
+    let state = budget.key_state(&LimiterKey::new("h", None), None);
+    (budget, state)
+}
+
+/// A config that paces search and code-search starts by the quota GitHub
+/// reports (or the group's assumed quota), with no reset grace.
+fn quota_paced() -> ExecutorConfig {
+    ExecutorConfig {
+        quota_pacing: true,
+        reset_grace: Duration::ZERO,
+        ..ExecutorConfig::relaxed()
+    }
+}
+
+/// One `group` admission under `deadline`.
+async fn admit(
+    state: &Arc<KeyState>,
+    budget: &GitHubBudget,
+    group: Group,
+    deadline: Instant,
+) -> Result<Admission, ProviderError> {
+    state
+        .admit(
+            Some(group),
+            budget.config(),
+            deadline,
+            &Cancellation::new(),
+            &ClientWaits::default(),
+        )
+        .await
+}
+
+/// A code-search answer reporting `remaining` requests left and a window that
+/// resets in `resets_in` seconds.
+fn report_remaining(state: &Arc<KeyState>, remaining: u64, resets_in: u64) {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        "x-ratelimit-remaining",
+        remaining.to_string().parse().expect("header"),
+    );
+    headers.insert(
+        "x-ratelimit-reset",
+        (now_ms() / 1000 + resets_in)
+            .to_string()
+            .parse()
+            .expect("header"),
+    );
+    state.observe(&headers, Group::CodeSearch.bucket());
+}
+
+/// Duration conversions are exact in range and saturate past `u64`.
+#[test]
+fn millis_and_ceil_secs_saturate() {
+    assert_eq!(super::millis(Duration::from_millis(1_234)), 1_234);
+    assert_eq!(super::ceil_secs(Duration::from_millis(1_001)), 2);
+    assert_eq!(super::millis(Duration::MAX), u64::MAX);
+    assert_eq!(super::ceil_secs(Duration::MAX), u64::MAX);
+}

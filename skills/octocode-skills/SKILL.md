@@ -1,42 +1,39 @@
 ---
 name: octocode-skills
-description: "Use when working on Agent Skills (SKILL.md folders): find, compare, rate, review, create, improve, repair, install, or sync skills from local workspaces, registries, or remote sources. For wording-only prompt polish without folder ops, use octocode-prompt-optimizer."
+description: "Load this skill first when asked to find, create, audit, improve, install or sync Agent Skills (SKILL.md). Check triggers, instructions, reference routes and standalone bundles."
 ---
 
 # Octocode Skills
 
-Operate on standalone Agent Skill folders: `SKILL.md` plus optional references, scripts, and assets.
-Flow: `UNDERSTAND → DISCOVER → INSPECT → JUDGE → RECOMMEND → USER GATE → ACT → CLEANUP → REVIEW → VERIFY`.
+Identify the requested skill, target host and result. First action: to find, follow the [search order](references/find-skills.md); to create, run that search for an owner, then copy the [template](references/template.md); to edit, locate the canonical entry and the description the host serves. Installation or provider changes require the user's authorization.
 
-## Lobby rules
-- `SKILL.md` owns workflows, hard gates, and routes; each reference owns one concept and never restates the flow.
-- The lobby lists every reference and every script with when and how to use it, plus the workflows — no chunk is discoverable only by opening another file.
-- MUST read and navigate between routed reference files to understand the complete flow; this skill is intentionally simplified into reference units for efficiency, including reference-to-reference handoffs.
-- Inspect the real `SKILL.md` before quoting, judging, or installing; identify candidates by path and gate every write.
-- Stop when one fit is clear, two High candidates need a winner, three angles add nothing, or user/auth approval is pending.
-- Ship a standalone folder with one owner per concept; prune dead or duplicated material before done. Assume no sibling skill is installed: name a sibling to load, never depend on its files.
+## Work loop
 
-## Smart routes — load only what the current step needs
-- When discovering, load `references/search-playbook.md`; choose a source with `references/discovery-surfaces.md`, parse manifests with `references/discovery-manifests.md`, and recover with `references/recovery.md` — search broadly enough without inventing candidates.
-- When judging, load `references/quality-rubric.md` for content fit and `references/quality-signals.md` for adoption/recency; when recommending, present through `references/output-format.md` — rank evidence, not popularity alone.
-- When designing structure, load `references/skill-anatomy.md`; write with `references/skill-authoring.md`, extract deterministic work with `references/skill-scripts.md`, and tune activation with `references/description-tuning.md` — keep the lobby lean and triggers strong.
-- When improving, load `references/skill-improve.md`; choose review/refactor mode with `references/self-improvement.md`, clean with `references/skill-cleanup.md`, and use `references/improve-loop.md` only if `octocode-graph-eval` is unavailable — preserve intent and require measurable acceptance.
-- Before done, load `references/skill-review.md`; interpret findings with `references/skill-review-rules.md` — enforce structure, navigation (lobby shows every chunk, routes state when/why, chunks declare entry and next hop, flow phases routed), prose, and standalone-folder gates.
-- When reviewing lifecycle automation, load `references/hooks.md`; when adding it, load `references/hooks-add.md` and use `assets/hooks/` — map the correct host event and avoid silent no-ops.
-- When installing, load `references/install-gates.md`, then `references/install-destinations.md`; remote sources use `references/fetch-remote.md`, local creation uses `references/create-local-skill.md`, and vendor links use `references/skill-sync.md` — secure approval, destination, and provenance before writes.
-- When evidence needs code/package/repository research, load `references/octocode.md` — delegate research mechanics instead of duplicating them.
-- When tracing source provenance, load `references/references.md`; when authoring a source appendix, start from `references/references-template.md` — keep claims auditable without bloating instructions.
+1. Record real requests the skill should handle, a nearby request another skill owns, and a request needing no skill. For a collection, inventory each entry and its authored resources.
+2. Walk two recorded requests, one handled directly and one taking a reference branch or lacking an input: description → first action → routed resource → result. Mark each point where a reader would guess, stall or open an unrouted file, then fix misleading triggers, ambiguous choices and paths that fail when installed alone.
+3. Run the [checker](scripts/skill-review.mjs): `node <this-skill>/scripts/skill-review.mjs <target> --json`, or `--collections <root> --json` for a collection; add `--commands`, `--tells` and `--sizes` as [run checks](references/run-checks.md) describes. Resolve findings (`link-escapes-skill` is a link a standalone install loses), exercise changed commands and rewalk both requests standalone. Use host trials for activation claims.
 
-## Related routes
-- Use `octocode-research` to verify candidates; `octocode-prompt-optimizer` to improve wording; `octocode-graph-eval` to measure behavior.
-- Use `octocode-rfc-generator` before a large skill-system redesign.
+## Decide placement
 
-## Scripts and done gate
-- Run `scripts/skill-review.mjs` after any create/edit — zero ERROR is required.
-- Run `scripts/skill-sync.mjs` only after a dry-run and human approval — synchronize one source safely.
-- `scripts/skill-lint.mjs` is an alias for `scripts/skill-review.mjs` — same gate under the older name.
-- A skill script needing Octocode home or env imports `./octocode-config.mjs`, a build artifact injected by `packages/octocode-config` into every skill that imports it relatively — never import `@octocodeai/config` from a skill, or the folder breaks once installed alone.
-- When wiring a hook, copy `assets/hooks/example-hook.sh` into `scripts/hooks/` and route it from frontmatter.
+| Path | Include when |
+|---|---|
+| `SKILL.md` | Required: trigger, normal workflow, safeguards and result. |
+| `references/<task>.md` | A branch needs a recipe or protocol; link its load condition directly from the entry. |
+| `scripts/` | A step is an exact operation (parse, count, validate, transform, page, call an API): code does it; the text says when to run it and how to read the result. [Prefer code over prose](references/code-over-prose.md). |
+| `assets/` | A step consumes a template or static input. |
+| `output.md` | A complex reusable result contract warrants a separate read; otherwise keep it inline. |
+| Host-specific files | The actual host consumes them; follow its schema and add only needed fields. |
 
-## Installation
-When creating or installing, follow the routed approval and destination gates, then run the review before reporting done.
+Create only the files and folders a row above calls for. When shortening, preserve safeguards, recovery and evidence; add no arbitrary quotas, probes or metadata. Editing rules: [lobby and files](references/write-skills.md#lobby-and-files).
+
+## Resources
+
+| When | Read or run |
+|---|---|
+| Author or refine instructions and layout; the name or description; a step that should be a script | [Write skills](references/write-skills.md); [skill name and description](references/skill-description.md); [code over prose](references/code-over-prose.md) |
+| Audit a collection, validate or compare before/after; run the checker or exercise behavior | [Check skills](references/check-skills.md); [run checks](references/run-checks.md) |
+| Install, adapt fetched code or sync providers | [Install and fetch](references/install.md); [sync a local skill](references/sync-skill.md); [skill-sync](scripts/skill-sync.mjs) resolves sources, lists host folders and syncs a local skill (a plan until `--approve`) |
+| Settings or credentials are required | [Configuration](references/configuration.md) |
+| Save or render a review | [Saved report](output.md#saved-report) |
+
+Return **Ready** or **Needs work**, changes/findings, checks and unchecked scope, shaped per [response](output.md#response). Done when the checker reports no errors, changed commands ran, and each behavioral claim has before/after host runs; otherwise report the missing run as an unchecked gap.

@@ -1,0 +1,352 @@
+//! Tree and languages listings: file sizes, paging back to the first page,
+//! renamed repositories, and the fields each operation takes.
+use super::*;
+use octocode_test_support::json_fixture;
+
+/// Tree-only fields are rejected on refs and languages (ref also on languages).
+#[tokio::test]
+async fn refs_and_languages_reject_tree_fields() {
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", "http://127.0.0.1:9/api/v3".into())]);
+    for (operation, field) in [
+        ("refs", json_fixture(r#"{"path": "src"}"#)),
+        ("refs", json_fixture(r#"{"materialize": true}"#)),
+        ("languages", json_fixture(r#"{"ref": "main"}"#)),
+    ] {
+        let mut query = json!({"owner": "a", "repo": "b", "operation": operation});
+        for (key, value) in field.as_object().expect("field") {
+            query[key] = value.clone();
+        }
+        let error = call(&runtime, "ghStructure", query)
+            .await
+            .expect_err("unsupported operation field");
+        assert_eq!(error.code, ErrorCode::InvalidInput);
+        let payload = error
+            .payload
+            .as_deref()
+            .expect("actionable validation payload");
+        let message = payload["error"].as_str().expect("repair guidance");
+        let key = field
+            .as_object()
+            .expect("field")
+            .keys()
+            .next()
+            .expect("field name");
+        assert!(message.contains(key), "{message}");
+        assert!(
+            crate::support::checks::leads(payload).is_empty(),
+            "no guessed repair: {payload}"
+        );
+    }
+    runtime.close().await;
+}
+
+/// Languages: bytes of code per language, largest first.
+#[tokio::test]
+async fn languages_list_bytes_per_language_largest_first() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/languages"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(r#"{"Shell":40,"Rust":9000,"TypeScript":700}"#)
+                .insert_header("content-type", "application/json"),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = github(&workspace, &server);
+    let outcome = call(
+        &runtime,
+        "ghStructure",
+        json_fixture(r#"{"owner": "a", "repo": "b", "operation": "languages"}"#),
+    )
+    .await
+    .expect("languages");
+    assert_eq!(
+        row_status(&outcome),
+        "success",
+        "{}",
+        outcome.structured_content
+    );
+    let data = row_data(&outcome);
+    assert_eq!(
+        serde_json::to_string(&data["languages"]).expect("json"),
+        r#"{"Rust":9000,"TypeScript":700,"Shell":40}"#,
+        "{data}"
+    );
+    runtime.close().await;
+}
+
+/// A listing states each file's size, in the structureSearch entry
+/// form `"<name> (<bytes>)"`; a folder is `"<name>/"` and dates key bare names.
+#[tokio::test]
+async fn a_listing_states_each_file_size() {
+    let server = MockServer::builder().start().await;
+    mount_head_at_sha(&server).await;
+    let entries = json_fixture(
+        r#"[
+            {"name": "small.rs", "path": "small.rs", "type": "file", "size": 10},
+            {"name": "big (1).bin", "path": "big (1).bin", "type": "file", "size": 400000},
+            {"name": "src", "path": "src", "type": "dir", "size": 0}
+        ]"#,
+    );
+    mount_folder_tree(&server, "/api/v3/repos/a/b", SHA, "", &entries).await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents"))
+        .and(query_param("ref", SHA))
+        .respond_with(ResponseTemplate::new(200).set_body_json(entries))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = github(&workspace, &server);
+    let outcome = call(
+        &runtime,
+        "ghStructure",
+        json_fixture(r#"{"operation": "tree", "owner": "a", "repo": "b"}"#),
+    )
+    .await
+    .expect("listing");
+    let data = row_data(&outcome);
+    assert_eq!(
+        data["files"][0]["files"],
+        json_fixture(r#"["big (1).bin (400000)", "small.rs (10)", "src/"]"#),
+        "{data}"
+    );
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn caller_supplied_progress_is_rejected_before_provider_dispatch() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = github(&workspace, &server);
+    for (operation, field) in [
+        ("tree", "page"),
+        ("tree", "pageSize"),
+        ("tree", "materializeOffset"),
+        ("refs", "page"),
+    ] {
+        let mut query = json!({"operation":operation,"owner":"a","repo":"b"});
+        query[field] = json!(2);
+        let error = call(&runtime, "ghStructure", query)
+            .await
+            .expect_err("private progress is issued only through cursors");
+        assert_eq!(error.code, ErrorCode::InvalidInput);
+    }
+    runtime.close().await;
+}
+
+/// A listing of a renamed repository at a ref (GitHub answers 301 to
+/// `/repositories/<id>`) lists the canonical repository after one metadata
+/// read, warns once, and leads under the canonical name.
+#[tokio::test]
+async fn a_renamed_repository_is_listed_and_continued_under_its_canonical_name() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/main"))
+        .respond_with(ResponseTemplate::new(301).insert_header(
+            "location",
+            format!("{}/api/v3/repositories/1/commits/main", server.uri()),
+        ))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repositories/1/commits/main"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(SHA))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"default_branch": "main", "full_name": "c/d"}"#,
+        )))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/c/d/contents"))
+        .and(query_param("ref", SHA))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"[
+                {
+                    "name": "lib.rs",
+                    "path": "lib.rs",
+                    "type": "file",
+                    "size": 10
+                }
+            ]"#,
+        )))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = github(&workspace, &server);
+    let outcome = call(
+        &runtime,
+        "ghStructure",
+        json_fixture(
+            r#"{
+                "operation": "tree",
+                "owner": "a",
+                "repo": "b",
+                "ref": "main"
+            }"#,
+        ),
+    )
+    .await
+    .expect("listing");
+    let data = row_data(&outcome);
+    assert_eq!(row_status(&outcome), "success", "{data}");
+    assert_eq!(
+        data["warnings"]
+            .to_string()
+            .matches("renamed to c/d")
+            .count(),
+        1,
+        "{data}"
+    );
+    assert_eq!(
+        (data["owner"].as_str(), data["repo"].as_str()),
+        (Some("c"), Some("d")),
+        "{data}"
+    );
+    assert!(data.get("related").is_none(), "{data}");
+    octocode_runtime_base::contracts::validate("ghGetFileContent", json!({"queries":[{"owner":data["owner"],"repo":data["repo"],"path":"lib.rs","ref":data["commitSha"]}]})).expect("canonical identity forms a valid source request");
+    assert!(graphql_requests(&server).await.is_empty());
+    runtime.close().await;
+}
+
+/// Without a ref, the default-branch lookup already names the
+/// canonical repository: no extra metadata request.
+#[tokio::test]
+async fn a_renamed_repository_without_a_ref_costs_no_extra_metadata_read() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"default_branch": "main", "full_name": "c/d"}"#,
+        )))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/HEAD"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(SHA))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/c/d/contents"))
+        .and(query_param("ref", SHA))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"[
+                {
+                    "name": "lib.rs",
+                    "path": "lib.rs",
+                    "type": "file",
+                    "size": 10
+                }
+            ]"#,
+        )))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = github(&workspace, &server);
+    let outcome = call(
+        &runtime,
+        "ghStructure",
+        json_fixture(r#"{"operation": "tree", "owner": "a", "repo": "b"}"#),
+    )
+    .await
+    .expect("listing");
+    let data = row_data(&outcome);
+    assert!(
+        data["warnings"].to_string().contains("renamed to c/d"),
+        "{data}"
+    );
+    assert_eq!(
+        (data["owner"].as_str(), data["repo"].as_str()),
+        (Some("c"), Some("d")),
+        "{data}"
+    );
+    assert!(data.get("related").is_none(), "{data}");
+    runtime.close().await;
+}
+
+/// A cache store busy when the call saves what it found leaves the answer
+/// whole: only later reuse reads what was not saved, so the response says
+/// nothing of it (the operator's log does) and never names the home.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_busy_answer_cache_leaves_the_response_whole_and_quiet() {
+    let server = tree_server(0).await;
+    let workspace = Workspace::new();
+    let warmup = github(&workspace, &server);
+    call(
+        &warmup,
+        "ghStructure",
+        json_fixture(
+            r#"{
+                "queries": [{"operation": "tree", "owner": "a", "repo": "b"}]
+            }"#,
+        ),
+    )
+    .await
+    .expect("create the configured provider store");
+    let cleared = warmup.clear_caches().await.expect("clear warmup answers");
+    let cache = workspace.home.join("cache");
+    let stores = cleared
+        .removed
+        .into_iter()
+        .filter(|path| path.parent() == Some(cache.as_path()))
+        .collect::<Vec<_>>();
+    assert_eq!(stores.len(), 1, "one provider store created: {stores:?}");
+    let store = &stores[0];
+    std::fs::create_dir_all(store).expect("store");
+    let lock = octocode_io::lock::open_lock_file(&store.join(".capacity.lock")).expect("lock");
+    let _held = octocode_io::lock::lock_within(
+        lock,
+        std::time::Duration::from_secs(5),
+        octocode_io::lock::LOCK_POLL,
+    )
+    .expect("held");
+    let runtime = github(&workspace, &server);
+    let outcome = call(
+        &runtime,
+        "ghStructure",
+        json_fixture(
+            r#"{
+                "queries": [{"operation": "tree", "owner": "a", "repo": "b"}]
+            }"#,
+        ),
+    )
+    .await
+    .expect("listing");
+    let envelope = &outcome.structured_content;
+    let busy = envelope["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .filter(|warning| warning.contains("was busy"))
+        .collect::<Vec<_>>();
+    assert_eq!(busy, Vec::<&str>::new(), "{envelope}");
+    assert!(
+        !envelope
+            .to_string()
+            .contains(&workspace.home.display().to_string()),
+        "{envelope}"
+    );
+    assert_eq!(
+        row_data(&outcome)["files"][0]["files"]
+            .as_array()
+            .map(Vec::len),
+        Some(2)
+    );
+    runtime.close().await;
+}

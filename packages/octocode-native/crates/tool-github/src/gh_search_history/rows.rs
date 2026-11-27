@@ -1,0 +1,240 @@
+//! Result rows: provider items mapped to the published row shapes.
+use octocode_github::ProviderError;
+use octocode_runtime_base::response::result::remove_null_fields;
+use octocode_runtime_base::security::scan::{ContentScan, sanitize_provider_json};
+use octocode_tools_shared::gh_shared::commit::{self, person};
+use octocode_tools_shared::gh_shared::dates::utc_value;
+use serde_json::{Value, json};
+use std::path::Path;
+
+/// Redacts secrets in every provider item before any row is built from it:
+/// rows window and drop fields (a body is never shown whole), so the gate
+/// that scans the finished rows cannot see the context that names a secret
+/// one field holds and another repeats.
+pub(super) fn sanitize_items(
+    items: &mut Vec<Value>,
+    security: &impl ContentScan,
+) -> Result<(), ProviderError> {
+    let mut all = Value::Array(std::mem::take(items));
+    // Items are redacted whole, before rows window them: a count here would
+    // name values no row shows.
+    let result =
+        sanitize_provider_json(security, &mut all, Path::new("github-history")).map(|_| ());
+    if let Value::Array(sanitized) = all {
+        *items = sanitized;
+    }
+    result
+}
+
+fn labels(v: &Value) -> Vec<String> {
+    v.get("labels")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|x| x.get("name").and_then(Value::as_str).map(str::to_owned))
+        .collect()
+}
+
+pub(super) fn map_pr(v: Value) -> Value {
+    let merged_at = v
+        .get("merged_at")
+        .filter(|value| !value.is_null())
+        .or_else(|| {
+            v.pointer("/pull_request/merged_at")
+                .filter(|value| !value.is_null())
+        });
+    let state = if merged_at.is_some() {
+        json!("merged")
+    } else {
+        v["state"].clone()
+    };
+    let mut row = json!({
+        "number":v["number"],
+        "title":v.get("title").and_then(Value::as_str).unwrap_or(""),
+        "state":state,
+        "mergedAt":utc_value(merged_at),
+        "author":v.pointer("/user/login").and_then(Value::as_str).unwrap_or(""),
+        "createdAt":utc_value(v.get("created_at")),
+        // A listing's pull request names its target branch (a backport's
+        // is not the default); a search item's is read when picked
+        // ([`super::pull_facts`]).
+        "baseRef":v.pointer("/base/ref"),
+    });
+    if row["createdAt"].is_null() {
+        row["createdAt"] = json!("");
+    }
+    let labels = labels(&v);
+    if !labels.is_empty() {
+        row["labels"] = json!(labels);
+    }
+    state_counts(&mut row, &v);
+    state_updated(&mut row, &v);
+    remove_null_fields(&mut row);
+    row
+}
+
+/// Drop what the query or the row already says: a `state` equal to the
+/// query's `state` filter, and a merged row's `createdAt` (its `mergedAt`
+/// dates it) unless the rows are sorted by creation (`keep_created`). A key
+/// the caller `picked` (`fields`) is what they asked for: it stays.
+pub(super) fn drop_implied(
+    row: &mut Value,
+    state: Option<&str>,
+    keep_created: bool,
+    picked: &[String],
+) {
+    let Some(fields) = row.as_object_mut() else {
+        return;
+    };
+    let named = |key: &str| picked.iter().any(|field| field == key);
+    if state.is_some() && !named("state") && fields.get("state").and_then(Value::as_str) == state {
+        fields.shift_remove("state");
+    }
+    if !keep_created && !named("createdAt") && fields.contains_key("mergedAt") {
+        fields.shift_remove("createdAt");
+    }
+}
+
+/// Drop a listed pull request's `baseRef` when it is the repository's
+/// default branch, which GitHub's REST item names beside it
+/// (`base.repo.default_branch`): a backport's branch stays. A `fields` pick
+/// that names `baseRef` keeps it on every row. A `baseRef` filter runs the
+/// search, whose items carry no branch ([`super::pull_facts`]).
+pub(super) fn drop_default_base(row: &mut Value, item: &Value, picked: &[String]) {
+    if picked.iter().any(|field| field == "baseRef") {
+        return;
+    }
+    let Some(fields) = row.as_object_mut() else {
+        return;
+    };
+    let default = item
+        .pointer("/base/repo/default_branch")
+        .and_then(Value::as_str);
+    if default.is_some() && fields.get("baseRef").and_then(Value::as_str) == default {
+        fields.shift_remove("baseRef");
+    }
+}
+
+/// Leaves out of each row's `labels` the ones the `labels` filter requires:
+/// every row carries them, and the request already states them. A row with
+/// no other label states none. Run after the `fields` pick, which judges
+/// what the rows carry before the request's labels leave them.
+pub(super) fn drop_filtered_labels(value: &mut Value, rows: &str, filtered: &[String]) {
+    if filtered.is_empty() {
+        return;
+    }
+    let required = |label: &str| filtered.iter().any(|name| name.eq_ignore_ascii_case(label));
+    for row in value
+        .get_mut(rows)
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_object_mut)
+    {
+        let Some(Value::Array(labels)) = row.get_mut("labels") else {
+            continue;
+        };
+        labels.retain(|label| !label.as_str().is_some_and(required));
+        if labels.is_empty() {
+            row.shift_remove("labels");
+        }
+    }
+}
+
+/// States `updatedAt` on a row: a default page keeps it only when sorted by
+/// it ([`super::shape`]'s detail), a `fields` pick whenever named.
+fn state_updated(row: &mut Value, item: &Value) {
+    let updated = utc_value(item.get("updated_at"));
+    if !updated.is_null() {
+        row["updatedAt"] = updated;
+    }
+}
+
+/// Counts GitHub states are facts, zero included; an absent count stays
+/// unknown. The page decides which of these a default row needs.
+/// `commentsCount` is the conversation count GitHub's item carries;
+/// `totalCommentsCount` the whole count a pull-request page read
+/// ([`super::pull_facts`]).
+fn state_counts(row: &mut Value, item: &Value) {
+    let whole = format!("/{}", super::pull_facts::ITEM_KEY);
+    for (pointer, key) in [
+        ("/comments", "commentsCount"),
+        (whole.as_str(), "totalCommentsCount"),
+        ("/reactions/total_count", "reactionCount"),
+    ] {
+        if let Some(count) = item.pointer(pointer).and_then(Value::as_u64) {
+            row[key] = json!(count);
+        }
+    }
+}
+
+/// An issue row: labels only when present.
+pub(super) fn map_issue(v: Value) -> Value {
+    let mut row = json!({"number":v["number"],"title":v.get("title"),"state":v.get("state"),"author":v.pointer("/user/login"),"createdAt":utc_value(v.get("created_at"))});
+    let labels = labels(&v);
+    if !labels.is_empty() {
+        row["labels"] = json!(labels);
+    }
+    state_updated(&mut row, &v);
+    state_counts(&mut row, &v);
+    remove_null_fields(&mut row);
+    row
+}
+
+/// A commit-list row: headline, date and the author's login; the full
+/// message (and emails) come from the commit read. The committer appears
+/// only when it is a different person (not the GitHub web-flow bot).
+pub(super) fn map_commit_list(v: Value) -> Value {
+    let author = person(&v, "author");
+    let committer = person(&v, "committer");
+    let same = committer == author
+        || committer == "web-flow"
+        || v.pointer("/committer/login").and_then(Value::as_str) == Some("web-flow")
+        || v.pointer("/commit/committer/name") == v.pointer("/commit/author/name");
+    let mut row = commit::row(&v);
+    if !same && !committer.is_null() {
+        row["committer"] = committer;
+    }
+    // A merge commit changes what its parents did, not a file's own history:
+    // marked, so a reader moves to a parent instead of reading its file list.
+    if v.get("parents")
+        .and_then(Value::as_array)
+        .is_some_and(|parents| parents.len() > 1)
+    {
+        row["merge"] = json!(true);
+    }
+    row
+}
+
+/// Retain a row's source identity, including when the request scoped the repository.
+pub(super) fn name_repository(
+    row: &mut Value,
+    item: &Value,
+    owner: Option<&str>,
+    repo: Option<&str>,
+) {
+    let Some((item_owner, item_repo)) =
+        item_repo(item).or_else(|| Some((owner?.to_owned(), repo?.to_owned())))
+    else {
+        return;
+    };
+    row["owner"] = json!(item_owner);
+    row["repo"] = json!(item_repo);
+}
+
+/// `owner`/`repo` of a search item, from its `repository_url`
+/// (`…/repos/{owner}/{repo}`).
+pub(super) fn item_repo(item: &Value) -> Option<(String, String)> {
+    let full_name = item
+        .pointer("/repository/full_name")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            item.get("repository_url")
+                .and_then(Value::as_str)?
+                .rsplit_once("/repos/")
+                .map(|(_, name)| name)
+        })?;
+    let (owner, repo) = full_name.split_once('/')?;
+    (!owner.is_empty() && !repo.is_empty() && !repo.contains('/'))
+        .then(|| (owner.to_owned(), repo.to_owned()))
+}

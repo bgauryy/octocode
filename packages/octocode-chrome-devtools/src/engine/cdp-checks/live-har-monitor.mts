@@ -1,0 +1,408 @@
+import { writeFileSync, appendFileSync } from 'fs';
+import { join } from 'path';
+import type { Session } from '../cdp-connection.mjs';
+import type { RunnerSession } from '../cdp-runner-session.mjs';
+import { errorMessage } from '../error-message.mjs';
+import { observeFrameEvents } from '../frame-events.mjs';
+import type {
+  ExtraInfo,
+  MonitorEvent,
+  NetworkRecord,
+} from './live-har-format.mjs';
+import { printFindings, waitWindow } from './live-har-wait.mjs';
+import { mainDocument } from './navigation-outcome.mjs';
+import type { NavigationOutcome } from './navigation-outcome.mjs';
+import {
+  LONG_TASK_OBSERVER_JS,
+  collectPerformanceSnapshot,
+  harDocument,
+  safeUrl,
+  summarize,
+} from './live-har-format.mjs';
+
+const MONITOR_MS = Number.parseInt(process.env.MONITOR_MS ?? '30000', 10);
+const SLOW_MS = Number.parseInt(process.env.SLOW_MS ?? '1000', 10);
+const MAX_STDOUT_ITEMS = Number.parseInt(
+  process.env.MAX_STDOUT_ITEMS ?? '10',
+  10
+);
+const MONITOR_URL = process.env.MONITOR_URL || '';
+
+/** The runner adds its run-folder helpers; a bare session runs the monitor without them. */
+type MonitorSession = Session &
+  Partial<Pick<RunnerSession, 'upsertResourceMap' | 'writeSessionMetadata'>>;
+
+/** Prints and records page exceptions and console errors/warnings. */
+function watchPageErrors(
+  cdp: MonitorSession,
+  pushEvent: (event: MonitorEvent) => void
+) {
+  cdp.on('Runtime.exceptionThrown', ({ exceptionDetails }) => {
+    const message =
+      exceptionDetails.exception?.description ?? exceptionDetails.text;
+    const frame = exceptionDetails.stackTrace?.callFrames?.[0];
+    console.log(`[EXCEPTION] ${String(message).split('\n')[0]}`);
+    if (frame)
+      console.log(
+        `[EXCEPTION_LOCATION] ${frame.url}:${frame.lineNumber}:${frame.columnNumber}`
+      );
+    pushEvent({
+      kind: 'exception',
+      message,
+      frame,
+      stack: exceptionDetails.stackTrace?.callFrames,
+    });
+  });
+
+  // Browser-side messages: failed resource loads, CSP and deprecation reports.
+  cdp.on('Log.entryAdded', ({ entry }) => {
+    if (!['error', 'warning'].includes(entry.level)) return;
+    console.log(`[LOG:${entry.level.toUpperCase()}] ${entry.text}`);
+    pushEvent({
+      kind: 'log',
+      type: entry.level,
+      source: entry.source,
+      message: entry.text,
+      url: entry.url,
+      stack: entry.stackTrace?.callFrames,
+    });
+  });
+
+  cdp.on('Runtime.consoleAPICalled', ({ type, args, stackTrace }) => {
+    if (!['error', 'warning'].includes(type)) return;
+    const message = args
+      .map(
+        (a: { value?: unknown; description?: string }) =>
+          a.value ?? a.description ?? '[object]'
+      )
+      .join(' ');
+    console.log(`[CONSOLE:${type.toUpperCase()}] ${message}`);
+    pushEvent({
+      kind: 'console',
+      type,
+      message,
+      stack: stackTrace?.callFrames,
+    });
+  });
+}
+
+/** Records every request on `records` and reports failures and slow responses. */
+function watchNetwork(
+  cdp: MonitorSession,
+  records: Map<string, NetworkRecord>,
+  pushEvent: (event: MonitorEvent) => void
+) {
+  const requestKey = (requestId: string, meta: { sessionId?: string }) =>
+    JSON.stringify([meta.sessionId || null, requestId]);
+  let hop = 0;
+  let slowPrinted = 0;
+  // Cookie headers and cookie verdicts arrive in extra-info events, before or after the main event.
+  const extras = new Map<string, ExtraInfo>();
+  const extrasOf = (key: string) => {
+    let found = extras.get(key);
+    if (!found) extras.set(key, (found = { request: [], response: [] }));
+    return found;
+  };
+  cdp.on(
+    'Network.requestWillBeSentExtraInfo',
+    ({ requestId, headers, associatedCookies }, meta = {}) => {
+      extrasOf(requestKey(requestId, meta)).request.push({
+        headers,
+        associatedCookies,
+      });
+    }
+  );
+  cdp.on(
+    'Network.responseReceivedExtraInfo',
+    ({ requestId, headers, statusCode, blockedCookies }, meta = {}) => {
+      extrasOf(requestKey(requestId, meta)).response.push({
+        headers,
+        statusCode,
+        blockedCookies,
+      });
+    }
+  );
+  cdp.on(
+    'Network.requestWillBeSent',
+    (
+      {
+        requestId,
+        request,
+        wallTime,
+        timestamp,
+        initiator,
+        type,
+        frameId,
+        redirectResponse,
+      },
+      meta: { sessionId?: string } = {}
+    ) => {
+      const prior = records.get(requestKey(requestId, meta));
+      if (prior && redirectResponse) {
+        prior.response = redirectResponse;
+        prior.end = Date.now();
+        prior.complete = true;
+        records.set(`${requestKey(requestId, meta)}:redirect:${hop++}`, prior);
+      }
+      records.set(requestKey(requestId, meta), {
+        extras: extrasOf(requestKey(requestId, meta)),
+        hop: prior && redirectResponse ? (prior.hop ?? 0) + 1 : 0,
+        requestId,
+        frameId,
+        sessionId: meta.sessionId ?? null,
+        complete: false,
+        request,
+        method: request.method,
+        url: request.url,
+        start: Date.now(),
+        startWallTime: wallTime ? wallTime * 1000 : Date.now(),
+        timestamp,
+        initiator,
+        type,
+      });
+    }
+  );
+
+  cdp.on(
+    'Network.responseReceived',
+    ({ requestId, response, type }, meta = {}) => {
+      const record = records.get(requestKey(requestId, meta));
+      if (!record) return;
+      record.response = response;
+      record.type = type ?? record.type;
+      record.end = Date.now();
+      const ms = record.end - record.start;
+      if (response.status >= 400) {
+        console.log(
+          `[NETWORK_ERROR] ${response.status} ${record.method} ${safeUrl(record.url)} ${ms}ms`
+        );
+      } else if (ms >= SLOW_MS && slowPrinted++ < MAX_STDOUT_ITEMS) {
+        console.log(
+          `[METRIC] slow-request status=${response.status} method=${record.method} ms=${ms} url=${safeUrl(record.url)}`
+        );
+      }
+      pushEvent({
+        kind: 'response',
+        requestId,
+        sessionId: record.sessionId,
+        status: response.status,
+        method: record.method,
+        url: safeUrl(record.url),
+        ms,
+        type: record.type,
+      });
+    }
+  );
+
+  cdp.on(
+    'Network.loadingFinished',
+    ({ requestId, encodedDataLength }, meta = {}) => {
+      const record = records.get(requestKey(requestId, meta));
+      if (!record) return;
+      record.complete = true;
+      record.encodedDataLength = encodedDataLength;
+      record.end = Date.now();
+    }
+  );
+
+  cdp.on(
+    'Network.loadingFailed',
+    (
+      { requestId, errorText, blockedReason },
+      meta: { sessionId?: string } = {}
+    ) => {
+      const record: NetworkRecord = records.get(
+        requestKey(requestId, meta)
+      ) ?? {
+        requestId,
+        start: Date.now(),
+        url: 'unknown',
+        method: 'GET',
+      };
+      record.complete = true;
+      record.failed = true;
+      record.errorText = errorText;
+      record.blockedReason = blockedReason;
+      record.end = Date.now();
+      records.set(requestKey(requestId, meta), record);
+      console.log(
+        `[NETWORK_FAILED] ${safeUrl(record.url)} ${blockedReason ? `blocked=${blockedReason}` : errorText}`
+      );
+      pushEvent({
+        kind: 'network-failed',
+        requestId,
+        sessionId: meta.sessionId || null,
+        url: safeUrl(record.url),
+        errorText,
+        blockedReason,
+      });
+    }
+  );
+}
+
+export async function run(
+  cdp: MonitorSession,
+  {
+    onReady,
+    monitorMs = MONITOR_MS,
+    url = MONITOR_URL,
+    waitUntil,
+    idleMs = 500,
+  }: {
+    onReady?: () => Promise<void>;
+    monitorMs?: number;
+    url?: string;
+    /** End the window early once the page loaded, or loaded and kept no request pending for idleMs. */
+    waitUntil?: 'load' | 'networkIdle';
+    idleMs?: number;
+  } = {}
+) {
+  if (![monitorMs, idleMs].every(ms => Number.isSafeInteger(ms) && ms >= 0))
+    throw new Error('Invalid monitorMs or idleMs');
+  const captureStartedAt = Date.now();
+  let actionError: string | null = null;
+  await cdp.send('Runtime.enable');
+  await cdp.send('Network.enable');
+  await cdp.send('Log.enable');
+  await cdp.send('Page.enable');
+
+  await cdp.send('Runtime.evaluate', { expression: LONG_TASK_OBSERVER_JS });
+
+  const records = new Map<string, NetworkRecord>();
+  const events: MonitorEvent[] = [];
+  const eventsPath = join(cdp.outputDir, 'events.ndjson');
+  writeFileSync(eventsPath, '', { mode: 0o600, flag: 'wx' });
+  console.log(`[ARTIFACT] EVENTS ${eventsPath}`);
+  const pushEvent = (event: MonitorEvent) => {
+    const safeEvent = { at: new Date().toISOString(), ...event };
+    events.push(safeEvent);
+    appendFileSync(eventsPath, `${JSON.stringify(safeEvent)}\n`);
+  };
+
+  watchNetwork(cdp, records, pushEvent);
+  watchPageErrors(cdp, pushEvent);
+
+  const frameEvents = await observeFrameEvents(cdp, [
+    'Network',
+    'Runtime',
+    'Log',
+  ]);
+  let loaded = !url;
+  cdp.on('Page.loadEventFired', () => {
+    loaded = true;
+  });
+  let navigatedFrame: string | undefined;
+  let navigationError: string | null = null;
+  if (url) {
+    const navigated = await cdp.send('Page.navigate', { url: url });
+    navigatedFrame = navigated?.frameId;
+    navigationError = navigated?.errorText ?? null;
+  }
+  console.log(
+    `[METRIC] live-monitor target="${url || cdp.targetInfo.url}" durationMs=${monitorMs}`
+  );
+  if (onReady) {
+    try {
+      await onReady();
+    } catch (error) {
+      actionError = errorMessage(error);
+      process.exitCode = 1;
+      console.log(`[FINDING] MONITORED_ACTION_ERROR ${actionError}`);
+    }
+  }
+  const progress = setInterval(
+    () =>
+      console.log(
+        `[PROGRESS] NETWORK observed=${records.size} pending=${[...records.values()].filter(r => !r.complete).length} frames=${frameEvents.coverage().frames.length}`
+      ),
+    1000
+  );
+  const pending = () => [...records.values()].filter(r => !r.complete).length;
+  let settled = false;
+  try {
+    settled = await waitWindow(
+      { waitUntil, monitorMs, idleMs, startedAt: captureStartedAt },
+      () => loaded,
+      pending
+    );
+  } finally {
+    clearInterval(progress);
+  }
+
+  await frameEvents.stop();
+  const performanceSnapshot = await collectPerformanceSnapshot(cdp);
+  const resourceEntries = performanceSnapshot.resources ?? [];
+  const summary: ReturnType<typeof summarize> & {
+    actualMonitorMs?: number;
+    actionError?: unknown;
+    iframeEvents?: unknown;
+  } = summarize(records, {
+    events,
+    resourceEntries,
+    performanceSnapshot,
+    slowMs: SLOW_MS,
+    monitorMs,
+  });
+  summary.actualMonitorMs = Date.now() - captureStartedAt;
+  summary.actionError = actionError;
+  summary.iframeEvents = frameEvents.coverage();
+  const har = harDocument(records, {
+    performanceSnapshot,
+    monitorMs,
+    title: performanceSnapshot.title ?? cdp.targetInfo.title ?? '',
+  });
+
+  const harPath = join(cdp.outputDir, 'live-network.har');
+  const summaryPath = join(cdp.outputDir, 'network-summary.json');
+  const resourcesPath = join(cdp.outputDir, 'resource-timing.json');
+
+  writeFileSync(harPath, `${JSON.stringify(har, null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(summaryPath, `${JSON.stringify(summary, null, 2)}\n`, {
+    mode: 0o600,
+  });
+  writeFileSync(
+    resourcesPath,
+    `${JSON.stringify(resourceEntries, null, 2)}\n`,
+    { mode: 0o600 }
+  );
+
+  cdp.upsertResourceMap?.('live-har-monitor', {
+    type: 'browser-monitor-artifacts',
+    harPath,
+    eventsPath,
+    summaryPath,
+    resourcesPath,
+    targetUrl: cdp.targetInfo.url,
+  });
+  cdp.writeSessionMetadata?.({
+    lastHarPath: harPath,
+    lastNetworkSummaryPath: summaryPath,
+  });
+
+  console.log(
+    `[METRIC] requests=${summary.counts.requests} failed=${summary.counts.failed} slow=${summary.counts.slow} exceptions=${summary.counts.exceptions} consoleErrors=${summary.counts.consoleErrors} longTasks=${summary.counts.longTasks}`
+  );
+  printFindings(summary, MAX_STDOUT_ITEMS);
+  console.log(`[ARTIFACT] HAR ${harPath}`);
+  console.log(`[ARTIFACT] EVENTS ${eventsPath}`);
+  console.log(`[ARTIFACT] SUMMARY ${summaryPath}`);
+  console.log(`[ARTIFACT] RESOURCE_TIMING ${resourcesPath}`);
+  const navigation: NavigationOutcome | null = url
+    ? {
+        error: navigationError,
+        document: mainDocument(records.values(), navigatedFrame),
+      }
+    : null;
+  return {
+    summary,
+    events,
+    navigation,
+    loaded,
+    settled,
+    pending: pending(),
+    harPath,
+    eventsPath,
+    summaryPath,
+    resourcesPath,
+  };
+}

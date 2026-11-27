@@ -1,81 +1,9 @@
 # Octocode Brainstorming
 
-`octocode-brainstorming` gives an agent a disciplined way to explore fuzzy ideas before anyone commits to a feature, library, workflow, or product direction.
+Explore an idea, claim, or decision from several directions and recommend from quote-verified evidence: generate options, try to refute each, find best practices, or compare options.
 
-The skill is built for the moment when a user asks, "Is this worth building?", "Has anyone already tried this?", or "What is the sharper version of this idea?" It keeps the conversation creative, but it makes the final answer answerable to evidence.
+Start with [SKILL.md](SKILL.md).
 
-## The Problem
+Setup: the search keys `TAVILY_API_KEY`, `EXA_API_KEY`, `SERPER_API_KEY` and `DEEPSEEK_API_KEY` are optional; without them the host's web tools still work. Each key is read from the process environment, then `~/.octocode/.env` (or `$OCTOCODE_HOME/.env`), then `<workspace>/.octocode/.env`. From the workspace root, check all four with `node scripts/keys.mjs get TAVILY_API_KEY EXA_API_KEY SERPER_API_KEY DEEPSEEK_API_KEY` and save one with `node scripts/keys.mjs set TAVILY_API_KEY --stdin`.
 
-Early ideas are fragile. If the agent searches only for the user's first wording, it may miss better framings. If it jumps straight to enthusiasm, it can turn a vague hunch into roadmap debt. If it only lists prior art, it can still avoid the harder question: what should we do next?
-
-This skill makes the agent diverge before it converges. It frames the idea several ways, checks evidence across the right surfaces, notices conflict, and then recommends one practical next move.
-
-## Capabilities
-
-- Alternative framings that prevent the first wording from anchoring the whole search.
-- A surface plan that explains which sources matter: local code, web resources, GitHub, packages, and exact code reads.
-- Top-resource-first prior-art mapping, so articles, docs, papers, and official sources seed repo and package research.
-- Claim tracking, with confidence and next-query thinking instead of unsupported assertions.
-- Cross-surface loops where web findings lead to code reads and code findings send the agent back to resources.
-- Perspective review through critical, entrepreneurial, and product lenses.
-- Conflict handling that concedes weak or contradictory evidence before the verdict.
-- A final decision shape such as build RFC, prototype, narrow, park, or do not build.
-
-## Operating Model
-
-The workflow is:
-
-```text
-FRAME -> DIVERGE -> RESEARCH -> CROSS-POLLINATE -> STRESS-TEST -> SYNTHESIZE -> DECIDE
-```
-
-The agent first turns the idea into testable framings. It then researches the strongest surfaces, follows leads from one surface into another, and stress-tests the emerging thesis. The answer is not complete until the agent has stated what survived review, what was weakened, and what next step would change the decision.
-
-## User Experience
-
-For users, this skill feels like a product-minded technical partner. It does not merely say "yes" or "no." It names the better angle, shows which evidence supports it, marks uncertainty, and gives a next action that is small enough to be useful.
-
-The output is a decision brief rather than code or design. When the idea becomes ready for architecture or implementation planning, it can hand off cleanly to research or RFC work.
-
-## Installation
-
-Install the published skill with:
-
-```bash
-npx octocode skill --name octocode-brainstorming
-```
-
-## Configuration — web search keys
-
-The skill runs web research via Tavily, Serper, and/or Exa. Put your keys in the **unified Octocode env file**, at `<octocode-home>/.env` — not in a skill-local `.env`. The Octocode home directory is resolved by `getOctocodeHome()` from the vendored `scripts/octocode-config.mjs`: by default it is `~/.octocode` on every platform (`path.join(homedir(), '.octocode')`), or `$OCTOCODE_HOME` when that override is set.
-
-```bash
-# example content, regardless of which path above applies to your platform:
-TAVILY_API_KEY=tvly-...
-SERPER_API_KEY=...
-EXA_API_KEY=...
-```
-
-Use `~/.octocode` by default; if `OCTOCODE_HOME` may be set, resolve the effective path with `npx @octocodeai/config` or `getOctocodeHome()` before reading or writing this file.
-
-Get keys: [Tavily](https://app.tavily.com/) · [Serper](https://serper.dev/) · [Exa](https://dashboard.exa.ai/) · any one is enough, more gives redundancy/fallback.
-
-**How the keys reach the skill:**
-- Under the `octocode-agent` / Pi extension — `propagateOctocodeEnv` runs at session start and injects `<octocode-home>/.env` into `process.env`. Every subprocess (bash calls, hooks, script invocations) inherits the full env automatically.
-- When the scripts are run standalone — `scripts/octocode-config.mjs` is vendored inside this folder, imported relatively by every script, and loads the same file directly using the same `getOctocodeHome()` resolution. The folder therefore needs no npm install and no `@octocodeai/config` dependency.
-
-**Key priority (highest to lowest):** `process.env` (shell / agent session) > `<project>/.octocode/.env` (project, when trusted) > `<octocode-home>/.env` (global). The search scripts never overwrite an already-set value.
-
-Verify a key is working:
-
-```bash
-node <skill_dir>/scripts/tavily-search.mjs --check
-node <skill_dir>/scripts/serper-search.mjs --check
-node <skill_dir>/scripts/exa-search.mjs --check
-```
-
-**Default is consolidation, not a ladder:** for real research (not a single spot-check), the skill queries every engine that passes `--check` — Tavily, Serper, and Exa each surface different results for the same query — and reconciles them (dedupe by URL, cross-confirm claims seen across engines, flag single-engine claims for verification). Engines are dispatched in parallel via `octocode-subagent` (one Web Search Scout per engine); see `references/tools.md`. DuckDuckGo (no key needed, lower quality) is the fallback only when no key validates at all, and is reported as a coverage limitation, not a silent substitute.
-
-## Maintainer Notes
-
-Keep the README focused on the reasoning model: divergent framing, resource-first research, surface loops, conflict concessions, and decision usefulness. Keep operational details, eval mechanics, and web adapter behavior in the agent-facing skill file and references.
+`scripts/keys.mjs` is built from `@octocodeai/config` by this folder's private `package.json` (`yarn build`); edit `src/keys.mjs` or the package, never the built file.

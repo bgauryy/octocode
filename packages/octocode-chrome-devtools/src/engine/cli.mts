@@ -1,0 +1,484 @@
+#!/usr/bin/env node
+import { spawn } from 'node:child_process';
+import {
+  readFileSync,
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+} from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  checks,
+  helpers,
+  rawCommands,
+  connection,
+  launchBooleans,
+  launchValues,
+  planInputs,
+} from './cli-catalog.mjs';
+import {
+  cdpBrowserSelection,
+  commonBooleans,
+  commonValues,
+  fail,
+  type CliOptions,
+  isOwnKey,
+  json,
+  optionValue,
+  parse,
+  runnerArgs,
+} from './cli-options.mjs';
+import { errorMessage } from './error-message.mjs';
+import { recipeEnv } from './cdp-checks/recipe-options.mjs';
+import { schemaOutput } from './cli-schema.mjs';
+import { chromeHelperDescriptions } from './chrome-contract.mjs';
+import { resolvePort, stateDirFor } from './session-registry.mjs';
+import { packageTmpDir } from './engine-io.mjs';
+import {
+  describeDomain,
+  describeMember,
+  domainIndex,
+  loadSchema,
+  lookupMember,
+  nearestMethods,
+  searchSchema,
+} from './cdp-schema.mjs';
+
+const scripts = dirname(fileURLToPath(import.meta.url));
+const usage = `octocode-cdp <command> [options]\n${Object.entries(rawCommands)
+  .map(([name, desc]) => `  ${name.padEnd(17)} ${desc}`)
+  .join('\n')}\n
+Examples (use absolute package path from the workspace cwd):
+  node <package>/bin/octocode-chrome-devtools.mjs /raw open --headless --url https://example.com
+  node <package>/bin/octocode-chrome-devtools.mjs /raw targets
+  node <package>/bin/octocode-chrome-devtools.mjs /raw snapshot --target <id>
+  node <package>/bin/octocode-chrome-devtools.mjs /raw run --json '{"steps":[{"op":"act","role":"button","name":"Search","action":"click","after":{"text":"Results"}}]}' --target <id>
+  node <package>/bin/octocode-chrome-devtools.mjs /raw run --plan /absolute/plan.json --dry-run
+  node <package>/bin/octocode-chrome-devtools.mjs /raw protocol Runtime.evaluate --target <id>
+  node <package>/bin/octocode-chrome-devtools.mjs /raw cdp Runtime.evaluate --params '{"expression":"document.title","returnByValue":true}' --target <id>
+  node <package>/bin/octocode-chrome-devtools.mjs /raw query --file /absolute/capture.json --pointer /rows
+
+Use <command> --help, schema [command], or schema check [name].
+No npm install required. Exit 0: success; 2: invalid CLI input; runtime failures preserve engine exit codes.
+Calls retain tabs and attached state. Multiple matching targets fail; use targets then --target.
+`;
+function execute(
+  file: string,
+  args: string[],
+  env: Record<string, string> = {},
+  dryRun = false
+) {
+  const path = join(scripts, file);
+  if (!existsSync(path))
+    fail(
+      `Missing CLI component ${file}; reinstall the complete Chrome package`
+    );
+  if (dryRun) {
+    console.log(
+      JSON.stringify(
+        {
+          command: process.execPath,
+          args: [path, ...args],
+          env,
+          cwd: process.cwd(),
+          executed: false,
+        },
+        null,
+        2
+      )
+    );
+    return Promise.resolve(0);
+  }
+  return new Promise<number>(resolveExit => {
+    const child = spawn(process.execPath, [path, ...args], {
+      stdio: 'inherit',
+      env: { ...process.env, ...env },
+    });
+    const forward = (signal: NodeJS.Signals) => child.kill(signal);
+    const interrupt = () => forward('SIGINT'),
+      terminate = () => forward('SIGTERM');
+    process.on('SIGINT', interrupt);
+    process.on('SIGTERM', terminate);
+    child.once('error', error => {
+      console.error(`[CDP_CLI] ${error.message}`);
+      resolveExit(1);
+    });
+    child.once('exit', (code, signal) => {
+      process.off('SIGINT', interrupt);
+      process.off('SIGTERM', terminate);
+      resolveExit(code ?? (signal === 'SIGINT' ? 130 : 143));
+    });
+  });
+}
+async function planContract() {
+  return import('./cdp-checks/browser-execute.mjs');
+}
+/** The `--params` text: `-` reads stdin, so typed values stay out of the process argument list. */
+function paramsText(text: string | undefined) {
+  return text === '-' ? readFileSync(0, 'utf8') : (text ?? '{}');
+}
+/** The plan text of `run`: --json, or the --plan file (`-` reads stdin). */
+function runPlanText(text: string | undefined, file: string | undefined) {
+  if (text !== undefined) return text;
+  if (file === undefined)
+    return fail('run needs exactly one of --plan file|- and --json JSON');
+  return readFileSync(file === '-' ? 0 : resolve(file), 'utf8');
+}
+/** Runner arguments; without --port, the newest live browser this workspace opened, else 9222. */
+async function connectionArgs(opts: CliOptions) {
+  const resolved = await resolvePort(
+    optionValue(opts, '--port'),
+    stateDirFor(process.cwd())
+  );
+  if (resolved.source === 'recorded')
+    console.error(
+      `[CDP_CLI] No port given: using port ${resolved.port}, the newest live browser opened by this workspace. Pass connection.port to choose another.`
+    );
+  return {
+    args: runnerArgs({ ...opts, '--port': resolved.port }),
+    port: resolved.port,
+  };
+}
+/** `protocol Domain[.member] [--search kw]`: the installed Chrome's own schema, answered inline as JSON. */
+async function protocolInline(
+  port: string | number,
+  target: string | undefined,
+  search: string | undefined,
+  offsetText: string | undefined
+) {
+  if (offsetText !== undefined && !/^\d+$/.test(offsetText))
+    fail('--offset needs a non-negative integer');
+  let schema;
+  try {
+    schema = await loadSchema(port);
+  } catch (error) {
+    console.error(
+      `[CDP_CLI] Cannot read the installed protocol on port ${port}: ${errorMessage(error)}`
+    );
+    return 1;
+  }
+  if (target === '*') {
+    if (search !== undefined)
+      return fail(
+        'protocol * lists domains; use protocol --search <keyword> to search'
+      );
+    const offset = Number(offsetText ?? 0),
+      page = domainIndex(schema, { offset });
+    const next =
+      page.nextOffset === undefined
+        ? {}
+        : {
+            next: {
+              continue: {
+                command: process.execPath,
+                args: [
+                  fileURLToPath(import.meta.url),
+                  'protocol',
+                  '*',
+                  '--offset',
+                  String(page.nextOffset),
+                  '--port',
+                  String(port),
+                ],
+              },
+            },
+          };
+    console.log(JSON.stringify({ ...page, ...next }, null, 2));
+    return 0;
+  }
+  const [domainName] = (target ?? '').split('.');
+  if (search !== undefined) {
+    const scoped = domainName
+      ? {
+          ...schema,
+          domains: schema.domains.filter(d => d.domain === domainName),
+        }
+      : schema;
+    if (domainName && !scoped.domains.length)
+      return fail(`Unknown domain ${domainName} in the installed Chrome`);
+    const offset = Number(offsetText ?? 0),
+      page = searchSchema(scoped, search, { offset });
+    const next =
+      page.nextOffset === undefined
+        ? {}
+        : {
+            next: {
+              continue: {
+                command: process.execPath,
+                args: [
+                  fileURLToPath(import.meta.url),
+                  'protocol',
+                  ...(target ? [target] : []),
+                  '--search',
+                  search,
+                  '--offset',
+                  String(page.nextOffset),
+                  '--port',
+                  String(port),
+                ],
+              },
+            },
+          };
+    console.log(
+      JSON.stringify(
+        { query: search, total: page.total, offset, hits: page.hits, ...next },
+        null,
+        2
+      )
+    );
+    return 0;
+  }
+  const found = lookupMember(schema, target ?? '');
+  if (found?.kind === 'domain')
+    console.log(JSON.stringify(describeDomain(found.domain, schema), null, 2));
+  else if (found)
+    console.log(JSON.stringify(describeMember(schema, target!), null, 2));
+  else {
+    const near = nearestMethods(schema, target ?? '');
+    return fail(
+      `${target} is not in the installed Chrome's protocol${near.length ? `; did you mean ${near.join(', ')}` : ''}. Use protocol --search <keyword>.`
+    );
+  }
+  return 0;
+}
+async function main(argv: string[]) {
+  let [command, ...args] = argv;
+  // `helper <name> [args]` is the typed gateway's form of `<name> [args]`.
+  if (
+    command === 'helper' &&
+    args[0] &&
+    Object.hasOwn(chromeHelperDescriptions, args[0])
+  )
+    [command, ...args] = args;
+  if (!command || ['--help', '-h', 'help'].includes(command)) {
+    console.log(usage);
+    return 0;
+  }
+  if (!Object.hasOwn(rawCommands, command))
+    return fail(`Unknown command ${command}; use --help`);
+  if (command === 'schema') {
+    console.log(
+      await schemaOutput(args, planContract, fileURLToPath(import.meta.url))
+    );
+    return 0;
+  }
+  if (Object.hasOwn(helpers, command))
+    return execute(helpers[command][0], args);
+  if (['open', 'cleanup'].includes(command)) {
+    const values = launchValues;
+    if (args.includes('--help') || args.includes('-h'))
+      return execute('open-browser.mjs', ['--help']);
+    const { opts, positional } = parse(args, values, launchBooleans);
+    if (positional.length) fail('Unexpected positional argument');
+    runnerArgs({ '--port': opts['--port'] });
+    if (
+      command === 'cleanup' &&
+      Object.keys(opts).some(key => !['--port', '--dry-run'].includes(key))
+    )
+      fail('cleanup accepts --port and --dry-run');
+    return execute(
+      'open-browser.mjs',
+      [...(command === 'cleanup' ? ['--cleanup'] : []), ...args],
+      {},
+      command === 'open' && Boolean(opts['--dry-run'])
+    );
+  }
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(
+      `${command}: ${rawCommands[command]}\n${Object.entries(connection)
+        .map(([key, value]) => `  ${key} ${value}`)
+        .join(
+          '\n'
+        )}\nInputs: run --plan file|- | --json JSON; cdp Domain.method --params JSON; protocol [Domain[.member]]; check <name> --options JSON; script <path>.\nSnapshot/screenshot/check --options maps documented recipe option names to values; check schema check <name>. Recipe-specific flags follow --.\nExamples: see --help. Full plans and frames: docs/browser-execution.md.`
+    );
+    return 0;
+  }
+  const split = args.indexOf('--'),
+    tail = split < 0 ? [] : args.slice(split + 1);
+  const { opts, positional } = parse(
+    split < 0 ? args : args.slice(0, split),
+    [
+      ...commonValues,
+      '--plan',
+      '--json',
+      '--params',
+      '--options',
+      '--search',
+      '--offset',
+      '--enable',
+      '--scope',
+    ],
+    [...commonBooleans, '--acknowledge']
+  );
+  const permitted: readonly string[] = isOwnKey(planInputs, command)
+    ? planInputs[command]
+    : ['snapshot', 'screenshot', 'check'].includes(command)
+      ? ['--options']
+      : [];
+  for (const key of ['--plan', '--json', '--params', '--options'])
+    if (opts[key] !== undefined && !permitted.includes(key))
+      fail(`${command} does not accept ${key}`);
+  if (opts['--acknowledge'] && command !== 'cdp')
+    fail(`${command} does not accept --acknowledge`);
+  for (const key of ['--enable', '--scope'])
+    if (opts[key] !== undefined && command !== 'cdp')
+      fail(`${command} does not accept ${key}`);
+  for (const key of ['--search', '--offset'])
+    if (opts[key] !== undefined && command !== 'protocol')
+      fail(`${command} does not accept ${key}`);
+  if (
+    opts['--offset'] !== undefined &&
+    opts['--search'] === undefined &&
+    positional[0] !== '*'
+  )
+    fail('--offset needs --search or protocol *');
+  if (tail.length && !['check', 'script'].includes(command))
+    fail(`${command} does not accept trailing recipe flags`);
+  if (command === 'cdp') Object.assign(opts, cdpBrowserSelection(opts));
+  const { args: runner, port } = await connectionArgs(opts),
+    dry = !!opts['--dry-run'];
+  const maxPositionals = ['cdp', 'protocol', 'check', 'script'].includes(
+    command
+  )
+    ? 1
+    : 0;
+  if (positional.length > maxPositionals)
+    fail('Unexpected positional argument');
+  if (command === 'targets')
+    return execute('cdp-sandbox.mjs', ['--list-targets', ...runner], {}, dry);
+  if (command === 'script') {
+    if (!positional[0]) fail('script needs a module path');
+    const file = resolve(positional[0]);
+    if (!existsSync(file) || !/\.(mjs|js)$/.test(file))
+      fail('script needs an existing .mjs or .js module');
+    return execute('cdp-sandbox.mjs', [file, ...runner, ...tail], {}, dry);
+  }
+  if (['snapshot', 'screenshot', 'check'].includes(command)) {
+    const name =
+      command === 'snapshot'
+        ? 'page-snapshot'
+        : command === 'screenshot'
+          ? 'page-screenshot'
+          : positional[0];
+    if (
+      tail.some(value =>
+        [
+          ...commonValues,
+          ...commonBooleans,
+          '--list-targets',
+          '--strict-target',
+          '--plan',
+        ].includes(value)
+      )
+    )
+      fail(
+        'Connection options must precede --; trailing flags belong to the recipe'
+      );
+    if (!isOwnKey(checks, name))
+      return fail(`Unknown check ${name ?? '(missing)'}; use schema check`);
+    const optionsText = optionValue(opts, '--options');
+    const spec = checks[name],
+      options = optionsText ? json(optionsText, '--options') : {};
+    if (!options || typeof options !== 'object' || Array.isArray(options))
+      return fail('--options needs an object');
+    let env;
+    try {
+      env = recipeEnv(name, options);
+    } catch (error) {
+      return fail(`${errorMessage(error)}; use schema check ${name}`);
+    }
+    return execute(
+      'cdp-sandbox.mjs',
+      [join(scripts, spec.file), ...runner, ...tail],
+      env,
+      dry
+    );
+  }
+  let plan: unknown;
+  const planJson = optionValue(opts, '--json');
+  if (command === 'run') {
+    if (!!opts['--plan'] === !!planJson)
+      fail('run needs exactly one of --plan file|- and --json JSON');
+    plan = json(runPlanText(planJson, optionValue(opts, '--plan')), 'Plan');
+  } else if (command === 'cdp') {
+    if (!positional[0]) fail('cdp needs Domain.method');
+    plan = {
+      steps: [
+        {
+          op: 'cdp',
+          method: positional[0],
+          params: json(paramsText(optionValue(opts, '--params')), '--params'),
+          ...(opts['--acknowledge'] ? { acknowledge: true } : {}),
+          ...(opts['--enable'] === undefined
+            ? {}
+            : { enable: optionValue(opts, '--enable')!.split(',') }),
+          ...(opts['--scope'] === undefined
+            ? {}
+            : { scope: optionValue(opts, '--scope') }),
+        },
+      ],
+    };
+  } else if (command === 'protocol') {
+    // search '*' asks for everything: the domain index, as member '*' does.
+    const wildcard = optionValue(opts, '--search') === '*';
+    if (wildcard && !positional[0]) positional[0] = '*';
+    const search = wildcard ? undefined : optionValue(opts, '--search');
+    if (!positional[0] && search === undefined)
+      return execute(
+        'cdp-sandbox.mjs',
+        [join(scripts, 'cdp-checks/protocol-snapshot.mjs'), ...runner],
+        {},
+        dry
+      );
+    const parts = (positional[0] ?? '').split('.');
+    if (positional[0] && (parts.length > 2 || parts.some(p => !p)))
+      fail('protocol needs Domain or Domain.member');
+    if (dry) {
+      console.log(
+        `dry-run: would read the installed protocol schema on port ${port}`
+      );
+      return 0;
+    }
+    return await protocolInline(
+      port,
+      positional[0],
+      search,
+      optionValue(opts, '--offset')
+    );
+  }
+  const { validatePlan } = await planContract();
+  validatePlan(plan);
+  const serialized = JSON.stringify(plan);
+  if (dry)
+    return execute(
+      'cdp-sandbox.mjs',
+      [join(scripts, 'cdp-checks/browser-execute.mjs'), ...runner],
+      { BROWSER_PLAN: serialized },
+      true
+    );
+  const directory = join(packageTmpDir(), 'plans');
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const file = join(directory, `plan-${randomUUID()}.json`);
+  writeFileSync(file, serialized, { mode: 0o600, flag: 'wx' });
+  try {
+    return await execute('cdp-sandbox.mjs', [
+      join(scripts, 'cdp-checks/browser-execute.mjs'),
+      ...runner,
+      '--plan',
+      file,
+    ]);
+  } finally {
+    rmSync(file, { force: true });
+  }
+}
+try {
+  process.exitCode = await main(process.argv.slice(2));
+} catch (error) {
+  console.error(
+    `[CDP_CLI] ${errorMessage(error)}\nUse --help or schema for the supported inputs.`
+  );
+  process.exitCode = 2;
+}

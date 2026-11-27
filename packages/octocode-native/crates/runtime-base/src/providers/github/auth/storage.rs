@@ -1,0 +1,134 @@
+use super::normalize_host;
+use octocode_github::{ProviderError, ProviderErrorKind};
+use serde::{Deserialize, Serialize};
+
+pub(crate) fn delete_platform_credential(host: &str) -> Result<(), ProviderError> {
+    let Ok(entry) = platform_entry(host) else {
+        return Ok(());
+    };
+    match entry.delete_credential() {
+        Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
+        Err(error) => Err(map_store_error(error)),
+    }
+}
+
+/// The `octocode` keychain entry for `host` in the platform credential store.
+fn platform_entry(host: &str) -> Result<keyring_core::Entry, ProviderError> {
+    use keyring_core::api::CredentialStoreApi;
+    #[cfg(target_os = "macos")]
+    let store = apple_native_keyring_store::keychain::Store::new();
+    #[cfg(target_os = "linux")]
+    let store = zbus_secret_service_keyring_store::Store::new();
+    #[cfg(windows)]
+    let store = windows_native_keyring_store::Store::new();
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+    {
+        let _ = host;
+        return Err(ProviderError::new(
+            ProviderErrorKind::CredentialStoreUnavailable,
+            "no secure credential store is available on this platform",
+        ));
+    }
+    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
+    {
+        let store = store.map_err(|_| {
+            ProviderError::new(
+                ProviderErrorKind::CredentialStoreUnavailable,
+                "secure credential store is unavailable",
+            )
+        })?;
+        store.build("octocode", host, None).map_err(map_store_error)
+    }
+}
+
+pub(crate) fn load_stored_credentials(
+    host: &str,
+) -> Result<Option<StoredCredentials>, ProviderError> {
+    Ok(load_platform_password(host)?.and_then(|blob| parse_stored_blob(&blob)))
+}
+
+/// A keychain blob as credentials: the stored JSON record. Anything else is no
+/// credential, and the next login overwrites it.
+fn parse_stored_blob(blob: &str) -> Option<StoredCredentials> {
+    serde_json::from_str(blob).ok()
+}
+
+fn load_platform_password(host: &str) -> Result<Option<String>, ProviderError> {
+    match platform_entry(&normalize_host(host))?.get_password() {
+        Ok(secret) if !secret.trim().is_empty() => Ok(Some(secret)),
+        Ok(_) | Err(keyring_core::Error::NoEntry) => Ok(None),
+        Err(error) => Err(map_store_error(error)),
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoredCredentials {
+    pub hostname: String,
+    pub username: String,
+    pub token: OAuthToken,
+    pub git_protocol: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OAuthToken {
+    pub token: String,
+    pub token_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scopes: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token_expires_at: Option<String>,
+}
+
+impl std::fmt::Debug for OAuthToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OAuthToken")
+            .field("token", &"[REDACTED]")
+            .field("token_type", &self.token_type)
+            .field("scopes", &self.scopes)
+            .field(
+                "refresh_token",
+                &self.refresh_token.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("expires_at", &self.expires_at)
+            .field("refresh_token_expires_at", &self.refresh_token_expires_at)
+            .finish()
+    }
+}
+
+pub(crate) fn store_platform_credential(
+    credentials: &StoredCredentials,
+) -> Result<(), ProviderError> {
+    let payload = serde_json::to_string(credentials).map_err(|_| {
+        ProviderError::new(
+            ProviderErrorKind::CredentialStoreUnavailable,
+            "failed to encode stored credentials",
+        )
+    })?;
+    set_platform_password(&credentials.hostname, &payload)
+}
+
+fn set_platform_password(host: &str, payload: &str) -> Result<(), ProviderError> {
+    platform_entry(host)?
+        .set_password(payload)
+        .map_err(map_store_error)
+}
+
+fn map_store_error(error: keyring_core::Error) -> ProviderError {
+    let kind = if matches!(error, keyring_core::Error::NoEntry) {
+        ProviderErrorKind::NotFound
+    } else {
+        ProviderErrorKind::CredentialStoreUnavailable
+    };
+    ProviderError::new(kind, "secure credential store operation failed")
+}
+
+#[cfg(test)]
+mod tests;

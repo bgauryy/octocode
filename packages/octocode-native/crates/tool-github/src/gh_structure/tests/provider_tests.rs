@@ -1,0 +1,72 @@
+//! Provider-backed ghStructure tests against a mock GitHub server.
+use super::*;
+use octocode_github::RetryPolicy;
+use octocode_test_support::json_fixture;
+use octocode_test_support::mock_http::{mount_folder_tree, mount_json};
+use octocode_tools_shared::gh_shared::test_support::{default_context, mock_provider};
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+
+const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+mod limit;
+mod listing;
+mod missing_path;
+mod page_walks;
+mod refs;
+mod renamed;
+
+async fn server() -> MockServer {
+    let server = MockServer::builder().start().await;
+    for reference in ["main", "HEAD"] {
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/a/b/commits/{reference}")))
+            .respond_with(ResponseTemplate::new(200).set_body_string(SHA))
+            .mount(&server)
+            .await;
+    }
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b",
+        200,
+        json_fixture(r#"{"default_branch": "main", "full_name": "a/b"}"#),
+    )
+    .await;
+    mount_json(&server, "/api/v3/repos/a/b/branches", 200, json!([])).await;
+    server
+}
+
+fn query(value: Value) -> GhStructureQuery {
+    serde_json::from_value(value).expect("ghStructure query")
+}
+
+/// The tag names a refs listing's `tags` rows show, in order.
+fn tag_names(data: &Value) -> Vec<String> {
+    data["tags"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|tag| ref_name(tag).to_owned())
+        .collect()
+}
+
+/// The name of a ref row: the row itself, or the name of a glob listing's
+/// `"<name> <commitSha>"` (a ref name holds no space), whose sha is whole.
+fn ref_name(row: &Value) -> &str {
+    let row = row
+        .as_str()
+        .unwrap_or_else(|| panic!("a ref row is a string: {row}"));
+    match row.split_once(' ') {
+        Some((name, sha)) => {
+            assert!(octocode_github::is_full_sha(sha), "{row}");
+            name
+        }
+        None => row,
+    }
+}
+
+async fn list(server: &MockServer, value: Value) -> Result<ToolData, ProviderError> {
+    let home = tempfile::tempdir().expect("home");
+    let provider = mock_provider(server, RetryPolicy::default());
+    let context = default_context();
+    execute(&provider, &query(value), &context, home.path(), None).await
+}

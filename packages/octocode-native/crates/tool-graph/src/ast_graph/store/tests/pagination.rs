@@ -1,0 +1,127 @@
+use super::*;
+use crate::ast_graph::test_support::{next_offset, next_query};
+
+#[test]
+fn explicit_snapshot_paths_page_and_lead_by_their_snapshot_id() {
+    let dir = fixture();
+    let root = dir.0.as_path();
+    let ingested = ingest_fixture(root, None);
+    assert_eq!(ingested.class, ExitClass::Success);
+    let id = ingested.value["graph"].as_str().unwrap();
+    let snapshot = root
+        .join(".octocode/graph")
+        .join(id)
+        .canonicalize()
+        .unwrap();
+    let expected = ask(root, "symbols", Some("src/lib.ts"), |_| {});
+    for path in [snapshot.clone(), snapshot.join(GRAPH_FILE)] {
+        let mut options = QueryOptions {
+            op: "symbols".into(),
+            target: Some("src/lib.ts".into()),
+            graph: Some(path.to_string_lossy().into_owned()),
+            limit: Some(2),
+            ..Default::default()
+        };
+        let mut union = Vec::new();
+        for offset in [0, 2, 4] {
+            options.offset = Some(offset);
+            let page = query(&options, &workspace_policy(root));
+            assert_eq!(page.class, ExitClass::Success, "{}", page.value);
+            union.extend(ids(&page));
+            if offset < 4 {
+                assert_eq!(page.value["graph"]["id"], id, "{}", page.value);
+                assert_eq!(next_offset(&page), Some(offset + 2), "{}", page.value);
+                options.graph = Some(snapshot.to_string_lossy().into_owned());
+            }
+        }
+        assert_eq!(union, ids(&expected));
+    }
+}
+
+#[test]
+fn explicit_snapshot_path_survives_ambiguous_candidate_continuation() {
+    let dir = Fixture::new();
+    let root = dir.0.as_path();
+    for n in 0..25 {
+        write_under(
+            &dir,
+            "app",
+            &[(format!("file{n}.ts").as_str(), "export function run() {}")],
+        );
+    }
+    let ingested = ingest_fixture(root, None);
+    assert_eq!(ingested.class, ExitClass::Success);
+    let snapshot = root
+        .join(".octocode/graph")
+        .join(ingested.value["graph"].as_str().unwrap())
+        .canonicalize()
+        .unwrap();
+    let options = QueryOptions {
+        op: "callers".into(),
+        target: Some("run".into()),
+        graph: Some(snapshot.join(GRAPH_FILE).to_string_lossy().into_owned()),
+        ..Default::default()
+    };
+    let first = query(&options, &workspace_policy(root));
+    assert_eq!(
+        first.class,
+        ExitClass::Failed(octocode_runtime_base::id::error_codes::ErrorClass::CorrectInput)
+    );
+    assert_eq!(first.value["pagination"]["total"], 25);
+    let next = next_query(&first).unwrap();
+    assert_eq!(next.graph.as_deref(), Some(snapshot.to_str().unwrap()));
+    assert!(next.workspace.is_none());
+    assert_eq!(next.offset, Some(20));
+    let rest = query(next, &workspace_policy(root));
+    assert_eq!(rest.class, ExitClass::Success, "{}", rest.value);
+    let union = first.value["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .chain(rest.value["rows"].as_array().unwrap())
+        .map(|row| row["id"].as_str().unwrap())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(union.len(), 25);
+}
+
+#[test]
+fn graph_header_names_the_scope_relative_root_and_pages_lose_no_rows() {
+    let dir = fixture();
+    let root = dir.0.as_path();
+    let built = ingest_fixture(root, None);
+    assert_eq!(built.class, ExitClass::Success);
+    let expected = ids(&ask(root, "symbols", Some("src/lib.ts"), |_| {}));
+    assert!(expected.len() > 2, "{expected:?}");
+    let mut options = QueryOptions {
+        op: "symbols".into(),
+        target: Some("src/lib.ts".into()),
+        workspace: Some(root.to_path_buf()),
+        limit: Some(2),
+        ..Default::default()
+    };
+    let scope = Path::new(built.value["root"].as_str().expect("root"))
+        .strip_prefix(root.canonicalize().expect("workspace"))
+        .expect("scope inside workspace")
+        .to_string_lossy()
+        .into_owned();
+    assert!(!scope.starts_with('/'), "{scope}");
+    let mut walked = Vec::new();
+    let mut pages = 0;
+    loop {
+        let page = query(&options, &workspace_policy(root));
+        assert_eq!(page.class, ExitClass::Success, "{}", page.value);
+        let graph = &page.value["graph"];
+        // Every page names the graph by its id; the root and creation time
+        // are graphBuild's, and the id carries the scope's slug.
+        assert_eq!(graph["id"], built.value["graph"], "{}", page.value);
+        assert_eq!(graph.as_object().map(serde_json::Map::len), Some(1));
+        walked.extend(ids(&page));
+        pages += 1;
+        let Some(offset) = next_offset(&page) else {
+            break;
+        };
+        options.offset = Some(offset);
+    }
+    assert!(pages > 1);
+    assert_eq!(walked, expected);
+}

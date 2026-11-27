@@ -1,0 +1,544 @@
+{
+  "label": "v20 search: name tiers",
+  "flags": "",
+  "set": "graph-search",
+  "overall": {
+    "questions": 50,
+    "recallAt1": 26,
+    "recallAt10": 30,
+    "mrr": 28
+  },
+  "byKind": {
+    "exact": {
+      "questions": 8,
+      "recallAt1": 100,
+      "recallAt10": 100,
+      "mrr": 100
+    },
+    "partial": {
+      "questions": 7,
+      "recallAt1": 71.4,
+      "recallAt10": 100,
+      "mrr": 85.7
+    },
+    "intent": {
+      "questions": 30,
+      "recallAt1": 0,
+      "recallAt10": 0,
+      "mrr": 0
+    },
+    "type": {
+      "questions": 5,
+      "recallAt1": 0,
+      "recallAt10": 0,
+      "mrr": 0
+    }
+  },
+  "byGraph": {
+    "octocode-graph": {
+      "questions": 13,
+      "recallAt1": 30.8,
+      "recallAt10": 30.8,
+      "mrr": 30.8
+    },
+    "tool-graph": {
+      "questions": 12,
+      "recallAt1": 25,
+      "recallAt10": 33.3,
+      "mrr": 29.2
+    },
+    "django": {
+      "questions": 12,
+      "recallAt1": 25,
+      "recallAt10": 25,
+      "mrr": 25
+    },
+    "typescript-packages": {
+      "questions": 13,
+      "recallAt1": 23.1,
+      "recallAt10": 30.8,
+      "mrr": 26.9
+    }
+  },
+  "typed": {
+    "questions": 5,
+    "recallAt1": 0,
+    "recallAt10": 0,
+    "mrr": 0
+  },
+  "timing": {
+    "octocode-graph": {
+      "symbols": 1283,
+      "loadMs": 5,
+      "firstQueryMs": 9,
+      "medianQueryMs": 3
+    },
+    "tool-graph": {
+      "symbols": 2624,
+      "loadMs": 13,
+      "firstQueryMs": 17,
+      "medianQueryMs": 9.1
+    },
+    "django": {
+      "symbols": 8845,
+      "loadMs": 27,
+      "firstQueryMs": 37,
+      "medianQueryMs": 20.3
+    },
+    "typescript-packages": {
+      "symbols": 2418,
+      "loadMs": 8,
+      "firstQueryMs": 10,
+      "medianQueryMs": 5.3
+    }
+  },
+  "rows": [
+    {
+      "id": "og-01",
+      "graph": "octocode-graph",
+      "kind": "exact",
+      "query": "cycleGroups",
+      "rank": 1,
+      "top": [
+        "src/algorithms.ts#cycleGroups"
+      ]
+    },
+    {
+      "id": "og-02",
+      "graph": "octocode-graph",
+      "kind": "exact",
+      "query": "resolveSymbol",
+      "rank": 1,
+      "top": [
+        "src/runtime/query-index.ts#resolveSymbol"
+      ]
+    },
+    {
+      "id": "og-03",
+      "graph": "octocode-graph",
+      "kind": "partial",
+      "query": "edit distance",
+      "rank": 1,
+      "top": [
+        "src/runtime/query-forgiving.ts#editDistance"
+      ]
+    },
+    {
+      "id": "og-04",
+      "graph": "octocode-graph",
+      "kind": "partial",
+      "query": "shortest ring",
+      "rank": 1,
+      "top": [
+        "src/algorithms.ts#shortestRing"
+      ]
+    },
+    {
+      "id": "og-05",
+      "graph": "octocode-graph",
+      "kind": "intent",
+      "query": "where are dependency cycles counted",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "og-06",
+      "graph": "octocode-graph",
+      "kind": "intent",
+      "query": "detect clusters of files that belong together",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "og-07",
+      "graph": "octocode-graph",
+      "kind": "intent",
+      "query": "reconnect with backoff when the connection drops",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "og-08",
+      "graph": "octocode-graph",
+      "kind": "intent",
+      "query": "rank files by importance",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "og-09",
+      "graph": "octocode-graph",
+      "kind": "intent",
+      "query": "which files changed after the graph was written",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "og-10",
+      "graph": "octocode-graph",
+      "kind": "intent",
+      "query": "suggest the closest name for a misspelled word",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "og-11",
+      "graph": "octocode-graph",
+      "kind": "intent",
+      "query": "map a position in generated code back to the original source",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "og-12",
+      "graph": "octocode-graph",
+      "kind": "type",
+      "query": "function taking a Buffer and returning a Frame",
+      "rank": null,
+      "top": [],
+      "typedRank": null
+    },
+    {
+      "id": "og-13",
+      "graph": "octocode-graph",
+      "kind": "type",
+      "query": "what returns a QueryResult",
+      "rank": null,
+      "top": [],
+      "typedRank": null
+    },
+    {
+      "id": "tg-01",
+      "graph": "tool-graph",
+      "kind": "exact",
+      "query": "tarjan",
+      "rank": 1,
+      "top": [
+        "src/ast_graph/store/detect/primitives.rs#tarjan"
+      ]
+    },
+    {
+      "id": "tg-02",
+      "graph": "tool-graph",
+      "kind": "exact",
+      "query": "git_changed",
+      "rank": 1,
+      "top": [
+        "src/ast_graph/store/query/assess/changed.rs#git_changed",
+        "src/ast_graph/store/query/assess/changed.rs#git",
+        "src/ast_graph/store/query/assess/changed.rs#git_output"
+      ]
+    },
+    {
+      "id": "tg-03",
+      "graph": "tool-graph",
+      "kind": "partial",
+      "query": "articulation",
+      "rank": 1,
+      "top": [
+        "src/ast_graph/store/detect/primitives.rs#articulation_points"
+      ]
+    },
+    {
+      "id": "tg-04",
+      "graph": "tool-graph",
+      "kind": "partial",
+      "query": "unused exports",
+      "rank": 2,
+      "top": [
+        "src/ast_graph/link_tests/dead_code.rs#unused_exports",
+        "src/ast_graph/store/detect/reach.rs#detect_unused_exports"
+      ]
+    },
+    {
+      "id": "tg-05",
+      "graph": "tool-graph",
+      "kind": "intent",
+      "query": "where are import cycles between files detected",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "tg-06",
+      "graph": "tool-graph",
+      "kind": "intent",
+      "query": "scrub credentials from stored strings before publishing a snapshot",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "tg-07",
+      "graph": "tool-graph",
+      "kind": "intent",
+      "query": "spread a change to every file that depends on it",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "tg-08",
+      "graph": "tool-graph",
+      "kind": "intent",
+      "query": "find the nearest Cargo.toml for each Rust file",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "tg-09",
+      "graph": "tool-graph",
+      "kind": "intent",
+      "query": "match names that are one edit apart",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "tg-10",
+      "graph": "tool-graph",
+      "kind": "intent",
+      "query": "encode signed integers as unsigned for variable-length storage",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "tg-11",
+      "graph": "tool-graph",
+      "kind": "intent",
+      "query": "smallest set of edges whose removal breaks a cycle",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "tg-12",
+      "graph": "tool-graph",
+      "kind": "type",
+      "query": "function returning Vec<f64> scores",
+      "rank": null,
+      "top": [],
+      "typedRank": null
+    },
+    {
+      "id": "dj-01",
+      "graph": "django",
+      "kind": "exact",
+      "query": "make_password",
+      "rank": 1,
+      "top": [
+        "contrib/auth/hashers.py#make_password",
+        "contrib/auth/tokens.py#PasswordResetTokenGenerator._make_token_with_timestamp",
+        "contrib/auth/tokens.py#PasswordResetTokenGenerator._make_hash_value"
+      ]
+    },
+    {
+      "id": "dj-02",
+      "graph": "django",
+      "kind": "exact",
+      "query": "slugify",
+      "rank": 1,
+      "top": [
+        "utils/text.py#slugify",
+        "template/defaultfilters.py#slugify"
+      ]
+    },
+    {
+      "id": "dj-03",
+      "graph": "django",
+      "kind": "partial",
+      "query": "paginator",
+      "rank": 1,
+      "top": [
+        "core/paginator.py#Paginator",
+        "contrib/admin/options.py#ModelAdmin.paginator",
+        "core/paginator.py"
+      ]
+    },
+    {
+      "id": "dj-04",
+      "graph": "django",
+      "kind": "intent",
+      "query": "build the key a cached page response is stored under",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "dj-05",
+      "graph": "django",
+      "kind": "intent",
+      "query": "where are database transactions committed or rolled back",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "dj-06",
+      "graph": "django",
+      "kind": "intent",
+      "query": "reject a POST request whose CSRF token is missing or wrong",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "dj-07",
+      "graph": "django",
+      "kind": "intent",
+      "query": "encode ampersands quotes and angle brackets for use in HTML",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "dj-08",
+      "graph": "django",
+      "kind": "intent",
+      "query": "send email through an SMTP server",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "dj-09",
+      "graph": "django",
+      "kind": "intent",
+      "query": "compare two strings without leaking timing information",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "dj-10",
+      "graph": "django",
+      "kind": "intent",
+      "query": "sign a value so it cannot be tampered with",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "dj-11",
+      "graph": "django",
+      "kind": "intent",
+      "query": "how long ago a date was in words",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "dj-12",
+      "graph": "django",
+      "kind": "intent",
+      "query": "parse the browser's preferred languages header",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "ts-01",
+      "graph": "typescript-packages",
+      "kind": "exact",
+      "query": "encodeWtf8",
+      "rank": 1,
+      "top": [
+        "typescript/src/api/node/wtf8.ts#encodeWtf8"
+      ]
+    },
+    {
+      "id": "ts-02",
+      "graph": "typescript-packages",
+      "kind": "exact",
+      "query": "getTokenAtPosition",
+      "rank": 1,
+      "top": [
+        "typescript/src/ast/astnav.ts#getTokenAtPosition",
+        "typescript/src/ast/astnav.ts#getTokenAtPositionImpl",
+        "typescript/src/ast/astnav.ts#getTokenAtPositionImpl.getIncludedPrecedingToken"
+      ]
+    },
+    {
+      "id": "ts-03",
+      "graph": "typescript-packages",
+      "kind": "partial",
+      "query": "msgpack writer",
+      "rank": 1,
+      "top": [
+        "typescript/src/api/node/msgpack.ts#MsgpackWriter"
+      ]
+    },
+    {
+      "id": "ts-04",
+      "graph": "typescript-packages",
+      "kind": "partial",
+      "query": "deep clone",
+      "rank": 2,
+      "top": [
+        "typescript/src/ast/clone.ts#getSynthesizedDeepCloneWorker",
+        "typescript/src/ast/clone.ts#getSynthesizedDeepClone",
+        "typescript/src/ast/clone.ts#getSynthesizedDeepClone"
+      ]
+    },
+    {
+      "id": "ts-05",
+      "graph": "typescript-packages",
+      "kind": "intent",
+      "query": "which code retries failed requests",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "ts-06",
+      "graph": "typescript-packages",
+      "kind": "intent",
+      "query": "measure how long each API request takes",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "ts-07",
+      "graph": "typescript-packages",
+      "kind": "intent",
+      "query": "split a file path into its root and directory parts",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "ts-08",
+      "graph": "typescript-packages",
+      "kind": "intent",
+      "query": "print compiler errors with colors and the source line",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "ts-09",
+      "graph": "typescript-packages",
+      "kind": "intent",
+      "query": "map positions between generated and original text",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "ts-10",
+      "graph": "typescript-packages",
+      "kind": "intent",
+      "query": "locate the native compiler binary inside the platform package",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "ts-11",
+      "graph": "typescript-packages",
+      "kind": "intent",
+      "query": "cancel a running request",
+      "rank": null,
+      "top": []
+    },
+    {
+      "id": "ts-12",
+      "graph": "typescript-packages",
+      "kind": "type",
+      "query": "function that takes a string and returns a Uint8Array",
+      "rank": null,
+      "top": [],
+      "typedRank": null
+    },
+    {
+      "id": "ts-13",
+      "graph": "typescript-packages",
+      "kind": "type",
+      "query": "takes a SourceFile and a position and returns a Node",
+      "rank": null,
+      "top": [],
+      "typedRank": null
+    }
+  ]
+}

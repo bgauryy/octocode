@@ -1,0 +1,47 @@
+[package]
+name = "octocode-tool-clasify"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Octocode clasify"
+autobins = false
+autotests = false
+autoexamples = false
+autobenches = false
+
+[lib]
+# Unit tests stay in src (private access); nextest and libtest run no doctests,
+# and `cargo shear --check-test-targets` flags one.
+doctest = false
+
+[features]
+# Fixtures for dependent crates' tests. Enabled by their dev-dependencies and by
+# octocode-native's `dev-unify`, never by release builds.
+test-support = ["octocode-runtime-base/test-support", "octocode-tools-shared/test-support"]
+
+[dependencies]
+url = { workspace = true }
+octocode-io = { path = "../io" }
+octocode-contract-types = { path = "../contract-types" }
+octocode-runtime-base = { path = "../runtime-base" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+futures-util = { workspace = true }
+hex = { workspace = true }
+octocode-engine = { path = "../engine" }
+octocode-tools-shared = { path = "../tools-shared" }
+
+[dev-dependencies]
+octocode-engine = { path = "../engine", features = ["test-hooks"] }
+tempfile = { workspace = true }
+octocode-runtime-base = { path = "../runtime-base", features = ["test-support"] }
+octocode-tools-shared = { path = "../tools-shared", features = ["test-support"] }
+octocode-test-support = { path = "../test-support" }
+octocode-github = { path = "../github" }
+tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros", "sync", "time", "signal", "process", "io-util"] }
+
+[lints]
+workspace = true

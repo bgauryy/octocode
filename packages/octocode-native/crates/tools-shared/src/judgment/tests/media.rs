@@ -1,0 +1,511 @@
+//! Prepared media: request headers, per-request assets
+//! and retries that keep the media payload.
+use super::*;
+use octocode_test_support::json_fixture;
+
+#[tokio::test]
+async fn prepared_media_batches_headers_and_fresh_reads_without_exposing_assets() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(response)
+        .expect(4)
+        .mount(&server)
+        .await;
+    let evaluator = evaluator(&server);
+    let budget = evaluation_budget(&evaluator);
+    let gate = evaluator.gate();
+    let state = json_fixture(r#"{"image": "opaque"}"#);
+    let questions = [
+        json_fixture(r#"{"type": "box", "instructions": "Locate rectangle"}"#),
+        json_fixture(r#"{"type": "noul", "instructions": null}"#),
+    ];
+    let assets = json_fixture(
+        r#"{
+            "opaque": {
+                "type": "image",
+                "format": "png",
+                "data_base64": "first-private-media"
+            }
+        }"#,
+    );
+    let changed = json_fixture(
+        r#"{
+            "opaque": {
+                "type": "image",
+                "format": "png",
+                "data_base64": "changed-private-media"
+            }
+        }"#,
+    );
+    let input = EvaluationInput {
+        state: &state,
+        questions: &questions,
+        assets: Some(&assets),
+        long_context: crate::judgment::LongContext::Never,
+        companions: 0,
+        cap: None,
+    };
+    let (first, concurrent) = tokio::join!(
+        evaluator.evaluate_prepared(input, None, &budget, &gate),
+        evaluator.evaluate_prepared(input, None, &budget, &gate),
+    );
+    let first = first.unwrap();
+    let concurrent = concurrent.unwrap();
+    assert_eq!(first.provider_calls, 1);
+    assert_eq!(concurrent.provider_calls, 1);
+    assert_eq!(first.model, "jev-resolved");
+    assert_eq!(first.answers[0]["confidence"], Value::Null);
+    assert!(
+        !serde_json::to_string(&first)
+            .unwrap()
+            .contains("private-media")
+    );
+    let modified = evaluator
+        .evaluate_prepared(
+            EvaluationInput {
+                assets: Some(&changed),
+                ..input
+            },
+            None,
+            &budget,
+            &gate,
+        )
+        .await
+        .unwrap();
+    assert_eq!(modified.provider_calls, 1);
+    let extended = evaluator
+        .evaluate_prepared(
+            EvaluationInput {
+                long_context: crate::judgment::LongContext::Always,
+                ..input
+            },
+            None,
+            &budget,
+            &gate,
+        )
+        .await
+        .unwrap();
+    assert_eq!(extended.provider_calls, 1);
+    let requests = server.received_requests().await.unwrap();
+    for request in &requests {
+        assert_eq!(request.headers["typesafe-danger-zone-images"], "true");
+        assert!(
+            request.headers["authorization"]
+                .to_str()
+                .unwrap()
+                .starts_with("Bearer test-key")
+        );
+    }
+    assert!(
+        !requests[0]
+            .headers
+            .contains_key("typesafe-danger-zone-long-context")
+    );
+    assert_eq!(
+        requests[3].headers["typesafe-danger-zone-long-context"],
+        "true"
+    );
+    assert_eq!(requests[0].body_json::<Value>().unwrap()["assets"], assets);
+    assert_eq!(requests[2].body_json::<Value>().unwrap()["assets"], changed);
+}
+
+#[tokio::test]
+async fn split_media_requests_keep_only_assets_referenced_by_each_question() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(|request: &Request| {
+            let body = request.body_json::<Value>().unwrap();
+            if body["questions"].as_object().unwrap().len() > 1 {
+                return window_exceeded();
+            }
+            let question = &body["questions"]["answer"];
+            let mut expected = serde_json::Map::new();
+            if body["state"]["shared"] == "image-shared" {
+                expected.insert(
+                    "image-shared".into(),
+                    json_fixture(
+                        r#"{
+                            "type": "image",
+                            "format": "png",
+                            "data_base64": "shared-bytes"
+                        }"#,
+                    ),
+                );
+            }
+            match question["instructions"]["kind"].as_str().unwrap() {
+                "instruction" => {
+                    expected.insert(
+                        "image-instruction".into(),
+                        json_fixture(
+                            r#"{
+                                "type": "image",
+                                "format": "png",
+                                "data_base64": "instruction-bytes"
+                            }"#,
+                        ),
+                    );
+                }
+                "criterion" => {
+                    expected.insert(
+                        "image-criterion".into(),
+                        json_fixture(
+                            r#"{
+                                "type": "image",
+                                "format": "png",
+                                "data_base64": "criterion-bytes"
+                            }"#,
+                        ),
+                    );
+                }
+                "text" => {}
+                other => panic!("Unexpected question: {other}"),
+            }
+            let expected_assets = (!expected.is_empty()).then_some(Value::Object(expected));
+            if body.get("assets") != expected_assets.as_ref() {
+                return ResponseTemplate::new(400).set_body_json(json_fixture(
+                    r#"{"error": "Every asset must be referenced in this request"}"#,
+                ));
+            }
+            assert_eq!(
+                request.headers.contains_key("typesafe-danger-zone-images"),
+                expected_assets.is_some()
+            );
+            response(request)
+        })
+        .expect(8)
+        .mount(&server)
+        .await;
+    let evaluator = evaluator(&server);
+    let padding = "x".repeat(45 * 1024);
+    let questions = [
+        json!({"type":"noul","instructions":{"kind":"instruction","target":"Inspect image-instruction here.","padding":padding}}),
+        json!({"type":"noul","instructions":{"kind":"criterion"},"criteria":{"true":{"examples":["image-criterion"],"padding":padding}}}),
+        json!({"type":"noul","instructions":{"kind":"text","padding":padding}}),
+    ];
+    for shared in [false, true] {
+        let state = if shared {
+            json_fixture(r#"{"shared": "image-shared"}"#)
+        } else {
+            json!("No shared image")
+        };
+        let mut assets = json_fixture(
+            r#"{
+                "image-instruction": {
+                    "type": "image",
+                    "format": "png",
+                    "data_base64": "instruction-bytes"
+                },
+                "image-criterion": {
+                    "type": "image",
+                    "format": "png",
+                    "data_base64": "criterion-bytes"
+                }
+            }"#,
+        );
+        if shared {
+            assets["image-shared"] = json_fixture(
+                r#"{
+                    "type": "image",
+                    "format": "png",
+                    "data_base64": "shared-bytes"
+                }"#,
+            );
+        }
+        let judged = evaluator
+            .evaluate_prepared(
+                EvaluationInput {
+                    state: &state,
+                    questions: &questions,
+                    assets: Some(&assets),
+                    long_context: crate::judgment::LongContext::Never,
+                    companions: 0,
+                    cap: None,
+                },
+                None,
+                &evaluation_budget(&evaluator),
+                &evaluator.gate(),
+            )
+            .await
+            .expect("split requests must not send assets used only by sibling questions");
+        // The refused group plus one request per question.
+        assert_eq!(judged.provider_calls, 4);
+        assert_eq!(judged.answers.len(), 3);
+        assert_eq!((judged.input_tokens, judged.output_tokens), (30, 6));
+    }
+}
+
+#[tokio::test]
+async fn invalid_box_is_not_cached_and_retries_preserve_media_payload() {
+    let server = MockServer::start().await;
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let count = attempts.clone();
+    Mock::given(method("POST"))
+        .respond_with(move |_: &Request| {
+            let number = count.fetch_add(1, Ordering::SeqCst);
+            if number == 0 {
+                return ResponseTemplate::new(500);
+            }
+            ResponseTemplate::new(200).set_body_json(json_fixture(
+                r#"{
+                    "model": "vision",
+                    "usage": {"input_tokens": 5, "output_tokens": 2},
+                    "answers": {
+                        "answer": {
+                            "type": "box",
+                            "box": {"top": 0.9, "bottom": 0.1, "left": 0.0, "right": 1.0},
+                            "confidence": null
+                        }
+                    }
+                }"#,
+            ))
+        })
+        .expect(3)
+        .mount(&server)
+        .await;
+    let evaluator = evaluator(&server);
+    let budget = evaluation_budget(&evaluator);
+    let gate = evaluator.gate();
+    let state = json!("opaque");
+    let questions = [json_fixture(r#"{"type": "box"}"#)];
+    let assets = json_fixture(
+        r#"{
+            "opaque": {
+                "type": "image",
+                "format": "png",
+                "data_base64": "opaque-bytes"
+            }
+        }"#,
+    );
+    let input = EvaluationInput {
+        state: &state,
+        questions: &questions,
+        assets: Some(&assets),
+        long_context: crate::judgment::LongContext::Always,
+        companions: 0,
+        cap: None,
+    };
+    for calls in [2, 1] {
+        let error = evaluator
+            .evaluate_prepared(input, None, &budget, &gate)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::InvalidClassificationResponse);
+        assert_eq!(error.provider_calls, calls);
+        assert_eq!(
+            (error.usage().input_tokens, error.usage().output_tokens),
+            (5, 2)
+        );
+        assert_eq!(error.usage().known_usage_calls, 1);
+    }
+    let requests = server.received_requests().await.unwrap();
+    assert!(
+        requests
+            .iter()
+            .all(|request| request.body == requests[0].body)
+    );
+    assert!(
+        requests.iter().all(
+            |request| request.headers["typesafe-danger-zone-images"] == "true"
+                && request.headers["typesafe-danger-zone-long-context"] == "true"
+        )
+    );
+}
+
+pub(super) fn window_exceeded() -> ResponseTemplate {
+    ResponseTemplate::new(400).set_body_json(json_fixture(
+        r#"{"detail": {"error_type": "max_tokens_exceeded"}}"#,
+    ))
+}
+
+/// A provider whose window holds at most `limit` image questions per request:
+/// the group is split by the provider's own refusals and every question is
+/// answered once; a question that still exceeds the window alone fails the
+/// evaluation as `classificationStateTooLarge`.
+#[tokio::test]
+async fn a_media_group_the_provider_window_rejects_is_split_until_each_part_fits() {
+    let questions = [
+        json_fixture(r#"{"type": "noul", "instructions": "Is image visible?"}"#),
+        json_fixture(r#"{"type": "box", "instructions": "Locate image"}"#),
+        json_fixture(r#"{"type": "noul", "instructions": "Is image blank?"}"#),
+    ];
+    let state = json!("image");
+    let assets = json_fixture(
+        r#"{
+            "image": {"type": "image", "format": "png", "data_base64": "bytes"}
+        }"#,
+    );
+    for (limit, expected_requests) in [(1_usize, 4_usize), (3, 1)] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/systemone"))
+            .respond_with(move |request: &Request| {
+                let body = request.body_json::<Value>().unwrap();
+                if body["questions"].as_object().unwrap().len() > limit {
+                    window_exceeded()
+                } else {
+                    response(request)
+                }
+            })
+            .mount(&server)
+            .await;
+        let evaluator = evaluator(&server);
+        let budget = evaluation_budget(&evaluator);
+        let judged = evaluator
+            .evaluate_prepared(
+                EvaluationInput {
+                    state: &state,
+                    questions: &questions,
+                    assets: Some(&assets),
+                    long_context: crate::judgment::LongContext::Never,
+                    companions: 0,
+                    cap: None,
+                },
+                None,
+                &budget,
+                &evaluator.gate(),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("limit {limit}: {error:?}"));
+        assert_eq!(judged.answers.len(), questions.len(), "limit {limit}");
+        assert_eq!(judged.answers[1]["type"], "box");
+        let sent = server.received_requests().await.unwrap();
+        assert_eq!(sent.len(), expected_requests, "limit {limit}");
+        // Every question reaches the provider in an accepted request once.
+        let answered: usize = sent
+            .iter()
+            .map(|request| {
+                request.body_json::<Value>().unwrap()["questions"]
+                    .as_object()
+                    .unwrap()
+                    .len()
+            })
+            .filter(|count| *count <= limit)
+            .sum();
+        assert_eq!(answered, questions.len(), "limit {limit}");
+    }
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(|_: &Request| window_exceeded())
+        .mount(&server)
+        .await;
+    let evaluator = evaluator(&server);
+    let budget = evaluation_budget(&evaluator);
+    let error = evaluator
+        .evaluate_prepared(
+            EvaluationInput {
+                state: &state,
+                questions: &questions,
+                assets: Some(&assets),
+                long_context: crate::judgment::LongContext::Never,
+                companions: 0,
+                cap: None,
+            },
+            None,
+            &budget,
+            &evaluator.gate(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, ErrorCode::ClassificationStateTooLarge);
+}
+
+/// The default `OnRefusal` row: the long window never takes images, so a
+/// refused image group is answered by one default-window request per
+/// question, each carrying only the images it names (what each image
+/// question is billed for anyway). The live case: two images, four
+/// questions, the group over the window and every question within it.
+#[tokio::test]
+async fn a_refused_image_group_is_answered_per_question_in_the_default_window() {
+    let questions = [
+        json_fixture(
+            r#"{
+                "type": "noul",
+                "instructions": "Does `chart` show a line?"
+            }"#,
+        ),
+        json_fixture(r#"{"type": "noul", "instructions": "Is `chart` dark?"}"#),
+        json_fixture(r#"{"type": "box", "instructions": "Locate the logo in `flow`"}"#),
+        json_fixture(
+            r#"{
+                "type": "noul",
+                "instructions": "Does `flow` have six steps?"
+            }"#,
+        ),
+    ];
+    // Images named only by questions: an image the state names goes with every question.
+    let state = json!("Two images.");
+    let assets = json_fixture(
+        r#"{
+            "chart": {
+                "type": "image",
+                "format": "png",
+                "data_base64": "chart-bytes"
+            },
+            "flow": {
+                "type": "image",
+                "format": "png",
+                "data_base64": "flow-bytes"
+            }
+        }"#,
+    );
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(|request: &Request| {
+            let body = request.body_json::<Value>().unwrap();
+            let long = request
+                .headers
+                .get("typesafe-danger-zone-long-context")
+                .is_some_and(|value| *value == "true");
+            if long || body["questions"].as_object().unwrap().len() > 1 {
+                window_exceeded()
+            } else {
+                response(request)
+            }
+        })
+        .mount(&server)
+        .await;
+    let evaluator = evaluator(&server);
+    let budget = evaluation_budget(&evaluator);
+    let judged = evaluator
+        .evaluate_prepared(
+            EvaluationInput {
+                state: &state,
+                questions: &questions,
+                assets: Some(&assets),
+                long_context: crate::judgment::LongContext::OnRefusal,
+                companions: 0,
+                cap: None,
+            },
+            None,
+            &budget,
+            &evaluator.gate(),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("{error:?}"));
+    assert_eq!(judged.answers.len(), questions.len());
+    assert_eq!(judged.answers[2]["type"], "box");
+    let sent = server.received_requests().await.unwrap();
+    // The refused group, then one request per question; none in the long window.
+    assert_eq!(sent.len(), 1 + questions.len());
+    assert!(sent.iter().all(|request| {
+        request
+            .headers
+            .get("typesafe-danger-zone-long-context")
+            .is_none_or(|value| *value != "true")
+    }));
+    // Each single carries only the image its question names.
+    for request in &sent[1..] {
+        let body = request.body_json::<Value>().unwrap();
+        let question = body["questions"].to_string();
+        let carried: Vec<&String> = body["assets"].as_object().unwrap().keys().collect();
+        let named: Vec<&str> = ["chart", "flow"]
+            .into_iter()
+            .filter(|key| question.contains(key))
+            .collect();
+        assert_eq!(carried, named, "{question}");
+    }
+}

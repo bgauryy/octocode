@@ -1,0 +1,316 @@
+{
+ "case": "crates/exact",
+ "tool": "artifactSearch",
+ "query": {
+  "operation": "resolve",
+  "ecosystem": "crates",
+  "packageName": "cfg-if",
+  "version": "1.0.0",
+  "view": "details"
+ },
+ "recordedAt": "2026-11-11",
+ "unread": [
+  "crate.created_at",
+  "crate.default_version",
+  "crate.downloads",
+  "crate.links",
+  "crate.max_version",
+  "crate.newest_version",
+  "crate.repository",
+  "crate.updated_at",
+  "dependencies[*].id",
+  "dependencies[*].kind",
+  "dependencies[*].version_id",
+  "version.audit_actions",
+  "version.checksum",
+  "version.crate_size",
+  "version.created_at",
+  "version.dl_path",
+  "version.documentation",
+  "version.downloads",
+  "version.edition",
+  "version.homepage",
+  "version.id",
+  "version.links",
+  "version.published_by",
+  "version.readme_path",
+  "version.repository",
+  "version.updated_at"
+ ],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://crates.io/api/v1/crates/cfg-if?include=",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:b45bf34f9ff307d8dca1f9c7b3b5f3e20d86794977b4ff9b4e4ab6d4453562f1",
+   "body": {
+    "crate": {
+     "id": "cfg-if",
+     "name": "cfg-if",
+     "updated_at": "2026-10-13T06:49:22.204875Z",
+     "versions": null,
+     "keywords": null,
+     "categories": null,
+     "badges": [],
+     "created_at": "2015-07-08T01:11:24.485040Z",
+     "downloads": 1744772625,
+     "recent_downloads": null,
+     "default_version": "1.0.5",
+     "num_versions": 17,
+     "yanked": false,
+     "max_version": "0.0.0",
+     "newest_version": "0.0.0",
+     "max_stable_version": null,
+     "description": "A macro to ergonomically define an item depending on a large number of #[cfg]\nparameters. Structured like an if-else chain, the first matching branch is the\nitem that gets emitted.\n",
+     "homepage": null,
+     "documentation": null,
+     "repository": "https://github.com/rust-lang/cfg-if",
+     "links": {
+      "version_downloads": "/api/v1/crates/cfg-if/downloads",
+      "versions": "/api/v1/crates/cfg-if/versions",
+      "owners": "/api/v1/crates/cfg-if/owners",
+      "owner_team": "/api/v1/crates/cfg-if/owner_team",
+      "owner_user": "/api/v1/crates/cfg-if/owner_user",
+      "reverse_dependencies": "/api/v1/crates/cfg-if/reverse_dependencies"
+     },
+     "exact_match": false,
+     "trustpub_only": true
+    },
+    "versions": null,
+    "keywords": null,
+    "categories": null
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://crates.io/api/v1/crates/cfg-if/1.0.0",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:97ede6e83a9b5412f866094eb9a95c545ad97a279b401c6cbba282d8819e0d5d",
+   "body": {
+    "version": {
+     "id": 290855,
+     "crate": "cfg-if",
+     "num": "1.0.0",
+     "dl_path": "/api/v1/crates/cfg-if/1.0.0/download",
+     "readme_path": "/api/v1/crates/cfg-if/1.0.0/readme",
+     "updated_at": "2020-10-06T18:44:12.678620Z",
+     "created_at": "2020-10-06T18:44:12.678620Z",
+     "downloads": 669069345,
+     "features": {
+      "rustc-dep-of-std": [
+       "core",
+       "compiler_builtins"
+      ]
+     },
+     "yanked": false,
+     "yank_message": null,
+     "lib_links": null,
+     "license": "MIT/Apache-2.0",
+     "links": {
+      "dependencies": "/api/v1/crates/cfg-if/1.0.0/dependencies",
+      "version_downloads": "/api/v1/crates/cfg-if/1.0.0/downloads",
+      "authors": "/api/v1/crates/cfg-if/1.0.0/authors"
+     },
+     "crate_size": 7934,
+     "published_by": {
+      "id": 1,
+      "login": "alexcrichton",
+      "name": "Alex Crichton",
+      "avatar": "https://avatars.githubusercontent.com/u/64996?v=4",
+      "url": "https://github.com/alexcrichton",
+      "github_username_matches": true,
+      "created_at": "2009-03-19T19:31:50Z"
+     },
+     "audit_actions": [
+      {
+       "action": "publish",
+       "user": {
+        "id": 1,
+        "login": "alexcrichton",
+        "name": "Alex Crichton",
+        "avatar": "https://avatars.githubusercontent.com/u/64996?v=4",
+        "url": "https://github.com/alexcrichton",
+        "github_username_matches": true,
+        "created_at": "2009-03-19T19:31:50Z"
+       },
+       "time": "2020-10-06T18:44:12.678620Z"
+      }
+     ],
+     "checksum": "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd",
+     "rust_version": null,
+     "has_lib": true,
+     "bin_names": [],
+     "edition": "2018",
+     "description": "A macro to ergonomically define an item depending on a large number of #[cfg]\nparameters. Structured like an if-else chain, the first matching branch is the\nitem that gets emitted.",
+     "homepage": "https://github.com/alexcrichton/cfg-if",
+     "documentation": "https://docs.rs/cfg-if",
+     "repository": "https://github.com/alexcrichton/cfg-if",
+     "trustpub_data": null,
+     "linecounts": {
+      "languages": {
+       "Rust": {
+        "code_lines": 118,
+        "comment_lines": 16,
+        "files": 1
+       }
+      },
+      "total_code_lines": 118,
+      "total_comment_lines": 16
+     }
+    }
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://static.crates.io/crates/cfg-if/cfg-if-1.0.0.crate",
+    "accept": "application/octet-stream"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "cache-control",
+     "public,max-age=31536000,immutable"
+    ],
+    [
+     "content-type",
+     "application/gzip"
+    ],
+    [
+     "etag",
+     "\"74634128440dbc3766bda76fdf0aaa05\""
+    ]
+   ],
+   "digest": "sha256:baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd",
+   "base64": "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"
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://crates.io/api/v1/crates/cfg-if/1.0.0/dependencies",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:4a0d7b3f337431a1ba8058f50418a3acb9bd47923f74fe3862c5477d1a0744fa",
+   "body": {
+    "dependencies": [
+     {
+      "id": 1740108,
+      "version_id": 290855,
+      "crate_id": "compiler_builtins",
+      "req": "^0.1.2",
+      "optional": true,
+      "default_features": true,
+      "features": [],
+      "target": null,
+      "kind": "normal",
+      "downloads": 0
+     },
+     {
+      "id": 1740109,
+      "version_id": 290855,
+      "crate_id": "rustc-std-workspace-core",
+      "req": "^1.0.0",
+      "optional": true,
+      "default_features": true,
+      "features": [],
+      "target": null,
+      "kind": "normal",
+      "downloads": 0
+     }
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.github.com/repos/rust-lang/cfg-if/git/ref/tags/v1.0.0",
+    "accept": "application/vnd.github+json"
+   },
+   "status": 404,
+   "headers": [
+    [
+     "content-type",
+     "application/json; charset=utf-8"
+    ]
+   ],
+   "digest": "sha256:e2e3c64edab172132f77ce89a0e8c190db1cd30936a096344f45893bd5b75f8a",
+   "body": {
+    "message": "Not Found",
+    "documentation_url": "https://docs.github.com/rest/git/refs#get-a-reference",
+    "status": "404"
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.github.com/repos/rust-lang/cfg-if/git/ref/tags/1.0.0",
+    "accept": "application/vnd.github+json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "cache-control",
+     "private, max-age=60, s-maxage=60"
+    ],
+    [
+     "content-type",
+     "application/json; charset=utf-8"
+    ],
+    [
+     "etag",
+     "\"d8c6302869baabbc44dcc61619ca1944b42565196193b6876caa851a3a35f98f\""
+    ]
+   ],
+   "digest": "sha256:75d71a72ada3209cd9261a5502bbc931aa10563939bee7f7292e543bae03b87f",
+   "unread": [
+    "ref",
+    "node_id",
+    "url",
+    "object.type",
+    "object.url"
+   ],
+   "unreadReasons": {
+    "ref": "Name of the tag that checked the registry's commit; the result states that commit as ref, with verification \"tag\".",
+    "node_id": "GitHub database identity of the verification object is not selected artifact metadata.",
+    "url": "GitHub API routing URL for verification; the source repository is carried separately.",
+    "object.type": "Git verification plumbing; the public result exposes the verified release tag.",
+    "object.url": "GitHub API routing URL for tag resolution, not the source repository URL."
+   },
+   "body": {
+    "ref": "refs/tags/1.0.0",
+    "node_id": "MDM6UmVmMzg3MjM2NjA6cmVmcy90YWdzLzEuMC4w",
+    "url": "https://api.github.com/repos/rust-lang/cfg-if/git/refs/tags/1.0.0",
+    "object": {
+     "sha": "e60fa1efeab0ec6e90c50d93ec526e1410459c23",
+     "type": "commit",
+     "url": "https://api.github.com/repos/rust-lang/cfg-if/git/commits/e60fa1efeab0ec6e90c50d93ec526e1410459c23"
+    }
+   }
+  }
+ ]
+}

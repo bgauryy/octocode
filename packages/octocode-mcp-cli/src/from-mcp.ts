@@ -1,0 +1,225 @@
+import { Client } from '@modelcontextprotocol/client';
+import { getDefaultEnvironment, StdioClientTransport, type StdioServerParameters } from '@modelcontextprotocol/client/stdio';
+import { cliView, contentText, type CliView } from './run.js';
+import { commandToken, defineCli, defineCommand, type CliSpec, type JsonSchema, type ToolAnnotations } from './spec.js';
+
+export interface McpContentBlock {
+  type: string;
+  text?: string;
+  data?: string;
+  mimeType?: string;
+  uri?: string;
+  name?: string;
+  description?: string;
+  annotations?: { audience?: string[]; priority?: number; lastModified?: string };
+  _meta?: Record<string, unknown>;
+  resource?: { uri?: string; mimeType?: string; text?: string; blob?: string; _meta?: Record<string, unknown> };
+}
+
+export interface McpToolInfo {
+  name: string;
+  description?: string;
+  title?: string;
+  inputSchema?: JsonSchema;
+  outputSchema?: JsonSchema;
+  annotations?: ToolAnnotations;
+}
+
+export interface McpToolResult {
+  isError?: boolean;
+  structuredContent?: Record<string, unknown>;
+  content?: ReadonlyArray<McpContentBlock>;
+  _meta?: Record<string, unknown>;
+  toolResult?: unknown;
+}
+
+export interface McpClientLike {
+  getInstructions(): string | undefined;
+  getServerVersion(): { name?: string; version?: string } | undefined;
+  listTools(params?: { cursor?: string }, options?: { signal?: AbortSignal }): Promise<{ tools: readonly McpToolInfo[]; nextCursor?: string }>;
+  callTool(params: { name: string; arguments?: Record<string, unknown> }): Promise<McpToolResult>;
+}
+
+function callView(result: McpToolResult): CliView {
+  if (result.toolResult !== undefined && result.content === undefined && result.structuredContent === undefined) {
+    const text = typeof result.toolResult === 'string' ? result.toolResult : JSON.stringify(result.toolResult, null, 2);
+    return cliView(text, { toolResult: result.toolResult });
+  }
+  if (result.isError) throw new Error(contentText(result.content ?? []) || 'tool error');
+  const json: Record<string, unknown> = {};
+  if (result._meta !== undefined) json._meta = result._meta;
+  if (result.content !== undefined) json.content = result.content;
+  if (result.structuredContent !== undefined) json.structuredContent = result.structuredContent;
+  json.isError = false;
+  if (result.structuredContent) {
+    return cliView(JSON.stringify(result.structuredContent, null, 2), json);
+  }
+  return cliView(contentText(result.content ?? []), json);
+}
+
+async function callNamedTool(
+  client: McpClientLike,
+  name: string,
+  input: Record<string, unknown>,
+): Promise<CliView> {
+  return callView(await client.callTool({ name, arguments: input }));
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function annotationsOf(value: ToolAnnotations | undefined): ToolAnnotations | undefined {
+  if (!value) return undefined;
+  const annotations: ToolAnnotations = {};
+  if (typeof value.title === 'string') annotations.title = value.title;
+  if (typeof value.readOnlyHint === 'boolean') annotations.readOnlyHint = value.readOnlyHint;
+  if (typeof value.destructiveHint === 'boolean') annotations.destructiveHint = value.destructiveHint;
+  if (typeof value.idempotentHint === 'boolean') annotations.idempotentHint = value.idempotentHint;
+  if (typeof value.openWorldHint === 'boolean') annotations.openWorldHint = value.openWorldHint;
+  return Object.keys(annotations).length > 0 ? annotations : undefined;
+}
+
+function copyValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(copyValue);
+  if (!value || typeof value !== 'object') return value;
+  const copy: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (child !== undefined) copy[key] = copyValue(child);
+  }
+  return copy;
+}
+
+function contentBlock(block: { type: string }): McpContentBlock {
+  return copyValue(block) as McpContentBlock;
+}
+
+function asProtocol(client: Client): McpClientLike {
+  return {
+    getInstructions: () => client.getInstructions(),
+    getServerVersion: () => client.getServerVersion(),
+    async listTools(params, options) {
+      const listed = await client.listTools(params, options);
+      return {
+        nextCursor: listed.nextCursor,
+        tools: listed.tools.map(tool => ({
+          name: tool.name,
+          description: tool.description,
+          title: tool.title,
+          inputSchema: tool.inputSchema,
+          outputSchema: tool.outputSchema,
+          annotations: tool.annotations,
+        })),
+      };
+    },
+    async callTool(params) {
+      const result = await client.callTool({ name: params.name, arguments: params.arguments });
+      const call = result as {
+        isError?: boolean;
+        structuredContent?: Record<string, unknown>;
+        content?: ReadonlyArray<{ type: string }>;
+        _meta?: Record<string, unknown>;
+      };
+      return {
+        ...(call._meta !== undefined ? { _meta: copyValue(call._meta) as Record<string, unknown> } : {}),
+        isError: call.isError,
+        ...(call.structuredContent !== undefined
+          ? { structuredContent: copyValue(call.structuredContent) as Record<string, unknown> }
+          : {}),
+        content: call.content?.map(contentBlock),
+      };
+    },
+  };
+}
+
+function uniqueToken(name: string, used: Set<string>): string {
+  const first = commandToken(name);
+  let token = first;
+  for (let index = 2; used.has(token); index += 1) token = `${first}-${index}`;
+  used.add(token);
+  return token;
+}
+
+export async function cliFromMcp(client: Client | McpClientLike, options: { signal?: AbortSignal } = {}): Promise<CliSpec> {
+  return cliFromProtocol(client instanceof Client ? asProtocol(client) : client, options.signal);
+}
+
+/** Every `tools/list` page, until the server sends no `nextCursor`; a repeated cursor is a server fault, and `signal` stops the paging. */
+async function cliFromProtocol(client: McpClientLike, signal: AbortSignal | undefined): Promise<CliSpec> {
+  const tools: McpToolInfo[] = [];
+  const seen = new Set<string>();
+  let cursor: string | undefined;
+  do {
+    signal?.throwIfAborted();
+    const listed = await client.listTools(cursor ? { cursor } : undefined, signal ? { signal } : undefined);
+    tools.push(...listed.tools);
+    const next = listed.nextCursor;
+    cursor = typeof next === 'string' && next.length > 0 ? next : undefined;
+    if (cursor !== undefined) {
+      if (seen.has(cursor)) throw new Error('Repeated tools/list cursor');
+      seen.add(cursor);
+    }
+  } while (cursor !== undefined);
+
+  const used = new Set<string>();
+  const commands = tools.map(tool => {
+    const token = uniqueToken(tool.name, used);
+    const inputSchema = tool.inputSchema ?? { type: 'object', properties: {} };
+    const annotations = annotationsOf(tool.annotations);
+    const title = stringField(tool.title) ?? stringField(annotations?.title);
+    return defineCommand({
+      name: token,
+      description: tool.description ?? '',
+      ...(title ? { title } : {}),
+      source: 'mcp',
+      inputSchema,
+      ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
+      ...(annotations ? { annotations } : {}),
+      ...(token !== tool.name ? { mcpName: tool.name } : {}),
+      run: input => callNamedTool(client, tool.name, input),
+    });
+  });
+  const info = client.getServerVersion();
+  return defineCli({
+    name: info?.name && info.name.length > 0 ? info.name : 'mcp',
+    instructions: client.getInstructions() ?? '',
+    version: info?.version && info.version.length > 0 ? info.version : '0.0.0',
+    commands,
+  });
+}
+
+/** Where a process puts temporary files: TMPDIR, TMP, TEMP, and the one Chromium reads on macOS. */
+const TEMP_LOCATION_VARS = ['TMPDIR', 'TMP', 'TEMP', 'MAC_CHROMIUM_TMPDIR'] as const;
+
+/**
+ * The environment of a server started over stdio. A stated `env` is the whole environment. Without one, the
+ * SDK's default inherited variables plus the parent's temporary-file location, so the server and the browsers
+ * or tools it starts write temporary data where the parent was told to (a test run's root, for example).
+ */
+export function childEnvironment(env?: Record<string, string>): Record<string, string> {
+  if (env) return env;
+  const inherited = getDefaultEnvironment();
+  for (const name of TEMP_LOCATION_VARS) {
+    const value = process.env[name];
+    if (value !== undefined) inherited[name] = value;
+  }
+  return inherited;
+}
+
+export function createStdioTransport(parameters: StdioServerParameters): StdioClientTransport {
+  return new StdioClientTransport({ ...parameters, env: childEnvironment(parameters.env) });
+}
+
+export async function connectClient(transport: Parameters<Client['connect']>[0]): Promise<Client> {
+  const client = new Client({ name: 'octocode-mcp-cli', version: '0.1.0' });
+  await client.connect(transport);
+  return client;
+}
+
+export async function connectStdio(
+  parameters: StdioServerParameters,
+  connect: (transport: StdioClientTransport) => Promise<Client> = connectClient,
+): Promise<Client> {
+  return connect(createStdioTransport(parameters));
+}
+

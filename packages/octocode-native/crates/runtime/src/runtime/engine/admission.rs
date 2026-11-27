@@ -1,0 +1,250 @@
+//! Call admission: the tool a surface may run, each row validated and
+//! security-checked once, invalid rows isolated as indexed error rows with
+//! their repair lead, and the input errors a rejected call answers with.
+
+use super::{RuntimeError, ToolRuntime};
+use octocode_contract_types::ErrorCode;
+use octocode_runtime_base::contracts;
+use octocode_runtime_base::execution::availability::Availability;
+use octocode_runtime_base::id::ToolId;
+use octocode_runtime_base::response::rows;
+use octocode_runtime_base::security::{CheckedQuery, InputPolicy};
+
+use serde_json::{Value, json};
+
+pub(super) mod checked;
+
+fn rejected_row(
+    tool: ToolId,
+    index: usize,
+    error: &contracts::ContractValidationError,
+    sent: &Value,
+) -> (usize, Value) {
+    let formatted = contracts::format_input_error(tool.as_str(), error, sent);
+    let mut data = json!({"error": formatted["error"], "errorCode": ErrorCode::InvalidInput});
+    if let Some(details) = formatted
+        .get("details")
+        .filter(|details| details.as_array().is_some_and(|items| !items.is_empty()))
+    {
+        octocode_runtime_base::response::result::set_hints(
+            &mut data,
+            details
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_owned),
+        );
+    }
+    (index, rows::result_row(index, data, Some("error")))
+}
+
+/// The invalid-input error for `tool`, with identical cause and repair
+/// guidance on every surface.
+pub(super) fn invalid_input_error(
+    tool: &str,
+    error: contracts::ContractValidationError,
+    sent: &Value,
+) -> RuntimeError {
+    let mut payload = contracts::format_input_error(tool, &error, sent);
+    payload["errorCode"] = json!(ErrorCode::InvalidInput);
+    RuntimeError {
+        code: ErrorCode::InvalidInput,
+        message: error.to_string(),
+        payload: Some(Box::new(payload)),
+        validation_issues: Some(error.issues),
+    }
+}
+
+pub(super) fn output_contract_error(
+    tool: &str,
+    error: contracts::ContractValidationError,
+) -> RuntimeError {
+    let details = error
+        .issues
+        .iter()
+        .map(|issue| format!("{}: {}", issue.path.join("."), issue.message))
+        .collect::<Vec<_>>()
+        .join("; ");
+    RuntimeError {
+        code: ErrorCode::OutputContractViolation,
+        message: format!(
+            "{tool} produced a response that violates its canonical output contract: {details}"
+        ),
+        payload: None,
+        validation_issues: Some(error.issues),
+    }
+}
+
+impl ToolRuntime {
+    /// The tool behind `tool` when this surface may run it, else the
+    /// actionable reason it may not.
+    pub(super) fn admit_tool(&self, tool: &str, mcp: bool) -> Result<ToolId, RuntimeError> {
+        // MCP policy also applies when an embedder invokes run_mcp on a CLI host.
+        let requested = ToolId::from_name(tool);
+        if mcp
+            && let Some(id) = requested
+            && let Some(restriction) =
+                octocode_runtime_base::execution::availability::mcp_restriction(&self.config, id)
+        {
+            return Err(RuntimeError::new(
+                ErrorCode::ToolUnavailable,
+                format!(
+                    "Tool {tool} is not available through MCP: {}",
+                    restriction.reason_text()
+                ),
+            ));
+        }
+        let (Some(id), Some(availability)) = (requested, self.availability(tool)) else {
+            return Err(RuntimeError::new(
+                ErrorCode::InvalidInput,
+                format!(
+                    "No tool is named {tool}. Use one of {}.",
+                    self.availability.available().join(", ")
+                ),
+            ));
+        };
+        if availability.is_available() {
+            if id == ToolId::GhCloneRepo {
+                octocode_tool_github::gh_clone_repo::require_persistent_storage(
+                    octocode_runtime_base::config::is_persistent_storage_enabled(
+                        &self.config.resolved,
+                    ),
+                )
+                .map_err(|error| RuntimeError::new(error.code, error.message))?;
+            }
+            return Ok(id);
+        }
+        // Absent from discovery, yet a direct call is how a user finds the tool.
+        if let Availability::MissingConfiguration(settings) = availability {
+            let setup = settings
+                .iter()
+                .filter_map(|setting| setting.docs_url)
+                .map(|url| format!(" Setup: {url}"))
+                .collect::<String>();
+            return Err(RuntimeError::new(
+                ErrorCode::MissingConfiguration,
+                format!("Tool {tool} is off: {}{setup}", availability.reason_text()),
+            ));
+        }
+        let reason = availability.reason_text();
+        Err(RuntimeError::new(
+            ErrorCode::ToolUnavailable,
+            format!("Tool {tool} is not available in this native runtime: {reason}"),
+        ))
+    }
+
+    /// Validated, security-checked rows to run, and the rows rejected by
+    /// index. Every tool isolates invalid rows; a call with no valid row
+    /// fails as a whole.
+    pub(super) fn admit_queries(
+        &self,
+        id: ToolId,
+        input: &Value,
+        saved: bool,
+        mcp: bool,
+    ) -> Result<AdmittedRows, RuntimeError> {
+        let tool = id.as_str();
+        let PreparedRows {
+            valid: prepared,
+            mut invalid,
+        } = prepare_queries(tool, input, saved)?;
+        let mcp_availability = (mcp && id.is_clasify()).then(|| {
+            octocode_runtime_base::execution::availability::ToolAvailability::resolve(
+                &self.config,
+                octocode_runtime_base::config::RuntimeSurface::Mcp,
+            )
+        });
+        let reader_availability = mcp_availability.as_ref().unwrap_or(&self.availability);
+        let mut queries = Vec::with_capacity(prepared.len());
+        for (index, query) in prepared {
+            let prefix = vec!["queries".to_owned(), index.to_string()];
+            // What the row asks of the runtime, read before the gate rewrites
+            // it in place.
+            let mut later = Vec::new();
+            if id.is_clasify() {
+                later.extend(octocode_tool_clasify::clasify::unavailable_source_issues(
+                    &query,
+                    &prefix,
+                    reader_availability,
+                ));
+            }
+            let policy = InputPolicy::of(id);
+            // A row a cursor restored carries the runtime's private progress,
+            // which its gate leaves as written.
+            let gated = if saved {
+                self.security.check_saved_input(query, policy, id)
+            } else {
+                self.security.check_input(query, policy)
+            };
+            let (checked, mut issues) = match gated {
+                Ok(checked) => (Some(checked), Vec::new()),
+                Err(mut issues) => {
+                    for issue in &mut issues {
+                        issue.path.splice(0..0, prefix.iter().cloned());
+                    }
+                    (None, issues)
+                }
+            };
+            issues.extend(later);
+            match checked {
+                Some(checked) if issues.is_empty() => queries.push(checked),
+                _ => invalid.push((index, contracts::ContractValidationError { issues })),
+            }
+        }
+        invalid.sort_by_key(|(index, _)| *index);
+        if !invalid.is_empty() && queries.is_empty() {
+            let issues = invalid
+                .into_iter()
+                .flat_map(|(_, error)| error.issues)
+                .collect();
+            return Err(invalid_input_error(
+                tool,
+                contracts::ContractValidationError { issues },
+                input,
+            ));
+        }
+        let rejected = invalid
+            .iter()
+            .map(|(index, error)| rejected_row(id, *index, error, input))
+            .collect();
+        Ok(AdmittedRows { queries, rejected })
+    }
+}
+
+/// A call's rows that passed admission, and the rejected ones as indexed
+/// error rows.
+pub(super) struct AdmittedRows {
+    pub(super) queries: Vec<CheckedQuery>,
+    pub(super) rejected: Vec<(usize, Value)>,
+}
+
+/// A batch's contract-validated rows by input index, and the invalid ones.
+struct PreparedRows {
+    valid: Vec<(usize, Value)>,
+    invalid: Vec<(usize, contracts::ContractValidationError)>,
+}
+
+/// Contract-validated rows by input index, and the invalid ones. Row
+/// isolation: when only some rows of a batch are invalid, the valid rows
+/// still run and the rest become indexed error rows.
+fn prepare_queries(tool: &str, input: &Value, saved: bool) -> Result<PreparedRows, RuntimeError> {
+    let rows = checked::prepared_rows(tool, input, saved)
+        .map_err(|error| invalid_input_error(tool, error, input))?;
+    let mut prepared = PreparedRows {
+        valid: Vec::with_capacity(rows.len()),
+        invalid: Vec::new(),
+    };
+    for (index, row) in rows.into_iter().enumerate() {
+        match row {
+            Ok(query) => prepared.valid.push((index, query)),
+            Err(error) => prepared.invalid.push((index, error)),
+        }
+    }
+    Ok(prepared)
+}
+
+#[cfg(test)]
+mod saved_state_tests;
+#[cfg(test)]
+mod security_issue_tests;

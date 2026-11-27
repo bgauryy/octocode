@@ -1,0 +1,530 @@
+target,tool,function,site,verdict,reason,test
+rust,graph,related_input,crates/tool-ast/src/ast_search/matches/exact_miss.rs:330,missed,call from another crate,False
+rust,graph,related_input,crates/tool-ast/src/ast_search/matches/exact_miss.rs:644,missed,call from another crate,False
+rust,graph,related_input,crates/tool-github/src/gh_get_file_content/leads.rs:153,missed,call from another crate,False
+rust,graph,related_input,crates/tool-github/src/gh_search_repo/leads.rs:81,missed,call from another crate,False
+rust,graph,related_input,crates/tool-graph/src/ast_graph/store/query/answers.rs:44,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,graph,related_input,crates/tool-local/src/local_search/leads/reads.rs:36,missed,call from another crate,False
+rust,graph,related_input,crates/tool-lsp/src/lsp_search/failure/leads.rs:326,missed,call from another crate,False
+rust,graph,related_input,crates/tool-packages/src/security_check.rs:497,missed,call from another crate,False
+rust,graph,related_input,crates/tool-packages/src/security_check/package.rs:895,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,graph,related_input,crates/tool-packages/src/security_check/package.rs:1315,missed,call from another crate,False
+rust,graph,related_input,crates/tool-packages/src/security_check/trust.rs:515,missed,call from another crate,False
+rust,graph,related_input,crates/tool-packages/src/security_check/trust.rs:539,missed,call from another crate,False
+rust,graph,related_input,crates/tools-shared/src/leads/broaden.rs:110,missed,call from another crate,False
+rust,graph,related_input,crates/tools-shared/src/leads/broaden/tests.rs:74,missed,call from another crate,True
+rust,graph,related_input,crates/tools-shared/src/leads/broaden/tests.rs:79,missed,call from another crate,True
+rust,native,related_input,crates/tool-ast/src/ast_search/matches/exact_miss.rs:330,missed,outside the one-crate snapshot,False
+rust,native,related_input,crates/tool-ast/src/ast_search/matches/exact_miss.rs:644,missed,outside the one-crate snapshot,False
+rust,native,related_input,crates/tool-ast/src/ast_search/matches/gaps.rs:182,missed,outside the one-crate snapshot,False
+rust,native,related_input,crates/tool-ast/src/ast_search/matches/qualified.rs:632,missed,outside the one-crate snapshot,False
+rust,native,related_input,crates/tool-github/src/gh_get_file_content/leads.rs:153,missed,outside the one-crate snapshot,False
+rust,native,related_input,crates/tool-github/src/gh_get_history_item/pr_menu.rs:287,missed,outside the one-crate snapshot,False
+rust,native,related_input,crates/tool-github/src/gh_search_code/leads.rs:231,missed,outside the one-crate snapshot,False
+rust,native,related_input,crates/tool-github/src/gh_search_repo/leads.rs:81,missed,outside the one-crate snapshot,False
+rust,native,related_input,crates/tool-graph/src/ast_graph/store/query/answers.rs:44,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,native,related_input,crates/tool-local/src/local_search/leads/reads.rs:36,missed,outside the one-crate snapshot,False
+rust,native,related_input,crates/tool-lsp/src/lsp_search/failure/leads.rs:326,missed,outside the one-crate snapshot,False
+rust,native,related_input,crates/tool-packages/src/artifact_search/leads.rs:304,missed,outside the one-crate snapshot,False
+rust,native,related_input,crates/tool-packages/src/artifact_search/leads.rs:324,missed,outside the one-crate snapshot,False
+rust,native,related_input,crates/tool-packages/src/artifact_search/leads.rs:371,missed,outside the one-crate snapshot,False
+rust,native,related_input,crates/tool-packages/src/security_check.rs:497,missed,outside the one-crate snapshot,False
+rust,native,related_input,crates/tool-packages/src/security_check/answer.rs:826,missed,outside the one-crate snapshot,False
+rust,native,related_input,crates/tool-packages/src/security_check/commit.rs:486,missed,outside the one-crate snapshot,False
+rust,native,related_input,crates/tool-packages/src/security_check/package.rs:895,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,native,related_input,crates/tool-packages/src/security_check/package.rs:1295,missed,outside the one-crate snapshot,False
+rust,native,related_input,crates/tool-packages/src/security_check/package.rs:1315,missed,outside the one-crate snapshot,False
+rust,native,related_input,crates/tool-packages/src/security_check/package.rs:1564,missed,outside the one-crate snapshot,False
+rust,native,related_input,crates/tool-packages/src/security_check/trust.rs:515,missed,outside the one-crate snapshot,False
+rust,native,related_input,crates/tool-packages/src/security_check/trust.rs:539,missed,outside the one-crate snapshot,False
+rust,native,related_input,crates/tools-shared/src/leads/broaden.rs:110,missed,outside the one-crate snapshot,False
+rust,native,related_input,crates/tools-shared/src/leads/broaden/tests.rs:74,missed,outside the one-crate snapshot,True
+rust,native,related_input,crates/tools-shared/src/leads/broaden/tests.rs:79,missed,outside the one-crate snapshot,True
+rust,native,related_input,crates/tools-shared/src/source_capture/page.rs:155,missed,outside the one-crate snapshot,False
+rust,sg_bare,related_input,crates/runtime-base/src/response/continuations/tests.rs:47,missed,pattern name($$$) matches only unqualified calls,True
+rust,sg_bare,related_input,crates/runtime-base/src/response/result.rs:39,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,related_input,crates/runtime-base/src/response/result/tests.rs:142,missed,pattern name($$$) matches only unqualified calls,True
+rust,sg_bare,related_input,crates/tool-ast/src/ast_search/matches/exact_miss.rs:330,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,related_input,crates/tool-ast/src/ast_search/matches/exact_miss.rs:644,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,related_input,crates/tool-ast/src/ast_search/matches/gaps.rs:182,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,related_input,crates/tool-ast/src/ast_search/matches/qualified.rs:632,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,related_input,crates/tool-github/src/gh_get_file_content/leads.rs:153,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,related_input,crates/tool-github/src/gh_get_history_item/pr_menu.rs:287,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,related_input,crates/tool-github/src/gh_search_code/leads.rs:231,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,related_input,crates/tool-github/src/gh_search_repo/leads.rs:81,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,related_input,crates/tool-graph/src/ast_graph/store/query/answers.rs:44,missed,"pattern name($$$) matches only unqualified calls; call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,sg_bare,related_input,crates/tool-local/src/local_search/leads/reads.rs:36,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,related_input,crates/tool-lsp/src/lsp_search/failure/leads.rs:326,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,related_input,crates/tool-packages/src/artifact_search/leads.rs:304,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,related_input,crates/tool-packages/src/artifact_search/leads.rs:324,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,related_input,crates/tool-packages/src/artifact_search/leads.rs:371,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,related_input,crates/tool-packages/src/security_check.rs:497,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,related_input,crates/tool-packages/src/security_check/answer.rs:826,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,related_input,crates/tool-packages/src/security_check/commit.rs:486,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,related_input,crates/tool-packages/src/security_check/package.rs:895,missed,"pattern name($$$) matches only unqualified calls; call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,sg_bare,related_input,crates/tool-packages/src/security_check/package.rs:1295,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,related_input,crates/tool-packages/src/security_check/package.rs:1315,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,related_input,crates/tool-packages/src/security_check/package.rs:1564,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,related_input,crates/tool-packages/src/security_check/trust.rs:515,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,related_input,crates/tool-packages/src/security_check/trust.rs:539,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,related_input,crates/tools-shared/src/leads/broaden.rs:110,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,related_input,crates/tools-shared/src/leads/broaden/tests.rs:74,missed,pattern name($$$) matches only unqualified calls,True
+rust,sg_bare,related_input,crates/tools-shared/src/leads/broaden/tests.rs:79,missed,pattern name($$$) matches only unqualified calls,True
+rust,sg_bare,related_input,crates/tools-shared/src/source_capture/page.rs:155,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_any,related_input,crates/tool-graph/src/ast_graph/store/query/answers.rs:44,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,sg_any,related_input,crates/tool-packages/src/security_check/package.rs:895,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,graphify,related_input,crates/runtime-base/src/response/continuations/tests.rs:47,missed,same crate,True
+rust,graphify,related_input,crates/runtime-base/src/response/result/tests.rs:142,missed,same crate,True
+rust,graphify,related_input,crates/tool-ast/src/ast_search/matches/exact_miss.rs:330,missed,call from another crate,False
+rust,graphify,related_input,crates/tool-ast/src/ast_search/matches/exact_miss.rs:644,missed,call from another crate,False
+rust,graphify,related_input,crates/tool-ast/src/ast_search/matches/gaps.rs:182,missed,call from another crate,False
+rust,graphify,related_input,crates/tool-ast/src/ast_search/matches/qualified.rs:632,missed,call from another crate,False
+rust,graphify,related_input,crates/tool-github/src/gh_get_file_content/leads.rs:153,missed,call from another crate,False
+rust,graphify,related_input,crates/tool-github/src/gh_get_history_item/pr_menu.rs:287,missed,call from another crate,False
+rust,graphify,related_input,crates/tool-github/src/gh_search_code/leads.rs:231,missed,call from another crate,False
+rust,graphify,related_input,crates/tool-github/src/gh_search_repo/leads.rs:81,missed,call from another crate,False
+rust,graphify,related_input,crates/tool-graph/src/ast_graph/store/query/answers.rs:44,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,graphify,related_input,crates/tool-local/src/local_search/leads/reads.rs:36,missed,call from another crate,False
+rust,graphify,related_input,crates/tool-lsp/src/lsp_search/failure/leads.rs:326,missed,call from another crate,False
+rust,graphify,related_input,crates/tool-packages/src/artifact_search/leads.rs:304,missed,call from another crate,False
+rust,graphify,related_input,crates/tool-packages/src/artifact_search/leads.rs:324,missed,call from another crate,False
+rust,graphify,related_input,crates/tool-packages/src/artifact_search/leads.rs:371,missed,call from another crate,False
+rust,graphify,related_input,crates/tool-packages/src/security_check.rs:497,missed,call from another crate,False
+rust,graphify,related_input,crates/tool-packages/src/security_check/answer.rs:826,missed,call from another crate,False
+rust,graphify,related_input,crates/tool-packages/src/security_check/commit.rs:486,missed,call from another crate,False
+rust,graphify,related_input,crates/tool-packages/src/security_check/package.rs:895,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,graphify,related_input,crates/tool-packages/src/security_check/package.rs:1295,missed,call from another crate,False
+rust,graphify,related_input,crates/tool-packages/src/security_check/package.rs:1315,missed,call from another crate,False
+rust,graphify,related_input,crates/tool-packages/src/security_check/package.rs:1564,missed,call from another crate,False
+rust,graphify,related_input,crates/tool-packages/src/security_check/trust.rs:515,missed,call from another crate,False
+rust,graphify,related_input,crates/tool-packages/src/security_check/trust.rs:539,missed,call from another crate,False
+rust,graphify,related_input,crates/tools-shared/src/leads/broaden.rs:110,missed,call from another crate,False
+rust,graphify,related_input,crates/tools-shared/src/leads/broaden/tests.rs:74,missed,call from another crate,True
+rust,graphify,related_input,crates/tools-shared/src/leads/broaden/tests.rs:79,missed,call from another crate,True
+rust,graphify,related_input,crates/tools-shared/src/source_capture/page.rs:155,missed,call from another crate,False
+rust,native,set_next,crates/runtime-base/src/response/result/tests.rs:265,missed,only the first site of a caller is located (edgeLine); sites count given,True
+rust,native,set_next,crates/runtime-base/src/response/result/tests.rs:270,missed,only the first site of a caller is located (edgeLine); sites count given,True
+rust,native,set_next,crates/runtime-base/src/response/result/tests.rs:285,missed,only the first site of a caller is located (edgeLine); sites count given,True
+rust,native,set_next,crates/runtime/src/runtime/dispatch.rs:219,missed,outside the one-crate snapshot,False
+rust,native,set_next,crates/tool-clasify/src/clasify/sections/emit.rs:381,missed,outside the one-crate snapshot,False
+rust,native,set_next,crates/tool-graph/src/ast_graph/store/tools.rs:531,missed,outside the one-crate snapshot,False
+rust,native,set_next,crates/tool-graph/src/ast_graph/store/tools/pages.rs:81,missed,outside the one-crate snapshot,False
+rust,native,set_next,crates/tool-lsp/src/lsp_search/locations.rs:359,missed,outside the one-crate snapshot,False
+rust,native,set_next,crates/tool-lsp/src/lsp_search/walk/outcome.rs:204,missed,outside the one-crate snapshot,False
+rust,sg_bare,set_next,crates/runtime-base/src/response/rows/restart.rs:29,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,set_next,crates/runtime/src/runtime/dispatch.rs:219,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,set_next,crates/tool-clasify/src/clasify/sections/emit.rs:381,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,set_next,crates/tool-graph/src/ast_graph/store/tools.rs:531,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,set_next,crates/tool-graph/src/ast_graph/store/tools/pages.rs:81,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,set_next,crates/tool-lsp/src/lsp_search/locations.rs:359,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,set_next,crates/tool-lsp/src/lsp_search/walk/outcome.rs:204,missed,pattern name($$$) matches only unqualified calls,False
+rust,graphify,set_next,crates/runtime-base/src/response/result/tests.rs:265,missed,same crate,True
+rust,graphify,set_next,crates/runtime-base/src/response/result/tests.rs:270,missed,same crate,True
+rust,graphify,set_next,crates/runtime-base/src/response/result/tests.rs:285,missed,same crate,True
+rust,graphify,set_next,crates/runtime/src/runtime/dispatch.rs:219,missed,call from another crate,False
+rust,graphify,set_next,crates/tool-clasify/src/clasify/sections/emit.rs:381,missed,call from another crate,False
+rust,graphify,set_next,crates/tool-graph/src/ast_graph/store/tools.rs:531,missed,call from another crate,False
+rust,graphify,set_next,crates/tool-graph/src/ast_graph/store/tools/pages.rs:81,missed,call from another crate,False
+rust,graphify,set_next,crates/tool-lsp/src/lsp_search/locations.rs:359,missed,call from another crate,False
+rust,graphify,set_next,crates/tool-lsp/src/lsp_search/walk/outcome.rs:204,missed,call from another crate,False
+rust,graph,reads_source,crates/runtime-base/src/response/read_share/tests.rs:68,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,native,reads_source,crates/runtime-base/src/response/read_share/tests.rs:68,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,lsp_callers,reads_source,crates/runtime-base/src/response/numbered.rs:275,missed,rust-analyzer: ToolId comes from a build script (buildScriptsOff); empty answer disclosed with warnings,False
+rust,lsp_callers,reads_source,crates/runtime-base/src/response/read_share.rs:31,missed,rust-analyzer: ToolId comes from a build script (buildScriptsOff); empty answer disclosed with warnings,False
+rust,lsp_callers,reads_source,crates/runtime-base/src/response/read_share.rs:44,missed,rust-analyzer: ToolId comes from a build script (buildScriptsOff); empty answer disclosed with warnings,False
+rust,lsp_callers,reads_source,crates/runtime-base/src/response/read_share/tests.rs:68,missed,rust-analyzer: ToolId comes from a build script (buildScriptsOff); empty answer disclosed with warnings,True
+rust,lsp_references,reads_source,crates/runtime-base/src/response/numbered.rs:275,missed,rust-analyzer: ToolId comes from a build script (buildScriptsOff); empty answer disclosed with warnings,False
+rust,lsp_references,reads_source,crates/runtime-base/src/response/read_share.rs:31,missed,rust-analyzer: ToolId comes from a build script (buildScriptsOff); empty answer disclosed with warnings,False
+rust,lsp_references,reads_source,crates/runtime-base/src/response/read_share.rs:44,missed,rust-analyzer: ToolId comes from a build script (buildScriptsOff); empty answer disclosed with warnings,False
+rust,lsp_references,reads_source,crates/runtime-base/src/response/read_share/tests.rs:68,missed,rust-analyzer: ToolId comes from a build script (buildScriptsOff); empty answer disclosed with warnings,True
+rust,sg_bare,reads_source,crates/runtime-base/src/response/numbered.rs:275,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,reads_source,crates/runtime-base/src/response/read_share.rs:31,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,reads_source,crates/runtime-base/src/response/read_share.rs:44,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,reads_source,crates/runtime-base/src/response/read_share/tests.rs:68,missed,"pattern name($$$) matches only unqualified calls; call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_any,reads_source,crates/runtime-base/src/response/read_share/tests.rs:68,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graphify,reads_source,crates/runtime-base/src/response/numbered.rs:275,missed,same crate,False
+rust,graphify,reads_source,crates/runtime-base/src/response/read_share.rs:31,missed,same crate,False
+rust,graphify,reads_source,crates/runtime-base/src/response/read_share.rs:44,missed,same crate,False
+rust,graphify,reads_source,crates/runtime-base/src/response/read_share/tests.rs:68,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graph,continued_query,crates/tool-ast/src/ast_search/matches/rows.rs:242,missed,call from another crate,False
+rust,graph,continued_query,crates/tool-ast/src/ast_search/matches/snapshot.rs:71,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,graph,continued_query,crates/tool-clasify/src/clasify/sections/emit.rs:122,missed,call from another crate,False
+rust,graph,continued_query,crates/tool-github/src/gh_get_history_item/compare/leads.rs:123,missed,call from another crate,False
+rust,graph,continued_query,crates/tool-github/src/gh_get_history_item/pr_menu.rs:52,missed,call from another crate,False
+rust,graph,continued_query,crates/tool-github/src/gh_get_history_item/pr_sections/commit_files.rs:64,missed,call from another crate,False
+rust,graph,continued_query,crates/tool-github/src/gh_search_code/leads.rs:34,missed,call from another crate,False
+rust,graph,continued_query,crates/tool-github/src/gh_search_code/leads.rs:106,missed,call from another crate,False
+rust,graph,continued_query,crates/tool-github/src/gh_search_history/leads.rs:117,missed,call from another crate,False
+rust,graph,continued_query,crates/tool-local/src/structure_search.rs:143,missed,call from another crate,False
+rust,graph,continued_query,crates/tool-lsp/src/lsp_search/failure/paging.rs:131,missed,call from another crate,False
+rust,graph,continued_query,crates/tool-lsp/src/lsp_search/importers/coverage.rs:322,missed,call from another crate,False
+rust,graph,continued_query,crates/tool-lsp/src/lsp_search/locations/byte_window.rs:348,missed,call from another crate,False
+rust,graph,continued_query,crates/tool-lsp/src/lsp_search/ops/lookups.rs:111,missed,call from another crate,False
+rust,graph,continued_query,crates/tools-shared/src/source_capture/url/store.rs:122,missed,call from another crate,False
+rust,native,continued_query,crates/tool-ast/src/ast_search/matches/rows.rs:242,missed,outside the one-crate snapshot,False
+rust,native,continued_query,crates/tool-ast/src/ast_search/matches/snapshot.rs:71,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,native,continued_query,crates/tool-ast/src/ast_search/symbols/page.rs:288,missed,outside the one-crate snapshot,False
+rust,native,continued_query,crates/tool-clasify/src/clasify/sections/assess.rs:154,missed,outside the one-crate snapshot,False
+rust,native,continued_query,crates/tool-clasify/src/clasify/sections/assess.rs:180,missed,outside the one-crate snapshot,False
+rust,native,continued_query,crates/tool-clasify/src/clasify/sections/emit.rs:122,missed,outside the one-crate snapshot,False
+rust,native,continued_query,crates/tool-github/src/gh_get_history_item/compare/leads.rs:123,missed,outside the one-crate snapshot,False
+rust,native,continued_query,crates/tool-github/src/gh_get_history_item/pr_menu.rs:52,missed,outside the one-crate snapshot,False
+rust,native,continued_query,crates/tool-github/src/gh_get_history_item/pr_sections/commit_files.rs:64,missed,outside the one-crate snapshot,False
+rust,native,continued_query,crates/tool-github/src/gh_search_code/leads.rs:34,missed,outside the one-crate snapshot,False
+rust,native,continued_query,crates/tool-github/src/gh_search_code/leads.rs:106,missed,outside the one-crate snapshot,False
+rust,native,continued_query,crates/tool-github/src/gh_search_history/leads.rs:117,missed,outside the one-crate snapshot,False
+rust,native,continued_query,crates/tool-graph/src/ast_graph/store/tools.rs:534,missed,outside the one-crate snapshot,False
+rust,native,continued_query,crates/tool-local/src/local_search/cursor.rs:69,missed,outside the one-crate snapshot,False
+rust,native,continued_query,crates/tool-local/src/local_search/window.rs:162,missed,outside the one-crate snapshot,False
+rust,native,continued_query,crates/tool-local/src/structure_search.rs:143,missed,outside the one-crate snapshot,False
+rust,native,continued_query,crates/tool-lsp/src/lsp_search/failure/paging.rs:131,missed,outside the one-crate snapshot,False
+rust,native,continued_query,crates/tool-lsp/src/lsp_search/importers/coverage.rs:322,missed,outside the one-crate snapshot,False
+rust,native,continued_query,crates/tool-lsp/src/lsp_search/locations/byte_window.rs:348,missed,outside the one-crate snapshot,False
+rust,native,continued_query,crates/tool-lsp/src/lsp_search/ops.rs:121,missed,outside the one-crate snapshot,False
+rust,native,continued_query,crates/tool-lsp/src/lsp_search/ops/lookups.rs:111,missed,outside the one-crate snapshot,False
+rust,native,continued_query,crates/tool-lsp/src/lsp_search/walk/outcome.rs:201,missed,outside the one-crate snapshot,False
+rust,native,continued_query,crates/tools-shared/src/source_capture/url/store.rs:122,missed,outside the one-crate snapshot,False
+rust,native,continued_query,crates/tools-shared/src/source_view/types/next_calls.rs:59,missed,outside the one-crate snapshot,False
+rust,sg_bare,continued_query,crates/runtime-base/src/response/collection.rs:48,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,continued_query,crates/tool-ast/src/ast_search/matches/rows.rs:242,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,continued_query,crates/tool-ast/src/ast_search/matches/snapshot.rs:71,missed,"pattern name($$$) matches only unqualified calls; call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,sg_bare,continued_query,crates/tool-ast/src/ast_search/symbols/page.rs:288,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,continued_query,crates/tool-clasify/src/clasify/sections/assess.rs:154,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,continued_query,crates/tool-clasify/src/clasify/sections/assess.rs:180,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,continued_query,crates/tool-clasify/src/clasify/sections/emit.rs:122,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,continued_query,crates/tool-github/src/gh_get_history_item/compare/leads.rs:123,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,continued_query,crates/tool-github/src/gh_get_history_item/pr_menu.rs:52,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,continued_query,crates/tool-github/src/gh_get_history_item/pr_sections/commit_files.rs:64,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,continued_query,crates/tool-github/src/gh_search_code/leads.rs:34,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,continued_query,crates/tool-github/src/gh_search_code/leads.rs:106,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,continued_query,crates/tool-github/src/gh_search_history/leads.rs:117,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,continued_query,crates/tool-graph/src/ast_graph/store/tools.rs:534,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,continued_query,crates/tool-local/src/local_search/cursor.rs:69,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,continued_query,crates/tool-local/src/local_search/window.rs:162,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,continued_query,crates/tool-local/src/structure_search.rs:143,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,continued_query,crates/tool-lsp/src/lsp_search/failure/paging.rs:131,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,continued_query,crates/tool-lsp/src/lsp_search/importers/coverage.rs:322,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,continued_query,crates/tool-lsp/src/lsp_search/locations/byte_window.rs:348,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,continued_query,crates/tool-lsp/src/lsp_search/ops.rs:121,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,continued_query,crates/tool-lsp/src/lsp_search/ops/lookups.rs:111,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,continued_query,crates/tool-lsp/src/lsp_search/walk/outcome.rs:201,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,continued_query,crates/tools-shared/src/source_capture/url/store.rs:122,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,continued_query,crates/tools-shared/src/source_view/types/next_calls.rs:59,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_any,continued_query,crates/tool-ast/src/ast_search/matches/snapshot.rs:71,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,graphify,continued_query,crates/runtime-base/src/response/collection.rs:48,missed,same crate,False
+rust,graphify,continued_query,crates/tool-ast/src/ast_search/matches/rows.rs:242,missed,call from another crate,False
+rust,graphify,continued_query,crates/tool-ast/src/ast_search/matches/snapshot.rs:71,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,graphify,continued_query,crates/tool-ast/src/ast_search/symbols/page.rs:288,missed,call from another crate,False
+rust,graphify,continued_query,crates/tool-clasify/src/clasify/sections/assess.rs:154,missed,call from another crate,False
+rust,graphify,continued_query,crates/tool-clasify/src/clasify/sections/assess.rs:180,missed,call from another crate,False
+rust,graphify,continued_query,crates/tool-clasify/src/clasify/sections/emit.rs:122,missed,call from another crate,False
+rust,graphify,continued_query,crates/tool-github/src/gh_get_history_item/compare/leads.rs:123,missed,call from another crate,False
+rust,graphify,continued_query,crates/tool-github/src/gh_get_history_item/pr_menu.rs:52,missed,call from another crate,False
+rust,graphify,continued_query,crates/tool-github/src/gh_get_history_item/pr_sections/commit_files.rs:64,missed,call from another crate,False
+rust,graphify,continued_query,crates/tool-github/src/gh_search_code/leads.rs:34,missed,call from another crate,False
+rust,graphify,continued_query,crates/tool-github/src/gh_search_code/leads.rs:106,missed,call from another crate,False
+rust,graphify,continued_query,crates/tool-github/src/gh_search_history/leads.rs:117,missed,call from another crate,False
+rust,graphify,continued_query,crates/tool-graph/src/ast_graph/store/tools.rs:534,missed,call from another crate,False
+rust,graphify,continued_query,crates/tool-local/src/local_search/cursor.rs:69,missed,call from another crate,False
+rust,graphify,continued_query,crates/tool-local/src/local_search/window.rs:162,missed,call from another crate,False
+rust,graphify,continued_query,crates/tool-local/src/structure_search.rs:143,missed,call from another crate,False
+rust,graphify,continued_query,crates/tool-lsp/src/lsp_search/failure/paging.rs:131,missed,call from another crate,False
+rust,graphify,continued_query,crates/tool-lsp/src/lsp_search/importers/coverage.rs:322,missed,call from another crate,False
+rust,graphify,continued_query,crates/tool-lsp/src/lsp_search/locations/byte_window.rs:348,missed,call from another crate,False
+rust,graphify,continued_query,crates/tool-lsp/src/lsp_search/ops.rs:121,missed,call from another crate,False
+rust,graphify,continued_query,crates/tool-lsp/src/lsp_search/ops/lookups.rs:111,missed,call from another crate,False
+rust,graphify,continued_query,crates/tool-lsp/src/lsp_search/walk/outcome.rs:201,missed,call from another crate,False
+rust,graphify,continued_query,crates/tools-shared/src/source_capture/url/store.rs:122,missed,call from another crate,False
+rust,graphify,continued_query,crates/tools-shared/src/source_view/types/next_calls.rs:59,missed,call from another crate,False
+rust,graph,may_name_supertypes,crates/tool-lsp/src/lsp_search/heritage/scan.rs:148,missed,call from another crate,False
+rust,graph,may_name_supertypes,crates/tool-lsp/src/lsp_search/heritage/scan.rs:224,missed,call from another crate,False
+rust,native,may_name_supertypes,crates/engine/src/signatures/graph_facts/tests/heritage_edges.rs:179,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,native,may_name_supertypes,crates/tool-lsp/src/lsp_search/heritage/scan.rs:148,missed,outside the one-crate snapshot,False
+rust,native,may_name_supertypes,crates/tool-lsp/src/lsp_search/heritage/scan.rs:224,missed,outside the one-crate snapshot,False
+rust,sg_bare,may_name_supertypes,crates/engine/src/signatures/graph_facts/tests/heritage_edges.rs:167,missed,"pattern name($$$) matches only unqualified calls; call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_bare,may_name_supertypes,crates/engine/src/signatures/graph_facts/tests/heritage_edges.rs:179,missed,"pattern name($$$) matches only unqualified calls; call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_bare,may_name_supertypes,crates/tool-lsp/src/lsp_search/heritage/scan.rs:148,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,may_name_supertypes,crates/tool-lsp/src/lsp_search/heritage/scan.rs:224,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_any,may_name_supertypes,crates/engine/src/signatures/graph_facts/tests/heritage_edges.rs:167,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_any,may_name_supertypes,crates/engine/src/signatures/graph_facts/tests/heritage_edges.rs:179,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graphify,may_name_supertypes,crates/engine/src/signatures/graph_facts/tests/heritage_edges.rs:167,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graphify,may_name_supertypes,crates/engine/src/signatures/graph_facts/tests/heritage_edges.rs:179,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graphify,may_name_supertypes,crates/tool-lsp/src/lsp_search/heritage/scan.rs:148,missed,call from another crate,False
+rust,graphify,may_name_supertypes,crates/tool-lsp/src/lsp_search/heritage/scan.rs:224,missed,call from another crate,False
+rust,graph,read_private_config,crates/cli/src/cli/config.rs:242,missed,call from another crate,False
+rust,graph,read_private_config,crates/cli/src/cli/mcp_install.rs:148,missed,call from another crate,False
+rust,graph,read_private_config,crates/cli/src/cli/mcp_install.rs:150,missed,call from another crate,False
+rust,graph,read_private_config,crates/cli/src/cli/mcp_install/apply.rs:28,missed,call from another crate,False
+rust,graph,read_private_config,crates/cli/src/cli/mcp_install/clients.rs:83,missed,call from another crate,False
+rust,graph,read_private_config,crates/cli/src/cli/mcp_manage.rs:180,missed,call from another crate,False
+rust,graph,read_private_config,crates/cli/src/cli/mcp_manage/continue_main.rs:19,missed,call from another crate,False
+rust,graph,read_private_config,crates/cli/src/cli/mcp_manage/update.rs:14,missed,call from another crate,False
+rust,native,read_private_config,crates/cli/src/cli/config.rs:242,missed,outside the one-crate snapshot,False
+rust,native,read_private_config,crates/cli/src/cli/mcp_install.rs:148,missed,outside the one-crate snapshot,False
+rust,native,read_private_config,crates/cli/src/cli/mcp_install.rs:150,missed,outside the one-crate snapshot,False
+rust,native,read_private_config,crates/cli/src/cli/mcp_install/apply.rs:28,missed,outside the one-crate snapshot,False
+rust,native,read_private_config,crates/cli/src/cli/mcp_install/clients.rs:83,missed,outside the one-crate snapshot,False
+rust,native,read_private_config,crates/cli/src/cli/mcp_manage.rs:180,missed,outside the one-crate snapshot,False
+rust,native,read_private_config,crates/cli/src/cli/mcp_manage/continue_main.rs:19,missed,outside the one-crate snapshot,False
+rust,native,read_private_config,crates/cli/src/cli/mcp_manage/update.rs:14,missed,outside the one-crate snapshot,False
+rust,native,read_private_config,crates/runtime-base/src/config/edit.rs:114,missed,only the first site of a caller is located (edgeLine); sites count given,False
+rust,native,read_private_config,crates/runtime-base/src/config/edit/tests.rs:164,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_bare,read_private_config,crates/cli/src/cli/mcp_install/clients.rs:83,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,read_private_config,crates/runtime-base/src/config/edit/tests.rs:68,missed,"pattern name($$$) matches only unqualified calls; call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_bare,read_private_config,crates/runtime-base/src/config/edit/tests.rs:85,missed,"pattern name($$$) matches only unqualified calls; call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_bare,read_private_config,crates/runtime-base/src/config/edit/tests.rs:164,missed,"pattern name($$$) matches only unqualified calls; call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_any,read_private_config,crates/runtime-base/src/config/edit/tests.rs:68,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_any,read_private_config,crates/runtime-base/src/config/edit/tests.rs:85,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_any,read_private_config,crates/runtime-base/src/config/edit/tests.rs:164,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graphify,read_private_config,crates/cli/src/cli/mcp_install.rs:150,missed,call from another crate,False
+rust,graphify,read_private_config,crates/cli/src/cli/mcp_install/clients.rs:83,missed,call from another crate,False
+rust,graphify,read_private_config,crates/runtime-base/src/config/edit.rs:114,missed,same crate,False
+rust,graphify,read_private_config,crates/runtime-base/src/config/edit/tests.rs:164,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graph,first_round_tokens_at_most,crates/tool-clasify/src/clasify/evaluate.rs:226,missed,call from another crate,False
+rust,native,first_round_tokens_at_most,crates/tool-clasify/src/clasify/evaluate.rs:226,missed,outside the one-crate snapshot,False
+rust,sg_bare,first_round_tokens_at_most,crates/tool-clasify/src/clasify/evaluate.rs:226,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,first_round_tokens_at_most,crates/tools-shared/src/selection/judge/units.rs:230,missed,pattern name($$$) matches only unqualified calls,False
+rust,graphify,first_round_tokens_at_most,crates/tool-clasify/src/clasify/evaluate.rs:226,missed,call from another crate,False
+rust,graph,login_device_flow_in_store,crates/runtime/src/runtime/auth.rs:220,missed,call from another crate,False
+rust,native,login_device_flow_in_store,crates/runtime/src/runtime/auth.rs:220,missed,outside the one-crate snapshot,False
+rust,sg_bare,login_device_flow_in_store,crates/runtime/src/runtime/auth.rs:220,missed,pattern name($$$) matches only unqualified calls,False
+rust,graphify,login_device_flow_in_store,crates/runtime/src/runtime/auth.rs:220,missed,call from another crate,False
+rust,graph,open_document_and_wait,crates/engine/src/lsp/client/tests/open_readiness.rs:53,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graph,open_document_and_wait,crates/engine/src/lsp/client/tests/open_readiness.rs:63,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graph,open_document_and_wait,crates/engine/src/lsp/client/tests/open_readiness.rs:70,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graph,open_document_and_wait,crates/engine/src/lsp/client/tests/project_loads.rs:163,missed,same crate,True
+rust,graph,open_document_and_wait,crates/engine/src/lsp/client/tests/project_loads.rs:190,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graph,open_document_and_wait,crates/engine/src/lsp/client/tests/project_loads.rs:374,missed,same crate,True
+rust,graph,open_document_and_wait,crates/engine/src/lsp/client/tests/readiness.rs:53,missed,same crate,True
+rust,graph,open_document_and_wait,crates/engine/src/lsp/client/tests/readiness.rs:80,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graph,open_document_and_wait,crates/engine/src/lsp/client/tests/readiness.rs:167,missed,same crate,True
+rust,graph,open_document_and_wait,crates/engine/src/lsp/client/tests/readiness.rs:226,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graph,open_document_and_wait,crates/tool-lsp/src/lsp_search/importers/occurrences.rs:129,missed,call from another crate,False
+rust,graph,open_document_and_wait,crates/tool-lsp/src/lsp_search/prewarm.rs:222,missed,call from another crate,False
+rust,graph,open_document_and_wait,crates/tool-lsp/src/lsp_search/session/sync.rs:32,missed,call from another crate,False
+rust,graph,open_document_and_wait,crates/tool-lsp/src/lsp_search/session/sync.rs:59,missed,call from another crate,False
+rust,native,open_document_and_wait,crates/engine/src/lsp/client/tests/open_readiness.rs:53,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,native,open_document_and_wait,crates/engine/src/lsp/client/tests/open_readiness.rs:63,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,native,open_document_and_wait,crates/engine/src/lsp/client/tests/open_readiness.rs:70,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,native,open_document_and_wait,crates/engine/src/lsp/client/tests/process_readiness.rs:89,missed,only the first site of a caller is located (edgeLine); sites count given,True
+rust,native,open_document_and_wait,crates/engine/src/lsp/client/tests/process_readiness.rs:119,missed,only the first site of a caller is located (edgeLine); sites count given,True
+rust,native,open_document_and_wait,crates/engine/src/lsp/client/tests/process_readiness.rs:244,missed,only the first site of a caller is located (edgeLine); sites count given,True
+rust,native,open_document_and_wait,crates/engine/src/lsp/client/tests/process_readiness.rs:288,missed,only the first site of a caller is located (edgeLine); sites count given,True
+rust,native,open_document_and_wait,crates/engine/src/lsp/client/tests/project_loads.rs:38,missed,only the first site of a caller is located (edgeLine); sites count given,True
+rust,native,open_document_and_wait,crates/engine/src/lsp/client/tests/project_loads.rs:163,missed,only the first site of a caller is located (edgeLine); sites count given,True
+rust,native,open_document_and_wait,crates/engine/src/lsp/client/tests/project_loads.rs:190,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,native,open_document_and_wait,crates/engine/src/lsp/client/tests/project_loads.rs:374,missed,only the first site of a caller is located (edgeLine); sites count given,True
+rust,native,open_document_and_wait,crates/engine/src/lsp/client/tests/readiness.rs:53,missed,only the first site of a caller is located (edgeLine); sites count given,True
+rust,native,open_document_and_wait,crates/engine/src/lsp/client/tests/readiness.rs:80,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,native,open_document_and_wait,crates/engine/src/lsp/client/tests/readiness.rs:167,missed,only the first site of a caller is located (edgeLine); sites count given,True
+rust,native,open_document_and_wait,crates/engine/src/lsp/client/tests/readiness.rs:226,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,native,open_document_and_wait,crates/tool-lsp/src/lsp_search/importers/occurrences.rs:129,missed,outside the one-crate snapshot,False
+rust,native,open_document_and_wait,crates/tool-lsp/src/lsp_search/prewarm.rs:222,missed,outside the one-crate snapshot,False
+rust,native,open_document_and_wait,crates/tool-lsp/src/lsp_search/session/sync.rs:32,missed,outside the one-crate snapshot,False
+rust,native,open_document_and_wait,crates/tool-lsp/src/lsp_search/session/sync.rs:59,missed,outside the one-crate snapshot,False
+rust,sg_bare,open_document_and_wait,crates/engine/src/lsp/client/requests.rs:274,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,open_document_and_wait,crates/engine/src/lsp/client/tests/open_readiness.rs:53,missed,"pattern name($$$) matches only unqualified calls; call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_bare,open_document_and_wait,crates/engine/src/lsp/client/tests/open_readiness.rs:63,missed,"pattern name($$$) matches only unqualified calls; call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_bare,open_document_and_wait,crates/engine/src/lsp/client/tests/open_readiness.rs:70,missed,"pattern name($$$) matches only unqualified calls; call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_bare,open_document_and_wait,crates/engine/src/lsp/client/tests/process_readiness.rs:89,missed,pattern name($$$) matches only unqualified calls,True
+rust,sg_bare,open_document_and_wait,crates/engine/src/lsp/client/tests/process_readiness.rs:119,missed,pattern name($$$) matches only unqualified calls,True
+rust,sg_bare,open_document_and_wait,crates/engine/src/lsp/client/tests/process_readiness.rs:244,missed,pattern name($$$) matches only unqualified calls,True
+rust,sg_bare,open_document_and_wait,crates/engine/src/lsp/client/tests/process_readiness.rs:288,missed,pattern name($$$) matches only unqualified calls,True
+rust,sg_bare,open_document_and_wait,crates/engine/src/lsp/client/tests/project_loads.rs:38,missed,pattern name($$$) matches only unqualified calls,True
+rust,sg_bare,open_document_and_wait,crates/engine/src/lsp/client/tests/project_loads.rs:163,missed,pattern name($$$) matches only unqualified calls,True
+rust,sg_bare,open_document_and_wait,crates/engine/src/lsp/client/tests/project_loads.rs:190,missed,"pattern name($$$) matches only unqualified calls; call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_bare,open_document_and_wait,crates/engine/src/lsp/client/tests/project_loads.rs:374,missed,pattern name($$$) matches only unqualified calls,True
+rust,sg_bare,open_document_and_wait,crates/engine/src/lsp/client/tests/readiness.rs:53,missed,pattern name($$$) matches only unqualified calls,True
+rust,sg_bare,open_document_and_wait,crates/engine/src/lsp/client/tests/readiness.rs:80,missed,"pattern name($$$) matches only unqualified calls; call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_bare,open_document_and_wait,crates/engine/src/lsp/client/tests/readiness.rs:167,missed,pattern name($$$) matches only unqualified calls,True
+rust,sg_bare,open_document_and_wait,crates/engine/src/lsp/client/tests/readiness.rs:226,missed,"pattern name($$$) matches only unqualified calls; call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_bare,open_document_and_wait,crates/tool-lsp/src/lsp_search/importers/occurrences.rs:129,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,open_document_and_wait,crates/tool-lsp/src/lsp_search/prewarm.rs:222,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,open_document_and_wait,crates/tool-lsp/src/lsp_search/session/sync.rs:32,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,open_document_and_wait,crates/tool-lsp/src/lsp_search/session/sync.rs:59,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_any,open_document_and_wait,crates/engine/src/lsp/client/tests/open_readiness.rs:53,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_any,open_document_and_wait,crates/engine/src/lsp/client/tests/open_readiness.rs:63,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_any,open_document_and_wait,crates/engine/src/lsp/client/tests/open_readiness.rs:70,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_any,open_document_and_wait,crates/engine/src/lsp/client/tests/project_loads.rs:190,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_any,open_document_and_wait,crates/engine/src/lsp/client/tests/readiness.rs:80,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_any,open_document_and_wait,crates/engine/src/lsp/client/tests/readiness.rs:226,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graphify,open_document_and_wait,crates/engine/src/lsp/client/tests/open_readiness.rs:53,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graphify,open_document_and_wait,crates/engine/src/lsp/client/tests/open_readiness.rs:63,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graphify,open_document_and_wait,crates/engine/src/lsp/client/tests/open_readiness.rs:70,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graphify,open_document_and_wait,crates/engine/src/lsp/client/tests/process_readiness.rs:89,missed,same crate,True
+rust,graphify,open_document_and_wait,crates/engine/src/lsp/client/tests/process_readiness.rs:119,missed,same crate,True
+rust,graphify,open_document_and_wait,crates/engine/src/lsp/client/tests/process_readiness.rs:244,missed,same crate,True
+rust,graphify,open_document_and_wait,crates/engine/src/lsp/client/tests/process_readiness.rs:288,missed,same crate,True
+rust,graphify,open_document_and_wait,crates/engine/src/lsp/client/tests/project_loads.rs:38,missed,same crate,True
+rust,graphify,open_document_and_wait,crates/engine/src/lsp/client/tests/project_loads.rs:163,missed,same crate,True
+rust,graphify,open_document_and_wait,crates/engine/src/lsp/client/tests/project_loads.rs:190,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graphify,open_document_and_wait,crates/engine/src/lsp/client/tests/project_loads.rs:374,missed,same crate,True
+rust,graphify,open_document_and_wait,crates/engine/src/lsp/client/tests/readiness.rs:53,missed,same crate,True
+rust,graphify,open_document_and_wait,crates/engine/src/lsp/client/tests/readiness.rs:80,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graphify,open_document_and_wait,crates/engine/src/lsp/client/tests/readiness.rs:167,missed,same crate,True
+rust,graphify,open_document_and_wait,crates/engine/src/lsp/client/tests/readiness.rs:226,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graphify,open_document_and_wait,crates/tool-lsp/src/lsp_search/importers/occurrences.rs:129,missed,call from another crate,False
+rust,graphify,open_document_and_wait,crates/tool-lsp/src/lsp_search/prewarm.rs:222,missed,call from another crate,False
+rust,graphify,open_document_and_wait,crates/tool-lsp/src/lsp_search/session/sync.rs:32,missed,call from another crate,False
+rust,graphify,open_document_and_wait,crates/tool-lsp/src/lsp_search/session/sync.rs:59,missed,call from another crate,False
+rust,graph,clear_caches,crates/cli/src/cli.rs:320,missed,call from another crate,False
+rust,native,clear_caches,crates/cli/src/cli.rs:320,missed,outside the one-crate snapshot,False
+rust,native,clear_caches,crates/runtime/tests/runtime_gh_structure/listing.rs:301,missed,only the first site of a caller is located (edgeLine); sites count given,True
+rust,sg_bare,clear_caches,crates/cli/src/cli.rs:320,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,clear_caches,crates/runtime/tests/runtime_gh_structure/listing.rs:301,missed,pattern name($$$) matches only unqualified calls,True
+rust,graphify,clear_caches,crates/cli/src/cli.rs:320,missed,call from another crate,False
+rust,graphify,clear_caches,crates/runtime/tests/runtime_gh_structure/listing.rs:301,missed,same crate,True
+rust,native,search_files_shared,crates/tool-ast/src/ast_search/matches/scan.rs:326,missed,outside the one-crate snapshot,False
+rust,sg_bare,search_files_shared,crates/engine/src/structural/files/shared/tests.rs:272,missed,pattern name($$$) matches only unqualified calls,True
+rust,sg_bare,search_files_shared,crates/tool-ast/src/ast_search/matches/scan.rs:326,missed,pattern name($$$) matches only unqualified calls,False
+rust,graphify,search_files_shared,crates/tool-ast/src/ast_search/matches/scan.rs:326,missed,call from another crate,False
+rust,graph,commit_pull_numbers,crates/github/src/tests/security.rs:130,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graph,commit_pull_numbers,crates/runtime/src/runtime/github/repository_read.rs:88,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,native,commit_pull_numbers,crates/github/src/tests/security.rs:130,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,native,commit_pull_numbers,crates/runtime/src/runtime/github/repository_read.rs:88,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,sg_bare,commit_pull_numbers,crates/github/src/tests/security.rs:130,missed,"pattern name($$$) matches only unqualified calls; call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_bare,commit_pull_numbers,crates/runtime/src/runtime/github/repository_read.rs:88,missed,"pattern name($$$) matches only unqualified calls; call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,sg_any,commit_pull_numbers,crates/github/src/tests/security.rs:130,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_any,commit_pull_numbers,crates/runtime/src/runtime/github/repository_read.rs:88,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,graphify,commit_pull_numbers,crates/github/src/tests/security.rs:130,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graphify,commit_pull_numbers,crates/runtime/src/runtime/github/repository_read.rs:88,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,native,member_row,crates/engine/src/signatures/outline.rs:188,missed,only the first site of a caller is located (edgeLine); sites count given,False
+rust,graphify,member_row,crates/engine/src/signatures/outline.rs:188,missed,same crate,False
+rust,native,to_screaming_snake,crates/runtime-base/build/tool_query_limits.rs:97,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,sg_bare,to_screaming_snake,crates/runtime-base/build/config_render_metadata.rs:119,missed,"pattern name($$$) matches only unqualified calls; call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,sg_bare,to_screaming_snake,crates/runtime-base/build/tool_query_limits.rs:96,missed,"pattern name($$$) matches only unqualified calls; call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,sg_bare,to_screaming_snake,crates/runtime-base/build/tool_query_limits.rs:97,missed,"pattern name($$$) matches only unqualified calls; call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,sg_any,to_screaming_snake,crates/runtime-base/build/config_render_metadata.rs:119,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,sg_any,to_screaming_snake,crates/runtime-base/build/tool_query_limits.rs:96,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,sg_any,to_screaming_snake,crates/runtime-base/build/tool_query_limits.rs:97,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,graphify,to_screaming_snake,crates/runtime-base/build/config_render_metadata.rs:119,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,graphify,to_screaming_snake,crates/runtime-base/build/tool_gen.rs:278,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,graphify,to_screaming_snake,crates/runtime-base/build/tool_query_limits.rs:96,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,graphify,to_screaming_snake,crates/runtime-base/build/tool_query_limits.rs:97,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",False
+rust,graph,load_from,crates/runtime-base/src/providers/github/login/flow_tests/refresh.rs:52,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,native,load_from,crates/runtime-base/src/providers/github/login/flow_tests/refresh.rs:52,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,native,load_from,crates/runtime-base/src/providers/github/login/refresh.rs:143,missed,only the first site of a caller is located (edgeLine); sites count given,False
+rust,sg_bare,load_from,crates/runtime-base/src/providers/github/login/flow_tests/refresh.rs:52,missed,"pattern name($$$) matches only unqualified calls; call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,sg_bare,load_from,crates/runtime-base/src/providers/github/login/refresh.rs:143,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_any,load_from,crates/runtime-base/src/providers/github/login/flow_tests/refresh.rs:52,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graphify,load_from,crates/runtime-base/src/providers/github/login/flow_tests/refresh.rs:52,missed,"call inside a macro token tree (json!, assert!, tokio::join!, vec!)",True
+rust,graphify,load_from,crates/runtime-base/src/providers/github/login/refresh.rs:143,missed,same crate,False
+rust,native,is_test_parent,crates/tools-shared/src/test_code/mount_targets.rs:474,missed,only the first site of a caller is located (edgeLine); sites count given,False
+rust,sg_bare,is_test_parent,crates/tools-shared/src/test_code/mount_targets.rs:466,missed,pattern name($$$) matches only unqualified calls,False
+rust,sg_bare,is_test_parent,crates/tools-shared/src/test_code/mount_targets.rs:474,missed,pattern name($$$) matches only unqualified calls,False
+rust,graphify,is_test_parent,crates/tools-shared/src/test_code/mount_targets.rs:474,missed,same crate,False
+rust,lsp_references,github_ref_path,crates/tool-packages/src/artifact/util/github_page_tests.rs:2,false positive,use/import line,False
+rust,rg_word,github_ref_path,crates/tool-packages/src/artifact/util.rs:200,false positive,comment or doc link,False
+rust,rg_word,github_ref_path,crates/tool-packages/src/artifact/util/github_page_tests.rs:2,false positive,use/import line,False
+rust,lsp_references,read_private_config,crates/cli/src/cli/config.rs:231,false positive,use list or re-export line,False
+rust,lsp_references,read_private_config,crates/cli/src/cli/mcp_install.rs:146,false positive,use list or re-export line,False
+rust,lsp_references,read_private_config,crates/cli/src/cli/mcp_install/apply.rs:25,false positive,use list or re-export line,False
+rust,lsp_references,read_private_config,crates/cli/src/cli/mcp_manage.rs:9,false positive,use/import line,False
+rust,lsp_references,read_private_config,crates/cli/src/cli/mcp_manage/continue_main.rs:3,false positive,use/import line,False
+rust,lsp_references,read_private_config,crates/cli/src/cli/mcp_manage/update.rs:6,false positive,use/import line,False
+rust,lsp_references,read_private_config,crates/runtime-base/src/config.rs:18,false positive,use list or re-export line,False
+rust,lsp_references,read_private_config,crates/runtime-base/src/config/manage.rs:7,false positive,use list or re-export line,False
+rust,rg_word,read_private_config,crates/cli/src/cli/config.rs:231,false positive,use list or re-export line,False
+rust,rg_word,read_private_config,crates/cli/src/cli/mcp_install.rs:146,false positive,use list or re-export line,False
+rust,rg_word,read_private_config,crates/cli/src/cli/mcp_install/apply.rs:25,false positive,use list or re-export line,False
+rust,rg_word,read_private_config,crates/cli/src/cli/mcp_manage.rs:9,false positive,use/import line,False
+rust,rg_word,read_private_config,crates/cli/src/cli/mcp_manage/continue_main.rs:3,false positive,use/import line,False
+rust,rg_word,read_private_config,crates/cli/src/cli/mcp_manage/update.rs:6,false positive,use/import line,False
+rust,rg_word,read_private_config,crates/runtime-base/src/config.rs:18,false positive,use list or re-export line,False
+rust,rg_word,read_private_config,crates/runtime-base/src/config/manage.rs:7,false positive,use list or re-export line,False
+rust,lsp_references,login_device_flow_in_store,crates/runtime-base/src/providers/github/login.rs:8,false positive,use/import line,False
+rust,lsp_references,login_device_flow_in_store,crates/runtime-base/src/providers/github/login/tests.rs:4,false positive,use list or re-export line,False
+rust,rg_word,login_device_flow_in_store,crates/runtime-base/src/providers/github/login.rs:8,false positive,use/import line,False
+rust,rg_word,login_device_flow_in_store,crates/runtime-base/src/providers/github/login/tests.rs:4,false positive,use list or re-export line,False
+rust,rg_word,open_document_and_wait,crates/engine/src/lsp/client.rs:42,false positive,comment or doc link,False
+rust,rg_word,open_document_and_wait,crates/engine/src/lsp/client/open_documents.rs:106,false positive,comment or doc link,False
+rust,rg_word,open_document_and_wait,crates/engine/src/lsp/client/requests.rs:250,false positive,comment or doc link,False
+rust,lsp_references,search_files_shared,crates/engine/src/structural.rs:21,false positive,use list or re-export line,False
+rust,rg_word,search_files_shared,crates/engine/src/structural.rs:21,false positive,use list or re-export line,False
+rust,rg_word,search_files_shared,crates/engine/src/structural/files.rs:115,false positive,comment or doc link,False
+rust,lsp_references,to_screaming_snake,crates/runtime-base/build/config_render_metadata.rs:1,false positive,use/import line,False
+rust,lsp_references,to_screaming_snake,crates/runtime-base/build/tool_gen.rs:8,false positive,use/import line,False
+rust,lsp_references,to_screaming_snake,crates/runtime-base/build/tool_query_limits.rs:1,false positive,use/import line,False
+rust,rg_word,to_screaming_snake,crates/runtime-base/build/config_render_metadata.rs:1,false positive,use/import line,False
+rust,rg_word,to_screaming_snake,crates/runtime-base/build/tool_gen.rs:8,false positive,use/import line,False
+rust,rg_word,to_screaming_snake,crates/runtime-base/build/tool_query_limits.rs:1,false positive,use/import line,False
+rust,lsp_references,open_and_index,crates/tool-lsp/src/lsp_search/importers/freshen.rs:2,false positive,use/import line,False
+rust,rg_word,open_and_index,crates/tool-lsp/src/lsp_search/importers/freshen.rs:2,false positive,use/import line,False
+ts,native,resolveSymbol,runtime/query-search.ts:403,missed,only the first site of a caller is located (edgeLine); sites count given,False
+ts,graphify,resolveSymbol,runtime/query-search.ts:403,missed,one location per caller-to-target edge,False
+ts,native,topGroup,runtime/stitch.ts:844,missed,only the first site of a caller is located (edgeLine); sites count given,False
+ts,graphify,topGroup,runtime/stitch.ts:844,missed,one location per caller-to-target edge,False
+ts,native,callEvidence,graph-model.ts:75,missed,only the first site of a caller is located (edgeLine); sites count given,False
+ts,graphify,callEvidence,graph-model.ts:75,missed,one location per caller-to-target edge,False
+ts,native,linkRows,runtime/wiki-facts.ts:287,missed,only the first site of a caller is located (edgeLine); sites count given,False
+ts,graphify,linkRows,runtime/wiki-facts.ts:287,missed,one location per caller-to-target edge,False
+ts,native,bundle,html.ts:29,missed,only the first site of a caller is located (edgeLine); sites count given,False
+ts,graphify,bundle,html.ts:28,missed,nested arrow function not modeled (no node),False
+ts,graphify,bundle,html.ts:29,missed,nested arrow function not modeled (no node),False
+ts,native,errorMessage,runtime/commands/build.ts:33,missed,only the first site of a caller is located (edgeLine); sites count given,False
+ts,graphify,errorMessage,runtime/commands/build.ts:26,missed,one location per caller-to-target edge,False
+ts,graphify,errorMessage,runtime/commands/build.ts:33,missed,one location per caller-to-target edge,False
+ts,native,messageOf,runtime/commands/channel.ts:513,missed,only the first site of a caller is located (edgeLine); sites count given,False
+ts,native,messageOf,runtime/serve-answers.ts:288,missed,only the first site of a caller is located (edgeLine); sites count given,False
+ts,native,messageOf,runtime/serve-answers.ts:311,missed,only the first site of a caller is located (edgeLine); sites count given,False
+ts,native,messageOf,runtime/serve.ts:360,missed,only the first site of a caller is located (edgeLine); sites count given,False
+ts,native,messageOf,runtime/serve.ts:361,missed,only the first site of a caller is located (edgeLine); sites count given,False
+ts,native,messageOf,runtime/serve.ts:471,missed,only the first site of a caller is located (edgeLine); sites count given,False
+ts,native,messageOf,runtime/serve.ts:821,missed,only the first site of a caller is located (edgeLine); sites count given,False
+ts,graphify,messageOf,runtime/commands/channel.ts:512,missed,one location per caller-to-target edge,False
+ts,graphify,messageOf,runtime/commands/channel.ts:513,missed,one location per caller-to-target edge,False
+ts,graphify,messageOf,runtime/serve-answers.ts:288,missed,one location per caller-to-target edge,False
+ts,graphify,messageOf,runtime/serve-answers.ts:311,missed,one location per caller-to-target edge,False
+ts,graphify,messageOf,runtime/serve.ts:360,missed,one location per caller-to-target edge,False
+ts,graphify,messageOf,runtime/serve.ts:361,missed,one location per caller-to-target edge,False
+ts,graphify,messageOf,runtime/serve.ts:471,missed,one location per caller-to-target edge,False
+ts,graphify,messageOf,runtime/serve.ts:821,missed,one location per caller-to-target edge,False
+ts,native,wikiPaths,runtime/wiki-store.ts:96,missed,only the first site of a caller is located (edgeLine); sites count given,False
+ts,native,wikiPaths,runtime/wiki.ts:292,missed,only the first site of a caller is located (edgeLine); sites count given,False
+ts,graphify,wikiPaths,runtime/wiki-store.ts:96,missed,one location per caller-to-target edge,False
+ts,graphify,wikiPaths,runtime/wiki.ts:292,missed,one location per caller-to-target edge,False
+ts,lsp_references,resolveSymbol,runtime/query-ops.ts:13,false positive,use list or re-export line,False
+ts,lsp_references,resolveSymbol,runtime/query-search.ts:11,false positive,use list or re-export line,False
+ts,rg_word,resolveSymbol,runtime/query-ops.ts:13,false positive,use list or re-export line,False
+ts,rg_word,resolveSymbol,runtime/query-search.ts:11,false positive,use list or re-export line,False
+ts,lsp_references,topGroup,runtime/section.ts:20,false positive,use list or re-export line,False
+ts,lsp_references,topGroup,runtime/stitch.ts:4,false positive,use/import line,False
+ts,rg_word,topGroup,runtime/section.ts:20,false positive,use list or re-export line,False
+ts,rg_word,topGroup,runtime/stitch.ts:4,false positive,use/import line,False
+ts,lsp_references,prepareGraphRun,runtime/pipeline.ts:22,false positive,use list or re-export line,False
+ts,lsp_references,prepareGraphRun,runtime/refresh.ts:11,false positive,use/import line,False
+ts,lsp_references,prepareGraphRun,runtime/section.ts:18,false positive,use list or re-export line,False
+ts,rg_word,prepareGraphRun,runtime/pipeline.ts:22,false positive,use list or re-export line,False
+ts,rg_word,prepareGraphRun,runtime/refresh.ts:11,false positive,use/import line,False
+ts,rg_word,prepareGraphRun,runtime/section.ts:18,false positive,use list or re-export line,False
+ts,lsp_references,prerequisiteOrder,runtime/query-ops.ts:19,false positive,use/import line,False
+ts,rg_word,prerequisiteOrder,runtime/query-ops.ts:19,false positive,use/import line,False
+ts,lsp_references,callEvidence,runtime/query-index.ts:7,false positive,use list or re-export line,False
+ts,rg_word,callEvidence,runtime/query-index.ts:7,false positive,use list or re-export line,False
+ts,lsp_references,buildSection,runtime/pipeline.ts:27,false positive,use/import line,False
+ts,rg_word,buildSection,runtime/pipeline.ts:27,false positive,use/import line,False
+ts,rg_word,bundle,assets/live-graph.ts:46,false positive,comment or doc link,False
+ts,rg_word,bundle,assets/renderer.generated.d.ts:1,false positive,comment or doc link,False
+ts,rg_word,bundle,browser/offline.ts:24,false positive,comment or doc link,False
+ts,rg_word,bundle,renderer.ts:1,false positive,comment or doc link,False
+ts,rg_word,bundle,runtime/serve.ts:68,false positive,comment or doc link,False
+ts,lsp_references,errorMessage,runtime/commands/build.ts:5,false positive,use/import line,False
+ts,lsp_references,errorMessage,runtime/lsp.ts:4,false positive,use/import line,False
+ts,lsp_references,errorMessage,runtime/pipeline.ts:20,false positive,use list or re-export line,False
+ts,lsp_references,errorMessage,runtime/preflight.ts:3,false positive,use/import line,False
+ts,lsp_references,errorMessage,runtime/section.ts:15,false positive,use list or re-export line,False
+ts,lsp_references,errorMessage,runtime/verify.ts:7,false positive,use/import line,False
+ts,rg_word,errorMessage,runtime/commands/build.ts:5,false positive,use/import line,False
+ts,rg_word,errorMessage,runtime/lsp.ts:4,false positive,use/import line,False
+ts,rg_word,errorMessage,runtime/pipeline.ts:20,false positive,use list or re-export line,False
+ts,rg_word,errorMessage,runtime/preflight.ts:3,false positive,use/import line,False
+ts,rg_word,errorMessage,runtime/section.ts:15,false positive,use list or re-export line,False
+ts,rg_word,errorMessage,runtime/verify.ts:7,false positive,use/import line,False
+ts,lsp_references,messageOf,runtime/commands/channel.ts:16,false positive,use list or re-export line,False
+ts,lsp_references,messageOf,runtime/serve.ts:41,false positive,use list or re-export line,False
+ts,rg_word,messageOf,runtime/commands/channel.ts:16,false positive,use list or re-export line,False
+ts,rg_word,messageOf,runtime/serve.ts:41,false positive,use list or re-export line,False
+ts,lsp_references,wikiPaths,runtime/wiki-lint.ts:11,false positive,use list or re-export line,False
+ts,lsp_references,wikiPaths,runtime/wiki.ts:22,false positive,use list or re-export line,False
+ts,rg_word,wikiPaths,runtime/wiki-lint.ts:11,false positive,use list or re-export line,False
+ts,rg_word,wikiPaths,runtime/wiki.ts:22,false positive,use list or re-export line,False

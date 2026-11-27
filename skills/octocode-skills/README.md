@@ -1,34 +1,5 @@
 # Octocode Skills
 
-Find, evaluate, review, improve, install, and author Agent Skills (`SKILL.md` folders) across local paths, GitHub, and marketplaces.
+Find, create, improve, check, install and sync Agent Skills.
 
-Use when the task is about a skill's trigger, workflow, references, hooks, install target, or publication quality — not ordinary markdown.
-
-## Capabilities
-
-- Discover skills across GitHub, registries, and local paths
-- Inspect real `SKILL.md` content before recommending or installing
-- Score quality: trigger, workflow, gates, evidence, portability, risk
-- Tune descriptions so skills activate at the right time
-- Install with provider/scope/mode gates and conflict handling
-- Create or adapt local skills with an audit trail and review gate
-- Review and wire lifecycle hooks safely
-- Check the skill as a map: references resolve, the lobby lists every reference and script with when/how plus the workflows, chunks declare entry and next hop, flow phases are routed
-
-## How It Works
-
-```text
-UNDERSTAND → DISCOVER → INSPECT → JUDGE → RECOMMEND → USER GATE → ACT → CLEANUP → REVIEW → VERIFY
-```
-
-`SKILL.md` is the compact operating map. Conditional depth lives in one-concept `references/` files (≤50 lines) with when/why load lines. Ref→ref links continue the path. `scripts/skill-review.mjs` is the done-gate (best practices, structure, and navigation).
-
-## Installation
-
-```bash
-npx octocode skill --name octocode-skills
-```
-
-## Maintainer Notes
-
-Keep this README user-facing. Agent routing, rubrics, install matrices, and review rules live under `references/`. Skills ship as a standalone folder — after edits run cleanup (`references/skill-cleanup.md`) then `node scripts/skill-review.mjs .` and clear ERRORs before shipping.
+Start with [SKILL.md](SKILL.md), the collection's authoring standard; [output.md](output.md) has result formats. Scripts need only Node (`skill-sync.mjs --resolve-source` also runs `git ls-remote` when a URL's ref is ambiguous); each takes `--help`.

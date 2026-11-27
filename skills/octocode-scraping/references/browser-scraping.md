@@ -1,29 +1,29 @@
-# Browser Scraping
+Load when a live browser step joins a scrape (auth, clicks, JS-only page, HAR, perf).
 
-Load when a live browser step joins a scrape — auth, clicks, JS-only page, HAR, or perf. Why: one sessionId plus one CDP port keeps the evidence joinable.
+# Browser handoff
 
-Owner for the **cross-skill playbook** (chrome `SKILL.md` only points here). Live CDP = `octocode-chrome-devtools`; this skill owns corpus + ingest.
+## Session handles
 
-## Session IDs (do not mix)
-| Kind | Handle | Reuse |
-|---|---|---|
-| Scrape corpus | `.octocode/tmp/scrape/{sessionId}/` | same id for fetch → ingest → `corpus-run` |
-| Live Chrome | CDP `--port` + `--keep-tab` | same port/tab for DOM → click → measure → HAR |
-| CDP artifacts | `.octocode/tmp/chrome-devtools/<run>/` | pass to `har-ingest --from-cdp-dir` |
+- One sessionId and one CDP port (chrome `--port` plus `--keep-tab`; `fetch.mjs --provider cdp --cdp-port` with the same port) keep evidence joinable; `octocode-chrome-devtools` owns live CDP, this skill owns the corpus.
+- CDP artifacts: `.octocode/octocode-chrome-devtools/tmp/<run>/`, passed to `har-ingest.mjs --from-cdp-dir`.
+- Run the CDP provider from the intended workspace. Browser state, temporary runners and captures belong to that cwd; the installed executable may live elsewhere. A port is a connection handle, not a durable research-session identity.
 
-## Playbook (one sessionId + one port)
-1. **Map** — `fetch.mjs` (html, omit `--provider`) → `AGENT_INDEX.json` + `graph/graph.json`.
-2. **Packet** — `har-ingest.mjs --export-packet` → `extracts/bridge-handoff.json`.
-3. **Live DOM** — chrome `page-snapshot` → `dom-operations-check` (`--keep-tab`). Static only: `dom-find.mjs`.
-4. **Click/fill** — same tab or `graph-actionability-check`; ask before destructive submits.
-5. **Measure** — `performance`/`network`/`storage-measure-check` with `MEASURE_EXISTING=1`.
-6. **Query** — `measure-query --dir|--latest`; HAR → `har-pager`; then deep HAR only if needed.
-7. **Ingest** — `har-ingest.mjs --session-dir <session> --from-cdp-dir <run>` (chrome alias `har-ingest-to-scrape`).
-8. **Prove** — `corpus-run.mjs --roots cdp,extracts --regex …` (alias `corpus-run-local`). No re-browser for the same body.
+## Playbook
 
-Zero actionability rows → chrome `actionability-diagnostics`. Emit paths/counts — never cookies/tokens.
+1. Map: `fetch.mjs` → corpus, `AGENT_INDEX.json`, `graph/graph.json`.
+2. Packet: `har-ingest.mjs --export-packet` → `extracts/bridge-handoff.json`.
+3. Live DOM: chrome `page-snapshot` → `dom-operations-check` (`--keep-tab`). Static only: `dom-find.mjs`.
+4. Click or fill: same tab, after verifying actionability; only user-authorized actions. Inspect uncertain results before retrying. Zero actionability rows: chrome `actionability-diagnostics`.
+5. Measure: `performance`/`network`/`storage-measure-check` with `MEASURE_EXISTING=1`.
+6. Query: `measure-query --dir|--latest`; HAR → `har-pager`.
+7. Process: `har-ingest.mjs --session-dir <session> --from-cdp-dir <run>` (chrome alias `har-ingest-to-scrape`).
+8. Prove: read deciding spans or `corpus-run.mjs --roots cdp,extracts --regex …` (alias `corpus-run-local`); never re-open the browser for the same body. A semantic answer is not proof.
 
-## Ask first
-Real profile, cookie bridge, CAPTCHA/MFA, destructive writes, purchases, sends, deletes, account changes.
+- Emit paths and counts, never cookies or tokens.
 
-Next: to search what ingest produced load `references/session-corpus.md`; if the page is still thin or blocked load `references/failure-recovery.md`.
+## `--provider cdp`
+
+- Wait for readiness: `fetch.mjs --url <u> --provider cdp --wait-for <selector> --wait-text <text> --cdp-wait-ms 15000`.
+- `--cdp-stealth`: explicit emulation experiment only; native is default.
+- Clicks, event waits, or adaptive decisions: Chrome's combined executor, then `har-ingest.mjs`.
+- Still thin or blocked: [recovery](recovery.md).

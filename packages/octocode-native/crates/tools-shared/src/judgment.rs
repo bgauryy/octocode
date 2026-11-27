@@ -1,0 +1,517 @@
+//! The one classification evaluator: a captured state plus JEV questions in,
+//! validated typed answers, the answering model and usage out. Retrieval
+//! `classification` (through the selection judge) and public `clasify` both use
+//! [`Evaluator`]; neither keeps its own provider client, retry loop or
+//! accounting. Each evaluation reads the provider with its own request budget;
+//! identical evaluations inside one request share one provider request
+//! ([`shared`]), and nothing outlives the request.
+pub(crate) mod batch;
+pub mod cap;
+pub mod shared;
+pub mod stats;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_identity;
+pub mod windows;
+pub use batch::Sends;
+pub use cap::RequestCap;
+pub(crate) use windows::RequestFit;
+
+#[cfg(test)]
+mod tests;
+
+use octocode_contract_types::ErrorCode;
+pub use transport::ClassificationError;
+
+use octocode_github::Partition;
+use octocode_io::budget::RequestBudget;
+use octocode_runtime_base::providers::classification::{
+    ClassificationProvider, gate::GateLease, transport,
+};
+use secrecy::SecretString;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::time::{Duration, Instant};
+
+/// Source capture resolves assets before evaluation; this view never owns or
+/// renders source bytes. The same evaluator handles ordinary text calls.
+#[derive(Clone, Copy)]
+pub struct EvaluationInput<'a> {
+    pub state: &'a Value,
+    pub questions: &'a [Value],
+    pub assets: Option<&'a Value>,
+    pub long_context: LongContext,
+    /// The last `companions` of `questions` ride only in a grouped request:
+    /// when the provider's window splits the questions into single requests,
+    /// they are dropped instead of sent alone, so they never add a request.
+    /// A dropped or malformed companion has no answer (`null`); it never
+    /// fails the evaluation.
+    pub companions: usize,
+    /// The row's `maxRequests`, counted at each send; `None`: uncapped.
+    pub cap: Option<&'a RequestCap>,
+}
+
+/// The provider's long-context window, which it documents as slower and less
+/// accurate than its default one. A section plan keeps the caller's choice.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum LongContext {
+    Never,
+    /// Only after the provider refuses the default window, which is unbilled:
+    /// no size guess of ours decides, the provider does.
+    OnRefusal,
+    Always,
+}
+
+impl LongContext {
+    /// The caller's `longContext` choice; omitted is [`Self::OnRefusal`].
+    pub fn from_field(field: Option<bool>) -> Self {
+        match field {
+            Some(true) => Self::Always,
+            Some(false) => Self::Never,
+            None => Self::OnRefusal,
+        }
+    }
+}
+
+impl EvaluationInput<'_> {
+    /// The questions the caller asked, without the companions.
+    pub(super) fn asked(&self) -> &[Value] {
+        &self.questions[..self.questions.len().saturating_sub(self.companions)]
+    }
+
+    pub(super) fn images(&self) -> bool {
+        self.assets.is_some()
+            || self
+                .questions
+                .iter()
+                .any(|question| question["type"] == "box")
+    }
+
+    /// Whether the long window can ever take this evaluation: never with
+    /// images, whose tokens follow their pixels, not their bytes, so no
+    /// local bound shows the request fits. A refused image group splits per
+    /// question instead.
+    pub(super) fn long_window_takes(&self) -> bool {
+        !self.images()
+    }
+}
+
+/// Whether `key` occurs in a value of `value` (a state or a question), never
+/// a property name. An asset is sent only where a value names it: capture
+/// refuses an unreferenced one before reading it, and a single-question
+/// request carries only the assets that question or the state names. A key
+/// is cited as a whole token: asset names are runs of `[A-Za-z0-9._-]`, so a
+/// neighbouring letter, digit or `_` (or a `.`/`-` that joins one) makes the
+/// occurrence part of a longer word or name, not a citation.
+pub(crate) fn referenced(value: &Value, key: &str) -> bool {
+    match value {
+        Value::String(text) => cites(text, key),
+        Value::Array(values) => values.iter().any(|value| referenced(value, key)),
+        Value::Object(values) => values.values().any(|value| referenced(value, key)),
+        _ => false,
+    }
+}
+
+fn cites(text: &str, key: &str) -> bool {
+    let word = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    // Whether the characters next to an occurrence, nearest first, end the
+    // token: none, a non-name character, or a `.`/`-` that closes a sentence
+    // or phrase rather than joining a longer name.
+    let ends = |next: &mut dyn Iterator<Item = char>| match next.next() {
+        None => true,
+        Some(c) if word(c) => false,
+        Some('.' | '-') => !next.next().is_some_and(word),
+        Some(_) => true,
+    };
+    !key.is_empty()
+        && text.match_indices(key).any(|(start, matched)| {
+            ends(&mut text[..start].chars().rev())
+                && ends(&mut text[start + matched.len()..].chars())
+        })
+}
+
+/// A validated evaluation: one provider answer per question, in question
+/// order, exactly as the provider returned it (`type` included).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Judged {
+    pub answers: Vec<Value>,
+    /// The model that answered (the provider's response), not the alias asked.
+    pub model: String,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    /// Provider requests this call made.
+    #[serde(skip)]
+    pub provider_calls: u64,
+    #[serde(skip)]
+    pub known_usage_calls: u64,
+    /// The default window refused this evaluation and the long-context
+    /// window answered it; its tokens are the long window's
+    /// ([`stats::ClassificationUsage::long_context_notice`]).
+    #[serde(skip)]
+    pub long_context_retry: Option<LongContextRetry>,
+}
+
+/// A long-context retry of a refused evaluation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LongContextRetry {
+    /// The long window's requests that reported no usage: their tokens are
+    /// unknown, not zero.
+    pub unreported_calls: u64,
+    /// Of the evaluation's requests (`provider_calls`), those the default
+    /// window refused as too large before the retry.
+    pub refused_calls: u64,
+}
+
+/// Per-question results retain successful siblings when another request fails.
+/// `complete` preserves the all-or-error contract of ordinary evaluation, and
+/// carries the usage of every attempted request exactly once.
+#[derive(Clone, Debug)]
+pub struct QuestionOutcomes {
+    pub answers: Vec<Result<Value, ClassificationError>>,
+    pub complete: Result<Judged, ClassificationError>,
+    pub models: std::collections::BTreeSet<String>,
+}
+
+impl QuestionOutcomes {
+    fn from_complete(result: Result<Judged, ClassificationError>, count: usize) -> Self {
+        let answers = match &result {
+            Ok(judged) => judged.answers.iter().cloned().map(Ok).collect(),
+            Err(error) => (0..count).map(|_| Err(error.clone())).collect(),
+        };
+        let models = result
+            .as_ref()
+            .ok()
+            .map(|judged| judged.model.clone())
+            .into_iter()
+            .collect();
+        Self {
+            answers,
+            complete: result,
+            models,
+        }
+    }
+}
+
+/// Provider connection and policy shared by every evaluation of a runtime.
+#[derive(Clone)]
+pub struct Evaluator {
+    pub(crate) key: Option<SecretString>,
+    pub(crate) base_url: String,
+    /// The configured default model (`classification.model`, else the
+    /// provider's default).
+    pub model: String,
+    pub provider: &'static dyn ClassificationProvider,
+    /// The evaluation time bound; `None` leaves the call's own deadline.
+    pub(crate) timeout: Option<Duration>,
+    pub(crate) retries: u32,
+    pub max_concurrency: usize,
+}
+
+impl Evaluator {
+    pub fn new(
+        key: Option<SecretString>,
+        base_url: String,
+        model: String,
+        provider: &'static dyn ClassificationProvider,
+        timeout: Option<Duration>,
+        retries: u32,
+        max_concurrency: usize,
+    ) -> Self {
+        Self {
+            key,
+            base_url,
+            model,
+            provider,
+            timeout,
+            retries,
+            max_concurrency,
+        }
+    }
+
+    /// Public origin of this evaluator's validated endpoint; contains no credential.
+    pub fn provider_origin(&self) -> Result<String, ClassificationError> {
+        transport::endpoint(&self.base_url, self.provider.defaults().endpoint_path)
+            .map(|url| url.origin().ascii_serialization())
+    }
+
+    pub fn is_configured(&self) -> bool {
+        self.key.is_some()
+    }
+
+    fn credential(&self) -> Result<&SecretString, ClassificationError> {
+        self.key.as_ref().ok_or_else(|| {
+            ClassificationError::new(
+                ErrorCode::MissingConfiguration,
+                "No classification API credential is configured.",
+                &format!("Set {}.", transport::key_variable()),
+            )
+        })
+    }
+
+    /// The endpoint and credential this evaluator's answers belong to.
+    pub(crate) fn partition(&self) -> Partition {
+        let path = self.provider.defaults().endpoint_path;
+        let origin = transport::endpoint(&self.base_url, path).map_or_else(
+            |_| format!("{}|{path}", self.base_url),
+            |endpoint| {
+                octocode_runtime_base::providers::classification::gate::endpoint_key(&endpoint)
+            },
+        );
+        Partition::new(origin, self.key.as_ref())
+    }
+
+    /// A request budget ending at `deadline`, or at the evaluator timeout when
+    /// one is set and comes first.
+    pub fn budget(
+        &self,
+        deadline: Instant,
+        cancellation: octocode_io::cancellation::Cancellation,
+    ) -> RequestBudget {
+        let end = self
+            .timeout
+            .map_or(deadline, |timeout| deadline.min(Instant::now() + timeout));
+        transport::budget(end, cancellation)
+    }
+
+    /// One call's share of the process-wide endpoint gate.
+    pub fn gate(&self) -> GateLease {
+        octocode_runtime_base::providers::classification::gate::lease(
+            self.partition().identity(),
+            self.max_concurrency,
+        )
+    }
+
+    /// Whether the provider is known to refuse `input` as too large in every
+    /// window it would be sent to ([`windows`]); nothing is sent to ask.
+    pub fn known_refused(&self, input: EvaluationInput<'_>, model: Option<&str>) -> bool {
+        batch::known_refused(
+            input,
+            model.unwrap_or(&self.model),
+            &self.base_url,
+            self.provider,
+        )
+    }
+
+    /// The request one section of a source judged whole in sections may
+    /// fill: the provider's stated window (`long`: the long-context one) at
+    /// what this endpoint's answers taught of its tokens ([`windows`]).
+    pub fn request_fit(&self, model: Option<&str>, long: bool) -> RequestFit {
+        self.fit(model, long, self.provider.defaults().question_window(long))
+    }
+
+    /// What a window of `tokens` holds at what this endpoint's answers taught
+    /// of its tokens ([`windows`]).
+    pub(crate) fn fit(&self, model: Option<&str>, long: bool, tokens: u64) -> RequestFit {
+        windows::request_bytes(&self.base_url, model.unwrap_or(&self.model), long, tokens)
+    }
+
+    /// The provider's window for one whole request (`long`: the long one).
+    pub fn request_window(&self, long: bool) -> u64 {
+        self.provider.defaults().request_window(long)
+    }
+
+    /// Whether a request this endpoint took for `model` in this window bounds
+    /// the provider's own prompt, so a plan is priced near its bodies rather
+    /// than at whole windows ([`windows::prompt_tokens_at_most`]).
+    pub fn prices_prompt(&self, model: Option<&str>, long: bool) -> bool {
+        windows::prompt_tokens_at_most(&self.base_url, model.unwrap_or(&self.model), long, 1)
+            .is_some()
+    }
+
+    /// One request sent only to learn the provider's own prompt for `model`
+    /// in this window: a state and a question of its own, so no evidence is
+    /// sent. Its reported tokens bound the prompt ([`windows::took`]); the
+    /// answer is discarded, the spend is the caller's to state.
+    pub async fn learn_prompt(
+        &self,
+        model: Option<&str>,
+        long: bool,
+        budget: &RequestBudget,
+        gate: &GateLease,
+    ) -> Result<Judged, ClassificationError> {
+        let state = serde_json::json!({"note": "Pricing request: no evidence."});
+        let questions = [serde_json::json!({
+            "type": "noul",
+            "instructions": "The note says it holds no evidence."
+        })];
+        let input = EvaluationInput {
+            state: &state,
+            questions: &questions,
+            assets: None,
+            long_context: if long {
+                LongContext::Always
+            } else {
+                LongContext::Never
+            },
+            companions: 0,
+            cap: None,
+        };
+        self.evaluate_prepared(input, model, budget, gate).await
+    }
+
+    pub(crate) async fn evaluate_prepared(
+        &self,
+        input: EvaluationInput<'_>,
+        model: Option<&str>,
+        budget: &RequestBudget,
+        gate: &GateLease,
+    ) -> Result<Judged, ClassificationError> {
+        self.evaluate_questions(input, model, budget, gate)
+            .await
+            .complete
+    }
+
+    pub async fn evaluate_questions(
+        &self,
+        input: EvaluationInput<'_>,
+        model: Option<&str>,
+        budget: &RequestBudget,
+        gate: &GateLease,
+    ) -> QuestionOutcomes {
+        match self.evaluate_shared(input, model, budget, gate).await {
+            Ok(outcomes) => outcomes,
+            Err(error) => QuestionOutcomes::from_complete(Err(error), input.asked().len()),
+        }
+    }
+
+    async fn evaluate_shared(
+        &self,
+        input: EvaluationInput<'_>,
+        model: Option<&str>,
+        budget: &RequestBudget,
+        gate: &GateLease,
+    ) -> Result<QuestionOutcomes, ClassificationError> {
+        let (connection, model) = self.connection(model)?;
+        transport::check_budget(budget)?;
+        Ok(batch::answer_questions(input, model, &connection, budget, gate).await)
+    }
+
+    /// Every question over the state as one request, sent once: the
+    /// questions are about several units, so a refusal is the caller's to
+    /// split by unit ([`batch::answer_group`]).
+    pub(crate) async fn evaluate_group(
+        &self,
+        input: EvaluationInput<'_>,
+        model: Option<&str>,
+        budget: &RequestBudget,
+        gate: &GateLease,
+    ) -> QuestionOutcomes {
+        match self.connection(model) {
+            Ok((connection, model)) => {
+                batch::answer_group(input, model, &connection, budget, gate).await
+            }
+            Err(error) => QuestionOutcomes::from_complete(Err(error), input.asked().len()),
+        }
+    }
+
+    /// Where requests for `model` (else the configured one) are sent, once
+    /// the credential and the model name are known to be sendable.
+    fn connection<'a>(
+        &'a self,
+        model: Option<&'a str>,
+    ) -> Result<(batch::Connection<'a>, &'a str), ClassificationError> {
+        let key = self.credential()?;
+        let model = model.unwrap_or(&self.model);
+        if octocode_runtime_base::security::ContentSecurity::new()
+            .sanitize_leaf(model)
+            .is_some()
+        {
+            return Err(ClassificationError::new(
+                ErrorCode::InvalidClassificationConfiguration,
+                "The classification model contains a credential; nothing was sent.",
+                "Set a model identifier without credentials.",
+            ));
+        }
+        Ok((
+            batch::Connection {
+                key,
+                base_url: &self.base_url,
+                provider: self.provider,
+                retries: self.retries,
+            },
+            model,
+        ))
+    }
+
+    /// The transient retries one row's requests share: the runtime's retry
+    /// count for one request, counted once in the row's stated ceiling
+    /// ([`RequestCap::held`]).
+    pub fn retry_room(&self) -> u64 {
+        u64::from(self.retries)
+    }
+
+    /// Input tokens a round of `requests` (each its body bytes and its
+    /// question count) costs at most, priced before any is sent so a real run
+    /// cannot pass it. Each request costs at most the provider's stated
+    /// window ([`Self::request_window`]): a larger one is refused, not run.
+    /// Once a request of this model and window was taken, also at most its
+    /// body at one token per byte (a token covers at least one byte of the
+    /// text sent) and the provider's own prompt, which no body shows, at most
+    /// what the requests taken here bound it to
+    /// ([`windows::prompt_tokens_at_most`]); the lesser of the two.
+    pub fn tokens_at_most(
+        &self,
+        model: Option<&str>,
+        long: bool,
+        requests: impl IntoIterator<Item = (usize, usize)>,
+    ) -> u64 {
+        let model = model.unwrap_or(&self.model);
+        let window = self.request_window(long);
+        requests.into_iter().fold(0_u64, |sum, (bytes, questions)| {
+            let each = windows::prompt_tokens_at_most(&self.base_url, model, long, questions)
+                .map_or(window, |prompt| {
+                    u64::try_from(bytes)
+                        .unwrap_or(u64::MAX)
+                        .saturating_add(prompt)
+                        .min(window)
+                });
+            sum.saturating_add(each)
+        })
+    }
+
+    /// [`Self::tokens_at_most`] of the first round `sends` plans for `asked`
+    /// questions: one grouped request, else one request per question, each
+    /// at most its share of the round's bytes.
+    pub fn first_round_tokens_at_most(
+        &self,
+        model: Option<&str>,
+        long: bool,
+        sends: &Sends,
+        asked: usize,
+    ) -> u64 {
+        let first = usize::try_from(sends.first).unwrap_or(usize::MAX).max(1);
+        let each = (sends.bytes.div_ceil(first), asked.div_ceil(first).max(1));
+        self.tokens_at_most(model, long, std::iter::repeat_n(each, first))
+    }
+
+    /// The requests `input` sends first and at most ([`Sends`]), before any
+    /// is sent.
+    pub fn sends(&self, input: EvaluationInput<'_>, model: Option<&str>) -> Sends {
+        batch::sends(input, model.unwrap_or(&self.model), self.provider)
+    }
+
+    /// The model catalog (clasify `models` output shape), read through the
+    /// same authenticated transport and gate.
+    pub async fn models(
+        &self,
+        budget: &RequestBudget,
+        gate: &GateLease,
+    ) -> Result<Value, ClassificationError> {
+        let key = self.credential()?;
+        transport::check_key(key)?;
+        let result = transport::get(
+            key,
+            transport::endpoint(&self.base_url, self.provider.defaults().models_path)?,
+            budget,
+            self.retries,
+            gate,
+        )
+        .await;
+        let (response, calls) = result?;
+        self.provider
+            .models(&response)
+            .map_err(|error| ClassificationError {
+                provider_calls: calls,
+                ..ClassificationError::invalid_response(error.message)
+            })
+    }
+}

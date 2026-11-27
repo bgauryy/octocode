@@ -1,0 +1,409 @@
+//! Generic JSON-schema validation.
+//!
+//! Tool-agnostic structural validation of a value against a (sub)schema:
+//! `$ref`/`not`/`oneOf`/`anyOf` resolution, `const`/`enum`, and the
+//! object/array/string/number/size checks. Union-branch selection lives in `super::union`.
+
+#[cfg(test)]
+pub(super) mod audit;
+mod checks;
+mod kinds;
+mod object;
+mod pattern;
+mod predicates;
+mod relationships;
+pub(crate) use pattern::pattern_matches;
+pub(crate) use relationships::tool_query_pair;
+mod scalar;
+use super::{ContractValidationError, issue, schema_issue, union};
+use kinds::declared_kind;
+#[cfg(test)]
+use kinds::known_type;
+use object::validate_object;
+pub(super) use object::{authored_property, missing_required_text, name_object_forms};
+use pattern::{compiled_pattern, describe_unreadable_pattern, pattern_message};
+use predicates::predicate_root;
+pub(super) use predicates::probe;
+use scalar::{check_size, validate_array, validate_number, validate_string};
+use serde_json::Value;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ValidationMode {
+    Input,
+    Output,
+    /// Output validation of a schema that declares no defaults: nothing is
+    /// ever written, so union branches and `not` probes check the value
+    /// itself instead of a copy.
+    ReadOnly,
+}
+
+pub(super) fn validate_schema(
+    root: &Value,
+    schema: &Value,
+    value: &mut Value,
+    path: &mut Vec<String>,
+) -> Result<(), ContractValidationError> {
+    validate_with_mode(root, schema, value, path, ValidationMode::Output)
+}
+
+/// [`validate_schema`] for a schema with no `default` anywhere: `value` is
+/// only read ([`ValidationMode::ReadOnly`]).
+pub(super) fn validate_read_only(
+    root: &Value,
+    schema: &Value,
+    value: &mut Value,
+    path: &mut Vec<String>,
+) -> Result<(), ContractValidationError> {
+    validate_with_mode(root, schema, value, path, ValidationMode::ReadOnly)
+}
+
+pub(super) fn validate_input_schema(
+    root: &Value,
+    schema: &Value,
+    value: &mut Value,
+    path: &mut Vec<String>,
+) -> Result<(), ContractValidationError> {
+    validate_with_mode(root, schema, value, path, ValidationMode::Input)
+}
+
+pub(super) fn validate_with_mode(
+    root: &Value,
+    schema: &Value,
+    value: &mut Value,
+    path: &mut Vec<String>,
+    mode: ValidationMode,
+) -> Result<(), ContractValidationError> {
+    validate_schema_with_ref_depth(root, schema, value, path, 0, mode)
+}
+
+/// JSON integers include 1.0 and 1e0; generated integer types need an integer
+/// representation. Only input positions declaring an integer normalize it.
+fn normalize_integer(schema: &Value, value: &mut Value) {
+    let integer = match schema.get("type") {
+        Some(Value::String(kind)) => kind == "integer",
+        Some(Value::Array(kinds)) => {
+            kinds.iter().any(|kind| kind == "integer") && !kinds.iter().any(|kind| kind == "number")
+        }
+        _ => false,
+    };
+    if !integer || !value.is_f64() {
+        return;
+    }
+    if let Value::Number(number) = value
+        && let Some(integer) = super::literals::integral_number(number)
+    {
+        *value = Value::Number(integer);
+    }
+}
+
+fn validate_schema_with_ref_depth(
+    root: &Value,
+    schema: &Value,
+    value: &mut Value,
+    path: &mut Vec<String>,
+    ref_depth: usize,
+    mode: ValidationMode,
+) -> Result<(), ContractValidationError> {
+    let keywords = match schema {
+        Value::Bool(true) => return Ok(()),
+        Value::Bool(false) => {
+            return Err(issue("schema.false", path.clone(), "Value is forbidden"));
+        }
+        Value::Object(keywords) => keywords,
+        _ => {
+            return Err(super::internal(
+                "Schema must be an object or boolean".into(),
+            ));
+        }
+    };
+    // Published rows frequently repeat unconstrained scalar fields. A matching
+    // JSON type satisfies the entire schema here. Mismatches take the normal
+    // diagnostic path and any sibling keyword takes full validation.
+    if mode == ValidationMode::ReadOnly
+        && keywords.len() == 1
+        && let Some(kind) = keywords.get("type").and_then(Value::as_str)
+        && match value {
+            Value::String(_) => kind == "string",
+            Value::Bool(_) => kind == "boolean",
+            Value::Null => kind == "null",
+            Value::Number(n) => {
+                kind == "number" || (kind == "integer" && (n.is_i64() || n.is_u64()))
+            }
+            _ => false,
+        }
+    {
+        return Ok(());
+    }
+    if mode == ValidationMode::Input {
+        normalize_integer(schema, value);
+    }
+    reject_forbidden(root, schema, value, path, mode)?;
+    if let Some(reference) = schema.get("$ref") {
+        let target = reference
+            .as_str()
+            .filter(|reference| reference.starts_with("#/$defs/"))
+            .and_then(|reference| {
+                root.pointer(&reference[1..]).or_else(|| {
+                    super::super::parsed_contract()
+                        .ok()
+                        .and_then(|contract| contract.pointer(&reference[1..]))
+                })
+            })
+            .filter(|_| ref_depth < 32)
+            .ok_or_else(|| {
+                issue(
+                    "schema.unsupported-ref",
+                    path.clone(),
+                    format!("Unresolved schema reference: {reference}"),
+                )
+            })?;
+        // Every reference in a chain can carry constraints of its own.
+        validate_schema_with_ref_depth(root, target, value, path, ref_depth + 1, mode)?;
+        if keywords.len() == 1 {
+            return Ok(());
+        }
+    }
+
+    // Preserve successful branch defaults, but retain enclosing field errors
+    // after a failed refinement so its discriminator remains diagnostic.
+    let union_issues = union_issues(root, schema, value, path, mode)?;
+
+    let mut intersection_issues = Vec::new();
+    if let Some(branches) = schema.get("allOf").and_then(Value::as_array) {
+        for branch in branches {
+            if let Err(error) =
+                validate_schema_with_ref_depth(root, branch, value, path, ref_depth, mode)
+            {
+                if error.is_contract_error() {
+                    return Err(error);
+                }
+                intersection_issues.extend(error.issues);
+            }
+        }
+    }
+
+    check_literals(schema, value, path)?;
+    let kind = declared_kind(schema, value, path)?;
+    let own = match kind {
+        Some("object") => validate_object(root, schema, value, path, mode),
+        Some("array") => validate_array(root, schema, value, path, mode),
+        Some("string") => validate_string(schema, value, path),
+        Some("integer") => validate_number(schema, value, path, true),
+        Some("number") => validate_number(schema, value, path, false),
+        Some("boolean") if !value.is_boolean() => Err(schema_issue(
+            "schema.type",
+            path.clone(),
+            match value.as_str() {
+                Some(text @ ("true" | "false")) => {
+                    format!("Expected boolean; send {text}, not \"{text}\"")
+                }
+                _ => "Expected boolean".to_owned(),
+            },
+            schema,
+            value,
+        )),
+        Some("null") if !value.is_null() => Err(schema_issue(
+            "schema.type",
+            path.clone(),
+            "Expected null",
+            schema,
+            value,
+        )),
+        Some("boolean" | "null") | None => Ok(()),
+        Some(other) => Err(issue(
+            "schema.unsupported-type",
+            path.clone(),
+            format!("Unsupported schema type: {other}"),
+        )),
+    };
+    let mut issues = own.err().map_or_else(Vec::new, |error| error.issues);
+    issues.extend(union_issues);
+    issues.extend(intersection_issues);
+    if issues.is_empty() {
+        relationships::validate(schema, value, path)?;
+        checks::validate(schema, value, path)?;
+    } else {
+        prefer_guidance(&mut issues, schema, value, path)?;
+    }
+    if issues.is_empty() {
+        Ok(())
+    } else {
+        Err(ContractValidationError { issues })
+    }
+}
+
+/// A field's own guidance (an `x-checks` message the contract authored for
+/// it) wins over the generic issues at or below that field: a one-level
+/// score scale reads "score criteria is an array of at least two levels…",
+/// not the bare minimum-length rule. A check that covers no issue here
+/// waits until the value's shape is valid.
+///
+/// A check judges a value of the shape its schema declares, so two issues
+/// are never its to explain: a wrong type at the check's own path (the
+/// assertion failed on a value of another kind), and an unknown field (the
+/// key the check found missing may be the one misspelt).
+fn prefer_guidance(
+    issues: &mut Vec<super::ValidationIssue>,
+    schema: &Value,
+    value: &mut Value,
+    path: &[String],
+) -> Result<(), ContractValidationError> {
+    let Err(guidance) = checks::validate(schema, value, path) else {
+        return Ok(());
+    };
+    if guidance.is_contract_error() {
+        return Err(guidance);
+    }
+    for check in guidance.issues {
+        // A selector of the checked object that does not match (`type`
+        // const or enum) says the value is another branch's: this branch's
+        // guidance is not its to explain, and hiding the mismatch would
+        // make this branch look like the closest.
+        let other_branch = issues.iter().any(|issue| {
+            matches!(issue.rule_id.as_str(), "schema.const" | "schema.enum")
+                && issue.path.len() == check.path.len() + 1
+                && issue.path.starts_with(&check.path)
+        });
+        if other_branch {
+            continue;
+        }
+        let before = issues.len();
+        issues.retain(|issue| {
+            !issue.path.starts_with(&check.path)
+                || issue.rule_id == "schema.unknown-field"
+                || (issue.rule_id == "schema.type" && issue.path == check.path)
+        });
+        if issues.len() < before {
+            issues.push(check);
+        }
+    }
+    Ok(())
+}
+
+/// Reject a value its schema's `not` accepts.
+fn reject_forbidden(
+    root: &Value,
+    schema: &Value,
+    value: &mut Value,
+    path: &[String],
+    mode: ValidationMode,
+) -> Result<(), ContractValidationError> {
+    let Some(forbidden) = schema.get("not") else {
+        return Ok(());
+    };
+    // Only acceptance matters here: probe speculatively, and an empty
+    // schema accepts every value without a copy.
+    let accepted = {
+        let _speculation = union::Speculation::enter();
+        if mode == ValidationMode::ReadOnly {
+            probe(validate_with_mode(
+                root,
+                forbidden,
+                value,
+                &mut path.to_vec(),
+                mode,
+            ))?
+        } else {
+            let mut candidate = value.clone();
+            probe(validate_with_mode(
+                root,
+                forbidden,
+                &mut candidate,
+                &mut path.to_vec(),
+                mode,
+            ))?
+        }
+    };
+    if accepted {
+        // `{"not":{}}` forbids the field outright in this variant; a
+        // description beside it says where the field belongs instead.
+        let message = if forbidden.as_object().is_some_and(serde_json::Map::is_empty) {
+            schema
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or("Field is not allowed in this variant")
+        } else {
+            "Value matches a forbidden schema"
+        };
+        return Err(issue("schema.not", path.to_vec(), message));
+    }
+    Ok(())
+}
+
+/// The issues of the value's `oneOf`/`anyOf` branches; a branch's pattern
+/// too long to read is described by the note of the field they belong to.
+fn union_issues(
+    root: &Value,
+    schema: &Value,
+    value: &mut Value,
+    path: &[String],
+    mode: ValidationMode,
+) -> Result<Vec<super::ValidationIssue>, ContractValidationError> {
+    let mut union_issues = Vec::new();
+    for (keyword, exclusive) in [("oneOf", true), ("anyOf", false)] {
+        if let Some(branches) = schema.get(keyword).and_then(Value::as_array)
+            && let Err(error) = union::validate(root, branches, exclusive, value, path, mode)
+        {
+            if error.is_contract_error() {
+                return Err(error);
+            }
+            union_issues.extend(error.issues);
+        }
+    }
+    // A branch's pattern too long to read falls back to the note of the
+    // field whose branches they are (`path`: a string or a list of them).
+    if let Some(note) = schema.get("description").and_then(Value::as_str) {
+        for item in &mut union_issues {
+            if item.path.starts_with(path)
+                && item.path[path.len()..]
+                    .iter()
+                    .all(|segment| segment.parse::<usize>().is_ok())
+            {
+                describe_unreadable_pattern(item, note);
+            }
+        }
+    }
+    Ok(union_issues)
+}
+
+/// Reject a value other than the schema's `const`, or outside its `enum`,
+/// naming what is allowed.
+fn check_literals(
+    schema: &Value,
+    value: &Value,
+    path: &[String],
+) -> Result<(), ContractValidationError> {
+    if let Some(constant) = schema.get("const")
+        && !super::literals::equivalent(value, constant)
+    {
+        // Name the expected constant so a wrong variant selector is
+        // self-correcting instead of a generic rejection.
+        let expected = constant
+            .as_str()
+            .map_or_else(|| constant.to_string(), str::to_owned);
+        return Err(schema_issue(
+            "schema.const",
+            path.to_vec(),
+            format!("Unexpected constant value; expected: {expected}"),
+            schema,
+            value,
+        ));
+    }
+    if let Some(values) = schema.get("enum").and_then(Value::as_array)
+        && !values
+            .iter()
+            .any(|expected| super::literals::equivalent(value, expected))
+    {
+        return Err(schema_issue(
+            "schema.enum",
+            path.to_vec(),
+            super::literals::enum_message(Some(value), values, schema.get("x-replacedValues")),
+            schema,
+            value,
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests;

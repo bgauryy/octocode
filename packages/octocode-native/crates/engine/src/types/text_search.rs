@@ -1,0 +1,562 @@
+//! Text search options, results and their enums.
+
+#[derive(Debug, Clone)]
+pub struct TextSearchMatch {
+    /// 1-based line number.
+    pub line: u32,
+    /// 1-based source line `value` starts at: `line`, or the first context
+    /// line the search joined before it.
+    pub first_line: u32,
+    /// The match's last line when it spans several (multiline mode); `None`
+    /// for a one-line match.
+    pub last_line: Option<u32>,
+    /// 0-based column offset of the first submatch.
+    pub column: u32,
+    /// 0-based byte offset of the first submatch within its line (UTF-8): where
+    /// a byte-window read of a long line starts at the match.
+    pub byte_offset: u32,
+    /// Byte length of the first submatch (UTF-8, counted as `byte_offset`
+    /// is): `byte_offset..byte_offset + match_len` is what the hit covers
+    /// of its line, through the line's end when the match runs past it. `0`
+    /// when the search enumerated no submatch.
+    pub match_len: u32,
+    /// Complete selected match and context window.
+    pub value: String,
+    /// Reconstruct this ordinary, context-free line from its source before
+    /// displaying it. `Some(0)` is unpriced; a positive value is the runtime's
+    /// exact redacted JSON row cost. Empty `value` is not the source text.
+    /// Nonempty values are retained redactions or a materialized page.
+    pub deferred: Option<u32>,
+    /// SHA-256 of the trimmed complete value for stable duplicate ranking.
+    pub value_digest: [u8; 32],
+    /// Frequency for this value when `count_unique` is enabled.
+    pub count: Option<u32>,
+    /// [`DECLARATION_RANK`] when the hit is the name a declaration
+    /// introduces, else `0`; read it by [`Self::is_declaration`]. `None`
+    /// for only-matching spans.
+    pub rank: Option<u32>,
+    /// The byte of its line `value` starts at, when `value` is a window of a
+    /// line too long for a row ([`RowWindow`]): the text around the hits it
+    /// holds, the first of them at `column` / `byte_offset`. `None`: `value`
+    /// is whole lines, or the span of an only-matching search.
+    pub window_start: Option<u32>,
+}
+
+/// The [`TextSearchMatch::rank`] of a hit that is a declared name.
+pub const DECLARATION_RANK: u32 = 3;
+
+impl TextSearchMatch {
+    /// Whether the hit is the name a declaration introduces.
+    pub fn is_declaration(&self) -> bool {
+        self.rank == Some(DECLARATION_RANK)
+    }
+
+    /// The identity digest of a match value (see `value_digest`): SHA-256 of
+    /// the value trimmed of surrounding whitespace. Every producer of a row
+    /// and every verifier that restates one uses this rule.
+    pub fn digest_of(value: &str) -> [u8; 32] {
+        use sha2::{Digest as _, Sha256};
+        Sha256::digest(value.trim().as_bytes()).into()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TextSearchFile {
+    pub path: String,
+    pub match_count: u32,
+    /// What the search counted in the file, whatever its view lists of it:
+    /// what the file adds to the search's totals.
+    pub counted: FileCounts,
+    pub matches: Vec<TextSearchMatch>,
+    /// The bytes this file's values came from, when the search was asked to
+    /// prove them ([`SourceValues::Hashed`]).
+    pub source: Option<SearchedSource>,
+    /// Per entry of [`TextSearchOptions::terms`], in order: its matches
+    /// (count-matches; each match counts for the first term that makes it)
+    /// or the matched lines holding it (count-lines). Empty unless a count
+    /// view searched two or more terms.
+    pub term_counts: Vec<u32>,
+    /// The time [`TextSearchOptions::sort`] ranked the file by (modified,
+    /// accessed or created), as the walk read it before the search did;
+    /// `None` under any other order.
+    pub sort_time: Option<std::time::SystemTime>,
+}
+
+/// What a search counted in one file ([`TextSearchFile::counted`]): its
+/// share of [`TextSearchStats::match_count`] and
+/// [`TextSearchStats::matched_lines`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FileCounts {
+    /// Occurrences (submatches).
+    pub occurrences: u32,
+    /// Matched lines; a match spanning several lines counts each.
+    pub lines: u32,
+    /// Masked secret spans in the text the file was searched as
+    /// ([`ServedText::masked_spans`]); counted for every searched file,
+    /// whatever the pattern.
+    pub masked: u32,
+}
+
+/// A searched file's identity, taken from the one read the search made.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SearchedSource {
+    /// Length of the opened file, equal to the bytes hashed.
+    pub size: u64,
+    /// Modification time of the opened file.
+    pub modified: Option<std::time::SystemTime>,
+    /// SHA-256 of every byte of the file, as the search read it.
+    pub digest: [u8; 32],
+    /// The file's lines ([`crate::text::LineCount`]), counted by the same
+    /// read; `None` for a UTF-16 file, whose lines are counted once decoded.
+    pub lines: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TextSearchStats {
+    pub match_count: Option<u32>,
+    /// Masked secret spans in every searched file's served text; present
+    /// only when the search asked for them ([`TextSearchOptions::count_masked`]).
+    pub masked_spans: Option<u32>,
+    pub matched_lines: Option<u32>,
+    pub files_matched: Option<u32>,
+    pub files_searched: Option<u32>,
+    pub bytes_searched: Option<i64>,
+    pub capped: Option<bool>,
+    /// The limits that ended the search early, in [`CapReason`] order; empty
+    /// when it covered its scope.
+    pub cap_reasons: Vec<CapReason>,
+    /// Traversal or per-file search failures; nonzero means incomplete coverage.
+    pub error_count: Option<u32>,
+    /// Bounded first failure detail. Counts include every observed failure.
+    pub first_error: Option<String>,
+    /// The share of `error_count` where a readable file failed in the regex
+    /// matcher (a PCRE2 match or JIT-stack limit), not in reading it.
+    pub pattern_error_count: Option<u32>,
+    /// The share of `error_count` where a file kept changing while it was
+    /// searched: no search of it read one version ([`crate::text::Settling`]).
+    pub changed_error_count: Option<u32>,
+    /// Kept files that grew while they were searched, in path order: their
+    /// hits are of the start of one version, as of the bytes the search read
+    /// ([`crate::text::Proved::Prefix`]); what was written after is unsearched.
+    pub grown_files: Option<Vec<GrownFile>>,
+    /// What a [`TestCodeScope`](super::test_code::TestCodeScope) left out; `None` without one.
+    pub test_code_excluded: Option<super::test_code::TestCodeExcluded>,
+    /// Files searched only up to their first NUL byte (`binaryQuit`) after
+    /// real text, every one in path order; `binary_file_count` counts them.
+    pub binary_files: Option<Vec<String>>,
+    pub binary_file_count: Option<u32>,
+    /// Matched files with a returned line that is not UTF-8, in path order:
+    /// their values are decoded text (Latin-1, or U+FFFD for invalid bytes,
+    /// as [`crate::text::Decoded::interior`] reads them), not verbatim bytes.
+    pub not_utf8_files: Option<Vec<String>>,
+    /// Matched files that start with a UTF-8 byte-order mark, in path
+    /// order: the search dropped it, as localFetch does, so line 1's
+    /// columns and byte offsets count the text after it.
+    pub utf8_bom_files: Option<Vec<String>>,
+    /// Files binary from their leading bytes (a NUL before any text, or
+    /// after a short header that matched nothing), skipped as opaque
+    /// binary. Nothing text-searchable was lost, so they are not a coverage gap.
+    pub skipped_binary_count: Option<u32>,
+    /// `skipped_binary_count` per lowercased extension ("" for none), most
+    /// files first.
+    pub skipped_binary_extensions: Option<Vec<BinaryExtensionCount>>,
+    /// Files with a match that `file_contains_all` / `file_contains_none`
+    /// removed: why a filtered search can come back empty.
+    pub file_terms_dropped: Option<u32>,
+    /// Non-empty directories at `max_depth` the walk did not enter: the
+    /// files below them were not searched.
+    pub depth_cut_dirs: Option<u32>,
+    /// Files the [`TextSearchOptions::line_scope`] left out unread, since
+    /// none can hold a kept line: why a scoped search can search nothing.
+    pub scope_left_out: Option<u32>,
+}
+
+/// A kept file that grew while it was searched ([`TextSearchStats::grown_files`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GrownFile {
+    pub path: String,
+    /// The bytes searched, from its start: one version's, as of this length.
+    pub bytes: u64,
+}
+
+/// A limit that ended a text search before it covered its scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CapReason {
+    /// A file over the byte ceiling was skipped.
+    MaxFileSize,
+    /// The caller stopped the search.
+    Cancelled,
+    /// A file was searched only up to its first NUL byte.
+    BinaryQuit,
+}
+
+impl CapReason {
+    /// The reason's wire name (`capReason`, `partialReasons`).
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::MaxFileSize => "fileTooLarge",
+            Self::Cancelled => "cancelled",
+            Self::BinaryQuit => "binaryQuit",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BinaryExtensionCount {
+    pub extension: String,
+    pub count: u32,
+    /// The extensionless group (`extension` "") names its files, sorted:
+    /// no extension filter can list them without listing text files too.
+    pub names: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TextSearchResult {
+    pub files: Vec<TextSearchFile>,
+    pub stats: TextSearchStats,
+}
+
+/// Resolved context around a search hit. Tool defaults and overrides are
+/// resolved by the caller; the engine and page layout share these bounds.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SearchContext {
+    pub before: u32,
+    pub after: u32,
+}
+
+impl SearchContext {
+    pub const fn symmetric(lines: u32) -> Self {
+        Self {
+            before: lines,
+            after: lines,
+        }
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.before == 0 && self.after == 0
+    }
+}
+
+/// Options for Octocode's in-process text search. Each field is one search
+/// behaviour; the CLI-style flags in field docs (`-C`, `-g`, `-t`) name the
+/// familiar equivalent.
+#[derive(Debug, Clone, Default)]
+pub struct TextSearchOptions {
+    /// Search root: a directory (recursive) or a single file.
+    pub path: String,
+    /// The search pattern (`matchString`).
+    pub pattern: String,
+    /// Keep only production code or only test code (see [`TestCodeScope`](super::test_code::TestCodeScope));
+    /// `None` searches both.
+    pub test_code: Option<super::test_code::TestCodeScope>,
+    /// Keep only hit lines a [`LineScope`](super::line_scope::LineScope)
+    /// names in each file; `None` keeps every line.
+    pub line_scope: Option<super::line_scope::LineScope>,
+    /// The alternatives `pattern` joins, in order, each a pattern of the same
+    /// syntax and case rule. With two or more, a count view counts each one
+    /// ([`TextSearchFile::term_counts`]).
+    pub terms: Option<Vec<String>>,
+
+    // ── match flags ──────────────────────────────────────────────────────────
+    /// How the pattern reads: literal text (`-F`), a Rust regex (default) or
+    /// a PCRE2 regex for lookaround/backreferences (`-P`).
+    pub syntax: PatternSyntax,
+    /// Smart-case (`-S`, default), case-sensitive (`-s`) or
+    /// case-insensitive (`-i`).
+    pub case: CaseRule,
+    /// Match whole words only (`-w`).
+    pub whole_word: Option<bool>,
+    /// Invert: report non-matching lines (`-v`).
+    pub invert_match: Option<bool>,
+    /// Multi-line mode: `.` and the pattern may span lines (`-U`).
+    pub multiline: Option<bool>,
+    /// In multi-line mode, let `.` match newlines (`--multiline-dotall`).
+    pub multiline_dotall: Option<bool>,
+
+    // ── output ───────────────────────────────────────────────────────────────
+    /// What each matched file reports.
+    pub output: SearchOutput,
+
+    // ── filters ──────────────────────────────────────────────────────────────
+    /// Context lines before and after each match (`-B`, `-A`).
+    pub context: SearchContext,
+    /// Restrict to a file type, e.g. `ts`, `py` (`-t`).
+    pub lang_type: Option<String>,
+    /// File-level AND: keep a matched file only when it also contains every
+    /// term (smart-case each: all-lowercase matches any case).
+    pub file_contains_all: Option<Vec<String>>,
+    /// File-level NOT: drop a matched file that contains any term.
+    pub file_contains_none: Option<Vec<String>>,
+    /// Include globs (`-g <glob>`).
+    pub include: Option<Vec<String>>,
+    /// Exclude globs (`-g !<glob>`).
+    pub exclude: Option<Vec<String>>,
+    /// Which ignore rules and dot entries the walk leaves out.
+    pub ignore: crate::types::IgnorePolicy,
+    /// The global ignore rules the walk applies, resolved from the call's
+    /// environment (the default reads the engine's own process).
+    pub global_ignore: crate::process_env::GlobalIgnore,
+    /// Maximum directory descent below the search root. `0` searches files
+    /// directly in the root, `1` includes one nested directory level, and so on.
+    pub max_depth: Option<u32>,
+
+    // ── ordering & result shaping ────────────────────────────────────────────
+    /// The order of the collected files.
+    pub sort: SearchSort,
+    /// Reverse the sort order (`--sortr`).
+    pub sort_reverse: Option<bool>,
+
+    /// Per-file byte ceiling: a file larger than this is skipped before it is
+    /// searched (surfaced as a `fileTooLarge` cap reason). `None` uses
+    /// [`DEFAULT_MAX_SEARCH_FILE_BYTES`](crate::search::text_search::DEFAULT_MAX_SEARCH_FILE_BYTES). Guards against OOM on pathological
+    /// multi-GB single-line files.
+    pub max_file_bytes: Option<u32>,
+    /// The bytes the search's collected evidence may hold before it is
+    /// refused ([`ErrorKind::ResourceExhausted`](crate::error::ErrorKind::ResourceExhausted)).
+    /// `None` is the process memory budget ([`crate::memory::MEMORY`]).
+    pub max_held_bytes: Option<usize>,
+    /// How values are kept and whether each kept file's bytes are hashed.
+    pub values: SourceValues,
+    /// What a [`SourceValues::Deferred`] search does with a line while its
+    /// bytes are in hand; `None` keeps only its anchors.
+    pub inspect_deferred: Option<DeferredInspector>,
+    /// Which matched lines a [`SearchOutput::Lines`] search shows as windows
+    /// around their hits; `None` shows every matched line whole.
+    pub row_window: Option<RowWindow>,
+    /// The text each file is searched as, in place of its bytes, when its
+    /// judge replaced any of them ([`SourceJudge`]); `None` searches every
+    /// file's bytes as they are. A file whose own bytes prove the text it
+    /// serves holds no match is not judged ([`JudgeWrites`]).
+    pub judge: Option<SourceJudge>,
+    /// Count the masked spans of every searched file
+    /// ([`TextSearchStats::masked_spans`]). The count must not depend on the
+    /// pattern, so no file is skipped by its pattern: every file is judged.
+    pub count_masked: bool,
+}
+
+/// The text a judge serves of one source in place of its bytes, line for
+/// line, and the byte ranges of that text it wrote rather than took from the
+/// source (ascending, disjoint): each placeholder, and the blanks a replaced
+/// value's line breaks fold to. What the search counts is the source's own
+/// text, never a placeholder, nor a byte a read withholds: a match that takes
+/// a written byte is a hit, count or listing only when it holds whatever was
+/// written there (it matches again with every written byte made a byte no
+/// placeholder spells), and no file-level term takes one.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ServedText {
+    pub text: Vec<u8>,
+    pub written: Vec<std::ops::Range<usize>>,
+}
+
+impl ServedText {
+    /// Masked spans in the text: the runs of touching written ranges.
+    #[must_use]
+    pub fn masked_spans(&self) -> u32 {
+        let mut spans = 0u32;
+        let mut end = None;
+        for range in &self.written {
+            if end != Some(range.start) {
+                spans = spans.saturating_add(1);
+            }
+            end = Some(range.end);
+        }
+        spans
+    }
+}
+
+/// What a search matches of one opened file: `Ok(Some(served))` when the
+/// judge replaced some of its bytes, the file's text as a read of it serves
+/// it ([`ServedText`]), so a hit's line is the file's line; `Ok(None)` when
+/// the bytes are searched as they are. An error leaves the file unsearched,
+/// recorded as a failed path. The judge is handed the file at its start, and
+/// the search reads it again from its start after. It is also handed whether
+/// the search was stopped (cancelled, or past its bound): a judge that works
+/// for long checks it and ends its work with an error.
+pub type JudgeSource = dyn Fn(
+        &std::path::Path,
+        &std::fs::File,
+        &(dyn Fn() -> bool + Sync),
+    ) -> std::io::Result<Option<ServedText>>
+    + Send
+    + Sync;
+
+/// Whether a match of `literal` could take text a [`JudgeSource`] writes or
+/// moves in place of a source's own bytes (compared ignoring case when
+/// `fold`): a match that cannot is the source's own bytes at their place, so
+/// a file whose bytes hold no match is searched without its judge.
+pub(super) type JudgeWrites = dyn Fn(&str, bool) -> bool + Send + Sync;
+
+/// [`JudgeSource`] of bytes already held: the start of one version of a file
+/// that grew while it was searched ([`crate::text::Proved::Prefix`]), served
+/// as the judge serves the file when it holds that file whole. `Some(served)`
+/// when it replaced some of them; `None` when they are searched as they are.
+pub type JudgeHeldSource = dyn Fn(&std::path::Path, &[u8]) -> Option<ServedText> + Send + Sync;
+
+/// A [`JudgeHeldSource`], for bytes of at most `limit`.
+#[derive(Clone)]
+pub struct JudgeHeld {
+    pub limit: u64,
+    pub serve: std::sync::Arc<JudgeHeldSource>,
+}
+
+/// A shared [`JudgeSource`], with what it writes ([`JudgeWrites`]), and its
+/// judgment of held bytes, when it has one: without it, a file that grew
+/// while it was searched is searched again until a search of it settles.
+#[derive(Clone)]
+pub struct SourceJudge {
+    pub serve: std::sync::Arc<JudgeSource>,
+    pub writes: std::sync::Arc<JudgeWrites>,
+    pub held: Option<JudgeHeld>,
+}
+
+impl std::fmt::Debug for SourceJudge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SourceJudge")
+    }
+}
+
+/// How a line search shows a matched line too long for a row: one row per
+/// window, each the line's text `margin` bytes on each side of a hit
+/// (overlapping and touching windows are one), with the byte it starts at
+/// ([`TextSearchMatch::window_start`]). A line whose windows join into the
+/// whole line is one whole-line row, as is a line without an enumerable hit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RowWindow {
+    /// A matched line of more bytes than this (its line break aside) is
+    /// shown as windows.
+    pub longer_than: usize,
+    /// Bytes shown on each side of a hit, inside its line.
+    pub margin: usize,
+}
+
+/// Decides one deferred line from the bytes the search read: it leaves the
+/// value empty, or the text to keep, and sets [`TextSearchMatch::deferred`] to
+/// the row's price, or `Some(0)` when the line needs a source re-read.
+pub type InspectDeferred = dyn Fn(&std::path::Path, &mut TextSearchMatch) + Send + Sync;
+
+/// A shared [`InspectDeferred`].
+#[derive(Clone)]
+pub struct DeferredInspector(pub std::sync::Arc<InspectDeferred>);
+
+impl std::fmt::Debug for DeferredInspector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DeferredInspector")
+    }
+}
+
+impl TextSearchOptions {
+    /// The same search over the same scope reporting `output`, without
+    /// context, digests or a ranked order: a bounded side search (a probe)
+    /// asks only which files or how many lines match.
+    pub fn probe(&self, output: SearchOutput) -> Self {
+        Self {
+            output,
+            context: SearchContext::default(),
+            sort: SearchSort::Path,
+            values: SourceValues::Owned,
+            inspect_deferred: None,
+            count_masked: false,
+            ..self.clone()
+        }
+    }
+}
+
+/// How a text search reads its pattern.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PatternSyntax {
+    /// Literal text (`-F`).
+    Literal,
+    /// A Rust regex: linear time, no lookaround.
+    #[default]
+    Regex,
+    /// A PCRE2 regex (`-P`): lookaround and backreferences, bounded by a
+    /// wall-clock deadline.
+    Pcre2,
+}
+
+/// How a text search compares letter case.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CaseRule {
+    /// Case-insensitive unless the pattern holds an uppercase letter (`-S`).
+    #[default]
+    Smart,
+    /// Case-sensitive (`-s`).
+    Sensitive,
+    /// Case-insensitive (`-i`).
+    Insensitive,
+}
+
+/// What a text search reports for each matched file.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SearchOutput {
+    /// The matching lines, with context.
+    #[default]
+    Lines,
+    /// One value per submatch, set to the matched span instead of the
+    /// whole line (`-o`): on a minified one-liner, line mode can only count
+    /// hits, this enumerates them.
+    Spans(SpanValues),
+    /// Only the paths of files that contain a match (`-l`).
+    FilesWithMatch,
+    /// Only the paths of files with no match (`--files-without-match`).
+    FilesWithoutMatch,
+    /// Per-file count of matching lines (`-c`).
+    CountLines,
+    /// Per-file count of individual matches (`--count-matches`).
+    CountMatches,
+}
+
+/// Which spans a [`SearchOutput::Spans`] search keeps per file.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SpanValues {
+    /// Every span.
+    #[default]
+    Every,
+    /// Each distinct value once, in first-occurrence order and anchor.
+    Unique,
+    /// Each distinct value once with its frequency, most frequent first.
+    Counted,
+}
+
+/// The order of a text search's collected files. Every key ends with the
+/// path, so the order is total and repeatable.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SearchSort {
+    /// Lexicographic by full path.
+    #[default]
+    Path,
+    /// The walk order: siblings by name, depth first (path components).
+    Traversal,
+    /// Most matches first.
+    MatchCount,
+    /// Ascending modification time.
+    Modified,
+    /// Ascending access time.
+    Accessed,
+    /// Ascending creation time.
+    Created,
+}
+
+/// How a text search keeps its values.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SourceValues {
+    /// Owned snippets; no file is hashed.
+    #[default]
+    Owned,
+    /// Owned snippets, and each kept file is hashed by a second whole-file
+    /// read right after its search and reported as
+    /// [`TextSearchFile::source`], so a caller can prove the values later
+    /// without reading the file again.
+    Hashed,
+    /// [`Self::Hashed`], keeping anchors and complete value digests instead
+    /// of owned snippets for ordinary context-free, single-line searches;
+    /// other views keep their owned values.
+    Deferred,
+}
+
+impl SourceValues {
+    /// Whether each kept file is hashed.
+    pub fn hashed(self) -> bool {
+        self != Self::Owned
+    }
+}

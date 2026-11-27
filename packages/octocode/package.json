@@ -1,39 +1,39 @@
 {
   "name": "octocode",
   "description": "Code research CLI for Octocode tools, local workspaces, GitHub repositories, LSP, and MCP setup",
-  "version": "18.3.0",
+  "version": "20.2.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
-  "bin": "./out/octocode.js",
+  "bin": "./out/octocode",
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
-    "@inquirer/prompts": "^8.5.2",
-    "@octocodeai/config": "18.0.1",
-    "@octocodeai/octocode-core": "18.2.0",
-    "@octocodeai/octocode-engine": "18.1.2",
-    "@octocodeai/octocode-tools-core": "18.1.2",
-    "@octokit/auth-oauth-device": "^8.0.3",
-    "@octokit/oauth-methods": "^6.0.2",
-    "@octokit/request": "^10.0.10",
-    "open": "^11.0.0"
+    "@typescript/native-preview": "7.0.0-dev.20260707.2"
+  },
+  "optionalDependencies": {
+    "@octocodeai/octocode-native-darwin-arm64": "20.2.0",
+    "@octocodeai/octocode-native-darwin-x64": "20.2.0",
+    "@octocodeai/octocode-native-linux-arm64-gnu": "20.2.0",
+    "@octocodeai/octocode-native-linux-arm64-musl": "20.2.0",
+    "@octocodeai/octocode-native-linux-x64-gnu": "20.2.0",
+    "@octocodeai/octocode-native-linux-x64-musl": "20.2.0",
+    "@octocodeai/octocode-native-win32-arm64-msvc": "20.2.0",
+    "@octocodeai/octocode-native-win32-x64-msvc": "20.2.0"
   },
   "devDependencies": {
-    "@types/node": "^25.9.3",
-    "@vitest/coverage-v8": "^4.1.9",
-    "esbuild": "^0.28.1",
-    "eslint": "^9.18.0",
-    "tsx": "^4.22.4",
-    "typescript": "^5.9.3",
-    "vitest": "^4.1.9",
-    "zod": "^4.4.3"
+    "@octocodeai/config": "workspace:*",
+    "@types/node": "^24.19.2",
+    "@vitest/coverage-v8": "^5.0.4",
+    "esbuild": "^0.28.2",
+    "prettier": "^3.9.10",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.4"
   },
   "engines": {
-    "node": ">=20.12.0"
+    "node": ">=22"
   },
   "files": [
     "out",
-    "docs/**",
+    "scripts/postinstall.mjs",
     "skills/**",
-    "assets/example.png",
     "README.md",
     "LICENSE"
   ],
@@ -54,29 +54,33 @@
     "zed"
   ],
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/bgauryy/octocode.git",
     "directory": "packages/octocode"
   },
   "scripts": {
-    "build": "yarn readme:sync && yarn lint && node build.mjs",
-    "release": "node ../../scripts/release.mjs --target cli",
-    "build:dev": "yarn readme:sync && yarn workspace @octocodeai/octocode-tools-core build:dev && node build.mjs",
-    "clean": "rm -rf out/",
-    "lint": "eslint src tests",
-    "lint:fix": "eslint src tests --fix",
-    "prepack": "yarn readme:sync && node scripts/check-no-workspace-protocol.mjs && node scripts/prepack.mjs",
-    "prepublishOnly": "node scripts/check-no-workspace-protocol.mjs",
-    "readme:sync": "node ../../scripts/sync-package-readmes.mjs .",
-    "start": "node ./out/octocode.js",
-    "test": "vitest run --coverage",
-    "test:quiet": "vitest run --reporter=dot --silent",
-    "test:watch": "vitest --watch",
-    "typecheck": "tsc --noEmit",
-    "validate:mcp": "npx tsx scripts/validate-mcp-registry.ts",
-    "validate:mcp:json": "npx tsx scripts/validate-mcp-registry.ts --json",
-    "verify": "yarn lint && yarn typecheck && yarn test && yarn validate:mcp"
+    "build": "node build.mjs && node ../../skills-dev/octocode-dev/scripts/package-build.mjs docs out",
+    "build:dev": "node build.mjs",
+    "clean": "rm -rf out/ coverage/",
+    "format": "prettier --write src tests",
+    "lint:own": "prettier --check src tests",
+    "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
+    "lint": "yarn lint:own && yarn lint:oxlint",
+    "postinstall": "node scripts/postinstall.mjs",
+    "prepack": "node scripts/prepack.mjs",
+    "test": "node ../../scripts/test-tmp.mjs vitest run",
+    "test:coverage": "node ../../scripts/test-tmp.mjs vitest run --coverage",
+    "typecheck": "yarn run -T tsgo --noEmit",
+    "verify:own": "yarn lint:own && yarn typecheck && yarn test:coverage",
+    "verify": "yarn verify:own && yarn lint:oxlint"
   },
-  "type": "module"
+  "type": "module",
+  "exports": {
+    "./native": "./out/native.js",
+    "./*": "./*"
+  }
 }

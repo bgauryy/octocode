@@ -1,0 +1,244 @@
+//! The impact report: affected rows, their order and the summary.
+use super::*;
+
+/// One edge a change flows back along.
+pub(super) struct Step {
+    pub(super) src: u32,
+    pub(super) kind: EdgeKind,
+    pub(super) detail: u32,
+    pub(super) line: u32,
+    pub(super) confidence: Confidence,
+    pub(super) types_only: bool,
+}
+
+/// Affected files as rows, sorted by distance (each carries its `depth` and
+/// `risk`; `byDepth` counts them), plus the summary and its lists. The tests
+/// to run are every test the change reaches, listed row or not.
+pub(super) fn report(
+    t: &GraphTables,
+    reached: &Reached<'_>,
+    seeds: &[u32],
+    global: &[(String, String)],
+    symbol_mode: bool,
+    depth_limited: bool,
+) -> (Value, Vec<Value>, Lists) {
+    let key = |id: u32| t.str(t.nodes[id as usize].key);
+    // Proven reach (a call, use or heritage edge bound to the change)
+    // before module-level candidates, as it outranks one in the walk; each
+    // by distance, then path.
+    let reached_files = |reach: &[Option<Reach>]| {
+        let mut files = t
+            .node_ids()
+            .filter(|id| t.nodes[*id as usize].kind == NodeKind::File)
+            .filter_map(|id| reach[id as usize].map(|r| (id, r)))
+            .collect::<Vec<_>>();
+        files.sort_by(|a, b| {
+            (a.1.candidate, a.1.depth, key(a.0)).cmp(&(b.1.candidate, b.1.depth, key(b.0)))
+        });
+        files
+    };
+    // A test-directory file a test file imports (or declares as a module),
+    // whose own name marks no test, is their support code: no test to run.
+    let helper = |file: u32| {
+        let name = key(file).rsplit('/').next().unwrap_or_default();
+        !octocode_engine::text::test_paths::is_test_path(name)
+            && t.incoming(file).any(|edge| {
+                matches!(edge.kind, EdgeKind::Imports | EdgeKind::Contains)
+                    && t.nodes[edge.src as usize].kind == NodeKind::File
+                    && t.nodes[edge.src as usize].flags & ROLE_TEST != 0
+            })
+    };
+    let files = reached_files(reached.listed);
+    let reach = reached.tests;
+    let component_of = t
+        .components
+        .iter()
+        .map(|(node, _, name, _)| (*node, t.str(*name)))
+        .collect::<BTreeMap<_, _>>();
+    let mut by_depth = BTreeMap::<u32, usize>::new();
+    let mut entries = Vec::new();
+    let mut tests = Vec::new();
+    let mut components = BTreeSet::new();
+    let mut rows = Vec::new();
+    for (id, r) in &files {
+        let flags = t.nodes[*id as usize].flags;
+        *by_depth.entry(r.depth).or_default() += 1;
+        if flags & ROLE_ENTRY != 0 {
+            entries.push(key(*id));
+        }
+        if let Some(name) = component_of.get(id) {
+            components.insert(*name);
+        }
+        rows.push(impact_row(t, *id, r, reached.listed, global));
+    }
+    for (id, _) in reached_files(reach) {
+        if t.nodes[id as usize].flags & ROLE_TEST != 0 && !helper(id) {
+            tests.push(key(id));
+        }
+    }
+    // Test functions reached (inline Rust test modules, pytest functions,
+    // functions in test files): the precise tests to run. A test is a
+    // function or method the runner calls and code does not: a test-code
+    // constant, or a function code calls, passes or uses, is support code
+    // (of anonymous `test("…", () => helper())` cases too).
+    let mut test_functions = t
+        .node_ids()
+        .filter(|id| {
+            let node = &t.nodes[*id as usize];
+            node.kind == NodeKind::Symbol
+                && node.flags & FLAG_TEST != 0
+                && reach[*id as usize].is_some()
+                && !(node.file != NONE && helper(node.file))
+                && matches!(t.str(node.detail), "function" | "method")
+                && !t.incoming(*id).any(|edge| {
+                    matches!(
+                        edge.kind,
+                        EdgeKind::Calls | EdgeKind::Passes | EdgeKind::Uses
+                    )
+                })
+        })
+        .map(|id| (reach[id as usize].map_or(0, |r| r.depth), id))
+        .collect::<Vec<_>>();
+    test_functions.sort_unstable_by(|a, b| (a.0, key(a.1)).cmp(&(b.0, key(b.1))));
+    // Each test file once, in reach order, with the test functions reached
+    // in it: a function's id is its file's key, `#`, and its name.
+    let mut grouped = tests
+        .iter()
+        .map(|file| (*file, Vec::new()))
+        .collect::<Vec<(&str, Vec<&str>)>>();
+    for (_, id) in &test_functions {
+        let file = key(t.nodes[*id as usize].file);
+        let name = key(*id)
+            .strip_prefix(file)
+            .and_then(|rest| rest.strip_prefix('#'))
+            .unwrap_or(key(*id));
+        match grouped.iter_mut().find(|(known, _)| *known == file) {
+            Some((_, functions)) => functions.push(name),
+            None => grouped.push((file, vec![name])),
+        }
+    }
+    // A changed file is its own depth-0 row; only the changed symbols and
+    // packages, which no row names, are listed here.
+    let seed_keys = seeds
+        .iter()
+        .filter(|id| t.nodes[**id as usize].kind != NodeKind::File)
+        .map(|id| key(*id))
+        .collect::<Vec<_>>();
+    let mut summary = json!({
+        "changed": seed_keys,
+        "configChanges": global.iter().map(|(dir, file)| json!({"path": file, "scope": if dir.is_empty() { "." } else { dir.as_str() }})).collect::<Vec<_>>(),
+        "precision": if symbol_mode && global.is_empty() { "symbol" } else { "file" },
+        "allAffected": global.iter().any(|(dir, _)| dir.is_empty()),
+        "byDepth": by_depth,
+        "affectedEntrypoints": entries.len(),
+        "testsToRun": grouped.len(),
+        "testFunctions": test_functions.len(),
+        "components": components,
+        "depthLimited": depth_limited,
+    });
+    if seed_keys.is_empty()
+        && let Some(fields) = summary.as_object_mut()
+    {
+        fields.remove("changed");
+    }
+    let tests = grouped
+        .into_iter()
+        .map(|(file, functions)| {
+            let mut row = json!({"path": file});
+            if !functions.is_empty() {
+                row["functions"] = json!(functions);
+            }
+            row
+        })
+        .collect();
+    let lists = Lists {
+        entrypoints: entries.into_iter().map(|file| json!(file)).collect(),
+        tests,
+    };
+    (summary, rows, lists)
+}
+
+/// One affected file: its distance, risk bucket, and the edge that reached
+/// it. A file reached because one of its declarations is affected names the
+/// edge that reached that declaration (the call, use or heritage), not the
+/// declaration's membership in the file. A file a config change covers is
+/// `via:"config"`, its `config` naming that config file (no node).
+pub(super) fn impact_row(
+    t: &GraphTables,
+    id: u32,
+    r: &Reach,
+    reach: &[Option<Reach>],
+    global: &[(String, String)],
+) -> Value {
+    let key = |id: u32| t.str(t.nodes[id as usize].key);
+    let flags = t.nodes[id as usize].flags;
+    // GitNexus-style buckets: d1 depends directly (inspect first; not proof of
+    // breakage), d2 likely affected, d3+ test;
+    // a module-level candidate binds no linked changed name, so it is no
+    // breakage until a reference proves it.
+    let risk = match r.depth {
+        _ if r.candidate => "candidate",
+        0 => "changed",
+        1 => "direct",
+        2 => "likely",
+        _ => "transitive",
+    };
+    let mut row = json!({
+        "id": key(id),
+        "depth": r.depth,
+        "risk": risk,
+        "confidence": r.confidence.as_str(),
+    });
+    if r.package_depth > 0 {
+        row["packageDistance"] = json!(r.package_depth);
+    }
+    let via = match r.via {
+        Some(Via {
+            from: member,
+            kind: EdgeKind::Contains,
+            detail: NONE,
+            ..
+        }) if t.nodes[member as usize].kind == NodeKind::Symbol
+            && t.nodes[member as usize].file == id =>
+        {
+            reach[member as usize]
+                .and_then(|member| member.via)
+                .or(r.via)
+        }
+        via => via,
+    };
+    match via {
+        None => {
+            if let Some((_, config)) = r.config.and_then(|index| global.get(index)) {
+                row["via"] = json!("config");
+                row["config"] = json!(config);
+            } else {
+                row["via"] = json!("changed");
+            }
+        }
+        Some(Via {
+            from,
+            kind,
+            detail,
+            line,
+        }) => {
+            if line != NONE {
+                row["edgeLine"] = json!(line);
+            }
+            row["from"] = json!(key(from));
+            row["via"] = json!(if detail == NONE {
+                kind.as_str().to_owned()
+            } else {
+                format!("{}:{}", kind.as_str(), t.str(detail))
+            });
+        }
+    }
+    if r.types_only {
+        row["typesOnly"] = json!(true);
+    }
+    let roles = role_names(flags);
+    if !roles.is_empty() {
+        row["roles"] = json!(roles);
+    }
+    row
+}

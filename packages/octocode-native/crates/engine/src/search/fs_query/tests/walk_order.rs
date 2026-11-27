@@ -1,0 +1,297 @@
+//! Walk order, cancellation, and directories read ahead.
+
+use super::*;
+use crate::search::walk::read_ahead::{self, ReadAhead};
+
+#[test]
+fn deep_recursion_terminates_and_finds_leaf() {
+    // Recursion past several levels must complete (and stay bounded by the
+    // depth ceiling) rather than risk a stack overflow.
+    let root = TmpDir::new();
+    let mut p = root.0.clone();
+    for i in 0..12 {
+        p = p.join(format!("d{i}"));
+    }
+    fs::create_dir_all(&p).expect("deep dirs");
+    File::create(p.join("leaf.ts")).expect("leaf");
+
+    let result = query_file_system_inner(FileSystemQueryOptions {
+        path: root.to_string_lossy().to_string(),
+        names: Some(vec!["leaf.ts".to_owned()]),
+        recursive: Some(true),
+        ..Default::default()
+    })
+    .expect("query");
+
+    assert_eq!(result.entries.len(), 1);
+    assert_eq!(result.entries[0].name, "leaf.ts");
+}
+
+#[test]
+fn walk_children_yields_deterministic_sorted_order() {
+    // `fs::read_dir` yields entries in raw OS order; the walk must sort
+    // them so output is deterministic across runs and sorted within a dir.
+    let root = TmpDir::new();
+    for name in ["z.txt", "a.txt", "m.txt", "b.txt"] {
+        File::create(root.join(name)).expect("create root file");
+    }
+    fs::create_dir_all(root.join("sub")).expect("create sub");
+    for name in ["y.txt", "c.txt"] {
+        File::create(root.join("sub").join(name)).expect("create sub file");
+    }
+    let run = || {
+        query_file_system_inner(FileSystemQueryOptions {
+            path: root.to_string_lossy().to_string(),
+            recursive: Some(true),
+            entry_type: Some(EntryType::File),
+            ..Default::default()
+        })
+        .expect("query")
+        .entries
+        .into_iter()
+        .map(|entry| entry.relative_path)
+        .collect::<Vec<_>>()
+    };
+    let first = run();
+    for _ in 0..5 {
+        assert_eq!(run(), first, "fs query order must be deterministic");
+    }
+    // Files directly under the root are emitted in sorted order.
+    let root_files: Vec<&str> = first
+        .iter()
+        .filter(|p| !p.contains('/') && !p.contains('\\'))
+        .map(String::as_str)
+        .collect();
+    let mut sorted = root_files.clone();
+    sorted.sort_unstable();
+    assert_eq!(root_files, sorted);
+}
+
+#[test]
+fn a_stopped_walk_is_cancelled() {
+    let root = TmpDir::new();
+    File::create(root.join("a.ts")).expect("a");
+    let error = query_file_system(
+        FileSystemQueryOptions {
+            path: root.to_string_lossy().to_string(),
+            ..Default::default()
+        },
+        &|_, _, _| true,
+        &|| true,
+    )
+    .expect_err("stopped");
+    assert_eq!(*error.kind(), ErrorKind::Cancelled);
+}
+
+/// A walk past [`read_ahead::START_AFTER_DIRECTORIES`] directories reads the
+/// next ones ahead: it still lists every entry once, in name order, with
+/// consecutive walk positions, and nothing under a directory its policy
+/// callback leaves out.
+#[test]
+fn a_walk_reading_ahead_lists_every_entry_once_in_name_order() {
+    let root = TmpDir::new();
+    let mut expected = Vec::new();
+    for dir in 0..3 * read_ahead::START_AFTER_DIRECTORIES {
+        let kept = if dir % 5 == 0 { "denied" } else { "d" };
+        let dir = root.join(format!("{kept}{dir:02}"));
+        for sub in ["a", "b"] {
+            fs::create_dir_all(dir.join(sub)).expect("dirs");
+            File::create(dir.join(sub).join("f.ts")).expect("file");
+        }
+    }
+    let mut walk = vec![root.0.clone()];
+    while let Some(dir) = walk.pop() {
+        let mut children = fs::read_dir(&dir)
+            .expect("dir")
+            .map(|entry| entry.expect("entry").path())
+            .collect::<Vec<_>>();
+        children.sort();
+        for child in children.iter().rev() {
+            if child.is_dir() && !display(child).starts_with("denied") {
+                walk.push(child.clone());
+            }
+        }
+        expected.extend(
+            children
+                .iter()
+                .filter(|child| !display(child).starts_with("denied"))
+                .map(|child| child.strip_prefix(&root.0).expect("below").to_path_buf()),
+        );
+    }
+    expected.sort();
+    let result = query_file_system(
+        FileSystemQueryOptions {
+            path: root.to_string_lossy().to_string(),
+            recursive: Some(true),
+            ..Default::default()
+        },
+        &|path, _, _| !display(path).starts_with("denied"),
+        &|| false,
+    )
+    .expect("query");
+    let listed = result
+        .entries
+        .iter()
+        .map(|entry| PathBuf::from(&entry.relative_path))
+        .collect::<Vec<_>>();
+    let mut sorted = listed.clone();
+    sorted.sort();
+    assert_eq!(listed, sorted, "walk order is name order");
+    assert_eq!(listed, expected);
+    let positions = result
+        .entries
+        .iter()
+        .map(|entry| entry.walk_position)
+        .collect::<Vec<_>>();
+    assert!(
+        positions.windows(2).all(|pair| pair[0] < pair[1]),
+        "{positions:?}"
+    );
+}
+
+fn display(path: &Path) -> String {
+    path.file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// A directory read ahead is taken once, read as the walk reads it; one the
+/// walk left out is dropped and never taken.
+#[test]
+fn a_listing_read_ahead_is_taken_once_or_dropped() {
+    let root = TmpDir::new();
+    for dir in ["a", "b"] {
+        fs::create_dir_all(root.join(dir)).expect("dir");
+        File::create(root.join(dir).join("f.ts")).expect("file");
+    }
+    let ahead =
+        ReadAhead::start(crate::cpu::host().share(), read_ahead::Detail::Stamped).expect("workers");
+    ahead.queue(
+        [root.join("a"), root.join("b")]
+            .into_iter()
+            .map(read_ahead::Key::from),
+    );
+    // A read no worker has begun is the walk's own: let one finish first.
+    ahead.wait_until_read(&root.join("a"));
+    let read_ahead::Taken::Read(taken) = ahead.take(&root.join("a"), None) else {
+        panic!("read ahead");
+    };
+    let (children, errors) = taken.entries.expect("listing");
+    assert!(errors.is_empty());
+    assert_eq!(
+        children
+            .iter()
+            .map(|child| child.name.clone())
+            .collect::<Vec<_>>(),
+        ["f.ts"]
+    );
+    assert!(taken.read_at.is_some());
+    assert!(
+        matches!(
+            ahead.take(&root.join("a"), None),
+            read_ahead::Taken::NotQueued
+        ),
+        "taken once"
+    );
+    ahead.drop_unused(&root.join("b"));
+    assert!(
+        matches!(
+            ahead.take(&root.join("b"), None),
+            read_ahead::Taken::NotQueued
+        ),
+        "dropped"
+    );
+}
+
+/// Read-ahead reads what the walk will enter: a dot directory out of view or
+/// an ignored one (a build tree can hold hundreds of thousands of entries) is
+/// never read, by the walk or ahead of it.
+#[test]
+fn a_walk_never_reads_ahead_what_its_rules_leave_out() {
+    let root = TmpDir::new();
+    for index in 0..40 {
+        // `-` sorts before `.`, so these come before the dot directory.
+        fs::create_dir(root.join(format!("-d{index:02}"))).expect("dir");
+    }
+    fs::create_dir(root.join(".hidden")).expect("dot dir");
+    fs::create_dir(root.join("zignored")).expect("ignored dir");
+    fs::write(root.join(".ignore"), "zignored\n").expect("rules");
+    query_file_system_inner(FileSystemQueryOptions {
+        path: root.to_string_lossy().into_owned(),
+        ..Default::default()
+    })
+    .expect("query");
+    let queued = read_ahead::queued_under(&root);
+    assert!(!queued.is_empty(), "the walk queued what it will enter");
+    assert!(
+        queued
+            .iter()
+            .all(|dir| !dir.ends_with(".hidden") && !dir.ends_with("zignored")),
+        "{queued:?}"
+    );
+}
+
+/// A directory with subdirectories has them read ahead as soon as it is
+/// entered, its first one included, while no walk waits for a read not begun.
+#[test]
+fn a_walk_reads_ahead_the_first_child_of_a_directory_too() {
+    let root = TmpDir::new();
+    for index in 0..20 {
+        fs::create_dir_all(root.join(format!("d{index:02}/first/deep"))).expect("dirs");
+    }
+    let found = query_file_system_inner(FileSystemQueryOptions {
+        path: root.to_string_lossy().into_owned(),
+        ..Default::default()
+    })
+    .expect("query");
+    assert_eq!(found.entries.len(), 60, "every entry once");
+    let queued = read_ahead::queued_under(&root);
+    assert!(
+        queued.iter().any(|dir| dir.ends_with("first")),
+        "a first child was left to the walk: {queued:?}"
+    );
+}
+
+/// A flat directory of many subdirectories is never read whole ahead: the
+/// listings held, read or under way, stay within what the workers may hold,
+/// and the walk still takes every one of them, read ahead or by itself.
+#[test]
+fn read_ahead_holds_no_more_listings_than_its_bound() {
+    let root = TmpDir::new();
+    let dirs = (0..400)
+        .map(|index| {
+            let dir = root.join(format!("d{index:03}"));
+            fs::create_dir_all(&dir).expect("dir");
+            File::create(dir.join("f.ts")).expect("file");
+            dir
+        })
+        .collect::<Vec<_>>();
+    let ahead =
+        ReadAhead::start(crate::cpu::host().share(), read_ahead::Detail::Stamped).expect("workers");
+    ahead.queue(dirs.iter().cloned().map(read_ahead::Key::from));
+    assert!(
+        ahead.queued_len() <= ahead.held_peak_and_limit().1,
+        "the queue is bounded too"
+    );
+    // Let the workers read as much as they may.
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let (peak, limit) = ahead.held_peak_and_limit();
+    assert!(peak <= limit, "{peak} listings held ahead, bound {limit}");
+    let mut read = 0;
+    for dir in &dirs {
+        match ahead.take(dir, None) {
+            read_ahead::Taken::Read(listing) => {
+                assert!(listing.entries.is_ok());
+                read += 1;
+            }
+            read_ahead::Taken::NotQueued => {
+                assert!(read_ahead::read_listing(dir).entries.is_ok());
+            }
+            read_ahead::Taken::Late => panic!("no deadline"),
+        }
+    }
+    assert!(read > 0, "the walk found listings read ahead");
+    let (peak, limit) = ahead.held_peak_and_limit();
+    assert!(peak <= limit, "{peak} listings held ahead, bound {limit}");
+}

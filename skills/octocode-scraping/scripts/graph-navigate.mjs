@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-import { resolve } from 'node:path';
-import { readJson as readJsonFile, takeArg } from './lib/bridge.mjs';
+import { paginate } from './lib/pagination.mjs';
+import { fileURLToPath } from 'node:url';
+import { resolve, join } from 'node:path';
+import { readJson, takeArg, requireSession } from './lib/bridge.mjs';
 
 function usage(code = 2) {
-  console.error('Usage: graph-navigate.mjs --session-dir <dir> [--from <nodeId>] [--kind <edgeKind>] [--workflow <type>] [--risk <risk>] [--limit <n>] [--no-dedupe]');
+  console.error('Usage: graph-navigate.mjs --session-dir <dir> [--from <nodeId>] [--kind <edgeKind>] [--workflow <type>] [--risk <risk>] [--limit <n>] [--view <list>] [--cursor-<list> <n>] [--dedupe]');
   process.exit(code);
 }
 const args = process.argv.slice(2);
@@ -12,20 +14,21 @@ if (args.includes('--help') || args.includes('-h')) usage(0);
 const sessionDir = take('--session-dir');
 if (!sessionDir) usage();
 const dir = resolve(sessionDir);
+requireSession(dir);
 const from = take('--from');
 const kind = take('--kind');
 const workflow = take('--workflow');
 const risk = take('--risk');
-const dedupe = !args.includes('--no-dedupe');
+const dedupe = args.includes('--dedupe');
 const limit = Number(take('--limit') || 50);
-const graph = await readJsonFile(dir, 'graph/graph.json', { nodes: [], edges: [], totals: {} });
+const graph = await readJson(dir, 'graph/graph.json', { nodes: [], edges: [], totals: {} });
 const nodeById = new Map((graph.nodes || []).map((n) => [n.id, n]));
 let edges = graph.edges || [];
 if (from) edges = edges.filter((e) => e.from === from);
 if (kind) edges = edges.filter((e) => e.kind === kind);
 if (workflow) edges = edges.filter((e) => e.workflowType === workflow);
 if (risk) edges = edges.filter((e) => e.risk === risk);
-const sortedEdges = edges.sort((a, b) => (b.score || 0) - (a.score || 0));
+const sortedEdges = edges.toSorted((a, b) => (b.score || 0) - (a.score || 0));
 const selectedEdges = [];
 const seen = new Set();
 for (const edge of sortedEdges) {
@@ -34,7 +37,7 @@ for (const edge of sortedEdges) {
   if (dedupe && seen.has(key)) continue;
   seen.add(key);
   selectedEdges.push(edge);
-  if (selectedEdges.length >= limit) break;
+
 }
 const routes = selectedEdges.map((e) => {
   const source = nodeById.get(e.from) || {};
@@ -55,5 +58,6 @@ const routes = selectedEdges.map((e) => {
     evidence: e.source || null
   };
 });
-const actionNodes = (graph.nodes || []).filter((n) => ['form', 'input', 'button', 'table', 'pagination'].includes(n.kind)).slice(0, limit);
-console.log(JSON.stringify({ ok: true, sessionDir: dir, filters: { from: from || null, kind: kind || null, workflow: workflow || null, risk: risk || null, dedupe }, totals: graph.totals || {}, routes, actionNodes, next: ['graph/graph.json', 'graph/site-graph.json', 'graph/workflows.json', 'indexes/top-links.jsonl', 'indexes/workflow-candidates.jsonl'] }, null, 2));
+const actionNodes = (graph.nodes || []).filter((n) => ['form', 'input', 'button', 'table', 'pagination'].includes(n.kind));
+const paging = await paginate({ lists: { routes, actionNodes }, files: ["graph/graph.json"].map(p => join(dir, p)), dir, args, script: fileURLToPath(import.meta.url), defaultLimit: limit });
+console.log(JSON.stringify({ ok: true, sessionDir: dir, filters: { from: from || null, kind: kind || null, workflow: workflow || null, risk: risk || null, dedupe }, totals: graph.totals || {}, ...paging, sources: ['graph/graph.json', 'graph/site-graph.json', 'graph/workflows.json', 'indexes/top-links.jsonl', 'indexes/workflow-candidates.jsonl'] }, null, 2));

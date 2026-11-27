@@ -1,0 +1,154 @@
+use super::{package_page, test_registry, validate_registry, validate_resolved_addresses};
+use crate::artifact::query::artifact_query;
+use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
+use std::net::SocketAddr;
+
+fn npm_query(registry: Option<&str>) -> ArtifactSearchQuery {
+    artifact_query(
+        serde_json::json!({"operation":"resolve","ecosystem": ArtifactType::Npm, "packageName": "left-pad".to_string(), "registryUrl": registry.map(str::to_owned)}),
+        None,
+    )
+}
+
+/// The refusal of a host the network policy keeps out: no other input
+/// fixes it, so its class is `refused`, as the same policy's refusal of a
+/// page URL is; only the setting its message names permits the host.
+const REFUSED: ErrorCode = ErrorCode::SecurityValidationFailed;
+
+#[test]
+fn a_refused_registry_host_is_a_refusal_not_an_input_to_correct() {
+    use octocode_runtime_base::id::error_codes::{ErrorClass, class};
+    assert_eq!(class(REFUSED), ErrorClass::Refused);
+    let error = validate_registry(
+        &npm_query(Some("http://localhost:4873/")),
+        &test_registry("http://localhost:4873/"),
+        false,
+    )
+    .expect_err("refused");
+    assert_eq!(class(error.code), ErrorClass::Refused, "{}", error.message);
+}
+
+#[test]
+fn rejects_link_local_metadata_registry() {
+    let registry = test_registry("http://169.254.169.254");
+    let query = npm_query(Some("http://169.254.169.254"));
+    let err = validate_registry(&query, &registry, false).expect_err("must reject link-local host");
+    // The opt-in escape hatch permits the same host.
+    assert!(validate_registry(&query, &registry, true).is_ok());
+    assert_eq!(err.code, REFUSED);
+}
+
+/// A custom registry is held to the shared outbound-address policy
+/// ([`octocode_runtime_base::policy::network::is_public`]): an address that is internal,
+/// reserved, or tunnels one is refused, as a literal host or a DNS answer.
+#[test]
+fn a_registry_must_resolve_to_a_public_address() {
+    for internal in [
+        "127.0.0.1",
+        "10.0.0.5",
+        "169.254.169.254",
+        "100.64.0.1",
+        "224.0.0.1",
+        "192.0.2.1",
+        "[::1]",
+        "[fc00::1]",
+        "[64:ff9b::a00:1]",
+        "[2002:c0a8:101::1]",
+    ] {
+        let url = format!("https://{internal}/");
+        let error =
+            validate_registry(&npm_query(Some(&url)), &test_registry(&url), false).expect_err(&url);
+        assert_eq!(error.code, REFUSED, "{url}");
+        let ip = internal.trim_matches(['[', ']']).parse().expect("address");
+        assert!(
+            validate_resolved_addresses("registry.example.org", &[SocketAddr::new(ip, 443)])
+                .is_err()
+        );
+    }
+    let public = "https://104.16.0.1/";
+    assert!(validate_registry(&npm_query(Some(public)), &test_registry(public), false).is_ok());
+}
+
+/// `localhost` names are refused by name, before DNS: a resolver may map
+/// a `*.localhost` name anywhere (RFC 6761 only says it should not).
+#[test]
+fn a_registry_named_localhost_is_refused_without_resolving_it() {
+    for url in [
+        "http://localhost:4873/",
+        "https://LOCALHOST./",
+        "http://verdaccio.localhost/",
+        "https://a.localhost./",
+    ] {
+        let error =
+            validate_registry(&npm_query(Some(url)), &test_registry(url), false).expect_err(url);
+        assert_eq!(error.code, REFUSED, "{url}");
+        assert!(validate_registry(&npm_query(Some(url)), &test_registry(url), true).is_ok());
+    }
+}
+
+/// The refusal names only the host as given: never a resolved address, and
+/// the same refusal whether the name does not resolve (RFC 6761: `.invalid`
+/// never does) or names a private address, so a caller cannot map an
+/// internal network through it.
+#[test]
+fn an_unresolvable_or_private_registry_gets_one_refusal_naming_the_host() {
+    let refusal = |url: &str| {
+        validate_registry(&npm_query(Some(url)), &test_registry(url), false).expect_err(url)
+    };
+    let unresolvable = refusal("https://registry.example.invalid/");
+    let private = refusal("https://10.0.0.5/");
+    for (error, host) in [
+        (&unresolvable, "registry.example.invalid"),
+        (&private, "10.0.0.5"),
+    ] {
+        assert_eq!(error.code, REFUSED, "{}", error.message);
+        assert!(error.message.contains(host), "{}", error.message);
+        assert!(
+            error.message.contains("network.allowPrivateRegistry"),
+            "{}",
+            error.message
+        );
+    }
+    assert_eq!(
+        unresolvable
+            .message
+            .replace("registry.example.invalid", "HOST"),
+        private.message.replace("10.0.0.5", "HOST")
+    );
+}
+
+#[test]
+fn rejects_mixed_public_private_dns_answers() {
+    let addresses = [
+        SocketAddr::from(([104, 16, 0, 1], 443)),
+        SocketAddr::from(([127, 0, 0, 1], 443)),
+    ];
+    let host = "registry.example.org";
+    let error = validate_resolved_addresses(host, &addresses)
+        .expect_err("one blocked answer must reject the complete DNS result");
+    assert_eq!(error.code, REFUSED);
+    assert!(error.message.contains(host), "{}", error.message);
+    assert!(!error.message.contains("127.0.0.1"), "{}", error.message);
+    assert_eq!(
+        validate_resolved_addresses(host, &[]).expect_err("no address"),
+        error,
+        "an empty answer is refused like a private one"
+    );
+    assert!(validate_resolved_addresses(host, &[addresses[0]]).is_ok());
+}
+
+/// npmjs.com's page belongs to the public registry: a package read from a
+/// configured registry keeps that registry's address, which npmjs.com may
+/// not have.
+#[test]
+fn the_package_page_is_npmjs_only_for_the_public_registry() {
+    assert_eq!(
+        package_page(&test_registry("https://registry.npmjs.org/"), "@babel/core"),
+        "https://www.npmjs.com/package/@babel/core"
+    );
+    let private = package_page(&test_registry("https://npm.example.com/repo/"), "@acme/kit");
+    assert!(
+        private.starts_with("https://npm.example.com/repo/") && !private.contains("npmjs"),
+        "{private}"
+    );
+}

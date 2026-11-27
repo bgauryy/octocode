@@ -1,0 +1,118 @@
+[package]
+name = "octocode-engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Rust native Octocode engine for context compression, structural search, and LSP semantic navigation"
+license.workspace = true
+repository.workspace = true
+keywords = ["llm", "context", "lsp", "search"]
+categories = ["development-tools", "text-processing"]
+
+# These are source-text inputs read by minify::differential_tests, not Rust modules.
+[package.metadata.cargo-shear]
+ignored-paths = ["src/minify/fixtures/*.rs"]
+
+# No doctests: nextest runs the tests (crates/runtime/Cargo.toml).
+[lib]
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+lru = { workspace = true }
+octocode-io = { path = "../io" }
+aho-corasick = "1"
+grep-matcher = "0.1.9"
+grep-pcre2 = "0.1.10"
+grep-regex = "0.1.14"
+grep-searcher = "0.1.17"
+globset = { workspace = true }
+hex = { workspace = true }
+ignore = { workspace = true }
+memchr = { workspace = true }
+oxc_allocator = "=0.154.0"
+oxc_ast = "=0.154.0"
+oxc_ast_visit = "=0.154.0"
+oxc_parser = "=0.154.0"
+oxc_semantic = "=0.154.0"
+oxc_span = "=0.154.0"
+rayon = "1"
+regex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
+toml = { workspace = true }
+tree-sitter = "0.27"
+tree-sitter-asm = { version = "0.24", optional = true }
+tree-sitter-c = "0.24"
+tree-sitter-css = "0.25"
+tree-sitter-c-sharp = { version = "0.23", optional = true }
+tree-sitter-cpp = { version = "0.23", optional = true }
+tree-sitter-cuda = { version = "0.21.2", optional = true }
+tree-sitter-go = "0.25"
+tree-sitter-java = "0.23"
+tree-sitter-javascript = "0.25"
+tree-sitter-python = "0.25"
+tree-sitter-rust = "0.24.2"
+tree-sitter-scala = { version = "0.26", optional = true }
+tree-sitter-scss = "1"
+tree-sitter-typescript = "0.23"
+url = { workspace = true }
+regex-syntax = "0.8"
+which = "8"
+
+# The secret detector's prescan gate is extracted from the pattern table at build time.
+[build-dependencies]
+regex-syntax = "0.8"
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_SystemInformation", "Win32_System_Threading"] }
+# A language server's stderr is read through an overlapped named pipe.
+tokio = { workspace = true, features = ["net"] }
+
+[dev-dependencies]
+octocode-test-support = { path = "../test-support" }
+criterion = { version = "0.8" }
+proptest = "1"
+tempfile = { workspace = true }
+
+[[bench]]
+name = "structural"
+harness = false
+
+[[bench]]
+name = "search"
+harness = false
+
+[[bench]]
+name = "minify"
+harness = false
+
+[[bench]]
+name = "graph"
+harness = false
+
+[features]
+default = ["portable-default"]
+portable-default = ["tree-sitter-asm", "tree-sitter-cuda", "tree-sitter-large-grammars", "tree-sitter-scala"]
+tree-sitter-asm = ["dep:tree-sitter-asm"]
+tree-sitter-cpp = ["dep:tree-sitter-cpp"]
+tree-sitter-c-sharp = ["dep:tree-sitter-c-sharp"]
+tree-sitter-cuda = ["dep:tree-sitter-cuda"]
+# CUDA ships in the default build; its parse tables are the largest grammar
+# (about 6.8 MiB per artifact, docs/DEPENDENCY_AUDIT.md#footprint-interpretation).
+tree-sitter-large-grammars = ["tree-sitter-cpp", "tree-sitter-c-sharp"]
+tree-sitter-scala = ["dep:tree-sitter-scala"]
+# Test clocks, a stat counter and a fixture grammar for octocode-native's tests,
+# on in its dev-dependencies and `dev-unify`, never in a release build: the walk
+# clock (`scan_budget::freeze_walk_clock`, `advance_walk_clock`), the settle
+# clock (`stamp::settle_written_so_far`, `settled_through`), the stat count
+# (`stamp::stamp_stats`) and `signatures::languages::conformance`.
+test-hooks = []

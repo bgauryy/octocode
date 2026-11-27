@@ -1,0 +1,278 @@
+//! One listing window cut into pages, and the continuations it leads to
+//! (`nextPage` and the related `narrowScope` query).
+use super::listing::Listing;
+use super::{continuation, narrow_scope};
+use serde_json::{Value, json};
+use std::num::NonZeroU64;
+
+/// Where a continuation moves a listing: the private position fields it
+/// sets, the rest of the query staying as written.
+pub(super) enum Move {
+    /// The next page of the stored walk, bound to its `snapshot`.
+    Page {
+        page: std::num::NonZeroU64,
+        snapshot: String,
+    },
+    /// The window after one a row limit cut, past the rows already listed,
+    /// bound to what those windows listed ([`windows`](super::windows)).
+    Window {
+        scan_offset: Option<std::num::NonZeroU64>,
+        snapshot: Option<String>,
+    },
+    /// The walk resumed after a time cut, past the rows already listed,
+    /// bound to what the windows so far listed ([`resume`](super::resume)).
+    Resume {
+        walk_offset: std::num::NonZeroU64,
+        scan_offset: Option<std::num::NonZeroU64>,
+        snapshot: Option<String>,
+    },
+}
+
+/// Serialized chars one row adds to a page: the one pricer of grouped
+/// listings ([`octocode_runtime_base::response::groups::Cost`]).
+pub(super) use octocode_runtime_base::response::groups::Cost as RowCost;
+
+/// Row ranges of each page: as many rows as fit `budget` serialized chars,
+/// and at most `limit` rows when set (at least one per page). Costs come
+/// from snapshot-bound data, so every page of one snapshot cuts at the same
+/// rows. An empty listing has no pages.
+pub(super) fn page_ranges(
+    costs: &[RowCost],
+    budget: usize,
+    limit: Option<usize>,
+) -> Vec<std::ops::Range<usize>> {
+    let limit = limit.unwrap_or(usize::MAX).max(1);
+    let total = costs.len();
+    if total == 0 {
+        return Vec::new();
+    }
+    let mut pages = Vec::new();
+    let mut start = 0;
+    let mut used = 0usize;
+    for (index, cost) in costs.iter().enumerate() {
+        let opening = cost.entry.saturating_add(cost.header);
+        let added = if cost.continues { cost.entry } else { opening };
+        if index > start && (used.saturating_add(added) > budget || index - start >= limit) {
+            pages.push(start..index);
+            start = index;
+            used = 0;
+        }
+        used = used.saturating_add(if index == start { opening } else { added });
+    }
+    pages.push(start..total);
+    pages
+}
+
+/// Where a listing's rows were cut, for the continuation tail both
+/// operations share.
+pub(super) struct Cut {
+    pub(super) page: usize,
+    pub(super) total_pages: usize,
+    /// Rows in the listing after `limit`.
+    pub(super) total: usize,
+    pub(super) requested: usize,
+    /// Rows the walk returned before `limit` cut them.
+    pub(super) available: usize,
+    /// Rows past this window's `limit` remain: `next.nextPage`
+    /// lists them in the next window.
+    pub(super) limit_cut: bool,
+    /// The walk ran out of time before this entry, named as a row names its
+    /// path (from the workspace root): it and everything after it in walk
+    /// order is unscanned.
+    pub(super) time_cut: Option<String>,
+    /// How the window's rows end at a time cut.
+    pub(super) time_window: TimeWindow,
+    /// Walk entries inspected, `walkOffset` ones included: where
+    /// `next.nextPage` resumes a time-cut walk.
+    pub(super) walk_position: usize,
+    /// Walk entries earlier windows inspected (`walkOffset`).
+    pub(super) walk_offset: usize,
+    /// The walk stopped at the first match past the limit, so only a lower
+    /// bound of the total is known.
+    pub(super) early_exit: bool,
+    pub(super) total_discovered: usize,
+    /// Listing rows earlier windows listed (`scanOffset`).
+    pub(super) scan_offset: usize,
+    /// Listing rows before this window's end: the next window's
+    /// `scanOffset`.
+    pub(super) covered: usize,
+    pub(super) snapshot: String,
+    /// What the next window or resume pins of the rows through this one.
+    pub(super) pins_through: Option<String>,
+}
+
+impl Cut {
+    /// The walk covered the whole scope before any window was cut (a sorted
+    /// listing ranks it, an outline counts it): a row limit only pages that
+    /// listing. Its first rows are final (a ranking's top), its total is
+    /// exact, and nothing about it is partial.
+    pub(super) fn whole_walk(&self) -> bool {
+        self.time_cut.is_none() && !self.early_exit
+    }
+    pub(super) fn has_more(&self) -> bool {
+        self.page < self.total_pages
+    }
+    /// The `walkOffset` that resumes a walk cut by time after the last entry
+    /// its window covers, when no row of this window was dropped, the
+    /// listing is in walk order wherever `scanOffset` skips rows, and the
+    /// walk advanced past its own resume point.
+    pub(super) fn resume_at(&self) -> Option<usize> {
+        (self.time_cut.is_some() && !self.limit_cut && self.walk_position > self.walk_offset)
+            .then_some(self.walk_position)
+    }
+    /// The listing rows `scanOffset` skipped that this window's walk did
+    /// not reach: the resumed walk skips them before it lists.
+    pub(super) fn rows_left_to_skip(&self) -> usize {
+        self.scan_offset.saturating_sub(self.available)
+    }
+    /// The time cut has no continuation: no resume reaches the entries past
+    /// it.
+    pub(super) fn time_terminal(&self) -> bool {
+        self.time_cut.is_some() && self.resume_at().is_none()
+    }
+    pub(super) fn out_of_range(&self) -> bool {
+        self.total > 0 && self.page > self.total_pages
+    }
+
+    /// The page, scan-expansion and partial-coverage continuations.
+    pub(super) fn finish(&self, out: &mut Value, query: &impl Listing, warnings: &mut Vec<String>) {
+        if self.has_more() {
+            let next = Move::Page {
+                page: NonZeroU64::new(
+                    u64::try_from(self.page)
+                        .unwrap_or(u64::MAX)
+                        .saturating_add(1),
+                )
+                .unwrap_or(NonZeroU64::MAX),
+                snapshot: self.snapshot.clone(),
+            };
+            octocode_runtime_base::response::collection::insert_walk(
+                &mut out["calls"],
+                octocode_runtime_base::id::ToolId::StructureSearch,
+                None,
+                continuation(query, next),
+            );
+        }
+        if self.time_terminal() {
+            let past = format!(
+                "the walk stopped at its time budget before `{}`; entries from there on in walk order (name-sorted, depth-first)",
+                self.time_cut.as_deref().unwrap_or_default()
+            );
+            warnings.push(format!("terminalLimit: {past} are on no page."));
+            if let Some(lead) = narrow_scope(query) {
+                out["calls"]["narrowScope"] = lead;
+            }
+        }
+        if let Some(lead) = self.walk_lead() {
+            octocode_runtime_base::response::collection::insert_walk(
+                &mut out["calls"],
+                octocode_runtime_base::id::ToolId::StructureSearch,
+                None,
+                continuation(query, lead),
+            );
+        }
+        // A time cut something continues is no terminal limit: the page
+        // that resumes the walk (the window's last) names the entry
+        // and that continuation; the window's earlier pages say only
+        // `walkDeadline` (below), so the note is
+        // stated once per window.
+        if let Some(at) = self
+            .time_cut
+            .as_deref()
+            .filter(|_| !self.time_terminal() && !self.has_more())
+        {
+            warnings.push(match self.time_window {
+                TimeWindow::Paused => format!(
+                    "the walk paused at its time budget before `{at}`: the listing's order (`path` unless `sort` says otherwise) ranks its whole scope, so it lists its rows once the walk ends; `next` resumes the walk there."
+                ),
+                TimeWindow::EndedAtRows => format!(
+                    "the walk stopped at its time budget before `{at}` and found more rows than its {}-entry walk window: this window lists the first rows in walk order (name-sorted, depth-first), and entries after the last listed one are not yet listed: `next` resumes the walk there.",
+                    self.requested
+                ),
+                _ => format!(
+                    "the walk stopped at its time budget before `{at}`; entries from there on in walk order (name-sorted, depth-first) are not yet listed: `next` resumes the walk there."
+                ),
+            });
+        }
+        let window_cut = self.limit_cut && !self.whole_walk();
+        for (cut, reason) in [
+            (
+                window_cut,
+                octocode_runtime_base::response::paging::PartialReason::WalkWindow,
+            ),
+            (
+                self.time_cut.is_some(),
+                octocode_runtime_base::response::paging::PartialReason::WalkDeadline,
+            ),
+        ] {
+            if cut {
+                octocode_runtime_base::response::paging::mark_partial(out, reason, &[]);
+            }
+        }
+        if self.time_terminal() {
+            octocode_runtime_base::response::paging::terminal_limit(
+                out,
+                octocode_runtime_base::response::paging::PartialReason::WalkDeadline,
+                &[],
+            );
+        }
+        if window_cut {
+            out["clipped"] = json!(true);
+            if self.early_exit {
+                out["atLeast"] = json!(self.scan_offset + self.total + 1);
+            } else {
+                out["totalAvailable"] = json!(self.matched());
+            }
+        }
+    }
+
+    /// The one continuation of the walk past this window, offered on the
+    /// window's last page (its own pages come first): query changes for
+    /// `nextPage`. A window cut at its
+    /// walk window lists the next window (the rows after the ones this
+    /// window listed, `scanOffset`); a
+    /// window cut by time resumes (the walk from the entry after the last
+    /// one it inspected). Neither has a ceiling. One window has at most
+    /// one: a time cut resumes only a window no limit cut ([`Self::resume_at`]).
+    pub(super) fn walk_lead(&self) -> Option<Move> {
+        if self.has_more() {
+            return None;
+        }
+        let offset = |rows: usize| NonZeroU64::new(u64::try_from(rows).ok()?);
+        if self.limit_cut {
+            return Some(Move::Window {
+                scan_offset: offset(self.covered),
+                snapshot: self.pins_through.clone(),
+            });
+        }
+        let position = self.resume_at()?;
+        Some(Move::Resume {
+            walk_offset: NonZeroU64::new(u64::try_from(position).ok()?)?,
+            scan_offset: offset(self.rows_left_to_skip()),
+            snapshot: self.pins_through.clone(),
+        })
+    }
+
+    /// Entries the walk matched.
+    pub(super) fn matched(&self) -> usize {
+        self.total_discovered.max(self.available)
+    }
+}
+
+/// How a window cut by time ends: whether `next.nextPage` can resume it
+/// without a gap or a repeat, and where.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum TimeWindow {
+    /// The window lists every row its walk found (past `scanOffset`): the
+    /// walk resumes at its last inspected entry.
+    #[default]
+    Whole,
+    /// The walk found more rows than `limit`: the window ends at the
+    /// last row it lists, in walk order, and the walk resumes there. The
+    /// rows after it in walk order are not dropped, the resume walks them.
+    EndedAtRows,
+    /// A sorted walk paused at its time budget: it ranks its whole scope, so
+    /// it lists no row yet, and the walk resumes where it paused with the rows
+    /// it ranked so far ([`super::standing`]).
+    Paused,
+}

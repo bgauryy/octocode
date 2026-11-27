@@ -1,0 +1,156 @@
+//! The changed-file section of a pull-request read: its page, totals, and
+//! source recovery and the optional reads at each side of its diff.
+use super::PrPlan;
+use crate::gh_get_history_item::file_page::empty_scope_warning;
+use crate::gh_get_history_item::gh_get_history_item_query;
+use crate::gh_get_history_item::inventory::shape_pr_files;
+use crate::gh_get_history_item::pr_menu;
+use crate::gh_get_history_item::sections::Section;
+use crate::gh_get_history_item::util::str_at;
+use crate::gh_get_history_item::window::{Loaded, reconcile_file_totals};
+use crate::gh_get_history_item::{HistoryItemRequest, Sections};
+use octocode_engine::num::saturating_usize;
+use serde_json::{Map, Value};
+
+/// What the changed-file section of a read found.
+#[derive(Default)]
+pub(in crate::gh_get_history_item) struct FileOutcome {
+    pub(super) review: Vec<String>,
+    pub(in crate::gh_get_history_item) unsearched: Vec<String>,
+    /// The first unsearched path and the commit holding its text (the
+    /// base for a removed file, else the head).
+    pub(in crate::gh_get_history_item) leads_unsearched: Vec<(String, Option<String>)>,
+    /// `(dropped, listed)` changed files of the `matchString` filter.
+    pub(in crate::gh_get_history_item) match_dropped: Option<(usize, usize)>,
+    pub(in crate::gh_get_history_item) scope_unmatched: bool,
+    /// Changed files the read's `include`/`status` scope
+    /// kept (every listed file without one), when the scope or literal
+    /// matched nothing.
+    pub(in crate::gh_get_history_item) in_scope: usize,
+    /// An `include` scope that matched none of a first page's changed files:
+    /// the count and the nearest changed directories, as a commit or a
+    /// comparison read states them ([`empty_scope_warning`]).
+    pub(in crate::gh_get_history_item) scope_warning: Option<String>,
+    /// `readAtCommit`/`readParent`: each shown patchless file's source at
+    /// the head and base.
+    pub(in crate::gh_get_history_item) side_reads: Vec<(String, Value)>,
+    /// Files whose `matchString` context the hunks cut short.
+    pub(in crate::gh_get_history_item) clipped: Vec<(String, Vec<(usize, usize)>)>,
+}
+
+/// The files the cross-tool reads below cover, as loaded (shaping consumes
+/// them): a file page's first patch window reports every file GitHub sent
+/// without a patch, so each page leads to the source of its own. A later
+/// patch window of a page repeats none of it.
+fn lead_files(query: &HistoryItemRequest, loaded: &[Value]) -> Option<Vec<Value>> {
+    if gh_get_history_item_query::char_offset(query).is_some() {
+        return None;
+    }
+    Some(
+        loaded
+            .iter()
+            .filter(|file| file.get("patch").is_none())
+            .cloned()
+            .collect(),
+    )
+}
+
+pub(super) fn shape_files_section(
+    row: &mut Value,
+    pagination: &mut Map<String, Value>,
+    loaded: Loaded,
+    raw: &Value,
+    query: &HistoryItemRequest,
+    wants: &Sections,
+    plan: &PrPlan,
+) -> FileOutcome {
+    let file_filter = plan.file_filter();
+    let lead_files = lead_files(query, &loaded.items);
+    let listed = loaded.state.skipped + loaded.items.len();
+    let state = loaded.state;
+    // An `include`/`status` scope that matched no changed file at all.
+    let scope_unmatched = (plan.scope.is_some() || plan.needle.is_some())
+        && state.exhausted
+        && gh_get_history_item_query::page(query).unwrap_or(1) == 1
+        && !loaded.items.iter().any(|file| file_filter.matches(file));
+    let in_scope = if scope_unmatched {
+        loaded
+            .items
+            .iter()
+            .filter(|file| plan.scope.as_ref().is_none_or(|scope| scope.matches(file)))
+            .count()
+    } else {
+        0
+    };
+    let scope_warning = scope_unmatched
+        .then(|| empty_scope_warning(&loaded.items, plan.scope.as_ref(), query, state.exhausted))
+        .flatten();
+    let shaped = shape_pr_files(
+        row,
+        pagination,
+        loaded.items,
+        state,
+        query,
+        wants.has(Section::Patches),
+        plan.scope.as_ref(),
+    );
+    // The diff's side reads name only a file the page shows (the filter keeps
+    // more files than one patch window packs).
+    let shown = |file: &Value| {
+        file_filter.matches(file)
+            && shaped.shown.as_ref().is_none_or(|paths| {
+                paths
+                    .iter()
+                    .any(|path| Some(path.as_str()) == str_at(file, "/filename"))
+            })
+    };
+    // Source reads use the shown diff's head and base identities.
+    let side_reads = match lead_files
+        .as_deref()
+        .filter(|_| wants.has(Section::Patches))
+    {
+        None => Vec::new(),
+        Some(files) => pr_menu::change_reads(
+            gh_get_history_item_query::owner(query),
+            gh_get_history_item_query::repo(query),
+            files,
+            &pr_menu::ChangeSides {
+                new_ref: str_at(raw, "/head/sha").filter(|sha| !sha.is_empty()),
+                old_ref: str_at(raw, "/base/sha").filter(|sha| !sha.is_empty()),
+            },
+            shown,
+        ),
+    };
+    if let Some(page) = pagination.get_mut("files") {
+        let changed_files = raw
+            .get("changed_files")
+            .and_then(Value::as_u64)
+            .map(saturating_usize);
+        reconcile_file_totals(
+            page,
+            state,
+            listed,
+            changed_files,
+            !file_filter.is_trivial(),
+        );
+    }
+    FileOutcome {
+        review: shaped.review,
+        unsearched: shaped.unsearched,
+        leads_unsearched: shaped
+            .leads_unsearched
+            .into_iter()
+            .map(|(path, removed)| {
+                let side = if removed { "/base/sha" } else { "/head/sha" };
+                let sha = str_at(raw, side).filter(|sha| !sha.is_empty());
+                (path, sha.map(str::to_owned))
+            })
+            .collect(),
+        match_dropped: shaped.match_dropped,
+        scope_unmatched,
+        in_scope,
+        scope_warning,
+        side_reads,
+        clipped: shaped.clipped,
+    }
+}

@@ -1,0 +1,378 @@
+//! Pull request file inventories: patchless and renamed files, identity headers, filters, provider caps and totals.
+
+use super::{
+    mount_file_batches, mount_pr, no_continuation, no_optional_lead, numbered, raw_patch,
+    rest_file, run,
+};
+use crate::support::{self};
+use octocode_test_support::json_fixture;
+use serde_json::{Value, json};
+use std::time::Duration;
+use support::{Workspace, call, row_data};
+use wiremock::MockServer;
+
+#[tokio::test]
+async fn large_pr_inventory_flags_patchless_files_and_keeps_rename_origin() {
+    let server = MockServer::builder().start().await;
+    mount_pr(&server, 5).await;
+    let mut renamed = rest_file("src/new_name.rs", None, 0, 0);
+    renamed["status"] = json!("renamed");
+    renamed["previous_filename"] = json!("src/old_name.rs");
+    mount_file_batches(
+        &server,
+        vec![vec![
+            rest_file("src/ok.rs", Some("@@ -1 +1 @@\n-a\n+b"), 1, 1),
+            renamed,
+            rest_file("src/checker.ts", None, 39_550, 39_342),
+            rest_file("assets/logo.png", None, 0, 0),
+            rest_file("src/omitted.ts", None, 0, 0),
+        ]],
+        Duration::ZERO,
+    )
+    .await;
+    let data = run(&server, json_fixture(r#"{"sections": ["files"]}"#)).await;
+    // Compact rows: every file of one directory shares its first group.
+    assert_eq!(
+        data["pullRequests"][0]["files"],
+        json_fixture(
+            r#"[
+                {
+                    "src/": [
+                        "M +1 -1 ok.rs",
+                        "R +0 -0 new_name.rs <- src/old_name.rs",
+                        "M +39550 -39342 !tooLarge checker.ts",
+                        "M !omitted omitted.ts"
+                    ]
+                },
+                "M +0 -0 !binary assets/logo.png"
+            ]"#
+        ),
+        "{data}"
+    );
+}
+
+#[tokio::test]
+async fn pr_inventory_carries_the_identity_header_and_its_own_next_steps_only() {
+    let server = MockServer::builder().start().await;
+    mount_pr(&server, 250).await;
+    mount_file_batches(
+        &server,
+        vec![numbered(1, 100), numbered(2, 100), numbered(3, 50)],
+        Duration::ZERO,
+    )
+    .await;
+    let data = run(&server, json_fixture(r#"{"sections": ["files"]}"#)).await;
+    let row = &data["pullRequests"][0];
+    // A section read keeps what names the PR and the commits code is read at.
+    for kept in ["number", "state", "headCommitSha", "mergeCommitSha"] {
+        assert!(row.get(kept).is_some(), "{kept} missing: {row}");
+    }
+    // The first page of a file inventory states how many files it lists.
+    assert_eq!(row["changedFileCount"], 250, "{row}");
+    // The rest of the header is the summary read's.
+    for summary_only in ["title", "author", "additions", "labels", "createdAt"] {
+        assert!(row.get(summary_only).is_none(), "{summary_only}: {row}");
+    }
+    // One page holds the whole inventory: it states no block, and the
+    // count is the list itself.
+    assert!(row["sectionPagination"].get("files").is_none(), "{row}");
+    let groups = row["files"].as_array().expect("files");
+    let rows = groups
+        .iter()
+        .map(|group| {
+            group
+                .as_object()
+                .and_then(|g| g.values().next())
+                .and_then(Value::as_array)
+                .map_or(1, Vec::len)
+        })
+        .sum::<usize>();
+    assert_eq!(rows, 250, "{row}");
+}
+
+/// An inventory supports an explicit source-file selection and a whole
+/// patch read. Both use the returned paths and the public sections schema.
+#[tokio::test]
+async fn pr_inventory_supports_explicit_patch_selection_and_keeps_all_patches() {
+    let server = MockServer::builder().start().await;
+    mount_pr(&server, 5).await;
+    let hunk = Some("@@ -1 +1 @@\n-a\n+b");
+    mount_file_batches(
+        &server,
+        vec![vec![
+            rest_file(".changeset/sse-keepalive.md", hunk, 8, 0),
+            rest_file("src/server/sseKeepAlive.ts", hunk, 15, 0),
+            rest_file("src/server/webStandardStreamableHttp.ts", hunk, 241, 94),
+            rest_file("test/server/sseKeepAlive.test.ts", hunk, 29, 0),
+            rest_file("test/server/streamableHttp.test.ts", hunk, 879, 3),
+        ]],
+        Duration::ZERO,
+    )
+    .await;
+    let data = run(&server, json_fixture(r#"{"sections": ["files"]}"#)).await;
+    let selected_paths = json_fixture(
+        r#"[
+            "src/server/webStandardStreamableHttp.ts",
+            "src/server/sseKeepAlive.ts"
+        ]"#,
+    );
+    assert_eq!(
+        data["pullRequests"][0]["files"][1],
+        json_fixture(
+            r#"{
+                "src/server/": [
+                    "M +15 -0 sseKeepAlive.ts",
+                    "M +241 -94 webStandardStreamableHttp.ts"
+                ]
+            }"#
+        ),
+        "{data}"
+    );
+    // The patch read is optional work the description names: an answer
+    // carries no lead to it.
+    no_optional_lead(&data);
+    let selected = json!({"sections":["patches"],"include":selected_paths});
+    let all = json_fixture(r#"{"sections": ["patches"]}"#);
+    for (read, count) in [(selected, 2), (all, 5)] {
+        let patches = run(&server, read).await;
+        let files = patches["pullRequests"][0]["files"]
+            .as_array()
+            .expect("patch files");
+        assert_eq!(files.len(), count);
+        for (index, file) in files.iter().enumerate() {
+            let patch = file["patch"].as_str().or_else(|| {
+                let earlier = file["samePatchAs"].as_str()?;
+                files[..index].iter().find(|row| row["path"] == earlier)?["patch"].as_str()
+            });
+            let patch =
+                patch.expect("patch text or a direct reference to an earlier delivered patch");
+            assert_eq!(
+                raw_patch(patch),
+                "@@ -1 +1 @@\n-a\n+b",
+                "{}: {patch:?}",
+                file["path"]
+            );
+        }
+    }
+    assert_eq!(support::inventory_len(&data["pullRequests"][0]["files"]), 5);
+}
+
+/// A completed inventory keeps every requested path and the provider's
+/// changed-file count, with no tip and no lead: the patch read is optional
+/// work the description names.
+#[tokio::test]
+async fn a_large_pr_inventory_states_coverage_and_carries_no_lead() {
+    let server = MockServer::builder().start().await;
+    mount_pr(&server, 120).await;
+    let hunk = Some("@@ -1 +1 @@\n-a\n+b");
+    let files = (0..120)
+        .map(|index| rest_file(&format!("src/m{index}.rs"), hunk, 30 + index, 30))
+        .collect::<Vec<_>>();
+    mount_file_batches(
+        &server,
+        vec![files[..100].to_vec(), files[100..].to_vec()],
+        Duration::ZERO,
+    )
+    .await;
+    let data = run(&server, json_fixture(r#"{"sections": ["files"]}"#)).await;
+    let row = &data["pullRequests"][0];
+    assert_eq!(row["changedFileCount"], 120, "{data}");
+    assert_eq!(support::inventory_len(&row["files"]), 120, "{data}");
+    for index in 0..120 {
+        assert!(
+            row["files"].to_string().contains(&format!("m{index}.rs")),
+            "{data}"
+        );
+    }
+    assert!(data.get("hints").is_none(), "{data}");
+    assert!(no_continuation(&data), "{data}");
+    no_optional_lead(&data);
+}
+
+#[tokio::test]
+async fn pr_file_filter_narrows_the_inventory_and_its_counts() {
+    let server = MockServer::builder().start().await;
+    mount_pr(&server, 250).await;
+    let mut batches = vec![numbered(1, 100), numbered(2, 100), numbered(3, 50)];
+    batches[1][7] = rest_file("docs/guide.md", Some("@@ -1 +1 @@\n-a\n+b"), 30, 2);
+    for file in &mut batches[2] {
+        file["status"] = json!("removed");
+    }
+    batches[2][3]["status"] = json!("added");
+    mount_file_batches(&server, batches, Duration::ZERO).await;
+    let data = run(
+        &server,
+        json_fixture(
+            r#"{
+                "sections": ["files"],
+                "include": ["**/*.md", "src/b3/**"],
+                "fileStatus": ["added", "modified"]
+            }"#,
+        ),
+    )
+    .await;
+    let row = &data["pullRequests"][0];
+    assert_eq!(
+        row["files"],
+        json_fixture(r#"["M +30 -2 docs/guide.md", "A +1 -1 src/b3/f3.rs"]"#),
+        "{row}"
+    );
+    // The two matching files are the complete filtered inventory: no block.
+    assert!(row["sectionPagination"].get("files").is_none(), "{row}");
+    assert_eq!(row["changedFileCount"], 250, "{row}");
+    let data = run(
+        &server,
+        json_fixture(
+            r#"{
+                "sections": ["files"],
+                "include": ["src/b3/**"],
+                "fileStatus": ["added"]
+            }"#,
+        ),
+    )
+    .await;
+    assert_eq!(
+        data["pullRequests"][0]["files"],
+        json_fixture(r#"["A +1 -1 src/b3/f3.rs"]"#),
+        "{data}"
+    );
+    assert!(
+        no_continuation(&data["pullRequests"][0]),
+        "filtered reads carry no menu: {data}"
+    );
+}
+
+#[tokio::test]
+async fn pure_rename_patch_is_empty_not_a_provider_omission() {
+    let server = MockServer::builder().start().await;
+    mount_pr(&server, 2).await;
+    let mut renamed = rest_file("src/new_name.rs", None, 0, 0);
+    renamed["status"] = json!("renamed");
+    renamed["previous_filename"] = json!("src/old_name.rs");
+    mount_file_batches(
+        &server,
+        vec![vec![renamed, rest_file("src/checker.ts", None, 10, 2)]],
+        Duration::ZERO,
+    )
+    .await;
+    let data = run(&server, json_fixture(r#"{"sections": ["patches"]}"#)).await;
+    let files = &data["pullRequests"][0]["files"];
+    assert_eq!(files[0]["path"], "src/new_name.rs", "{files}");
+    assert_eq!(files[0]["previousPath"], "src/old_name.rs", "{files}");
+    assert_eq!(files[0]["patch"], "", "{files}");
+    assert!(files[0].get("patchUnavailable").is_none(), "{files}");
+    assert_eq!(files[1]["patchUnavailable"], "tooLarge", "{files}");
+}
+
+#[tokio::test]
+async fn pr_file_list_stopped_by_the_provider_cap_is_not_complete() {
+    // GitHub lists at most 3000 files: the last listable page has no `next`
+    // link although the PR reports more changed files.
+    let server = MockServer::builder().start().await;
+    mount_pr(&server, 3500).await;
+    mount_file_batches(
+        &server,
+        (1..=30).map(|batch| numbered(batch, 100)).collect(),
+        Duration::ZERO,
+    )
+    .await;
+    let data = run(&server, json_fixture(r#"{"sections": ["files"]}"#)).await;
+    // The section cursors always show; the provider limit is the
+    // row's evidence beside them.
+    assert!(
+        data["pullRequests"][0].get("sectionPagination").is_some(),
+        "{data}"
+    );
+    assert_eq!(data["terminalLimit"], true, "{data}");
+    assert_eq!(
+        data["providerLimit"]["reason"], "providerFileLimit",
+        "{data}"
+    );
+    assert_eq!(data["providerLimit"]["listed"], 3000, "{data}");
+    assert_eq!(data["providerLimit"]["changedFilesCount"], 3500, "{data}");
+    assert!(
+        data["partialReasons"]
+            .as_array()
+            .is_some_and(|reasons| reasons.contains(&json!("providerFileLimit"))),
+        "{data}"
+    );
+}
+
+#[tokio::test]
+async fn pr_inventory_page_reports_the_provider_total() {
+    let server = MockServer::builder().start().await;
+    mount_pr(&server, 250).await;
+    mount_file_batches(
+        &server,
+        vec![numbered(1, 100), numbered(2, 100), numbered(3, 50)],
+        Duration::ZERO,
+    )
+    .await;
+    let data = run(&server, json_fixture(r#"{"sections": ["files"]}"#)).await;
+    // The provider total (250) is listed in full on this one page: the
+    // row states it as `changedFileCount` and lists every file, and no
+    // pagination block restates either.
+    let row = &data["pullRequests"][0];
+    assert_eq!(row["changedFileCount"], 250, "{row}");
+    assert!(row["sectionPagination"].get("files").is_none(), "{row}");
+    assert_eq!(
+        support::inventory_len(&data["pullRequests"][0]["files"]),
+        250
+    );
+    assert!(data["pullRequests"][0].get("next").is_none(), "{data}");
+}
+
+/// An `include` scope that matches no changed file is an empty row (a
+/// wrong path once got a silent one) whose lead reads the whole file
+/// inventory to copy a path from.
+#[tokio::test]
+async fn files_scope_matching_nothing_is_an_empty_row_with_an_inventory_lead() {
+    let server = MockServer::builder().start().await;
+    mount_pr(&server, 1).await;
+    mount_file_batches(
+        &server,
+        vec![vec![rest_file(
+            "fastapi/telemetry/_runtime.py",
+            Some("@@ -1 +1 @@\n+a"),
+            1,
+            0,
+        )]],
+        Duration::ZERO,
+    )
+    .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "a",
+                "repo": "b",
+                "number": 9,
+                "sections": ["patches"],
+                "include": ["fastapi/_runtime.py"]
+            }"#,
+        ),
+    )
+    .await
+    .expect("read");
+    let data = row_data(&outcome);
+    assert!(
+        data.get("errorCode").is_none(),
+        "an empty row carries no errorCode: {data}"
+    );
+    assert!(data["hints"].is_null(), "{data}");
+    let inventory = support::checks::related_call(data, "ghGetHistoryItem", |input| {
+        input["queries"][0]["sections"] == json_fixture(r#"["files"]"#)
+    });
+    assert!(inventory["input"]["queries"][0].get("include").is_none());
+    let listed = support::run(&runtime, "ghGetHistoryItem", inventory["input"].clone()).await;
+    assert_eq!(
+        support::inventory_len(&listed.data()["pullRequests"][0]["files"]),
+        1
+    );
+    support::checks::assert_leads_valid(data);
+    runtime.close().await;
+}

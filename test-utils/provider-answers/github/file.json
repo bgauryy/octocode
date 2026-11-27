@@ -1,0 +1,62 @@
+{
+ "case": "github/file",
+ "tool": "ghGetFileContent",
+ "query": {
+  "owner": "octocat",
+  "repo": "Hello-World",
+  "path": "README",
+  "ref": "master"
+ },
+ "recordedAt": "2026-11-05",
+ "unread": [],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.github.com/repos/octocat/Hello-World/commits/master",
+    "accept": "application/vnd.github.sha"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "cache-control",
+     "private, max-age=60, s-maxage=60"
+    ],
+    [
+     "content-type",
+     "application/vnd.github.sha; charset=utf-8"
+    ],
+    [
+     "etag",
+     "\"7fd1a60b01f91b314f59955a4e4d4e80d8edf11d\""
+    ]
+   ],
+   "digest": "sha256:14c00b5abdbd44acbb58983de2d9364919962364349d2359aece6cb4c8ed6ac6",
+   "body": "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d"
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.github.com/repos/octocat/Hello-World/contents/README?ref=7fd1a60b01f91b314f59955a4e4d4e80d8edf11d",
+    "accept": "application/vnd.github.raw"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "cache-control",
+     "private, max-age=60, s-maxage=60"
+    ],
+    [
+     "content-type",
+     "application/vnd.github.raw; charset=utf-8"
+    ],
+    [
+     "etag",
+     "\"980a0d5f19a64b4b30a87d4206aade58726b60e3\""
+    ]
+   ],
+   "digest": "sha256:03ba204e50d126e4674c005e04d82e84c21366780af1f43bd54a37816b6ab340",
+   "body": "Hello World!\n"
+  }
+ ]
+}

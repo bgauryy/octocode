@@ -1,0 +1,83 @@
+use super::*;
+
+fn write(path: &Path, text: &str) {
+    std::fs::write(path, text).expect("write");
+}
+
+#[test]
+fn words_are_bounded_by_non_identifier_bytes() {
+    // A punctuation end needs no boundary: `appState.name` spells `.name`.
+    assert!(spells_word(b"appState.f()", b".f", true, true));
+    assert!(spells_word(b"f();", b"f", true, true));
+    assert!(spells_word(b"a.f\n", b"f", true, true));
+    assert!(spells_word(b"a f", b"f", true, true));
+    assert!(
+        !spells_word(b"a f", b"f", true, false),
+        "the next chunk decides"
+    );
+    assert!(
+        !spells_word(b"f;", b"f", false, true),
+        "the last chunk decided"
+    );
+    assert!(!spells_word(b"ff();", b"f", true, true));
+    assert!(!spells_word(b"$f", b"f", true, true));
+    assert!(!spells_word("éf".as_bytes(), b"f", true, true));
+    assert!(!spells_word(b"", b"f", true, true));
+}
+
+/// A file is searched whole, in chunks: a name across a chunk boundary is
+/// found, and one that only starts a longer word there is not.
+#[test]
+fn files_are_searched_across_chunk_boundaries() {
+    let dir = tempfile::tempdir().expect("dir");
+    let file = dir.path().join("big.ts");
+    let pad = "x".repeat(MENTION_CHUNK_BYTES - 2);
+    write(&file, &format!("{pad} target();\n"));
+    assert_eq!(file_spells(&file, b"target", None), Some(true));
+    write(&file, &format!("{pad} targets();\n"));
+    assert_eq!(file_spells(&file, b"target", None), Some(false));
+    // A word ending the first chunk is decided there, not again from the
+    // carried tail that starts with it.
+    let pad = "x".repeat(MENTION_CHUNK_BYTES - 8);
+    write(&file, &format!("{pad}atarget;\n"));
+    assert_eq!(file_spells(&file, b"target", None), Some(false));
+    // A file gone since it was listed spells nothing; an unreadable one is
+    // undecided.
+    assert_eq!(
+        file_spells(&dir.path().join("missing.ts"), b"target", None),
+        Some(false)
+    );
+    assert_eq!(file_spells(dir.path(), b"target", None), None);
+}
+
+/// The ignored-file scan (`file_spells`) and the tracked scan's pattern
+/// (`word_pattern`) agree on every text, `$foo` included.
+#[test]
+fn ignored_and_tracked_scans_agree_on_whole_words() {
+    let tracked = regex::Regex::new(&format!(
+        "(?m){}",
+        octocode_engine::text::word_pattern("foo")
+    ))
+    .expect("pattern");
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("a.ts");
+    for text in [
+        "foo",
+        "$foo",
+        "foo$",
+        "a $foo b",
+        "xfoo",
+        "éfoo",
+        "—foo—",
+        "a.foo()",
+        "x\n$foo\n",
+    ] {
+        write(&file, text);
+        assert_eq!(
+            file_spells(&file, b"foo", None),
+            Some(tracked.is_match(text)),
+            "{text:?}"
+        );
+    }
+    assert_eq!(file_spells(&file, b"$foo", None), Some(true));
+}

@@ -1,0 +1,14 @@
+[
+  {
+    "name": "user input to SQL query",
+    "elements": [
+      { "nodeType": "Call", "tracked": "req.query.id", "lineNumber": 7, "columnNumber": 14, "method": "app.get:<lambda>0", "file": "src/api.js" },
+      { "nodeType": "Identifier", "tracked": "id", "lineNumber": 8, "columnNumber": 12, "method": "app.get:<lambda>0", "file": "src/api.js" },
+      { "nodeType": "MethodParameterIn", "tracked": "findUser(userId)", "lineNumber": 3, "columnNumber": 19, "method": "findUser", "file": "src/service.js" },
+      { "nodeType": "Identifier", "tracked": "userId", "lineNumber": 4, "columnNumber": 20, "method": "findUser", "file": "src/service.js" },
+      { "nodeType": "MethodParameterIn", "tracked": "lookup(id)", "lineNumber": 5, "columnNumber": 17, "method": "lookup", "file": "src/db.js" },
+      { "nodeType": "Call", "tracked": "'SELECT * FROM users WHERE id = ' + id", "lineNumber": 6, "columnNumber": 15, "method": "lookup", "file": "src/db.js" },
+      { "nodeType": "Identifier", "tracked": "sql", "lineNumber": 8, "columnNumber": 16, "method": "lookup:<lambda>0", "file": "src/db.js" }
+    ]
+  }
+]

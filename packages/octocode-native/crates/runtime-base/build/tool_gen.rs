@@ -1,0 +1,342 @@
+//! Tool identity codegen: `ToolId`, policy, continuation channels and error codes
+//! rendered from the tool contract into `tool_ids.rs`, `query_limits` into
+//! `query_limits.rs`, and listing field roles into `listing_roles.rs`.
+
+mod tool_channels;
+mod tool_listing_roles;
+mod tool_query_limits;
+use super::{bool_value, invalid, rust_enum_variant, string, to_screaming_snake, to_snake};
+use serde_json::Value;
+use std::error::Error;
+use tool_channels::render_error_codes;
+pub(super) use tool_listing_roles::render_listing_roles;
+use tool_query_limits::query_variants;
+pub(super) use tool_query_limits::render_query_limits;
+
+/// `ToolId` identity and policy, generated from the contract's `tools[]`
+/// (`name`, `family`, `section`, `beta` are authored once in core
+/// `TOOL_POLICIES`). Nothing in native re-spells a tool list.
+pub(super) fn render_tool_ids(contract: &Value) -> Result<String, Box<dyn Error>> {
+    let tools = contract
+        .get("tools")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid("tool contract has no tools[]"))?;
+    let mut arms = ToolArms::default();
+    for (index, tool) in tools.iter().enumerate() {
+        arms.push(tool, &format!("tools[{index}]"), contract)?;
+    }
+    let mut policy = render_limits(contract)?;
+    policy.push_str(&render_semantic_policies(tools)?);
+    policy.push_str(&render_error_codes(contract)?);
+    Ok(arms.render(&policy))
+}
+
+/// The per-tool rows of the `ToolId` methods, in contract order: match arms
+/// (`Self::Variant => …,`) and the variants each policy set holds.
+#[derive(Default)]
+struct ToolArms {
+    variants: Vec<String>,
+    names: String,
+    families: String,
+    sections: String,
+    titles: String,
+    beta: Vec<String>,
+    github: Vec<String>,
+    lsp_servers: Vec<String>,
+    row_page_window: Vec<String>,
+    mutates_workspace: Vec<String>,
+    output_defaults: Vec<bool>,
+}
+
+impl ToolArms {
+    /// Add the rows of `tool`, the contract entry at `path`.
+    fn push(&mut self, tool: &Value, path: &str, contract: &Value) -> Result<(), Box<dyn Error>> {
+        let name = string(
+            tool.get("name")
+                .ok_or_else(|| invalid(format!("{path} has no name")))?,
+            &format!("{path}.name"),
+        )?;
+        let variant = rust_enum_variant(name)?;
+        let family = tool_family(tool, path)?;
+        if family == "GitHub" {
+            self.github.push(variant.clone());
+        }
+        let arm = |value: &str| format!("            Self::{variant} => {value},\n");
+        self.names.push_str(&arm(&format!("{name:?}")));
+        self.families
+            .push_str(&arm(&format!("ToolFamily::{family}")));
+        self.sections
+            .push_str(&arm(&format!("ToolSection::{}", tool_section(tool, path)?)));
+        let title = tool
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        self.titles.push_str(&arm(&format!("{title:?}")));
+        if bool_value(tool.get("beta"), false, &format!("{path}.beta"))? {
+            self.beta.push(format!("Self::{variant}"));
+        }
+        if bool_value(
+            tool.get("rowPageWindow"),
+            false,
+            &format!("{path}.rowPageWindow"),
+        )? {
+            self.row_page_window.push(format!("Self::{variant}"));
+        }
+        if bool_value(
+            tool.get("mutatesWorkspace"),
+            false,
+            &format!("{path}.mutatesWorkspace"),
+        )? {
+            self.mutates_workspace.push(format!("Self::{variant}"));
+        }
+        let facts = match tool.get("hostFacts") {
+            None => &[][..],
+            Some(value) => value
+                .as_array()
+                .map(Vec::as_slice)
+                .ok_or_else(|| invalid(format!("{path}.hostFacts is not an array")))?,
+        };
+        // A host fact native does not render fails the build, never a silent omission.
+        for fact in facts {
+            match fact.as_str() {
+                Some("lspServers") => self.lsp_servers.push(format!("Self::{variant}")),
+                _ => {
+                    return Err(invalid(format!(
+                        "{path}.hostFacts: unknown host fact {fact}"
+                    )));
+                }
+            }
+        }
+        self.variants.push(variant);
+        self.output_defaults
+            .push(super::schema_defaults::has_default(
+                &tool["outputSchema"],
+                contract,
+            ));
+        Ok(())
+    }
+
+    /// `tool_ids.rs`: `policy`, then `ToolId` and its methods.
+    fn render(&self, policy: &str) -> String {
+        let set = |members: &[String]| {
+            if members.is_empty() {
+                "false".to_owned()
+            } else {
+                format!("matches!(self, {})", members.join(" | "))
+            }
+        };
+        let Self {
+            variants,
+            names,
+            families,
+            sections,
+            titles,
+            github,
+            ..
+        } = self;
+        format!(
+            "// @generated by crates/runtime-base/build.rs from packages/octocode-config/contract/tool-contract.json.\n\
+             {policy}\
+             /// Every tool the native runtime can execute, in contract order.\n\
+             #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]\n\
+             pub enum ToolId {{\n{variants_decl}}}\n\n\
+             impl ToolId {{\n\
+             \x20   /// All tool identities in contract order.\n\
+             \x20   pub const ALL: [Self; {count}] = [{all}];\n\n\
+             \x20   /// This tool's position in [`ToolId::ALL`]: the variants are declared\n\
+             \x20   /// in that order, so a per-tool table indexes by it.\n\
+             \x20   #[must_use]\n\
+             \x20   pub const fn index(self) -> usize {{\n        self as usize\n    }}\n\n\
+             \x20   /// Whether output validation may insert a declared default.\n\
+             \x20   /// Build-time contract facts: no per-request map or lock.\n\
+             \x20   pub const fn output_has_defaults(self) -> bool {{\n\
+             \x20       const DECLARED: [bool; {count}] = {output_defaults:?};\n\
+             \x20       DECLARED[self.index()]\n    }}\n\n\
+             \x20   /// The wire name exactly as it appears in the contract and in tool-call envelopes.\n\
+             \x20   #[must_use]\n\
+             \x20   pub const fn as_str(self) -> &'static str {{\n        match self {{\n{names}        }}\n    }}\n\n\
+             \x20   /// The tool's title (contract `title`): the one-line label tool\n\
+             \x20   /// lists show, available without parsing the embedded contract.\n\
+             \x20   #[must_use]\n\
+             \x20   pub const fn title(self) -> &'static str {{\n        match self {{\n{titles}        }}\n    }}\n\n\
+             \x20   /// Cursor-scope / policy family (contract `family`).\n\
+             \x20   #[must_use]\n\
+             \x20   pub const fn family(self) -> ToolFamily {{\n        match self {{\n{families}        }}\n    }}\n\n\
+             \x20   /// The group the tool is exposed with on MCP (contract `section`).\n\
+             \x20   #[must_use]\n\
+             \x20   pub const fn section(self) -> ToolSection {{\n        match self {{\n{sections}        }}\n    }}\n\n\
+             \x20   /// Tools requiring the shared beta gate on MCP; CLI access remains available (contract `beta`).\n\
+             \x20   #[must_use]\n\
+             \x20   pub const fn is_beta(self) -> bool {{\n        {beta}\n    }}\n\n\
+             \x20   /// Tools whose listed description names the language servers found on\n\
+             \x20   /// this host (contract `hostFacts`: `lspServers`).\n\
+             \x20   #[must_use]\n\
+             \x20   pub const fn lists_lsp_servers(self) -> bool {{\n        {lsp_servers}\n    }}\n\n\
+             \x20   /// Tools whose pages continue by offset and fit the row's share of the\n\
+             \x20   /// response page (contract `rowPageWindow`); the others cut pages at the\n\
+             \x20   /// automatic window every call of a walk shares.\n\
+             \x20   #[must_use]\n\
+             \x20   pub const fn pages_by_row_window(self) -> bool {{\n        {row_page_window}\n    }}\n\n\
+             \x20   /// Tools that write or remove workspace artifacts, such as a clone\n\
+             \x20   /// checkout or a graph snapshot (contract `mutatesWorkspace`, which\n\
+             \x20   /// also clears the MCP `readOnlyHint`).\n\
+             \x20   #[must_use]\n\
+             \x20   pub const fn mutates_workspace(self) -> bool {{\n        {mutates_workspace}\n    }}\n\n\
+             \x20   /// The GitHub-family identity, so GitHub routing matches only its own tools.\n\
+             \x20   #[must_use]\n\
+             \x20   pub const fn github(self) -> Option<GitHubTool> {{\n        match self {{\n{github_arms}            _ => None,\n        }}\n    }}\n\
+             }}\n\n\
+             /// A tool of the contract's `github` family.\n\
+             #[derive(Clone, Copy, PartialEq, Eq, Debug)]\n\
+             pub enum GitHubTool {{\n{github_decl}}}\n\n\
+             #[cfg(test)]\n\
+             mod tool_index_tests {{\n\
+             \x20   #[test]\n\
+             \x20   fn each_tool_indexes_its_position_in_all() {{\n\
+             \x20       for (position, tool) in super::ToolId::ALL.into_iter().enumerate() {{\n\
+             \x20           assert_eq!(tool.index(), position, \"{{}}\", tool.as_str());\n\
+             \x20       }}\n\
+             \x20   }}\n\
+             }}\n",
+            variants_decl = variants
+                .iter()
+                .map(|v| format!("    {v},\n"))
+                .collect::<String>(),
+            count = variants.len(),
+            output_defaults = self.output_defaults,
+            all = variants
+                .iter()
+                .map(|v| format!("Self::{v}"))
+                .collect::<Vec<_>>()
+                .join(", "),
+            beta = set(&self.beta),
+            lsp_servers = set(&self.lsp_servers),
+            row_page_window = set(&self.row_page_window),
+            mutates_workspace = set(&self.mutates_workspace),
+            github_arms = github
+                .iter()
+                .map(|v| format!("            Self::{v} => Some(GitHubTool::{v}),\n"))
+                .collect::<String>(),
+            github_decl = github
+                .iter()
+                .map(|v| format!("    {v},\n"))
+                .collect::<String>(),
+        )
+    }
+}
+
+/// The `ToolFamily` variant of a tool's contract `family`.
+fn tool_family(tool: &Value, path: &str) -> Result<&'static str, Box<dyn Error>> {
+    match string(
+        tool.get("family")
+            .ok_or_else(|| invalid(format!("{path} has no family")))?,
+        &format!("{path}.family"),
+    )? {
+        "local" => Ok("Local"),
+        "github" => Ok("GitHub"),
+        "remote" => Ok("Remote"),
+        other => Err(invalid(format!(
+            "{path}.family {other:?} is not local|github|remote"
+        ))),
+    }
+}
+
+/// The `ToolSection` variant of a tool's contract `section`.
+fn tool_section(tool: &Value, path: &str) -> Result<&'static str, Box<dyn Error>> {
+    match string(
+        tool.get("section")
+            .ok_or_else(|| invalid(format!("{path} has no section")))?,
+        &format!("{path}.section"),
+    )? {
+        "external" => Ok("External"),
+        "local" => Ok("Local"),
+        "security" => Ok("Security"),
+        "clasify" => Ok("Clasify"),
+        other => Err(invalid(format!(
+            "{path}.section {other:?} is not external|local|security|clasify"
+        ))),
+    }
+}
+
+/// The contract `limits` native enforces as constants.
+fn render_limits(contract: &Value) -> Result<String, Box<dyn Error>> {
+    let limit = |name: &str| {
+        contract
+            .pointer(&format!("/limits/{name}"))
+            .and_then(Value::as_u64)
+            .ok_or_else(|| invalid(format!("tool contract has no limits.{name}")))
+    };
+    let max_items = limit("maxInputArrayItems")?;
+    let read_context = limit("defaultReadContextLines")?;
+    let response_chars = limit("defaultResponseChars")?;
+    Ok(format!(
+        "/// Contract `limits.maxInputArrayItems`: native input-security array ceiling.\n\
+         pub const MAX_INPUT_ARRAY_ITEMS: usize = {max_items};\n\n\
+         /// Contract `limits.defaultReadContextLines`: lines around each\n\
+         /// `matchString` hit when `contextLines` is omitted.\n\
+         pub const DEFAULT_READ_CONTEXT_LINES: usize = {read_context};\n\n\
+         /// Contract `limits.defaultResponseChars`: characters per response\n\
+         /// page when a call sets no `responseChars`.\n\
+         pub const DEFAULT_RESPONSE_CHARS: usize = {response_chars};\n\n"
+    ))
+}
+
+/// One `<tool>_policy` module per tool with a contract `semanticPolicy`:
+/// its tool lists and limits as constants.
+fn render_semantic_policies(tools: &[Value]) -> Result<String, Box<dyn Error>> {
+    let mut policy = String::new();
+    for tool in tools {
+        let Some(entries) = tool.get("semanticPolicy").and_then(Value::as_object) else {
+            continue;
+        };
+        let name = tool.get("name").and_then(Value::as_str).unwrap_or_default();
+        let module = to_snake(name);
+        policy.push_str(&format!(
+            "/// Contract `{name}.semanticPolicy`: tool sets and limits enforced outside its schema.\n\
+             pub mod {module}_policy {{\n"
+        ));
+        if entries.values().any(Value::is_array) {
+            policy.push_str("    use super::ToolId;\n");
+        }
+        for (key, value) in entries {
+            let constant = to_screaming_snake(key);
+            match value {
+                Value::Array(items) => {
+                    let members = items
+                        .iter()
+                        .map(|item| {
+                            policy_tool(tools, item, &format!("{name}.semanticPolicy.{key}"))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    policy.push_str(&format!(
+                        "    pub const {constant}: &[ToolId] = &[{}];\n",
+                        members.join(", ")
+                    ));
+                }
+                Value::Number(number) if number.is_u64() => {
+                    policy.push_str(&format!("    pub const {constant}: usize = {number};\n"));
+                }
+                other => {
+                    return Err(invalid(format!(
+                        "{name}.semanticPolicy.{key} must be a tool list or unsigned integer, got {other}"
+                    )));
+                }
+            }
+        }
+        policy.push_str("}\n\n");
+    }
+    Ok(policy)
+}
+
+/// The `ToolId` of a tool a `semanticPolicy` list at `path` names.
+fn policy_tool(tools: &[Value], item: &Value, path: &str) -> Result<String, Box<dyn Error>> {
+    let member = item.as_str().filter(|member| {
+        tools
+            .iter()
+            .any(|tool| tool.get("name").and_then(Value::as_str) == Some(member))
+    });
+    member.map_or_else(
+        || Err(invalid(format!("{path} names an unknown tool {item}"))),
+        |member| rust_enum_variant(member).map(|v| format!("ToolId::{v}")),
+    )
+}

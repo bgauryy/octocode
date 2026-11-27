@@ -1,0 +1,22 @@
+{
+  "goal": "Ship the v2 contract with both sides adapted",
+  "acceptance": ["end-to-end suite passes on the integrated branch"],
+  "constraints": ["no writes outside packages/api and packages/client"],
+  "plan": {
+    "available": ["request"],
+    "tasks": [
+      { "id": "contract", "owner": "worker-a", "inputs": ["request"], "output": "contract", "status": "accepted" },
+      { "id": "producer", "owner": "worker-b", "inputs": ["contract"], "output": "producer-impl", "status": "accepted" },
+      { "id": "consumer", "owner": "worker-c", "inputs": ["contract"], "output": "consumer-impl", "status": "running" },
+      { "id": "integrate", "owner": "worker-a", "inputs": ["producer-impl", "consumer-impl"] }
+    ]
+  },
+  "handles": [{ "task": "consumer", "ref": "task-7", "kind": "agent" }],
+  "evidence": [
+    { "task": "contract", "ref": "reports/contract-check.json", "status": "current" },
+    { "task": "producer", "ref": "reports/producer-tests.xml", "status": "current" }
+  ],
+  "unresolvedEffects": [],
+  "next": ["wait for consumer, then verify it against the contract"],
+  "files": ["packages/api/src/contract.ts"]
+}

@@ -1,7 +1,0 @@
-interface:
-  display_name: "Chrome DevTools"
-  short_description: "Live CDP evidence: DOM, network, perf, storage, HAR"
-  default_prompt: "Use $octocode-chrome-devtools for live Chrome CDP evidence (DOM/actionability, measure trio, HAR/query) — not static scrape."
-
-policy:
-  allow_implicit_invocation: true

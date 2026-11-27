@@ -1,0 +1,88 @@
+{
+  "setup": [
+    {
+      "dir": "<ROOT>/bundled/fixture-skill",
+      "marker": "v1"
+    }
+  ],
+  "runs": [
+    {
+      "skills": [
+        {
+          "name": "../escape",
+          "sourcePath": "<ROOT>/bundled/fixture-skill"
+        }
+      ],
+      "canonicalSkillsDir": "<ROOT>/home/.octocode/skills",
+      "targets": [
+        {
+          "platform": "claude",
+          "scope": "global",
+          "homeDir": "<ROOT>/home"
+        },
+        {
+          "platform": "cursor",
+          "scope": "global",
+          "homeDir": "<ROOT>/home"
+        },
+        {
+          "platform": "codex",
+          "scope": "project",
+          "projectDir": "<ROOT>/project"
+        }
+      ],
+      "mode": "symlink"
+    }
+  ],
+  "result": {
+    "ok": false,
+    "action": "install",
+    "dryRun": false,
+    "force": false,
+    "upgrade": false,
+    "canonicalSkillsDir": "<ROOT>/home/.octocode/skills",
+    "skills": [
+      {
+        "name": "../escape",
+        "source": "<ROOT>/bundled/fixture-skill",
+        "canonical": "<ROOT>/home/.octocode/escape",
+        "canonicalStatus": "failed",
+        "canonicalError": "Invalid skill name: \"../escape\"",
+        "destinations": []
+      }
+    ],
+    "summary": {
+      "installed": 0,
+      "upgraded": 0,
+      "linked": 0,
+      "copied": 0,
+      "unchanged": 0,
+      "conflicts": 0,
+      "failed": 1
+    }
+  },
+  "tree": [
+    {
+      "path": "bundled",
+      "kind": "dir"
+    },
+    {
+      "path": "bundled/fixture-skill",
+      "kind": "dir"
+    },
+    {
+      "path": "bundled/fixture-skill/SKILL.md",
+      "kind": "file",
+      "content": "# Fixture skill (v1)\n"
+    },
+    {
+      "path": "bundled/fixture-skill/references",
+      "kind": "dir"
+    },
+    {
+      "path": "bundled/fixture-skill/references/guide.md",
+      "kind": "file",
+      "content": "v1 guide\n"
+    }
+  ]
+}

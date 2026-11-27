@@ -1,7 +1,7 @@
 {
   "name": "octocode-mcp-vscode",
   "description": "Management extension for Octocode MCP Server. Enables AI assistants to search, analyze, and understand codebases across GitHub. Supports Cursor, Windsurf, Antigravity, Cline, Roo Code, Trae, and more.",
-  "version": "1.0.2",
+  "version": "20.2.0",
   "activationEvents": [
     "onStartupFinished"
   ],
@@ -67,6 +67,11 @@
           "default": true,
           "description": "Automatically configure Octocode MCP server in supported editors (Cursor, Windsurf, Trae, Antigravity)."
         },
+        "octocode.ideBridge.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Let Octocode's native language-intelligence tools ask this editor's own language providers (definitions, references, hover, symbols, call and type hierarchy, diagnostics) over an authenticated loopback-only connection. Publishes an owner-only lock file in ~/.octocode/ide while enabled."
+        },
         "octocode.githubToken": {
           "type": "string",
           "default": "",
@@ -76,17 +81,18 @@
     }
   },
   "devDependencies": {
-    "@types/node": "^25.9.3",
-    "@types/vscode": "^1.125.0",
-    "@vitest/coverage-v8": "^4.1.9",
-    "@vscode/vsce": "^3.9.2",
-    "esbuild": "^0.28.1",
-    "eslint": "^9.18.0",
-    "typescript": "^5.9.3",
-    "vitest": "^4.1.9"
+    "@octocodeai/config": "workspace:*",
+    "@types/node": "^24.19.2",
+    "@types/vscode": "1.107.0",
+    "@vitest/coverage-v8": "^5.0.4",
+    "esbuild": "^0.28.2",
+    "prettier": "^3.9.10",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.4"
   },
   "displayName": "Octocode MCP",
   "engines": {
+    "node": "^24.15.0",
     "vscode": "^1.107.0"
   },
   "files": [
@@ -129,19 +135,19 @@
     "directory": "packages/octocode-vscode"
   },
   "scripts": {
-    "build": "yarn readme:sync && yarn esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify",
-    "compile": "npm run build",
-    "lint": "node ../../node_modules/eslint/bin/eslint.js src",
-    "lint:fix": "node ../../node_modules/eslint/bin/eslint.js src --fix",
-    "package": "npx @vscode/vsce package --allow-missing-repository --no-dependencies",
-    "prepack": "yarn readme:sync",
-    "publish": "npx @vscode/vsce publish",
-    "readme:sync": "node ../../scripts/sync-package-readmes.mjs .",
-    "test": "node ../../node_modules/vitest/vitest.mjs run --coverage",
-    "test:quiet": "node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",
-    "typecheck": "tsc --noEmit",
-    "verify": "yarn lint && yarn typecheck && yarn test && yarn build",
-    "vscode:prepublish": "npm run build",
-    "watch": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --watch"
+    "build": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify",
+    "clean": "rm -rf out/ coverage/",
+    "format": "prettier --write src",
+    "lint:own": "prettier --check src",
+    "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
+    "lint": "yarn lint:own && yarn lint:oxlint",
+    "package": "npx -y @vscode/vsce@3.9.2 package --allow-missing-repository --no-dependencies",
+    "publish": "npx -y @vscode/vsce@3.9.2 publish",
+    "test": "node ../../scripts/test-tmp.mjs vitest run",
+    "test:coverage": "node ../../scripts/test-tmp.mjs vitest run --coverage",
+    "typecheck": "yarn run -T tsgo --noEmit",
+    "verify:own": "yarn lint:own && yarn typecheck && yarn test:coverage && yarn build",
+    "verify": "yarn verify:own && yarn lint:oxlint",
+    "vscode:prepublish": "yarn build"
   }
 }

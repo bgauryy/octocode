@@ -1,174 +1,23 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { Implementation } from '@modelcontextprotocol/sdk/types.js';
-
+// `octocode-mcp` only starts the native binary's MCP server (`octocode mcp`):
+// the binary owns the protocol, the tools and the configuration. Resolution
+// and signal-forwarding are the CLI launcher's (one source for both packages).
 import {
-  clearAllCache,
-  clearOctokitInstances,
-  initialize,
-  cleanup,
-  getGitHubToken,
-  isCloneEnabled,
-  getActiveProvider,
-  initializeProviders,
-  clearProviderCache,
-  loadToolContent,
-  STARTUP_ERRORS,
-  startCacheGC,
-  stopCacheGC,
-  completeMetadata,
-  getOctocodeDir,
-  configureSecurity,
-  securityRegistry,
-} from '@octocodeai/octocode-tools-core';
-import { version, name } from '../package.json';
+  delegateToNative,
+  errorMessage,
+  resolveNativeBin,
+} from '../../octocode/src/cli/native-delegate.js';
+import { failStartup } from './startup-failure.js';
 
-interface ShutdownState {
-  inProgress: boolean;
-  timeout: ReturnType<typeof setTimeout> | null;
-}
-
-const SERVER_CONFIG: Implementation = {
-  name: `${name}_${version}`,
-  title: 'Octocode MCP',
-  version,
-};
-
-const SHUTDOWN_TIMEOUT_MS = 5000;
-
-function createShutdownHandler(server: McpServer, state: ShutdownState) {
-  return async (_signal?: string) => {
-    if (state.inProgress) return;
-    state.inProgress = true;
-
-    try {
-      if (state.timeout) {
-        clearTimeout(state.timeout);
-        state.timeout = null;
-      }
-
-      state.timeout = setTimeout(() => process.exit(1), SHUTDOWN_TIMEOUT_MS);
-
-      stopCacheGC();
-      clearAllCache();
-      clearOctokitInstances();
-      clearProviderCache();
-      cleanup();
-
-      try {
-        await server.close();
-      } catch {
-        // server.close() failure is non-fatal during shutdown
-      }
-
-      if (state.timeout) {
-        clearTimeout(state.timeout);
-        state.timeout = null;
-      }
-
-      process.exit(0);
-    } catch (error) {
-      if (state.timeout) {
-        clearTimeout(state.timeout);
-        state.timeout = null;
-      }
-      const message =
-        error instanceof Error ? error.message : String(error ?? 'unknown');
-      process.stderr.write(`Shutdown error: ${message}\n`);
-      process.exit(1);
+const resolved = await resolveNativeBin();
+if ('error' in resolved) {
+  failStartup(`Server initialization failed: ${resolved.error}`);
+} else {
+  delegateToNative(resolved.bin, ['mcp', ...process.argv.slice(2)]).then(
+    code => {
+      process.exitCode = code;
+    },
+    (error: unknown) => {
+      failStartup(`Server initialization failed: ${errorMessage(error)}`);
     }
-  };
+  );
 }
-
-function setupProcessHandlers(
-  gracefulShutdown: (signal?: string) => Promise<void>
-) {
-  process.once('SIGINT', () => gracefulShutdown('SIGINT'));
-  process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
-
-  process.stdin.once('close', () => gracefulShutdown('STDIN_CLOSE'));
-
-  process.once('uncaughtException', _error => {
-    gracefulShutdown('UNCAUGHT_EXCEPTION');
-  });
-
-  process.once('unhandledRejection', _reason => {
-    gracefulShutdown('UNHANDLED_REJECTION');
-  });
-}
-
-export async function registerAllTools(server: McpServer) {
-  const activeProvider = getActiveProvider();
-
-  if (activeProvider === 'github') {
-    // Pre-flight: validate a GitHub token is resolvable at startup rather than failing on first tool call.
-    await getGitHubToken();
-  }
-
-  const { registerTools } = await import('./tools/toolsManager.js');
-  const { successCount, failedTools, failedToolErrors } =
-    await registerTools(server);
-
-  if (failedTools.length > 0) {
-    const details = Object.entries(failedToolErrors ?? {})
-      .map(([n, err]) => `  - ${n}: ${err}`)
-      .join('\n');
-    process.stderr.write(
-      `Warning: ${failedTools.length} tool(s) failed to register:\n${details}\n`
-    );
-  }
-
-  if (successCount === 0) {
-    throw new Error(STARTUP_ERRORS.NO_TOOLS_REGISTERED.message);
-  }
-}
-
-async function createServer(): Promise<McpServer> {
-  const capabilities: {
-    tools: { listChanged: boolean };
-  } = {
-    tools: { listChanged: false },
-  };
-
-  return new McpServer(SERVER_CONFIG, {
-    capabilities,
-    instructions: completeMetadata.systemPrompt,
-  });
-}
-
-async function startServer() {
-  const shutdownState: ShutdownState = { inProgress: false, timeout: null };
-
-  try {
-    await initialize();
-    configureSecurity({});
-    securityRegistry.addAllowedRoots([getOctocodeDir()]);
-    await initializeProviders();
-    await loadToolContent();
-
-    const server = await createServer();
-    await registerAllTools(server);
-
-    const gracefulShutdown = createShutdownHandler(server, shutdownState);
-    setupProcessHandlers(gracefulShutdown);
-
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-
-    if (isCloneEnabled()) {
-      startCacheGC(getOctocodeDir());
-    }
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : String(error ?? 'unknown');
-    process.stderr.write(`Server initialization failed: ${message}\n`);
-    process.exit(1);
-  }
-}
-
-startServer().catch((error: unknown) => {
-  const message =
-    error instanceof Error ? error.message : String(error || 'Unknown error');
-  process.stderr.write(`❌ Startup failed: ${message}\n`);
-  process.exit(1);
-});

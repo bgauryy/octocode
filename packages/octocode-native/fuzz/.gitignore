@@ -1,0 +1,7 @@
+# Only the seed corpus (seeds/) is committed. libFuzzer grows corpus/ and writes
+# crashes to artifacts/; a genuine crash becomes a regression test in the
+# crate it exercises, not a committed input.
+corpus/
+artifacts/
+coverage/
+target/

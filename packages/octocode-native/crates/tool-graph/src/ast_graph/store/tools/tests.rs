@@ -1,0 +1,447 @@
+use super::*;
+use octocode_runtime_base::id::ToolId;
+use octocode_runtime_base::test_support::{Fixture, workspace_policy};
+use octocode_test_support::json_fixture;
+
+mod homes;
+mod impact_paging;
+mod leases;
+mod receipts;
+mod walks;
+
+fn context() -> ExecutionContext {
+    ExecutionContext {
+        cancellation: octocode_io::cancellation::Cancellation::new(),
+        deadline: Some(Instant::now() + std::time::Duration::from_secs(60)),
+        response_window: None,
+        github_credential: None,
+    }
+}
+
+/// One validated row of `tool`, dispatched as the runtime does.
+fn execute(
+    tool: ToolId,
+    row: &Value,
+    dir: &Path,
+    context: &ExecutionContext,
+) -> Result<DomainResult, ExecutionError> {
+    let paths = workspace_policy(dir);
+    if tool == ToolId::GraphBuild {
+        let query: GraphBuildQuery = serde_json::from_value(row.clone()).expect("typed query");
+        execute_build(
+            &query,
+            &paths,
+            &ContentSecurity::new(),
+            context,
+            None,
+            &Store::default(),
+        )
+    } else {
+        execute_query(row, &paths, context, None, None)
+    }
+}
+
+fn call(dir: &Path, tool: ToolId, row: Value) -> Value {
+    let row = octocode_runtime_base::contracts::validate_built_query(tool.as_str(), row)
+        .expect("input contract");
+    let result = execute(tool, &row, dir, &context()).expect("execute");
+    octocode_runtime_base::test_support::assert_row_contract(tool, &result.data);
+    result.data
+}
+
+/// An exact `graph` ID names its scope: a call pinning one without `path`
+/// reads that snapshot, as the same call with its path does; a partial ID
+/// is still refused.
+#[test]
+fn a_graph_id_without_path_reads_the_snapshots_own_scope() {
+    let dir = Fixture::new();
+    dir.write("app/lib.ts", "export function run() {}\n");
+    dir.write("app/main.ts", "import { run } from './lib';\nrun();\n");
+    let built = call(&dir.0, ToolId::GraphBuild, json!({"path": "app"}));
+    let with_path = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json!({"operation":"stats","path":"app","graph":built["graph"]}),
+    );
+    let without = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json!({"operation":"stats","graph":built["graph"]}),
+    );
+    assert!(without.get("errorCode").is_none(), "{without}");
+    assert_eq!(without["graph"], with_path["graph"], "{without}");
+    assert_eq!(without["summary"], with_path["summary"], "{without}");
+    let id = built["graph"].as_str().expect("id");
+    let partial = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json!({"operation":"stats","graph":&id[..id.len() - 1]}),
+    );
+    assert!(partial.get("errorCode").is_some(), "{partial}");
+}
+
+#[test]
+fn argument_evidence_variants_and_continuations_match_the_generated_contract() {
+    let dir = Fixture::new();
+    dir.write("app/args.ts", "function handler(){} export function run(){ sink(handler, handler); sink(...items); } function shadow(handler:unknown){ sink(handler); }");
+    dir.write("app/macros.rs", "fn main(){ consume!(handler); }");
+    dir.write(
+        "app/dynamic.js",
+        "function handler(){} function run(){ eval(source); consume(handler); }",
+    );
+    dir.write(
+        "app/recovered.js",
+        "function handler(){} function broken(){ const missing; consume(handler); }",
+    );
+    let built = call(
+        &dir.0,
+        ToolId::GraphBuild,
+        json_fixture(r#"{"path": "app"}"#),
+    );
+    let stats = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json!({"operation":"stats","path":"app","graph":built["graph"],"view":"details"}),
+    );
+    assert_eq!(
+        stats["argumentCoverage"]["population"],
+        "syntax-argument-slots"
+    );
+    let mut reasons = BTreeSet::new();
+    for operation in ["witnesses", "unresolved"] {
+        let mut input = json!({"operation":operation,"path":"app","edges":["passes"],"limit":1,"includeProvenance":true});
+        let mut ids = BTreeSet::new();
+        loop {
+            let page = call(&dir.0, ToolId::GraphQuery, input);
+            // Stated once, on the first page; equal to stats when stated.
+            assert!(
+                page.get("argumentCoverage")
+                    .is_none_or(|coverage| coverage == &stats["argumentCoverage"])
+            );
+            for row in page["rows"].as_array().expect("results") {
+                assert_eq!(row["edge"], "passes");
+                assert!(ids.insert(row["id"].as_str().expect("id").to_owned()));
+                if let Some(reason) = row["reason"].as_str() {
+                    reasons.insert(reason.to_owned());
+                }
+            }
+            match page.pointer("/next/nextPage/input/queries/0") {
+                Some(next) => {
+                    assert_eq!(next["edges"], json_fixture(r#"["passes"]"#));
+                    input = next.clone();
+                }
+                None => {
+                    assert_eq!(ids.len() as u64, page["pagination"]["total"]);
+                    break;
+                }
+            }
+        }
+        assert!(!ids.is_empty());
+    }
+    for expected in [
+        "binding-unrepresented",
+        "unsupported-argument-form",
+        "unsupported-argument-group",
+        "scope-not-assessed",
+        "recovered-occurrence",
+    ] {
+        assert!(
+            reasons.contains(expected),
+            "missing {expected}: {reasons:?}"
+        );
+    }
+}
+
+#[test]
+fn missing_snapshots_offer_build_recovery_for_the_requested_scope() {
+    let dir = Fixture::new();
+    dir.write("app/a.ts", "export const a = 1;\n");
+    dir.write("other/a.ts", "export const other = 2;\n");
+    let built = call(
+        &dir.0,
+        ToolId::GraphBuild,
+        json_fixture(r#"{"path": "app"}"#),
+    );
+    for row in [
+        json_fixture(r#"{"operation": "stats", "path": "other"}"#),
+        json_fixture(
+            r#"{
+                "operation": "stats",
+                "path": "app",
+                "graph": "missing-snapshot"
+            }"#,
+        ),
+        json!({"operation":"drift", "path":"app", "graph":built["graph"], "baseline":"missing-baseline"}),
+    ] {
+        let mut output = call(&dir.0, ToolId::GraphQuery, row.clone());
+        octocode_runtime_base::response::rows::attach_error_hint(
+            &crate::ast_graph::Output,
+            &mut output,
+            &row,
+        );
+        assert_eq!(output["errorCode"], "notFound", "{output}");
+        let hints = output["hints"].as_array().expect("hints");
+        assert!(
+            hints
+                .iter()
+                .any(|hint| hint.as_str().is_some_and(|s| s.contains("graphBuild"))),
+            "{output}"
+        );
+        assert!(
+            !hints
+                .iter()
+                .any(|hint| hint.as_str().is_some_and(|s| s.contains("access rights"))),
+            "{output}"
+        );
+        let related = &output["related"][0];
+        assert_eq!(related["tool"], "graphBuild", "{output}");
+        let input = related["input"]["queries"][0].clone();
+        let recovered = call(&dir.0, ToolId::GraphBuild, input);
+        let expected =
+            std::fs::canonicalize(dir.0.join(row["path"].as_str().expect("path"))).expect("scope");
+        let root = recovered["root"].as_str().expect("root");
+        assert_eq!(
+            std::fs::canonicalize(dir.0.join(root)).expect("relative scope"),
+            expected
+        );
+    }
+}
+
+/// A query that named neither `graph` nor `path` is told what selects a
+/// snapshot, not only to build one; the build lead stays.
+#[test]
+fn a_query_without_graph_or_path_says_what_selects_a_snapshot() {
+    let dir = Fixture::new();
+    dir.write("a.ts", "export const a = 1;\n");
+    let row = json!({"operation": "dependents", "target": "a.ts"});
+    let output = call(&dir.0, ToolId::GraphQuery, row);
+    assert_eq!(output["errorCode"], "notFound", "{output}");
+    let hint = output["hints"][0].as_str().expect("hint");
+    assert!(
+        hint.contains("`graph`") && hint.contains("`path`"),
+        "{output}"
+    );
+    assert_eq!(output["related"][0]["tool"], "graphBuild", "{output}");
+}
+
+#[test]
+fn related_queries_preserve_scope_without_carrying_node_kind_filters() {
+    let dir = Fixture::new();
+    dir.write("app/a.ts", "import {b} from './b'; export const a = b;");
+    dir.write("app/b.ts", "export const b = 1;");
+    call(
+        &dir.0,
+        ToolId::GraphBuild,
+        json_fixture(r#"{"path": "app"}"#),
+    );
+    let node = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json_fixture(
+            r#"{
+                "operation": "node",
+                "path": "app",
+                "target": "a.ts",
+                "kind": "file"
+            }"#,
+        ),
+    );
+    for related in node["related"].as_array().expect("related queries") {
+        let row = &related["input"]["queries"][0];
+        assert!(row.get("kind").is_none());
+        let output = call(&dir.0, ToolId::GraphQuery, row.clone());
+        assert_eq!(output["graph"]["id"], node["graph"]["id"]);
+        assert!(output.get("error").is_none(), "{output}");
+    }
+}
+
+#[test]
+fn cancelled_build_does_not_publish() {
+    let dir = Fixture::new();
+    dir.write("a.ts", "export const a = 1;");
+    let ctx = context();
+    ctx.cancellation.cancel();
+    assert!(execute(ToolId::GraphBuild, &json!({}), &dir.0, &ctx).is_err());
+    assert!(!dir.0.join(".octocode/graph").exists());
+}
+
+#[test]
+fn cycle_member_continuations_validate_without_hiding_public_target_inputs() {
+    let dir = Fixture::new();
+    for i in 0..51 {
+        dir.write(
+            &format!("cycle/f{i}.ts"),
+            format!("import './f{}'; export const f{i} = {i};", (i + 1) % 51),
+        );
+    }
+    call(
+        &dir.0,
+        ToolId::GraphBuild,
+        json_fixture(r#"{"path": "cycle"}"#),
+    );
+    let page = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json_fixture(r#"{"operation": "cycles", "path": "cycle"}"#),
+    );
+    let preview = page["rows"][0]["nodes"].as_array().expect("cycle preview");
+    let row = &page["next"]["cycle0"]["input"]["queries"][0];
+    assert!(row["cycle"].is_string());
+    assert!(row.get("target").is_none());
+    let rest = call(&dir.0, ToolId::GraphQuery, row.clone());
+    let remaining = rest["rows"].as_array().expect("remaining cycle members");
+    assert_eq!(preview.len() + remaining.len(), 51);
+    let unique = preview
+        .iter()
+        .chain(remaining)
+        .map(Value::to_string)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(unique.len(), 51);
+}
+
+#[cfg(unix)]
+#[test]
+fn storage_symlink_cannot_escape_workspace() {
+    let dir = Fixture::new();
+    let outside = Fixture::new();
+    std::os::unix::fs::symlink(&outside.0, dir.0.join(".octocode")).expect("symlink");
+    let out = call(&dir.0, ToolId::GraphBuild, json!({}));
+    assert!(out["errorCode"].is_string());
+    assert!(!outside.0.join("graph").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn build_lock_symlink_cannot_create_an_outside_file() {
+    let dir = Fixture::new();
+    let outside = Fixture::new();
+    let home = dir.0.join(".octocode/graph");
+    std::fs::create_dir_all(&home).expect("graph home");
+    let target = outside.0.join("must-not-exist");
+    std::os::unix::fs::symlink(&target, home.join(".build.lock")).expect("symlink");
+    let out = call(&dir.0, ToolId::GraphBuild, json!({}));
+    assert!(out["errorCode"].is_string());
+    assert!(!target.exists());
+}
+
+mod builds;
+
+mod candidates;
+
+mod constructors;
+
+mod filters;
+
+mod listing;
+
+mod cli_parity;
+
+mod paging;
+
+mod projection;
+
+mod drift;
+
+/// The stats lead of a build names the scope as the caller wrote it; the
+/// workspace's absolute location never appears in the output.
+#[test]
+fn a_build_leads_its_stats_by_the_callers_path() {
+    let dir = Fixture::new();
+    dir.write("app/a.ts", "export const a = 1;");
+    let built = call(
+        &dir.0,
+        ToolId::GraphBuild,
+        json_fixture(r#"{"path": "app"}"#),
+    );
+    let lead = octocode_runtime_base::test_support::checks::leads(&built)
+        .into_iter()
+        .find(|lead| lead.tool == "graphQuery")
+        .unwrap_or_else(|| panic!("stats lead: {built}"));
+    assert_eq!(lead.query["queries"][0]["path"], "app", "{built}");
+    let root = std::fs::canonicalize(&dir.0).expect("root");
+    octocode_runtime_base::test_support::checks::assert_absent(&built, &root.to_string_lossy());
+    // An uncut scan with no excludes states only its file count.
+    let scan = &built["scan"];
+    assert_eq!(scan, &json_fixture(r#"{"filesScanned": 1}"#), "{built}");
+}
+
+/// `stats` states the scan as the build receipt does: zero counts, empty
+/// lists and false flags carry no information and are left out.
+#[test]
+fn stats_states_only_the_scan_facts_that_carry_information() {
+    let dir = Fixture::new();
+    dir.write("app/a.ts", "export const a = 1;");
+    call(
+        &dir.0,
+        ToolId::GraphBuild,
+        json_fixture(r#"{"path": "app"}"#),
+    );
+    let stats = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json_fixture(r#"{"operation": "stats", "path": "app"}"#),
+    );
+    assert_eq!(
+        stats["scan"],
+        json_fixture(r#"{"filesScanned": 1}"#),
+        "{stats}"
+    );
+}
+
+/// `impact` takes any depth: core bounds none, so a deep request runs
+/// instead of failing on a bound the contract no longer declares.
+#[test]
+fn impact_runs_at_a_depth_past_any_former_ceiling() {
+    let dir = Fixture::new();
+    dir.write("app/a.ts", "export function a() { return 1; }");
+    dir.write(
+        "app/b.ts",
+        "import { a } from './a'; export function b() { return a(); }",
+    );
+    call(
+        &dir.0,
+        ToolId::GraphBuild,
+        json_fixture(r#"{"path": "app"}"#),
+    );
+    let out = call(
+        &dir.0,
+        ToolId::GraphQuery,
+        json_fixture(
+            r#"{
+                "operation": "impact",
+                "path": "app",
+                "changed": ["a.ts"],
+                "depth": 25
+            }"#,
+        ),
+    );
+    assert!(out.get("error").is_none(), "{out}");
+}
+
+/// A graph query of a file path leads to the same query of the directory a
+/// snapshot holds, with its operation: a lead without one is no valid row.
+#[test]
+fn a_file_path_query_leads_to_the_same_operation_on_the_snapshot_directory() {
+    let dir = Fixture::new();
+    dir.write("app/src/app.ts", "export function main() { return 1; }\n");
+    call(
+        &dir.0,
+        ToolId::GraphBuild,
+        json_fixture(r#"{"path": "app"}"#),
+    );
+    let row = json_fixture(r#"{"operation": "symbols", "path": "app/src/app.ts"}"#);
+    let row =
+        octocode_runtime_base::contracts::validate_built_query(ToolId::GraphQuery.as_str(), row)
+            .expect("input contract");
+    let result = execute(ToolId::GraphQuery, &row, &dir.0, &context()).expect("execute");
+    octocode_runtime_base::test_support::assert_row_contract(ToolId::GraphQuery, &result.data);
+    let leads = result.data["related"].as_array().expect("a related lead");
+    let lead = leads
+        .iter()
+        .find(|call| call["tool"] == "graphQuery")
+        .expect("a graphQuery lead");
+    assert_eq!(
+        lead["input"]["queries"][0]["operation"], "symbols",
+        "{lead}"
+    );
+}

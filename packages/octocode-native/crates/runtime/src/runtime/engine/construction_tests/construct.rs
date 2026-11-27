@@ -1,0 +1,318 @@
+use super::*;
+use crate::runtime::engine::construction::startup_diagnostics;
+use octocode_runtime_base::execution::ExecutionContext;
+use octocode_test_support::json_fixture;
+
+async fn section_result(
+    runtime: &ToolRuntime,
+    query: Value,
+    channel: Channel,
+    token: &str,
+) -> Result<Value, RuntimeError> {
+    let admission = runtime
+        .admit("sections".into())
+        .expect("admit")
+        .with_github_token(SecretString::from(token.to_owned()));
+    runtime
+        .execute(admission, "clasify".into(), query, channel)
+        .await
+        .map(|outcome| outcome.structured_content.into_value())
+}
+
+async fn section_call(runtime: &ToolRuntime, query: Value, channel: Channel, token: &str) -> Value {
+    section_result(runtime, query, channel, token)
+        .await
+        .expect("sections response")
+}
+
+async fn section_fixture(
+    home: &std::path::Path,
+    mode: &str,
+) -> (ToolRuntime, wiremock::MockServer) {
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST")).and(path("/v1/systemone"))
+            .respond_with(|request: &wiremock::Request| {
+                let body: Value = serde_json::from_slice(&request.body).expect("body");
+                let answers: serde_json::Map<String, Value> = body["questions"].as_object().expect("questions")
+                    .keys().map(|key| (key.clone(), json_fixture(r#"{"type": "noul", "noul": 0.9}"#))).collect();
+                ResponseTemplate::new(200).set_body_json(json!({"model":"jev-1.13.0","answers":answers,"usage":{"input_tokens":10,"output_tokens":2}}))
+            }).mount(&server).await;
+    let runtime = runtime(
+        home,
+        &[
+            ("OCTOCODE_BETA", "true"),
+            ("OCTOCODE_TYPESAFE_KEY", "secret"),
+            ("OCTOCODE_TYPESAFE_HOST", &server.uri()),
+            ("OCTOCODE_STORAGE_MODE", mode),
+        ],
+    );
+    let mut limits = RuntimeLimits::DEFAULT;
+    limits.selection.max_chars = 1;
+    let runtime = ToolRuntime::with_limits(runtime.input.clone(), limits).expect("bounded runtime");
+    (runtime, server)
+}
+
+fn section_query(home: &std::path::Path) -> Value {
+    std::fs::write(
+        home.join("first.txt"),
+        "First source: restart the service.\n",
+    )
+    .expect("first");
+    std::fs::write(
+        home.join("second.txt"),
+        "Second source: stop the service.\n",
+    )
+    .expect("second");
+    json!({"queries":[{"operation":"sections","view":"details","resources":{
+            "first":{"tool":"localFetch","query":{"path":home.join("first.txt")}},
+            "second":{"tool":"localFetch","query":{"path":home.join("second.txt")}}
+        },"questions":{"restart":{"type":"noul","instructions":"Does this section require a restart?"}}}]})
+}
+
+#[tokio::test]
+async fn sections_runtime_resumes_replays_and_partitions_access_and_policy() {
+    for mode in ["memory", "persistent"] {
+        let home = tempfile::tempdir().expect("home");
+        let (runtime, server) = section_fixture(home.path(), mode).await;
+        let channel = if mode == "memory" {
+            Channel::Mcp
+        } else {
+            Channel::Cli
+        };
+        let first = section_call(&runtime, section_query(home.path()), channel, "caller-a").await;
+        let next = first["next"]["input"].clone();
+        assert_eq!(
+            next.as_object()
+                .expect("cursor input")
+                .keys()
+                .collect::<Vec<_>>(),
+            ["cursor"]
+        );
+        contracts::validate("clasify", next.clone()).expect("public cursor");
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+        let denied = section_result(&runtime, next.clone(), channel, "caller-b")
+            .await
+            .expect_err("different credential");
+        assert_eq!(denied.code, ErrorCode::ResponseSnapshotExpired);
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+        let runtime = if mode == "persistent" {
+            let mut changed = runtime.input.clone();
+            changed
+                .env
+                .insert("OCTOCODE_ENABLE_LOCAL".into(), "false".into());
+            let other = ToolRuntime::with_limits(changed, runtime.limits).expect("other policy");
+            let denied = section_result(&other, next.clone(), channel, "caller-a")
+                .await
+                .expect_err("different policy");
+            assert_eq!(denied.code, ErrorCode::ResponseSnapshotExpired);
+            other.close().await;
+            runtime.close().await;
+            ToolRuntime::with_limits(runtime.input.clone(), runtime.limits).expect("reopened")
+        } else {
+            runtime
+        };
+        let second = section_call(&runtime, next.clone(), channel, "caller-a").await;
+        assert_eq!(
+            second["results"][0]["data"]["resources"]["second"]["sections"][0]["answers"]["restart"]
+                ["status"],
+            "answered",
+            "{second}"
+        );
+        assert_eq!(server.received_requests().await.unwrap().len(), 2);
+        let replay = section_call(&runtime, next, channel, "caller-a").await;
+        let resources = &second["results"][0]["data"]["resources"];
+        for (name, original) in resources.as_object().expect("resources") {
+            let repeated = &replay["results"][0]["data"]["resources"][name];
+            let evidence = |resource: &Value| {
+                let mut facts = resource.as_object().expect("resource").clone();
+                facts.remove("read");
+                facts
+            };
+            assert_eq!(evidence(repeated), evidence(original));
+            let mut content = None;
+            for resource in [original, repeated] {
+                let read = &resource["read"];
+                assert_eq!(read.get("kind"), None);
+                let admission = runtime
+                    .admit(format!("read-{name}"))
+                    .expect("admit")
+                    .with_github_token(SecretString::from("caller-a".to_owned()));
+                let result = runtime
+                    .execute(
+                        admission,
+                        "localFetch".into(),
+                        read["input"].clone(),
+                        channel,
+                    )
+                    .await
+                    .expect("captured source read")
+                    .structured_content;
+                let text = result["results"][0]["data"]["content"]
+                    .as_str()
+                    .expect("source text");
+                if let Some(first) = &content {
+                    assert_eq!(text, first);
+                } else {
+                    content = Some(text.to_owned());
+                }
+            }
+        }
+        assert_eq!(replay["results"][0]["data"]["replayed"], true);
+        assert_eq!(server.received_requests().await.unwrap().len(), 2);
+        runtime.close().await;
+        if mode == "memory" {
+            assert!(!home.path().join("tmp/section-assessments").exists());
+        }
+    }
+}
+
+/// A finished plan has no continuation of any kind: whatever `next` holds is
+/// a `read`/`readN` of the judged lines, an executable localFetch or
+/// ghGetFileContent continuation (a pinned cursor), never a page.
+fn assert_next_is_only_pinned_reads(data: &Value) {
+    let Some(next) = data.get("next") else {
+        return;
+    };
+    for (key, call) in next.as_object().expect("next is an object") {
+        let index = key.strip_prefix("read").unwrap_or_else(|| {
+            panic!("`next.{key}` is a continuation, not a read: {data}");
+        });
+        assert!(
+            index.bytes().all(|byte| byte.is_ascii_digit()),
+            "`next.{key}` is not read/readN: {data}"
+        );
+        assert!(
+            matches!(
+                call["tool"].as_str(),
+                Some("localFetch" | "ghGetFileContent")
+            ),
+            "`next.{key}` is not a source read: {call}"
+        );
+        assert_eq!(call.get("kind"), None, "{call}");
+        assert!(call["input"]["cursor"].is_string(), "pinned cursor: {call}");
+    }
+}
+
+#[tokio::test]
+async fn sections_runtime_refuses_changed_sources_and_a_one_shot_memory_run_before_any_provider_call()
+ {
+    let home = tempfile::tempdir().expect("home");
+    let (runtime, server) = section_fixture(home.path(), "memory").await;
+    let query = section_query(home.path());
+    let admission = runtime
+        .admit("one-shot".into())
+        .expect("admit")
+        .with_github_token(SecretString::from("caller".to_owned()))
+        .requiring_persistent_continuations();
+    let one_shot = runtime
+        .execute(admission, "clasify".into(), query.clone(), Channel::Cli)
+        .await
+        .expect("sections response")
+        .structured_content
+        .into_value();
+    // A memory-only CLI run cannot keep the pinned reads a sections answer
+    // requires, so it is refused before any capture or provider call.
+    assert_eq!(
+        one_shot["results"][0]["data"]["errorCode"], "classificationContextUnavailable",
+        "{one_shot}"
+    );
+    assert_next_is_only_pinned_reads(&one_shot["results"][0]["data"]);
+    let one_shot_calls = server.received_requests().await.unwrap().len();
+    assert_eq!(one_shot_calls, 0, "{one_shot}");
+    let first = section_call(&runtime, query, Channel::Mcp, "caller").await;
+    let next = first["next"]["input"].clone();
+    assert_eq!(
+        next.as_object()
+            .expect("cursor input")
+            .keys()
+            .collect::<Vec<_>>(),
+        ["cursor"]
+    );
+    contracts::validate("clasify", next.clone()).expect("public cursor");
+    std::fs::write(home.path().join("second.txt"), "Changed source.").expect("change");
+    let changed = section_call(&runtime, next, Channel::Mcp, "caller").await;
+    assert!(changed.to_string().contains("staleSnapshot"), "{changed}");
+    assert_eq!(
+        server.received_requests().await.unwrap().len(),
+        one_shot_calls + 1
+    );
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn sections_runtime_checks_paths_and_sanitizes_before_inference() {
+    let home = tempfile::tempdir().expect("home");
+    let outside = tempfile::NamedTempFile::new().expect("outside");
+    let (runtime, server) = section_fixture(home.path(), "memory").await;
+    let secret = format!("ghp_{}", "A".repeat(36));
+    let file = home.path().join("secret.txt");
+    std::fs::write(&file, format!("Restart with token {secret}.\n")).expect("source");
+    let result = section_call(&runtime, json!({"queries":[{"operation":"sections","view":"details","resources":{
+            "secret":{"tool":"localFetch","query":{"path":file}},
+            "outside":{"tool":"localFetch","query":{"path":outside.path()}}
+        },"questions":{"check":{"type":"noul","instructions":"Does this section require a restart?"}}}]}), Channel::Mcp, "caller").await;
+    assert_eq!(
+        result["results"][0]["data"]["resources"]["outside"]["status"], "error",
+        "{result}"
+    );
+    assert_eq!(
+        result["results"][0]["data"]["resources"]["secret"]["sections"][0]["answers"]["check"]["status"],
+        "answered",
+        "{result}"
+    );
+    let sent = server.received_requests().await.unwrap();
+    assert_eq!(sent.len(), 1);
+    let body = String::from_utf8(sent[0].body.clone()).unwrap();
+    assert!(!body.contains(&secret), "provider received secret");
+    assert!(body.contains("REDACTED"), "{body}");
+    assert!(!result.to_string().contains(&secret));
+    let mut context = ExecutionContext {
+        cancellation: octocode_io::cancellation::Cancellation::new(),
+        deadline: Some(std::time::Instant::now() - std::time::Duration::from_secs(1)),
+        response_window: None,
+        github_credential: None,
+    };
+    assert_eq!(
+        runtime
+            .dispatcher()
+            .capture_local_text(&json!({"path":file}), &context)
+            .unwrap_err()
+            .code,
+        ErrorCode::Timeout
+    );
+    context.deadline = Some(std::time::Instant::now() + std::time::Duration::from_secs(30));
+    context.cancellation.cancel();
+    assert_eq!(
+        runtime
+            .dispatcher()
+            .capture_local_text(&json!({"path":file}), &context)
+            .unwrap_err()
+            .code,
+        ErrorCode::Cancelled
+    );
+    runtime.close().await;
+}
+
+/// Keys no setting reads are left to `octocode config`; an ignored value
+/// of a live setting prints at every start.
+#[test]
+fn startup_prints_only_ignored_values_of_live_settings() {
+    let diagnostic = |code: &str| config::ConfigDiagnostic {
+        severity: config::Severity::Warning,
+        code: code.into(),
+        field_path: None,
+        message: code.into(),
+        source_path: None,
+    };
+    let diagnostics = [
+        diagnostic(config::UNKNOWN_CONFIG_CODE),
+        diagnostic("invalid_config"),
+        diagnostic("config_load_error"),
+    ];
+    let printed: Vec<&str> = startup_diagnostics(&diagnostics)
+        .map(|diagnostic| diagnostic.code.as_str())
+        .collect();
+    assert_eq!(printed, ["invalid_config", "config_load_error"]);
+}

@@ -1,0 +1,95 @@
+//! Single integration-test binary for octocode-native.
+//!
+//! Every `tests/*.rs` file is a module here instead of its own test target
+//! (`autotests = false`). Separate targets each linked a full copy of the crate
+//! and its dependencies per build variant: 19 binaries, ~2 GB per build, and
+//! hundreds of GB of stale copies in target/. One binary links once and runs
+//! all tests in one parallel harness. Run one file with
+//! `cargo dev-test -- <module>::` (`.cargo/config.toml`): the `test:rust`
+//! selection, so it reuses that build instead of compiling another copy.
+#![expect(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unwrap_used,
+    reason = "integration tests assert by unwrapping, expecting and panicking"
+)]
+#![expect(
+    unreachable_pub,
+    reason = "a test crate has no API: its `pub` items serve its own modules and the fixture the benchmarks mount"
+)]
+
+mod support;
+
+mod architecture_guards;
+mod auth_discovery;
+mod contract_field_effects;
+mod field_effect_coverage;
+mod lock_poison_policy;
+mod roast_cred_withhold;
+mod roast_envelope;
+mod roast_gh_history_item;
+mod roast_gh_search_leads;
+mod roast_graph_link;
+mod roast_local_fetch_view;
+mod runtime_artifact_search;
+mod runtime_ast_page_walks;
+mod runtime_ast_snippet;
+mod runtime_batch_indices;
+mod runtime_batch_response;
+mod runtime_clasify;
+mod runtime_clasify_media;
+mod runtime_clasify_sections;
+mod runtime_clasify_url;
+mod runtime_code_meanings;
+mod runtime_cursor_beside;
+mod runtime_d1_shapes;
+mod runtime_deep_nesting;
+mod runtime_empty_error_rows;
+mod runtime_flow_edge_replay;
+mod runtime_generic_walk;
+mod runtime_gh_default_branch;
+mod runtime_gh_file_ref_batch;
+mod runtime_gh_structure;
+mod runtime_github;
+mod runtime_github_cache;
+mod runtime_github_compare;
+mod runtime_github_flows;
+mod runtime_github_history;
+mod runtime_github_large_pr;
+mod runtime_github_quota;
+mod runtime_github_scope;
+mod runtime_github_throttle;
+mod runtime_input_guard;
+mod runtime_input_replay;
+mod runtime_judged_leaves;
+mod runtime_local;
+mod runtime_mcp_json_text;
+mod runtime_named_calls;
+mod runtime_one_walk;
+mod runtime_output_alignment;
+mod runtime_page_replay;
+mod runtime_path_policy_names;
+mod runtime_read_span;
+mod runtime_recorded_answers;
+mod runtime_repair_leads;
+mod runtime_request_credential;
+mod runtime_response_cursor;
+mod runtime_security_check_commit;
+mod runtime_security_check_repository;
+mod runtime_served_calls;
+mod runtime_stream_page_walk;
+mod runtime_surface_arms;
+mod runtime_tool_flow_handoffs;
+mod runtime_unify;
+mod runtime_whole_walk_memory;
+mod tool_cache_contracts;
+
+/// `autotests = false` means a `tests/*.rs` file missing from the list above
+/// would silently never run.
+#[test]
+fn every_test_file_is_a_module() {
+    support::assert_every_test_file_is_a_module(env!("CARGO_MANIFEST_DIR"));
+}
+
+#[path = "../../runtime-base/build/schema_defaults.rs"]
+mod schema_defaults;

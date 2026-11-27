@@ -1,0 +1,369 @@
+//! Scope resolution and grammar choice: the validated scope, the grammar a
+//! query compiles in, and why a pattern cannot apply.
+use super::query::MatchQuery;
+use super::types::{Scan, Scope};
+use octocode_contract_types::ErrorCode;
+use octocode_engine::signatures::languages::{self, family_extensions};
+use octocode_runtime_base::execution::cancel::CancellationCheck;
+use octocode_runtime_base::policy::path::PathPolicy;
+use octocode_runtime_base::response::result::ToolError;
+use octocode_tools_shared::ast_rule::{
+    GlobParsers, GrammarChoice, RuleError, choose_grammar, compile_check, rank_grammars,
+};
+use serde_json::{Value, json};
+
+/// The parser extension a scope's files are read with: a single file's own
+/// (or its override), else the named or inferred grammar's.
+pub(super) fn scope_extension(scope: &Scope) -> Option<String> {
+    if scope.is_file {
+        return Some(
+            super::super::language::parser_override(&scope.canonical, scope.language.as_deref())
+                .unwrap_or_else(|| {
+                    octocode_engine::text::extension_of(
+                        &scope.canonical.to_string_lossy(),
+                        true,
+                        "",
+                    )
+                }),
+        );
+    }
+    scope
+        .language
+        .as_deref()
+        .or(scope.inferred.as_deref())
+        .and_then(octocode_tools_shared::ast_rule::primary_extension)
+}
+
+/// The grammars an empty answer reads its patterns in, as `(name, parser
+/// extension)`: the scope's one parser (a file's, `parser`'s or the inferred
+/// one), else each parser of the scan's census the query compiles in.
+pub(super) fn read_grammars(scope: &Scope) -> Vec<(String, String)> {
+    let named = |extension: String| {
+        let name = languages::find_entry(&extension)
+            .map_or_else(|| extension.clone(), |entry| entry.name.to_owned());
+        (name, extension)
+    };
+    match scope_extension(scope) {
+        Some(extension) => vec![named(extension)],
+        None => scope.compiled.iter().cloned().map(named).collect(),
+    }
+}
+
+/// The note that names the grammars a finding holds in.
+fn grammar_note(names: &str, message: &str) -> String {
+    format!("In {names}: {message}")
+}
+
+/// Push each grammar's diagnostics (`found[i]` for `grammars[i]`), each
+/// distinct one once: as it is when every grammar has it, else with its
+/// message naming the grammars that do (a grammar whose parsers disagree is
+/// named with the parser extension).
+pub(super) fn push_by_grammar(
+    out: &mut Value,
+    grammars: &[(String, String)],
+    found: Vec<Vec<Value>>,
+) {
+    let mut distinct: Vec<(Value, Vec<usize>)> = Vec::new();
+    for (index, diagnostics) in found.into_iter().enumerate() {
+        for diagnostic in diagnostics {
+            match distinct.iter_mut().find(|(seen, _)| *seen == diagnostic) {
+                Some((_, holders)) if !holders.contains(&index) => holders.push(index),
+                Some(_) => {}
+                None => distinct.push((diagnostic, vec![index])),
+            }
+        }
+    }
+    // The grammars whose parsers (`.ts`, `.tsx`) disagree on a finding.
+    let split = grammars
+        .iter()
+        .map(|(name, _)| name)
+        .filter(|name| {
+            let parsers = (0..grammars.len())
+                .filter(|index| grammars[*index].0 == **name)
+                .collect::<Vec<_>>();
+            distinct.iter().any(|(_, holders)| {
+                let held = parsers
+                    .iter()
+                    .filter(|index| holders.contains(index))
+                    .count();
+                held > 0 && held < parsers.len()
+            })
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    for (mut diagnostic, holders) in distinct {
+        if holders.len() < grammars.len() {
+            let mut names: Vec<String> = Vec::new();
+            for (name, extension) in holders.iter().filter_map(|index| grammars.get(*index)) {
+                let shown = if split.contains(name) {
+                    format!("{name} (.{extension})")
+                } else {
+                    name.clone()
+                };
+                if !names.contains(&shown) {
+                    names.push(shown);
+                }
+            }
+            if let Some(message) = diagnostic["message"].as_str() {
+                diagnostic["message"] = json!(grammar_note(&names.join(", "), message));
+            }
+        }
+        super::rows::push_diagnostic(out, diagnostic);
+    }
+}
+
+/// How the query fares in one grammar of a directory scan's walk.
+pub(super) struct GrammarCompile {
+    pub(super) label: String,
+    pub(super) extensions: std::collections::BTreeSet<String>,
+    /// Whether the query compiles in it, else why not.
+    pub(super) outcome: Result<(), RuleError>,
+}
+
+/// The query compiled in each grammar the scan's own walk met (its census),
+/// once per call. Empty for a single file or an explicit `parser`, which
+/// name their grammar.
+pub(super) fn compile_in_grammars(
+    q: MatchQuery<'_>,
+    scope: &Scope,
+    scan: &Scan,
+) -> Vec<GrammarCompile> {
+    if scope.is_file || scope.language.is_some() {
+        return Vec::new();
+    }
+    let rule = q.rule();
+    rank_grammars(scan.census.clone())
+        .into_iter()
+        .map(|(label, extensions)| GrammarCompile {
+            outcome: compile_check(&extensions, None, rule.as_ref()),
+            label,
+            extensions,
+        })
+        .collect()
+}
+
+/// The files of a directory scan's walk whose parser rejects the query. A
+/// query that does not parse as a language cannot match that language's code,
+/// so those files are outside what it applies to, not files left unread: they
+/// make the result neither partial nor failed, whatever they hold. `.ts` and
+/// `.tsx` share a grammar label, so this asks each parser, not each grammar.
+#[derive(Default)]
+pub(super) struct Inapplicable {
+    /// Grammar label → its files in the walk the query does not parse in.
+    languages: std::collections::BTreeMap<String, usize>,
+    /// Grammar label → why the query does not parse in it (its first
+    /// parser's reason).
+    reasons: std::collections::BTreeMap<String, String>,
+    /// Why the query does not parse, when no file of the walk does.
+    rejection: Option<RuleError>,
+}
+
+impl Inapplicable {
+    /// One compile per parser in the census of a directory scan; a single
+    /// file has none, and its own read reports a compile failure.
+    pub(super) fn of(q: MatchQuery<'_>, scan: &Scan) -> Self {
+        let rule = q.rule();
+        let mut outside = Self::default();
+        let mut first_error = None;
+        let mut compiled = false;
+        for (extension, files) in &scan.census {
+            let parser = std::collections::BTreeSet::from([extension.clone()]);
+            match compile_check(&parser, None, rule.as_ref()) {
+                Ok(()) => compiled = true,
+                Err(error) => {
+                    if let Some(entry) = languages::find_entry(extension) {
+                        let label = languages::label(entry);
+                        outside
+                            .reasons
+                            .entry(label.clone())
+                            .or_insert_with(|| error.message.clone());
+                        *outside.languages.entry(label).or_default() += files;
+                    }
+                    first_error.get_or_insert(error);
+                }
+            }
+        }
+        outside.rejection = first_error.filter(|_| !compiled);
+        outside
+    }
+
+    /// Why the query parses in no file the walk met.
+    pub(super) fn rejection(&self) -> Option<&RuleError> {
+        self.rejection.as_ref()
+    }
+
+    /// What a rule that spells no pattern left unsearched, and why: such a
+    /// rule asks by node kind, field or text, which read as a question of
+    /// every grammar, while a kind is one grammar's own name. Each grammar
+    /// whose files the walk met and the rule does not compile in is named
+    /// with its compiler's reason (an unknown kind lists that grammar's
+    /// nearest kinds). `skippedGrammars` counts those files and says they
+    /// were not searched, so the note adds only the reasons. A pattern is
+    /// code of one grammar: its other grammars stay the quiet count
+    /// ([`Self::counts`]).
+    pub(super) fn kinds_notice(&self, q: MatchQuery<'_>) -> Option<String> {
+        if self.reasons.is_empty() || !q.patterns().is_empty() {
+            return None;
+        }
+        let reasons = self
+            .reasons
+            .iter()
+            .map(|(language, reason)| format!("{language}: {reason}"))
+            .collect::<Vec<_>>()
+            .join(" | ");
+        Some(format!(
+            "A kind is one grammar's name: search each skipped grammar by its own. {reasons}"
+        ))
+    }
+
+    /// The files of each grammar the query does not compile in, by
+    /// grammar: a quiet count, not a problem (a pattern is written in one
+    /// grammar); a query on one such file shows its compile error.
+    pub(super) fn counts(&self) -> Option<Value> {
+        (!self.languages.is_empty()).then(|| {
+            self.languages
+                .iter()
+                .map(|(language, files)| (language.clone(), json!(files)))
+                .collect::<serde_json::Map<_, _>>()
+                .into()
+        })
+    }
+}
+
+/// The one grammar a directory scan without `parser` read, from the
+/// census of its own walk (no second walk): `None` when it read several (or
+/// one the query does not compile in). A first window whose files are all
+/// of no supported grammar is `languageRequired`, unless the walk skipped
+/// paths, where source files may sit: then the empty answer names them and
+/// leads to the walk that reads them.
+pub(super) fn infer_grammar(
+    q: MatchQuery<'_>,
+    scope: &Scope,
+    scan: &Scan,
+    grammars: &[GrammarCompile],
+) -> Result<Option<String>, ToolError> {
+    if scope.is_file || scope.language.is_some() {
+        return Ok(None);
+    }
+    match choose_grammar(
+        grammars
+            .iter()
+            .map(|grammar| (grammar.label.clone(), grammar.extensions.clone())),
+        |language, _| {
+            grammars
+                .iter()
+                .find(|grammar| grammar.label == language)
+                .map_or(Ok(()), |grammar| grammar.outcome.clone())
+        },
+    ) {
+        GrammarChoice::One(language) => Ok(Some(language)),
+        GrammarChoice::Several(_) | GrammarChoice::Invalid => Ok(None),
+        // A walk that admitted no file at all, or withheld some, names no
+        // grammar to set: its empty result and disclosures are the answer.
+        GrammarChoice::Absent
+            if q.scan_offset() == 0
+                && scan.unparsed.files.count > 0
+                && scan.skipped.withheld.total() == 0
+                && octocode_tools_shared::leads::skipped::skipped_causes(&scan.skipped)
+                    .is_empty() =>
+        {
+            Err(ToolError::new(
+                ErrorCode::LanguageRequired,
+                "No source file of a supported structural grammar was found under path; set parser.",
+            ))
+        }
+        GrammarChoice::Absent => Ok(None),
+    }
+}
+
+/// Validate the selector and query without narrowing an inferred directory
+/// scan to the grammars visible before its file limit.
+pub(super) fn resolve_scope(
+    q: MatchQuery<'_>,
+    paths: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+) -> Result<Scope, ToolError> {
+    let requested = q
+        .language()
+        .as_deref()
+        .map(|language| {
+            family_extensions(language).ok_or_else(|| {
+                ToolError::new(
+                    ErrorCode::LanguageUnsupported,
+                    octocode_tools_shared::ast_rule::unsupported_language_message(language),
+                )
+            })
+        })
+        .transpose()?;
+    let language = q.language();
+    if let Some(code) = q.content() {
+        // One source, parsed under its field's name with the named grammar:
+        // no path is validated and no file is read.
+        super::super::source::inline_source(code, language.as_deref())?;
+        return Ok(Scope {
+            canonical: std::path::PathBuf::from(super::super::source::INLINE_NAME),
+            is_file: true,
+            language,
+            inferred: None,
+            extensions: requested,
+            parsers: GlobParsers::default(),
+            compiled: Vec::new(),
+            inline: Some(code.to_owned()),
+        });
+    }
+    let path = q.path().ok_or_else(super::super::source::no_source)?;
+    let p = paths
+        .validate(&path)
+        .map_err(super::super::errors::policy_error)?;
+    let meta = std::fs::metadata(&p.canonical)
+        .map_err(|error| super::super::errors::io_error(&path, error))?;
+    if q.scope().is_some() && !meta.is_file() {
+        return Err(ToolError::new(
+            ErrorCode::InvalidInput,
+            "scope requires a single source file; use one query per file.",
+        ));
+    }
+    if meta.is_file() && q.language_globs().is_some() {
+        return Err(ToolError::new(
+            ErrorCode::LanguageDirectoryRequired,
+            "parserGlobs is for directory matches. Use parser for a single file.",
+        ));
+    }
+    let parsers = GlobParsers::compile(&p.canonical, q.language_globs().as_ref())
+        .map_err(|error| ToolError::graph_scan(&error, cancel))?;
+    let named = requested.is_some();
+    let extensions = requested.or_else(|| meta.is_dir().then(structural_extensions));
+    // Validate against grammar capabilities, not the capped discovery prefix.
+    // The literal prefilter may otherwise hide even a globally invalid query.
+    if meta.is_dir()
+        && let Some(extensions) = &extensions
+        && let Err(every) = compile_check(extensions, None, q.rule().as_ref())
+    {
+        let error = if named {
+            every
+        } else {
+            super::gaps::scope_rejection(q, &p.canonical, &parsers, (paths, cancel), every)?
+        };
+        return Err(ToolError::new(error.code, error.message));
+    }
+    Ok(Scope {
+        canonical: p.canonical,
+        is_file: meta.is_file(),
+        language,
+        // Read from the scan's own walk (`infer_grammar`).
+        inferred: None,
+        extensions,
+        parsers,
+        compiled: Vec::new(),
+        inline: None,
+    })
+}
+
+/// Every extension a structural grammar parses.
+pub(super) fn structural_extensions() -> std::collections::BTreeSet<String> {
+    octocode_engine::signatures::languages::grammar_capabilities()
+        .iter()
+        .filter(|grammar| grammar.structural_search)
+        .flat_map(|grammar| grammar.extensions.iter().cloned())
+        .collect()
+}

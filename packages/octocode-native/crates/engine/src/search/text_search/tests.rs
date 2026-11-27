@@ -1,0 +1,63 @@
+use super::file_search::*;
+use super::mode::*;
+use super::result::*;
+use super::state::*;
+use super::*;
+use crate::error::Result;
+use crate::search::text_parser::FileEntry;
+use crate::test_support::TmpDir;
+use crate::text::open_regular;
+use crate::types::{
+    CapReason, CaseRule, PatternSyntax, SearchOutput, SearchSort, SourceValues, SpanValues,
+    TextSearchFile, TextSearchOptions, TextSearchResult, TextSearchStats,
+};
+use ignore::types::TypesBuilder;
+use sha2::{Digest as _, Sha256};
+use std::collections::BTreeSet;
+use std::fs;
+use std::path::Path;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
+
+mod admission;
+mod chunk_cancel;
+mod coverage;
+mod declaration_rank;
+mod digests;
+mod judge_gate;
+mod limits;
+mod line_scope;
+mod listed;
+mod matching;
+mod multiline;
+mod ordering;
+mod row_windows;
+mod selection;
+mod snippets;
+mod spans;
+mod streaming;
+mod term_counts;
+mod test_code;
+mod walk_order;
+mod walk_parity;
+mod windows;
+
+struct AllowAll;
+
+impl TextSearchPathFilter for AllowAll {
+    fn allows(&self, _: &Path, _: bool) -> bool {
+        true
+    }
+}
+
+pub(crate) fn search(opts: TextSearchOptions) -> Result<TextSearchResult> {
+    search_cancellable(opts, Arc::new(AllowAll), &|| false)
+}
+
+fn opts(path: String, pattern: &str) -> TextSearchOptions {
+    TextSearchOptions {
+        path,
+        pattern: pattern.to_owned(),
+        ..Default::default()
+    }
+}

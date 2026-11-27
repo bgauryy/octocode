@@ -1,0 +1,338 @@
+//! Call counts: builtin-lib callees, text-match partials, alias parsing
+//! and the one read of listed sites.
+
+use super::*;
+use octocode_test_support::json_fixture;
+
+#[test]
+fn typescript_builtin_lib_declarations_are_recognized_only_under_typescript_lib() {
+    let at = |uri: &str| serde_json::json!({"uri": uri});
+    assert!(is_builtin_lib_declaration(&at(
+        "file:///repo/node_modules/typescript/lib/lib.es5.d.ts"
+    )));
+    assert!(is_builtin_lib_declaration(&at(
+        "file:///repo/node_modules/typescript/lib/lib.dom.d.ts"
+    )));
+    assert!(!is_builtin_lib_declaration(&at(
+        "file:///repo/node_modules/@types/node/lib.d.ts"
+    )));
+    assert!(!is_builtin_lib_declaration(&at(
+        "file:///repo/src/lib.utils.d.ts"
+    )));
+    assert!(!is_builtin_lib_declaration(&at(
+        "file:///repo/node_modules/typescript/lib/typescript.d.ts"
+    )));
+    assert!(!is_builtin_lib_declaration(&serde_json::json!({})));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn builtin_lib_callees_are_listed_not_counted() {
+    let mut graph = graph(&[("root", &["toUpperCase", "map", "map"])]);
+    graph.uri = Some("file:///repo/node_modules/typescript/lib/lib.es5.d.ts".into());
+    let walk = walk(&graph, 1).await;
+    assert!(walk.edges.is_empty());
+    // Each name once, in walk (position) order.
+    let mut names = walk.builtin_lib.clone();
+    names.sort();
+    assert_eq!(names, vec!["map".to_owned(), "toUpperCase".to_owned()]);
+    assert_eq!(walk.out_of_policy, 0, "built-ins are not policy failures");
+    let q = query(json_fixture(
+        r#"{
+            "operation": "callees",
+            "path": "file:///repo/a.ts",
+            "symbolName": "foo",
+            "line": 1
+        }"#,
+    ));
+    let mut row = json_fixture(
+        r#"{
+            "status": "hasResults",
+            "operation": "callees",
+            "items": []
+        }"#,
+    );
+    let paths = octocode_runtime_base::policy::path::PathPolicy::new(
+        octocode_runtime_base::policy::path::PathPolicyConfig::default(),
+    )
+    .expect("path policy");
+    mark_truncation(&mut row, &q, &[(Expansion::OutgoingCalls, &walk)], &paths);
+    assert!(row.get("warnings").is_none(), "{row}");
+    assert_eq!(row["builtinLib"], serde_json::json!(walk.builtin_lib));
+    // A container (`detail`) qualifies the name.
+    let mut node = node_at("toUpperCase", Some("file:///x/typescript/lib/lib.es5.d.ts"));
+    node["detail"] = serde_json::json!("String");
+    assert_eq!(builtin_name(&node), "String.toUpperCase");
+}
+
+#[test]
+fn file_level_partial_clears_when_text_files_match() {
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("canonical");
+    std::fs::write(root.join("a.ts"), "export function foo() {}\n").expect("a");
+    std::fs::write(root.join("b.ts"), "import { foo } from './a';\nfoo();\n").expect("b");
+    let scope =
+        super::super::scope::Scope::new(root.to_string_lossy().into_owned(), vec!["*.ts".into()]);
+    let paths = octocode_runtime_base::test_support::workspace_policy(&root);
+    tokio::runtime::Runtime::new()
+        .expect("rt")
+        .block_on(scope.text_files(
+            "foo",
+            &paths,
+            &octocode_runtime_base::execution::cancel::NeverCancel,
+        ))
+        .expect("scan");
+    let q = query(serde_json::json!({
+        "operation": "references", "path": root.join("a.ts").to_string_lossy(),
+        "symbolName": "foo", "line": 1
+    }));
+    let row = || json_fixture(r#"{"operation": "references"}"#);
+    // One file only the text scan sees: flagged, and the lead lists it.
+    scope.answer([root.join("a.ts").to_string_lossy()]);
+    let mut partial = row();
+    flag_partial(
+        &mut partial,
+        &q,
+        octocode_runtime_base::response::paging::PartialReason::ImporterScanCapped,
+        Some("capped"),
+        &scope,
+    );
+    assert_eq!(partial["isPartial"], true, "{partial}");
+    // The importer cap is a window, not a terminal limit:
+    // `next.nextPage` verifies the unchecked candidates.
+    assert!(partial.get("terminalLimit").is_none(), "{partial}");
+    assert_eq!(partial["coverage"]["textOnlyFiles"], 1, "{partial}");
+    let lead =
+        &octocode_runtime_base::test_support::checks::related_call(&partial, "localSearch", |_| {
+            true
+        })["input"]["queries"];
+    assert_eq!(lead.as_array().map(Vec::len), Some(1), "{partial}");
+    assert_eq!(
+        lead[0]["path"],
+        root.join("b.ts").to_string_lossy().as_ref()
+    );
+    // Every file that spells the name is in the answer: the file-level
+    // reason is moot.
+    scope.answer([root.join("b.ts").to_string_lossy()]);
+    let mut agreed = row();
+    flag_partial(
+        &mut agreed,
+        &q,
+        octocode_runtime_base::response::paging::PartialReason::ImporterScanCapped,
+        Some("capped"),
+        &scope,
+    );
+    assert!(agreed.get("isPartial").is_none(), "{agreed}");
+    assert!(agreed.get("next").is_none(), "{agreed}");
+    assert_eq!(agreed["coverage"]["textOnlyFiles"], 0, "{agreed}");
+    assert!(agreed["coverage"].get("reason").is_none(), "{agreed}");
+}
+
+#[test]
+fn site_level_partial_survives_matching_counts() {
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("canonical");
+    std::fs::write(root.join("a.py"), "def get():\n    pass\nget()\n").expect("a");
+    let scope =
+        super::super::scope::Scope::new(root.to_string_lossy().into_owned(), vec!["*.py".into()]);
+    let paths = octocode_runtime_base::test_support::workspace_policy(&root);
+    tokio::runtime::Runtime::new()
+        .expect("rt")
+        .block_on(scope.text_files(
+            "get",
+            &paths,
+            &octocode_runtime_base::execution::cancel::NeverCancel,
+        ))
+        .expect("scan");
+    scope.answer([root.join("a.py").to_string_lossy()]);
+    let q = query(serde_json::json!({
+        "operation": "references", "path": root.join("a.py").to_string_lossy(),
+        "symbolName": "get", "line": 1
+    }));
+    let mut row = json_fixture(r#"{"operation": "references"}"#);
+    flag_partial(
+        &mut row,
+        &q,
+        octocode_runtime_base::response::paging::PartialReason::CfgGatedFiles,
+        Some("gated"),
+        &scope,
+    );
+    assert_eq!(row["isPartial"], true, "{row}");
+    assert_eq!(row["coverage"]["textOnlyFiles"], 0, "{row}");
+    assert_eq!(
+        row["partialReasons"],
+        json_fixture(r#"["cfgGatedFiles"]"#),
+        "{row}"
+    );
+    // Dynamic dispatch is judged by files: every file that spells the name
+    // is answered, so the Python row is complete.
+    let mut python = json_fixture(r#"{"operation": "references"}"#);
+    flag_partial(
+        &mut python,
+        &q,
+        octocode_runtime_base::response::paging::PartialReason::DynamicDispatch,
+        Some("dynamic"),
+        &scope,
+    );
+    assert!(python.get("isPartial").is_none(), "{python}");
+    assert!(row["coverage"].get("reason").is_none(), "{row}");
+    // No file to list: the lead searches the whole scope.
+    assert_eq!(
+        octocode_runtime_base::test_support::checks::related_call(&row, "localSearch", |_| true)["input"]
+            ["queries"][0]["path"],
+        root.to_string_lossy().as_ref()
+    );
+}
+
+#[test]
+fn builtin_lib_and_text_only_counts_satisfy_the_output_contract() {
+    let mut row = json_fixture(
+        r#"{
+            "lsp": {"serverAvailable": true},
+            "operation": "callees",
+            "files": [
+                {
+                    "path": "/repo/a.ts",
+                    "matches": [
+                        {
+                            "symbolName": "f",
+                            "kind": "function",
+                            "line": 10,
+                            "endLine": 12,
+                            "sites": [{"line": 2, "column": 3}]
+                        }
+                    ]
+                }
+            ],
+            "builtinLib": ["String.toUpperCase", "map"],
+            "coverage": {"textOnlyFiles": 3, "reason": "importerScanCapped"}
+        }"#,
+    );
+    stamp_coverage(&mut row);
+    assert_eq!(row["coverage"]["state"], "partial", "{row}");
+    octocode_runtime_base::contracts::validate_output("lspSearch", &public_row(&row))
+        .expect("builtinLib and textOnlyFiles are contract-valid");
+}
+
+/// Only a file that spells a rename of the symbol (`symbol as x`, or a
+/// destructured `symbol: x`) is parsed for aliasing imports.
+#[test]
+fn only_a_spelled_rename_is_parsed_for_aliases() {
+    for renamed in [
+        "import { foo as bar } from './a';",
+        "import {\n  foo\n    as bar,\n} from './a';",
+        "const { foo: bar } = require('./a');",
+        "use crate::a::foo as bar;",
+        "from a import (foo as bar)",
+    ] {
+        assert!(
+            super::super::recovery::may_rename(renamed, "foo"),
+            "{renamed}"
+        );
+    }
+    for plain in [
+        "import { foo } from './a';",
+        "foo(1); foobar as x; x.foo::y;",
+        "const food = { foo };",
+    ] {
+        assert!(!super::super::recovery::may_rename(plain, "foo"), "{plain}");
+    }
+}
+
+/// A server that answers `incomingCalls` from references (rust-analyzer)
+/// lists a function-local `use` as a site of the function around it. Every
+/// site of `callee` in `source`, grouped by the function `owners` names for
+/// its line, is one incoming call.
+struct ReferenceCallers {
+    uri: String,
+    source: &'static str,
+    owners: &'static [(&'static str, std::ops::Range<usize>)],
+}
+
+impl HierarchySource for ReferenceCallers {
+    async fn expand(
+        &self,
+        _: Expansion,
+        _: serde_json::Value,
+    ) -> Result<serde_json::Value, LspFailure> {
+        Ok(serde_json::json!(
+            self.owners
+                .iter()
+                .map(|(owner, lines)| {
+                    let sites = self
+                        .source
+                        .lines()
+                        .enumerate()
+                        .filter(|(line, _)| lines.contains(line))
+                        .flat_map(|(line, text)| {
+                            text.match_indices("callee").map(move |(at, name)| {
+                                serde_json::json!({
+                                    "start": {"line": line, "character": at},
+                                    "end": {"line": line, "character": at + name.len()}
+                                })
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    serde_json::json!({
+                        "from": node_at(owner, Some(&self.uri)),
+                        "fromRanges": sites
+                    })
+                })
+                .collect::<Vec<_>>()
+        ))
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn a_function_local_import_is_not_a_call_site() {
+    const SOURCE: &str = "fn calls() {\n    use crate::port::{callee, other};\n    callee(1);\n    callee(2);\n}\nfn imports_only() {\n    use crate::port::callee;\n    let _ = 1;\n}\nfn grouped() {\n    use crate::port::{\n        callee,\n        other,\n    };\n    callee(3);\n}\n";
+    let (_dir, root, paths) = temp_workspace();
+    let file = root.join("lib.rs");
+    std::fs::write(&file, SOURCE).expect("source");
+    let server = ReferenceCallers {
+        uri: octocode_engine::lsp::uri::path_to_uri(&file.to_string_lossy()).expect("uri"),
+        source: SOURCE,
+        owners: &[("calls", 0..5), ("imports_only", 5..9), ("grouped", 9..16)],
+    };
+    let walk = walk_hierarchy(
+        &server,
+        &[node("root")],
+        Expansion::IncomingCalls,
+        1,
+        &paths,
+        &octocode_runtime_base::execution::cancel::NeverCancel,
+    )
+    .await
+    .expect("walk");
+    let sites = walk
+        .edges
+        .iter()
+        .map(|edge| {
+            let lines = edge
+                .sites
+                .iter()
+                .filter_map(|site| {
+                    site.pointer("/start/line")
+                        .and_then(serde_json::Value::as_u64)
+                })
+                .collect::<Vec<_>>();
+            (
+                edge.node["name"].as_str().unwrap_or_default().to_owned(),
+                lines,
+            )
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let calls = |range: std::ops::Range<usize>| {
+        SOURCE
+            .lines()
+            .enumerate()
+            .filter(|(line, text)| range.contains(line) && text.contains("callee("))
+            .map(|(line, _)| line as u64)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(sites.get("calls"), Some(&calls(0..5)), "{sites:?}");
+    assert_eq!(sites.get("grouped"), Some(&calls(9..16)), "{sites:?}");
+    assert!(
+        !sites.contains_key("imports_only"),
+        "a function that only imports the symbol is no caller: {sites:?}"
+    );
+}

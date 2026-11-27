@@ -1,0 +1,515 @@
+//! Directory scans over mixed grammars: windows, inference and the
+//! grammars a pattern does not apply to.
+
+use super::*;
+use octocode_test_support::json_fixture;
+
+#[test]
+fn capped_incompatible_grammar_preserves_partial_coverage_and_reaches_later_grammar() {
+    let root = Fixture::new();
+    let window = crate::ast_search::scan_window::test_window(1);
+    root.write("a.py", "def ordinary():\n    return 1\n");
+    root.write("z.ts", "export function target() { return 2; }\n");
+    for selector in [json!({}), json_fixture(r#"{"include": ["*.py", "*.ts"]}"#)] {
+        let mut query = json!({"operation":"match","path":root.0,"rule":{"kind":"function_declaration"},"includeCaptures":true});
+        query
+            .as_object_mut()
+            .expect("query")
+            .extend(selector.as_object().expect("selector").clone());
+        let first = run(&root.0, query).expect("bounded grammar coverage");
+        // The window is partial because of its cut; the python file the
+        // rule does not compile in is outside the rule's scope, named in a
+        // warning, not a compile failure.
+        assert_eq!(first["isPartial"], true, "{first}");
+        let reasons = first["partialReasons"].as_array().expect("cuts");
+        assert!(!reasons.contains(&json!("compileFailed")), "{first}");
+        assert!(reasons.contains(&json!("scanBudget")), "{first}");
+        assert!(
+            !first["diagnostics"].to_string().contains("a.py"),
+            "{first}"
+        );
+        assert_eq!(
+            first["skippedGrammars"],
+            json_fixture(r#"{"python": 1}"#),
+            "{first}"
+        );
+        let next = first["next"]["expandScan"]["input"]["queries"][0].clone();
+        assert!(next.is_object(), "{first}");
+        assert!(next.get("parser").is_none(), "{next}");
+        let after = run(&root.0, next).expect("later compatible grammar");
+        assert_eq!(after["matchCount"], 1, "{after}");
+        assert!(
+            after["files"][0]["matches"][0]["value"]
+                .as_str()
+                .expect("value")
+                .contains("function target"),
+            "{after}"
+        );
+        assert!(after["next"].get("expandScan").is_none(), "{after}");
+    }
+    for selector in [
+        json_fixture(r#"{"rule": {"pattern": "function $F() { $$$BODY }"}}"#),
+        json_fixture(
+            r#"{
+                "rule": {"kind": "function_declaration"},
+                "include": ["*.ts"]
+            }"#,
+        ),
+        json_fixture(
+            r#"{
+                "rule": {"kind": "function_declaration"},
+                "exclude": ["*.py"]
+            }"#,
+        ),
+    ] {
+        let mut query = json!({"operation":"match","path":root.0,"includeCaptures":true});
+        query
+            .as_object_mut()
+            .expect("query")
+            .extend(selector.as_object().expect("selector").clone());
+        let mut out = run(&root.0, query).expect("valid selector beyond incompatible grammar");
+        let mut matches = Vec::new();
+        for _ in 0..3 {
+            matches.extend(
+                out["files"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .flat_map(|file| {
+                        file["matches"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .map(|found| found["value"].clone())
+                    }),
+            );
+            let Some(next) = out["next"].get("expandScan") else {
+                break;
+            };
+            out = run(&root.0, next["input"]["queries"][0].clone()).expect("copied pattern scan");
+        }
+        assert_eq!(matches.len(), 1, "{matches:?}: {out}");
+        assert!(
+            matches[0]
+                .as_str()
+                .expect("match")
+                .contains("function target"),
+            "{matches:?}"
+        );
+        assert!(out["next"].get("expandScan").is_none(), "{out}");
+    }
+    for selector in [
+        json_fixture(r#"{"rule": {"kind": "not_a_node"}}"#),
+        json_fixture(
+            r#"{
+                "parser": "python",
+                "rule": {"kind": "function_declaration"}
+            }"#,
+        ),
+    ] {
+        let mut query = json!({"operation":"match","path":root.0});
+        query
+            .as_object_mut()
+            .expect("query")
+            .extend(selector.as_object().expect("selector").clone());
+        let error = run(&root.0, query).expect_err("invalid selector");
+        assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
+    }
+    // A pattern one grammar reads: its window is partial by the cut, and the
+    // later grammar it does not compile in is outside what it applies to.
+    let query = json!({"operation":"match","path":root.0,"rule":{"pattern":"def $F():\n    $$$"}});
+    let first = run(&root.0, query).expect("bounded pattern coverage");
+    // A window cut before its scope ends counts what it read, a floor.
+    assert_eq!(first["pagination"]["total"], 1, "{first}");
+    assert_eq!(first["pagination"]["countScope"], "loaded", "{first}");
+    assert_eq!(first["isPartial"], true, "{first}");
+    let next = first["next"]["expandScan"]["input"]["queries"][0].clone();
+    assert!(next.is_object(), "{first}");
+    let last = run(&root.0, next).expect("the later grammar is named, not a failure");
+    assert_eq!(last["status"], "empty", "{last}");
+    assert_eq!(
+        last["skippedGrammars"],
+        json_fixture(r#"{"typescript": 1}"#),
+        "{last}"
+    );
+    assert!(last["next"].get("expandScan").is_none(), "{last}");
+    // A pattern no grammar reads is an error in a capped window too: no later
+    // file can make it match.
+    let error = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"target("}}),
+    )
+    .expect_err("capped invalid pattern");
+    assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
+    drop(window);
+    let error = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"target("}}),
+    )
+    .expect_err("whole-scope invalid pattern");
+    assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
+    let error = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"missing("}}),
+    )
+    .expect_err("prefilter cannot hide invalid whole-scope pattern");
+    assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
+}
+
+/// The files no grammar parses are the scope's: the first window says them
+/// and the final one says them whole; a window between does not repeat them.
+#[test]
+fn a_scopes_unparsed_files_are_not_repeated_on_a_middle_window() {
+    let root = Fixture::new();
+    let _window = crate::ast_search::scan_window::test_window(1);
+    root.write("a.ts", "export function a() { return 1; }\n");
+    root.write("b.ts", "export function b() { return 2; }\n");
+    root.write("c.ts", "export function c() { return 3; }\n");
+    root.write("0notes.unknownext", "plain\n");
+    let mut query =
+        json!({"operation":"match","path":root.0,"rule":{"kind":"function_declaration"}});
+    let mut windows = Vec::new();
+    loop {
+        let out = run(&root.0, query).expect("window");
+        let next = out["next"]["expandScan"]["input"]["queries"][0].clone();
+        windows.push(out);
+        if !next.is_object() {
+            break;
+        }
+        query = next;
+    }
+    assert!(windows.len() >= 3, "{windows:?}");
+    let names = |out: &serde_json::Value| out.to_string().contains("0notes.unknownext");
+    let last = windows.len() - 1;
+    for (at, out) in windows.iter().enumerate() {
+        assert_eq!(names(out), at == 0 || at == last, "window {at}: {out}");
+    }
+}
+
+#[test]
+fn a_final_window_of_an_inapplicable_grammar_is_whole_and_names_it() {
+    let root = Fixture::new();
+    let _window = crate::ast_search::scan_window::test_window(1);
+    root.write("a.ts", "export function target() { return 2; }\n");
+    root.write("z.py", "def ordinary():\n    return 1\n");
+    let first = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"kind":"function_declaration"}}),
+    )
+    .expect("first compatible grammar");
+    // A window cut before its scope ends counts what it read, a floor.
+    assert_eq!(first["pagination"]["total"], 1, "{first}");
+    assert_eq!(first["pagination"]["countScope"], "loaded", "{first}");
+    let next = first["next"]["expandScan"]["input"]["queries"][0].clone();
+    assert!(next.is_object(), "{first}");
+    let last = run(&root.0, next).expect("last grammar cannot invalidate earlier hits");
+    assert_eq!(last["status"], "empty", "{last}");
+    // The walk met a grammar that compiles the rule (the earlier window's),
+    // so the python file is outside what the rule applies to: the final
+    // window is whole and names it.
+    assert!(last.get("isPartial").is_none(), "{last}");
+    assert!(last.get("terminalLimit").is_none(), "{last}");
+    assert!(last.get("diagnostics").is_none(), "{last}");
+    assert_eq!(
+        last["skippedGrammars"],
+        json_fixture(r#"{"python": 1}"#),
+        "{last}"
+    );
+    assert!(last["next"].get("expandScan").is_none(), "{last}");
+}
+
+#[test]
+fn directory_scan_windows_infer_each_files_grammar_without_losing_other_languages() {
+    let root = Fixture::new();
+    let _window = crate::ast_search::scan_window::test_window(1);
+    for (name, source) in [
+        ("a.ts", "hit(1);\nhit(2);\n"),
+        ("b.js", "hit(3);\nhit(4);\n"),
+        ("c.rs", "fn f() { hit(5);\nhit(6); }\n"),
+        ("d.py", "hit(7)\nhit(8)\n"),
+    ] {
+        root.write(name, source);
+    }
+    let start = json!({"operation":"match","path":root.0,"rule":{"pattern":"hit($A)"}});
+    let mut values = Vec::new();
+    let walk = checks::walker::walk("astSearch", json!({"queries":[start]}), |call| {
+        let input = octocode_runtime_base::test_support::opened_input(
+            octocode_runtime_base::id::ToolId::AstSearch,
+            call,
+        );
+        let rows = input["queries"].as_array().expect("rows");
+        assert_eq!(rows.len(), 1, "one row per page lead: {call}");
+        let query = &rows[0];
+        assert!(query.get("parser").is_none(), "{query}");
+        let out = run(&root.0, query.clone()).expect("per-file grammar scan");
+        for file in out["files"].as_array().into_iter().flatten() {
+            for found in file["matches"].as_array().into_iter().flatten() {
+                values.push(found["value"].as_str().expect("match").to_owned());
+            }
+        }
+        checks::Page {
+            output: octocode_runtime_base::test_support::published(
+                octocode_runtime_base::id::ToolId::AstSearch,
+                &out,
+            ),
+            rows: ast_rows(std::slice::from_ref(&out)),
+        }
+    });
+    assert!(walk.queries.len() < 30, "continuations terminate");
+    values.sort();
+    assert_eq!(
+        values,
+        (1..=8).map(|i| format!("hit({i})")).collect::<Vec<_>>()
+    );
+}
+
+/// A directory match without language uses the one grammar whose files the
+/// scope holds; continuations retain per-file inference rather than narrowing it.
+/// A directory match without `language` infers its grammar from the census
+/// of the scan's own walk: no second walk, the same `inferredLanguage`
+/// (stated by an empty answer; matches name their files), and a scope
+/// without any supported file is still `languageRequired`.
+#[test]
+fn the_inferred_grammar_comes_from_the_scan_walk() {
+    let root = Fixture::new();
+    root.write("src/a.rs", "fn a() { b(); }\n");
+    root.write("src/b.rs", "fn b() {}\n");
+    root.write("notes.txt", "b()\n");
+    let before = octocode_tools_shared::ast_rule::present_walks();
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"b()"}}),
+    )
+    .expect("match");
+    assert_eq!(out["matchCount"], 1, "{out}");
+    assert_unqualified(&out);
+    let none = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"a($X)"}}),
+    )
+    .expect("empty match");
+    assert_eq!(none["status"], "empty", "{none}");
+    assert_eq!(none["inferredLanguage"], "rust", "{none}");
+    assert_eq!(
+        octocode_tools_shared::ast_rule::present_walks(),
+        before,
+        "one walk"
+    );
+    let empty = Fixture::new();
+    empty.write("notes.txt", "b()\n");
+    let error = run(
+        &empty.0,
+        json!({"operation":"match","path":empty.0,"rule":{"pattern":"b()"}}),
+    )
+    .expect_err("no grammar");
+    assert_eq!(error.code, ErrorCode::LanguageRequired, "{error:?}");
+}
+
+/// A scope whose only source a default exclude skips (a vendored
+/// `index.min.js` beside its `package.json`) is no `languageRequired`: the
+/// grammar is known, the walk skipped the file. The first answer names it
+/// and leads to the walk that reads it, without `parser`.
+#[test]
+fn a_scope_whose_only_source_is_default_excluded_names_it_instead_of_asking_for_parser() {
+    let root = Fixture::new();
+    root.write("tar/package.json", "{\"name\":\"tar\"}\n");
+    root.write("tar/index.min.js", "function pack(){return entry()}\n");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0.join("tar"),"rule":{"pattern":"entry()"}}),
+    )
+    .expect("no languageRequired when source sits behind skipped paths");
+    assert_eq!(out["status"], "empty", "{out}");
+    assert_unsearched(
+        &out,
+        &[octocode_tools_shared::empty_walk::Cause::DefaultExcluded],
+    );
+    assert!(
+        out["skippedPaths"].to_string().contains("*.min.js"),
+        "{out}"
+    );
+    let lead = &crate::ast_search::test_rows::skipped_call(&out)
+        .expect("a lead that lifts the default excludes")["input"]["queries"][0];
+    assert_eq!(lead["defaultExcludes"], false, "{out}");
+    assert!(lead.get("parser").is_none(), "{out}");
+}
+
+#[test]
+fn directory_match_infers_the_only_grammar_present() {
+    let root = Fixture::new();
+    // One file holds both matches: the scan's one window holds the whole
+    // scope, and its second page is that window's.
+    root.write("a.rs", "fn a() { hit(1); hit(2); }\n");
+    std::fs::create_dir(root.0.join("nested")).expect("nested");
+    root.write("nested/b.rs", "fn b() { other(2); }\n");
+    root.write("README.md", "hit(3)\n");
+    let out = crate::ast_search::test_rows::run_window(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"hit($A)"}}),
+        1,
+    )
+    .expect("language inferred from the .rs files");
+    assert_eq!(out["matchCount"], 2, "{out}");
+    // The page's window held the whole scope: its matches name their
+    // files, so only an empty answer states the grammar it inferred.
+    assert_unqualified(&out);
+    let none = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"other($A, $B)"}}),
+    )
+    .expect("language inferred from the .rs files");
+    assert_eq!(none["status"], "empty", "{none}");
+    assert_eq!(none["inferredLanguage"], "rust", "{none}");
+    let next = out["next"]["nextPage"]["input"]["queries"][0].clone();
+    assert!(next.get("parser").is_none(), "{out}");
+    let continued =
+        crate::ast_search::test_rows::run_window(&root.0, next, 1).expect("same inferred scope");
+    // The continuation ran under the snapshot its cursor pinned.
+    assert!(
+        octocode_runtime_base::test_support::pinned_snapshot(&out).is_string(),
+        "{out}"
+    );
+    assert!(continued.get("errorCode").is_none(), "{continued}");
+    assert!(continued["next"].get("nextPage").is_none(), "{continued}");
+    let explicit = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"hit($A)"},"parser":"rust"}),
+    )
+    .expect("explicit language");
+    assert_eq!(explicit["matchCount"], out["matchCount"], "{explicit}");
+    assert!(explicit.get("inferredLanguage").is_none(), "{explicit}");
+}
+
+#[test]
+fn directory_match_covers_each_parsing_grammar_and_explicit_language_still_filters() {
+    let root = Fixture::new();
+    root.write("a.rs", "fn a() { hit(1); }\n");
+    root.write("b.ts", "hit(2);\n");
+    root.write("c.ts", "hit(3);\n");
+    root.write("d.js", "hit(4);\n");
+    root.write("e.py", "hit(5)\n");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"hit($A)"}}),
+    )
+    .expect("each file selects its grammar");
+    assert_eq!(out["matchCount"], 5, "{out}");
+    assert_eq!(out["files"].as_array().map(Vec::len), Some(5), "{out}");
+    assert!(out.get("inferredLanguage").is_none(), "{out}");
+    let explicit = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"hit($A)"},"parser":"rust"}),
+    )
+    .expect("explicit selector");
+    assert_eq!(explicit["matchCount"], 1, "{explicit}");
+    assert_eq!(
+        explicit["files"].as_array().map(Vec::len),
+        Some(1),
+        "{explicit}"
+    );
+}
+
+/// `.ts` and `.tsx` are one family: `typescript` scans `.tsx` with the TSX
+/// parser, so a mixed directory needs no language.
+#[test]
+fn directory_match_over_a_grammar_family_infers_the_family() {
+    let root = Fixture::new();
+    root.write("a.ts", "hit(1);\n");
+    root.write("b.tsx", "const v = <div>{hit(2)}</div>;\n");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"hit($A)"}}),
+    )
+    .expect("one family");
+    assert_eq!(out["matchCount"], 2, "{out}");
+    assert_unqualified(&out);
+    let none = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"hit($A, $B)"}}),
+    )
+    .expect("one family");
+    assert_eq!(none["status"], "empty", "{none}");
+    assert_eq!(none["inferredLanguage"], "typescript", "{none}");
+}
+
+/// `.ts` and `.tsx` share one grammar label, but a pattern can parse in only
+/// one of them. A `.ts` file then cannot match it: it is outside what the
+/// query applies to, whatever the file holds, with or without `parser`, and
+/// the result is whole: an empty answer counts the file in
+/// `skippedGrammars`, one with matches does not. A scope with no file the
+/// query parses in is an error, again whatever the files hold.
+#[test]
+fn a_dialect_the_pattern_does_not_parse_in_is_outside_whatever_the_file_holds() {
+    let pattern = json_fixture(r#"{"pattern": "<div>$$$</div>"}"#);
+    for source in ["const a = \"<div>x</div>\";\n", "const a = 1;\n"] {
+        let root = Fixture::new();
+        root.write("a.ts", source);
+        root.write("b.tsx", "const v = <div>x</div>;\n");
+        for selector in [json!({}), json_fixture(r#"{"parser": "typescript"}"#)] {
+            let mut query = json!({"operation":"match","path":root.0,"rule":pattern});
+            query
+                .as_object_mut()
+                .expect("query")
+                .extend(selector.as_object().expect("selector").clone());
+            let out = run(&root.0, query).expect("the tsx file parses it");
+            assert_eq!(out["matchCount"], 1, "{out}");
+            for field in ["isPartial", "partialReasons", "terminalLimit"] {
+                assert!(out.get(field).is_none(), "{field}: {out}");
+            }
+            assert!(out["next"].get("narrowScope").is_none(), "{out}");
+            assert!(!out["diagnostics"].to_string().contains("a.ts"), "{out}");
+            assert!(out.get("skippedGrammars").is_none(), "{out}");
+            // The same scope and dialect with no such element.
+            let mut query = json!({"operation":"match","path":root.0,"rule":{"pattern":"<div><b>$$$</b></div>"}});
+            query
+                .as_object_mut()
+                .expect("query")
+                .extend(selector.as_object().expect("selector").clone());
+            let none = run(&root.0, query).expect("the tsx file parses it");
+            assert_eq!(none["status"], "empty", "{none}");
+            for field in ["isPartial", "partialReasons", "terminalLimit"] {
+                assert!(none.get(field).is_none(), "{field}: {none}");
+            }
+            assert_eq!(
+                none["skippedGrammars"],
+                json_fixture(r#"{"typescript": 1}"#),
+                "{none}"
+            );
+        }
+        let only_ts = Fixture::new();
+        only_ts.write("a.ts", source);
+        for selector in [json!({}), json_fixture(r#"{"parser": "typescript"}"#)] {
+            let mut query = json!({"operation":"match","path":only_ts.0,"rule":pattern});
+            query
+                .as_object_mut()
+                .expect("query")
+                .extend(selector.as_object().expect("selector").clone());
+            let error = run(&only_ts.0, query).expect_err("no file of the scope parses it");
+            assert_eq!(error.code, ErrorCode::InvalidPattern, "{source}: {error:?}");
+        }
+    }
+}
+
+/// A window of files the query does not parse in, with a later window still
+/// to read, carries no compile failure: only its cut makes it partial.
+#[test]
+fn a_capped_window_of_another_grammar_is_partial_only_by_its_cut() {
+    let root = Fixture::new();
+    let _window = crate::ast_search::scan_window::test_window(1);
+    root.write("a.py", "def a():\n    return 1\n");
+    root.write("b.py", "def b():\n    return 1\n");
+    root.write("c.py", "def c():\n    return 1\n");
+    root.write("z.rs", "fn z() {}\n");
+    let first = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"fn $F() {}"}}),
+    )
+    .expect("the walk has not reached the grammar that parses it");
+    assert_eq!(
+        first["partialReasons"],
+        json_fixture(r#"["scanBudget"]"#),
+        "{first}"
+    );
+    assert!(first.get("terminalLimit").is_none(), "{first}");
+    assert!(first["next"].get("expandScan").is_some(), "{first}");
+}

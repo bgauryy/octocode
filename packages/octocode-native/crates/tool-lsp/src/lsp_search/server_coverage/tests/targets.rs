@@ -1,0 +1,290 @@
+//! Rust target gates: a missed file whose uses a `cfg` of another target
+//! leaves out is blamed on that gate, and never on build scripts that did
+//! not run.
+use super::super::targets::{AnalysisTarget, TargetFacts, cfg_predicates};
+use super::*;
+use octocode_test_support::json_fixture;
+
+/// A target-family gate that does not hold for the host these tests run
+/// on, and one that does.
+fn family_gates() -> (&'static str, &'static str) {
+    if cfg!(windows) {
+        ("unix", "windows")
+    } else {
+        ("windows", "unix")
+    }
+}
+
+/// A package at `root/pkg` with a build script, whose `src/lib.rs`
+/// `include!`s its output, declares `write_atomic` and holds `lib`, beside
+/// the `files` of `src`.
+fn package(lib: &str, files: &[(&str, &str)]) -> (tempfile::TempDir, std::path::PathBuf) {
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("root");
+    let source = root.join("pkg/src");
+    std::fs::create_dir_all(&source).expect("src");
+    std::fs::write(root.join("pkg/Cargo.toml"), "[package]\nname = \"p\"\n").expect("manifest");
+    std::fs::write(root.join("pkg/build.rs"), "fn main() {}\n").expect("build.rs");
+    std::fs::write(
+        source.join("lib.rs"),
+        format!(
+            "include!(concat!(env!(\"OUT_DIR\"), \"/gen.rs\"));\npub fn write_atomic() {{}}\n{lib}"
+        ),
+    )
+    .expect("lib");
+    for (name, text) in files {
+        std::fs::write(source.join(name), text).expect("source");
+    }
+    (dir, root)
+}
+
+/// The `references` row of `write_atomic` after the server answered
+/// `lib.rs` alone, from a server configured for `target` (`cargo.target`;
+/// none: the host).
+async fn row(root: &Path, target: Option<&str>) -> Value {
+    row_asking(root, target, false).await
+}
+
+/// [`row`], with the scope asked what `references` asks of the anchor
+/// (`asked`), as a request asks it.
+async fn row_asking(root: &Path, target: Option<&str>, asked: bool) -> Value {
+    let package = root.join("pkg");
+    let lib_path = package.join("src/lib.rs").to_string_lossy().into_owned();
+    let policy = octocode_runtime_base::test_support::workspace_policy(root);
+    let scope = Scope::new(root.to_string_lossy().into_owned(), vec!["*.rs".into()]);
+    scope
+        .text_files(
+            "write_atomic",
+            &policy,
+            &octocode_runtime_base::execution::cancel::NeverCancel,
+        )
+        .await
+        .expect("scan");
+    scope.answer([lib_path.clone()]);
+    if asked {
+        let text = std::fs::read_to_string(&lib_path).expect("lib");
+        scope.asks(
+            crate::lsp_search::scope::Question::of(Op::References).at_anchor(
+                &lib_path,
+                Some(&text),
+                (1, u32::try_from("pub fn ".len()).expect("column")),
+                "write_atomic",
+            ),
+        );
+    }
+    let q = query(json!({"path": lib_path, "operation": "references",
+        "symbolName": "write_atomic", "line": 2}));
+    let mut options = octocode_engine::lsp::config::rust_analyzer_headless_options();
+    if let Some(target) = target {
+        options["cargo"]["target"] = json!(target);
+    }
+    let config = configured_rust(options);
+    let mut row = json_fixture(
+        r#"{
+            "operation": "references",
+            "matches": [{"path": "pkg/src/lib.rs"}]
+        }"#,
+    );
+    let package_text = package.to_string_lossy().into_owned();
+    super::super::annotate(
+        &mut row,
+        &q,
+        Some("rust"),
+        Server {
+            anchor: &lib_path,
+            root: &package_text,
+        },
+        &scope,
+        crate::lsp_search::receipt::RustAnalysis::of(&config),
+        &|| false,
+    );
+    row
+}
+
+/// Whether `row` offers an `lspSearch` call: no rerun recovers a gated file.
+fn offers_rerun(row: &Value) -> bool {
+    octocode_runtime_base::test_support::checks::find_related_call(row, "lspSearch", |_| true)
+        .is_some()
+}
+
+/// A module declared under a gate of another target is missing from the
+/// answer because of that gate: the row names the gate and the file, leads
+/// to the text check, offers no rerun, and does not blame the build scripts
+/// the package also has.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_module_behind_another_targets_gate_is_blamed_on_the_gate() {
+    let (off, _) = family_gates();
+    let (_dir, root) = package(
+        &format!("#[cfg({off})]\nmod other;\n"),
+        &[("other.rs", "pub fn f() { ctx.write_atomic(); }\n")],
+    );
+    let row = row(&root, None).await;
+    assert_eq!(row["partialReasons"], json!([CFG_REASON]), "{row}");
+    assert_eq!(row["coverage"]["textOnlyFiles"], 1, "{row}");
+    let warnings = row["warnings"].to_string();
+    assert!(
+        warnings.contains(&format!("cfg({off})")) && warnings.contains("pkg/src/other.rs"),
+        "{row}"
+    );
+    assert!(
+        warnings.contains("rust-analyzer analyzes one target.") && !warnings.contains("rerun"),
+        "{row}"
+    );
+    assert!(!row.to_string().contains("build scripts"), "{row}");
+    assert!(
+        octocode_runtime_base::test_support::checks::find_related_call(&row, "localSearch", |_| {
+            true
+        })
+        .is_some(),
+        "the text check reads the gated file: {row}"
+    );
+    assert!(!offers_rerun(&row), "{row}");
+}
+
+/// A gate on the item that holds every use explains the file as a gate on
+/// its module does; a file with one use outside any such gate is not
+/// explained, so the build scripts stay a possible cause beside the gate.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_gate_explains_a_file_only_when_it_holds_every_use() {
+    let (off, _) = family_gates();
+    let gated =
+        format!("/// Platform write.\n#[cfg({off})]\nfn f() {{\n    ctx.write_atomic();\n}}\n");
+    let (_dir, root) = package("mod item;\n", &[("item.rs", &gated)]);
+    let row_gated = row(&root, None).await;
+    assert_eq!(
+        row_gated["partialReasons"],
+        json!([CFG_REASON]),
+        "{row_gated}"
+    );
+
+    let mixed = format!("{gated}fn g() {{\n    ctx.write_atomic();\n}}\n");
+    let (_dir, root) = package("mod item;\n", &[("item.rs", &mixed)]);
+    let row_mixed = row(&root, None).await;
+    assert_eq!(
+        row_mixed["partialReasons"],
+        json!([BUILD_SCRIPTS_REASON]),
+        "{row_mixed}"
+    );
+    assert!(!offers_rerun(&row_mixed), "{row_mixed}");
+
+    let (_dir, root) = package(
+        &format!("mod item;\n#[cfg({off})]\nmod other;\n"),
+        &[
+            ("item.rs", "fn g() { ctx.write_atomic(); }\n"),
+            ("other.rs", "pub fn f() { ctx.write_atomic(); }\n"),
+        ],
+    );
+    let both = row(&root, None).await;
+    assert_eq!(
+        both["partialReasons"],
+        json!([BUILD_SCRIPTS_REASON, CFG_REASON]),
+        "{both}"
+    );
+    assert!(!offers_rerun(&both), "{both}");
+}
+
+/// A gate that holds for the analyzed target hides nothing: on the host,
+/// and under a configured `cargo.target` it holds for. An unlisted target's
+/// `cfg` is not known, so no gate is judged against it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_gate_that_holds_for_the_analyzed_target_explains_nothing() {
+    let (off, on) = family_gates();
+    let (_dir, root) = package(
+        &format!("#[cfg({on})]\nmod other;\n"),
+        &[("other.rs", "pub fn f() { ctx.write_atomic(); }\n")],
+    );
+    let host = row(&root, None).await;
+    assert_eq!(
+        host["partialReasons"],
+        json!([BUILD_SCRIPTS_REASON]),
+        "{host}"
+    );
+
+    let (_dir, root) = package(
+        &format!("#[cfg({off})]\nmod other;\n"),
+        &[("other.rs", "pub fn f() { ctx.write_atomic(); }\n")],
+    );
+    let holding = if off == "windows" {
+        "x86_64-pc-windows-msvc"
+    } else {
+        "x86_64-unknown-linux-gnu"
+    };
+    let named = row(&root, Some(holding)).await;
+    assert_eq!(
+        named["partialReasons"],
+        json!([BUILD_SCRIPTS_REASON]),
+        "{named}"
+    );
+    let unlisted = row(&root, Some("riscv64gc-unknown-none-elf")).await;
+    assert_eq!(
+        unlisted["partialReasons"],
+        json!([BUILD_SCRIPTS_REASON]),
+        "{unlisted}"
+    );
+}
+
+/// `cfg` predicates are read from attributes and judged per target; an
+/// option the target does not decide leaves the predicate open, and a
+/// `cfg_attr` is no gate.
+#[test]
+fn cfg_predicates_are_judged_against_a_target() {
+    let windows = TargetFacts::of_triple("x86_64-pc-windows-msvc").expect("windows");
+    let linux = TargetFacts::of_triple("aarch64-unknown-linux-gnu").expect("linux");
+    let judged = |attribute: &str| {
+        let found = cfg_predicates(attribute);
+        assert_eq!(found.len(), 1, "{attribute}");
+        (found[0].holds(windows), found[0].holds(linux))
+    };
+    assert_eq!(judged("#[cfg(windows)]"), (Some(true), Some(false)));
+    assert_eq!(judged("#![cfg(unix)]"), (Some(false), Some(true)));
+    assert_eq!(
+        judged("#[cfg(all(unix, not(target_os = \"macos\")))]"),
+        (Some(false), Some(true))
+    );
+    assert_eq!(
+        judged("#[cfg(any(target_arch = \"aarch64\", target_env = \"msvc\"))]"),
+        (Some(true), Some(true))
+    );
+    assert_eq!(
+        judged("#[cfg(all(windows, feature = \"x\"))]"),
+        (None, Some(false))
+    );
+    assert_eq!(judged("#[cfg(any(test, unix))]"), (None, Some(true)));
+    assert!(cfg_predicates("#[cfg_attr(windows, path = \"w.rs\")]").is_empty());
+    assert!(cfg_predicates("let cfg = (windows);").is_empty());
+    assert_eq!(
+        AnalysisTarget::of(Some("x86_64-pc-windows-msvc")),
+        AnalysisTarget::Listed(windows)
+    );
+    assert_eq!(
+        AnalysisTarget::of(Some("no-such-target")),
+        AnalysisTarget::Unknown
+    );
+    assert_eq!(AnalysisTarget::of(None), AnalysisTarget::Host);
+}
+
+/// A free function is reached by its path, never through a receiver: a gated
+/// file that only calls a same-named method (`held.write_atomic(…)`, as the
+/// Windows tests of a private file do) holds no use of it, so the row neither
+/// counts nor blames that file; one that calls it by its path still counts.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_same_named_method_is_no_use_of_a_free_function() {
+    let (off, _) = family_gates();
+    for (call, counted) in [
+        ("held\n        .write_atomic(1)", false),
+        ("crate::write_atomic()", true),
+    ] {
+        let other = format!("pub fn f() {{ {call}; }}\n");
+        let (_dir, root) = package(
+            &format!("#[cfg({off})]\nmod other;\n"),
+            &[("other.rs", other.as_str())],
+        );
+        let row = row_asking(&root, None, true).await;
+        assert_eq!(
+            row["partialReasons"] == json!([CFG_REASON]),
+            counted,
+            "{call}: {row}"
+        );
+        assert_eq!(row.get("isPartial").is_some(), counted, "{call}: {row}");
+    }
+}

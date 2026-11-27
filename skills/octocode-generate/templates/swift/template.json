@@ -1,0 +1,5 @@
+{
+  "description": "Swift package: CI on macOS with swift format lint, swift build and swift test",
+  "scripts": {},
+  "notes": "swift package init writes 4-space indentation and swift-format defaults to 2: run swift format --in-place --recursive Sources Tests Package.swift once. Swift Testing needs Xcode or a swift.org toolchain; Command Line Tools alone lack the Testing module."
+}

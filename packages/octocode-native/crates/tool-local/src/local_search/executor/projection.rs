@@ -1,0 +1,207 @@
+//! The page's rows: files ordered, shown rows projected, and each hit
+//! annotated with its match keys and enclosing declaration.
+use crate::local_search::local_search_query::View;
+use octocode_engine::types::SearchSort;
+
+use super::super::enclosing::{annotate_enclosing, annotate_match_keys};
+use super::super::layout::{Layout, file_pagination};
+use super::super::page_view::EntryFacts;
+use super::super::rows::{HitWindow, merge_context_windows, project_match};
+use super::super::types::SearchFile;
+use super::super::verify::{Outlines, PageScope, Redacted};
+
+use super::super::local_search_query;
+use octocode_contract_types::LocalSearchQuery;
+use octocode_runtime_base::execution::cancel::CancellationCheck;
+
+/// The page's rows, projected and annotated: each hit's match keys and
+/// enclosing declaration.
+pub(super) struct Annotated {
+    pub(super) files: Vec<SearchFile>,
+    /// Shown values redaction changed.
+    pub(super) shown_redacted: usize,
+    /// Warnings the annotations add.
+    pub(super) notes: Vec<String>,
+}
+
+/// Project the page's shown rows and annotate them (see [`Annotated`]).
+pub(super) fn annotate_rows<'q>(
+    scope: &PageScope<'q, impl CancellationCheck>,
+    layout: &Layout,
+    (scanned, facts): (Vec<octocode_engine::types::TextSearchFile>, &[EntryFacts]),
+    redacted: &Redacted,
+    outlines: Outlines,
+) -> Annotated {
+    let PageScope {
+        query,
+        output_root,
+        expected_digest,
+        security,
+        ..
+    } = *scope;
+    let (mut files, shown_redacted) = project_files(query, layout, (scanned, facts), redacted);
+    let declaring = (!layout.list)
+        .then(|| super::super::enclosing::declaring_symbol(query))
+        .flatten();
+    let mut notes = Vec::new();
+    annotate_match_keys(&mut files, output_root, expected_digest, security);
+    // A matchOnly row is the hit's text and place; content rows name its owner.
+    let enclosing_note = if local_search_query::view(query) == View::MatchOnly {
+        None
+    } else {
+        annotate_enclosing(
+            &mut files,
+            declaring,
+            output_root,
+            expected_digest,
+            outlines,
+            security,
+        )
+    };
+    notes.extend(enclosing_note);
+    Annotated {
+        files,
+        shown_redacted,
+        notes,
+    }
+}
+
+/// A file's time under the key `query`'s time order ranked it by;
+/// `None` under any other order, or when the walk read no time.
+fn sorted_at(
+    query: &LocalSearchQuery,
+    time: Option<std::time::SystemTime>,
+) -> Option<super::super::types::SortedAt> {
+    let key = local_search_query::sort_time_key(query)?;
+    let seconds = match time?.duration_since(std::time::UNIX_EPOCH) {
+        Ok(after) => i64::try_from(after.as_secs()).ok()?,
+        Err(before) => i64::try_from(before.duration().as_secs())
+            .ok()?
+            .checked_neg()?,
+    };
+    Some(super::super::types::SortedAt {
+        key,
+        time: octocode_runtime_base::civil_date::iso8601_secs(seconds),
+    })
+}
+
+fn is_count_view(query: &LocalSearchQuery) -> bool {
+    matches!(
+        local_search_query::view(query),
+        View::CountMatches | View::CountLines
+    )
+}
+
+/// The runtime's own order (path), then `reverse`. The time and matchCount
+/// orders arrive from the engine with `reverse` applied: a matchCount order
+/// ranks by occurrences, which a file's view-sized `match_count` (its lines,
+/// spans or 1) does not state. Every order the runtime (re)establishes —
+/// path, traversal — is reversed here, as the schema promises ("after sort,
+/// before pagination").
+pub(crate) fn order_files(
+    query: &LocalSearchQuery,
+    files: &mut [octocode_engine::types::TextSearchFile],
+) {
+    let sort = local_search_query::sort(query);
+    if sort == SearchSort::Path {
+        files.sort_by(|a, b| a.path.cmp(&b.path));
+    }
+    let engine_sorted = matches!(
+        sort,
+        SearchSort::Modified | SearchSort::Accessed | SearchSort::Created | SearchSort::MatchCount
+    );
+    if local_search_query::reverse(query).unwrap_or(false) && !engine_sorted {
+        files.reverse();
+    }
+}
+
+/// The page's file entries, and how many shown values were redacted.
+/// `scanned` are the page's files ([`super::super::page_view::PageView`]),
+/// `facts` what each entry knows of its rows on other pages.
+fn project_files(
+    query: &LocalSearchQuery,
+    layout: &Layout,
+    (scanned, facts): (Vec<octocode_engine::types::TextSearchFile>, &[EntryFacts]),
+    redacted: &Redacted,
+) -> (Vec<SearchFile>, usize) {
+    let match_only = local_search_query::view(query) == View::MatchOnly;
+    let mut shown_redacted = 0usize;
+    let mut slots = scanned.into_iter().map(Some).collect::<Vec<_>>();
+    let files = layout
+        .shown
+        .iter()
+        .filter_map(|(index, rows)| {
+            Some((
+                slots.get_mut(*index)?.take()?,
+                rows.clone(),
+                facts.get(*index)?,
+            ))
+        })
+        // A file whose shown rows the page's check all left out (gone
+        // since the scan) is no entry: the row's `fileErrors` names it.
+        .filter(|(f, rows, _)| {
+            layout.list || rows.start.min(f.matches.len()) < rows.end.min(f.matches.len())
+        })
+        .map(|(f, rows, facts)| {
+            // One key per file, its line and column set per row.
+            let mut key = (f.path.clone(), 0, 0);
+            let end = rows.end.min(f.matches.len());
+            let start = rows.start.min(end);
+            let mut page_rows = f.matches[start..end].iter().collect::<Vec<_>>();
+            page_rows.sort_by_key(|m| (m.line, m.column));
+            let shown = page_rows
+                .into_iter()
+                .inspect(|m| {
+                    (key.1, key.2) = (m.line, m.column);
+                    if redacted.contains(&key) {
+                        shown_redacted += 1;
+                    }
+                })
+                .map(|matched| project_match(matched, match_only))
+                .collect::<Vec<_>>();
+            let shown = match layout.merge_context {
+                Some(context) => {
+                    // The shown hits' windows as this page verified them,
+                    // and the windows of the file's other hits that border
+                    // them: the lines each holds.
+                    let mut hits = f.matches[start..end]
+                        .iter()
+                        .map(|m| HitWindow::of(m, context))
+                        .chain(facts.neighbours.iter().copied())
+                        .collect::<Vec<_>>();
+                    // One window per start line: the one covering most lines,
+                    // so a neighbour never trims a line a match covers.
+                    hits.sort_unstable_by_key(|hit| {
+                        (
+                            hit.line,
+                            std::cmp::Reverse(hit.matched_last),
+                            hit.first,
+                            hit.last,
+                        )
+                    });
+                    hits.dedup_by_key(|hit| hit.line);
+                    merge_context_windows(shown, context, &hits)
+                }
+                None => shown,
+            };
+            let span = (facts.start as usize, facts.end as usize);
+            SearchFile {
+                sorted_at: sorted_at(query, f.sort_time),
+                declarations: Vec::new(),
+                matches: (!layout.list).then_some(shown),
+                total_occurrences: (local_search_query::view(query) == View::CountMatches)
+                    .then_some(f.match_count),
+                total_matched_lines: (local_search_query::view(query) == View::CountLines)
+                    .then_some(f.match_count),
+                term_counts: (is_count_view(query) && !f.term_counts.is_empty())
+                    .then_some(f.term_counts),
+                pagination: file_pagination(layout, facts.total, span),
+                next: None,
+                path: f.path,
+                match_keys: Vec::new(),
+                lines: f.source.and_then(|source| source.lines),
+            }
+        })
+        .collect::<Vec<_>>();
+    (files, shown_redacted)
+}

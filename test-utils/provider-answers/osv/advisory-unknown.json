@@ -1,0 +1,52 @@
+{
+ "case": "osv/advisory-unknown",
+ "tool": "securityCheck",
+ "query": {
+  "operation": "advisory",
+  "id": "GHSA-0000-0000-0000",
+  "view": "details"
+ },
+ "recordedAt": "2026-11-08",
+ "unread": [],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.osv.dev/v1/vulns/GHSA-0000-0000-0000",
+    "accept": "application/json"
+   },
+   "status": 404,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:eff9d6063693b72bd0cbba8a64cbc29e0d38b4fb05e86450909fe741c83f9253",
+   "body": {
+    "code": 5,
+    "message": "Vulnerability not found"
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.github.com/advisories/GHSA-0000-0000-0000",
+    "accept": "application/vnd.github+json"
+   },
+   "status": 404,
+   "headers": [
+    [
+     "content-type",
+     "application/json; charset=utf-8"
+    ]
+   ],
+   "digest": "sha256:2218b50c8a811e2f609d256cc18fa9a5c1ecabca78a58f10ea7977e8a8392684",
+   "body": {
+    "message": "Not Found",
+    "documentation_url": "https://docs.github.com/rest/security-advisories/global-advisories#get-a-global-security-advisory",
+    "status": "404"
+   }
+  }
+ ]
+}

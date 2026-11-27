@@ -1,0 +1,88 @@
+'use strict';
+
+const { spawnSync } = require('child_process');
+const { reportsVersion } = require('../bin/fetch-binary.cjs');
+const { randomUUID } = require('crypto');
+const { chmodSync, closeSync, copyFileSync, openSync, readFileSync, readSync, renameSync, rmSync, statSync } = require('fs');
+const { join } = require('path');
+
+// Cold Darwin Mach-O validation can run for tens of seconds before user code.
+const SMOKE_TIMEOUT_MS = process.platform === 'darwin' ? 60_000 : 20_000;
+const PROVENANCE = join(__dirname, '..', '..', 'octocode-config', 'contract', 'provenance.json');
+
+/** The contract fingerprint the binary must embed, from generated provenance. */
+function expectedFingerprint() {
+  const { contractFingerprint } = JSON.parse(readFileSync(PROVENANCE, 'utf8'));
+  return contractFingerprint;
+}
+
+function sameFileBytes(left, right, size) {
+  const leftFd = openSync(left, 'r');
+  let rightFd;
+  try {
+    rightFd = openSync(right, 'r');
+    const leftBuffer = Buffer.allocUnsafe(64 * 1024);
+    const rightBuffer = Buffer.allocUnsafe(leftBuffer.length);
+    for (let offset = 0; offset < size;) {
+      const length = Math.min(leftBuffer.length, size - offset);
+      const leftRead = readSync(leftFd, leftBuffer, 0, length, offset);
+      const rightRead = readSync(rightFd, rightBuffer, 0, length, offset);
+      if (leftRead !== length || rightRead !== length
+          || !leftBuffer.subarray(0, length).equals(rightBuffer.subarray(0, length))) return false;
+      offset += length;
+    }
+    return true;
+  } finally {
+    closeSync(leftFd);
+    if (rightFd !== undefined) closeSync(rightFd);
+  }
+}
+
+/**
+ * Copy `source` to `destination` by replacing the inode, never overwriting it.
+ * An in-place overwrite of a binary that a running process has mapped (the
+ * CLI, or a live `octocode mcp` server) can crash that process or leave a
+ * stale kernel code-signature cache that SIGKILLs later launches.
+ */
+function stageFile(source, destination, { executable = false, verify } = {}) {
+  // Give a temporary Windows smoke candidate an executable name.
+  const staged = `${destination}.${randomUUID()}.tmp${verify && process.platform === 'win32' ? '.exe' : ''}`;
+  try {
+    copyFileSync(source, staged);
+    if (executable && process.platform !== 'win32') chmodSync(staged, 0o755);
+    // Replacing unchanged Mach-O bytes invalidates the OS validation cache.
+    // Keep the verified inode; changed artifacts still replace it atomically.
+    const existing = statSync(destination, { throwIfNoEntry: false });
+    if (existing?.isFile()
+        && existing.size === statSync(staged).size
+        && (!executable || process.platform === 'win32' || (existing.mode & 0o777) === 0o755)
+        && sameFileBytes(staged, destination, existing.size)) {
+      verify?.(destination);
+      return;
+    }
+    verify?.(staged);
+    renameSync(staged, destination);
+  } finally {
+    rmSync(staged, { force: true });
+  }
+}
+
+/**
+ * Run `binaryPath --version`; it must exit 0 and print `octocode <version>`, optionally followed by `+<hex>` build metadata.
+ * `run(args)` returns a spawnSync result; the smoke passes one that runs in a container.
+ */
+function verifyBinaryRuns(binaryPath, version, run = args => spawnSync(binaryPath, args, { encoding: 'utf8', timeout: SMOKE_TIMEOUT_MS })) {
+  const ran = run(['--version']);
+  if (ran.status !== 0) {
+    throw new Error(
+      `Binary smoke failed for ${binaryPath} (status ${ran.status}, signal ${ran.signal ?? 'none'}): ${ran.stderr || ran.stdout || ran.error?.message}`,
+    );
+  }
+  const reported = ran.stdout.trim();
+  if (!reportsVersion(reported, version)) {
+    throw new Error(`Binary ${binaryPath} reports '${reported}', expected 'octocode ${version}': it was built before the version bump`);
+  }
+  return reported;
+}
+
+module.exports = { SMOKE_TIMEOUT_MS, expectedFingerprint, stageFile, verifyBinaryRuns };

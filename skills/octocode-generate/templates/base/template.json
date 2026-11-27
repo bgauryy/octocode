@@ -1,0 +1,12 @@
+{
+  "description": "Any stack: editor settings, line endings, and .octocode/ and .env kept out of git",
+  "scripts": {},
+  "ensureLines": {
+    ".gitignore": [
+      ".octocode/",
+      ".env",
+      "!.env.example"
+    ]
+  },
+  "notes": "ensureLines appends to the scaffold's .gitignore, so apply base after the scaffold: .octocode/ holds this skill's context and plans, .env holds secrets."
+}

@@ -1,0 +1,584 @@
+//! Bounded reads of the source lines a verification needs.
+
+use super::*;
+use crate::local_search::sources::Expected;
+
+pub(in crate::local_search) enum VerifyReadError {
+    /// The source could not be opened or read.
+    Io,
+    Cancelled(String),
+}
+
+impl From<std::io::Error> for VerifyReadError {
+    fn from(_: std::io::Error) -> Self {
+        Self::Io
+    }
+}
+
+/// One streamed pass over a source prefix for the source-secret check.
+pub(in crate::local_search) struct VerificationLines {
+    /// Private-key block ranges over every line read.
+    pub(in crate::local_search) key_ranges: Vec<(u32, u32)>,
+    /// Neighborhood lines (1-based), each no longer than a line the search
+    /// holds whole ([`octocode_engine::security::LONG_LINE_BYTES`]).
+    pub(in crate::local_search) retained: std::collections::BTreeMap<usize, String>,
+    pub(in crate::local_search) retained_bytes: usize,
+    pub(in crate::local_search) lines_read: usize,
+    /// A line too long to buffer mentions `PRIVATE KEY`, so key-block state
+    /// is unknown and nothing read from this source can be trusted.
+    pub(in crate::local_search) unclassified: bool,
+    /// `retained` holds every line of the source.
+    pub(in crate::local_search) whole_retained: bool,
+    /// Wanted lines too long to keep whose rows the search itself judged
+    /// ([`octocode_engine::security::LONG_LINE_BYTES`]).
+    pub(in crate::local_search) long_lines: std::collections::BTreeSet<usize>,
+}
+
+/// Stream up to `limit` lines of `reader`, tracking private-key blocks over
+/// all of them and keeping the lines inside `windows` (1-based inclusive).
+/// Any read failure is an error (a short source just yields fewer lines).
+/// With `whole`, every line is kept while each is one the search holds whole,
+/// so the source can be judged as a read of it is.
+pub(in crate::local_search) fn read_verification_lines(
+    reader: &mut impl std::io::BufRead,
+    windows: &[(usize, usize)],
+    limit: usize,
+    whole: bool,
+    cancel: &impl CancellationCheck,
+) -> Result<VerificationLines, VerifyReadError> {
+    let mut tracker = octocode_runtime_base::security::KeyBlockTracker::default();
+    let mut read = VerificationLines {
+        key_ranges: Vec::new(),
+        retained: std::collections::BTreeMap::new(),
+        retained_bytes: 0,
+        lines_read: 0,
+        unclassified: false,
+        whole_retained: whole,
+        long_lines: std::collections::BTreeSet::new(),
+    };
+    let in_window = |number: usize| windows.iter().any(|&(lo, hi)| lo <= number && number <= hi);
+    let mut buf = Vec::new();
+    // The kept lines, in the order read (ascending): the map is built of
+    // them once, at the end, not searched for the place of each.
+    let mut kept: Vec<(usize, String)> = Vec::new();
+    while read.lines_read < limit {
+        let number = read.lines_read + 1;
+        if number.is_multiple_of(VERIFY_CANCEL_EVERY) {
+            cancel.check().map_err(VerifyReadError::Cancelled)?;
+        }
+        let wanted = read.whole_retained || in_window(number);
+        // A wanted line is kept whole up to the longest the search holds
+        // whole, with its line break; a longer one is the search's to judge.
+        let cap = if wanted {
+            octocode_engine::security::LONG_LINE_BYTES + "\r\n".len()
+        } else {
+            MAX_PROBE_LINE_BYTES
+        };
+        buf.clear();
+        let Some(line) = read_bounded_line(reader, &mut buf, cap, cancel)? else {
+            break;
+        };
+        read.lines_read = number;
+        match line {
+            BoundedLine::Whole => {
+                // Decoded as the search decoded it: a row's byte offset counts
+                // the search's text, so another decoding would shift it.
+                let text = octocode_engine::text::Decoded::interior(&buf).text;
+                let text = text.trim_end_matches(['\n', '\r']);
+                tracker.push(text);
+                if wanted {
+                    read.retained_bytes += text.len();
+                    kept.push((number, text.to_owned()));
+                }
+            }
+            BoundedLine::Overflow {
+                mentions_key,
+                bytes,
+            } => {
+                // Every key boundary contains `PRIVATE KEY`; a long line
+                // without it is an ordinary line for the block state.
+                read.unclassified |= mentions_key;
+                tracker.push("");
+                if wanted && bytes > octocode_engine::security::LONG_LINE_BYTES {
+                    read.long_lines.insert(number);
+                }
+                if std::mem::take(&mut read.whole_retained) {
+                    // The source is no longer held whole: only its rows'
+                    // windows are kept, and each is judged by its lines.
+                    kept.retain(|(number, _)| in_window(*number));
+                    read.retained_bytes = kept.iter().map(|(_, line)| line.len()).sum();
+                }
+            }
+        }
+    }
+    read.key_ranges = tracker.finish();
+    read.retained = kept.into_iter().collect();
+    Ok(read)
+}
+
+pub(in crate::local_search) enum BoundedLine {
+    /// The whole line (with its terminator) is in the buffer.
+    Whole,
+    /// The line exceeded the cap and was consumed without being kept.
+    Overflow { mentions_key: bool, bytes: usize },
+}
+
+/// Read one line into `buf` if it fits `cap` bytes; otherwise consume it in
+/// chunks, noting whether it mentions `PRIVATE KEY`. `None` at end of file.
+/// Both searches are `memmem`'s, which run in memchr's own compiled code
+/// (large sources split their lines the same way).
+pub(in crate::local_search) fn read_bounded_line(
+    reader: &mut impl std::io::BufRead,
+    buf: &mut Vec<u8>,
+    cap: usize,
+    cancel: &impl CancellationCheck,
+) -> Result<Option<BoundedLine>, VerifyReadError> {
+    const NEEDLE: &[u8] = b"PRIVATE KEY";
+    let mut overflow = false;
+    let mut mentions_key = false;
+    let mut markers = octocode_runtime_base::security::MarkerScan::default();
+    let mut consumed = 0usize;
+    let mut since_check = 0usize;
+    loop {
+        let chunk = reader.fill_buf()?;
+        if chunk.is_empty() {
+            break;
+        }
+        let (take, done) = match memchr::memmem::find(chunk, b"\n") {
+            Some(at) => (at + 1, true),
+            None => (chunk.len(), false),
+        };
+        let part = &chunk[..take];
+        let was_overflow = overflow;
+        if !overflow && buf.len() + take > cap {
+            overflow = true;
+        }
+        if overflow {
+            // Keep a needle-length tail so a mention split across chunks
+            // is still seen.
+            let seen = if was_overflow { buf.len() } else { 0 };
+            buf.extend_from_slice(part);
+            markers.feed(&buf[seen..]);
+            mentions_key |= memchr::memmem::find(buf, NEEDLE).is_some();
+            let keep = buf.len().min(NEEDLE.len() - 1);
+            buf.drain(..buf.len() - keep);
+        } else {
+            buf.extend_from_slice(part);
+        }
+        reader.consume(take);
+        consumed += take;
+        since_check += take;
+        if since_check >= VERIFY_CHUNK_BYTES {
+            since_check = 0;
+            cancel.check().map_err(VerifyReadError::Cancelled)?;
+        }
+        if done {
+            break;
+        }
+    }
+    if consumed == 0 {
+        return Ok(None);
+    }
+    Ok(Some(if overflow {
+        buf.clear();
+        BoundedLine::Overflow {
+            mentions_key: mentions_key || markers.finish(&[]).any(),
+            bytes: consumed,
+        }
+    } else {
+        BoundedLine::Whole
+    }))
+}
+
+/// Match indexes (in line order) whose values a fresh page withheld: their
+/// file changed after the scan matched it, so the values cannot be rebuilt
+/// from the bytes the scan read. Each row now shows its line as the file
+/// now reads, as [`octocode_runtime_base::security::row_shown_unchecked`] judges it, and is
+/// no longer deferred.
+pub(in crate::local_search) type WithheldRows = Vec<usize>;
+
+/// What a re-read withheld: the rows ([`WithheldRows`]), those among them
+/// whose text the redaction changed, which show a replaced span, and the
+/// rows no read of the changed file reached (`unreached`: the file is gone,
+/// or ends before their line). An unreached row has no text: it stays
+/// deferred with an empty value, so a later read may still rebuild it. A
+/// page that shows it takes its line from its secret check's read
+/// ([`rebuild_from_read`]), and leaves it out when that read does not reach
+/// it either.
+#[derive(Debug, Default)]
+pub(in crate::local_search) struct Withholding {
+    pub(in crate::local_search) rows: WithheldRows,
+    pub(in crate::local_search) replaced: Vec<usize>,
+    pub(in crate::local_search) unreached: Vec<usize>,
+}
+
+impl Withholding {
+    pub(in crate::local_search) fn is_empty(&self) -> bool {
+        self.rows.is_empty() && self.unreached.is_empty()
+    }
+
+    pub(in crate::local_search) fn extend(&mut self, other: Self) {
+        self.rows.extend(other.rows);
+        self.replaced.extend(other.replaced);
+        self.unreached.extend(other.unreached);
+    }
+}
+
+#[cfg(test)]
+pub(in crate::local_search) fn materialize(
+    scope: &PageScope<'_, impl CancellationCheck>,
+    file: &mut octocode_engine::types::TextSearchFile,
+    rows: std::ops::Range<usize>,
+) -> Result<WithheldRows, ToolError> {
+    Ok(materialize_noting(scope, file, rows)?.rows)
+}
+
+/// `materialize` stating which withheld rows show a replaced span.
+pub(in crate::local_search) fn materialize_noting(
+    scope: &PageScope<'_, impl CancellationCheck>,
+    file: &mut octocode_engine::types::TextSearchFile,
+    rows: std::ops::Range<usize>,
+) -> Result<Withholding, ToolError> {
+    visit_values(scope, file, rows, |_, _| Ok(()))
+}
+
+/// Every source a page re-read for its values, for the tests that count them.
+#[cfg(test)]
+pub(in crate::local_search) static REREAD_FILES: std::sync::Mutex<Vec<std::path::PathBuf>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Tests: one write per registered source (by its canonical path), made
+/// before a page re-reads the source to rebuild its values, as a writer
+/// racing the call makes it.
+#[cfg(any(test, feature = "test-support"))]
+pub static BEFORE_REREAD: std::sync::Mutex<Vec<super::CheckRace>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Reconstruct one value at a time, then release or consume it before reading
+/// the next. Every read is policy-checked and hashes the complete source; no
+/// result escapes when that digest differs from the search's bytes. Then a
+/// stored scan restarts (`staleSnapshot`), and a fresh scan, which is this
+/// call's own, withholds the rows it could not rebuild ([`Withholding`]):
+/// one file written or removed during the call leaves the other files' rows
+/// valid. `visit` may see a value before the digest is known, so it must
+/// keep nothing a withheld row's value could escape through.
+pub(super) fn visit_values(
+    scope: &PageScope<'_, impl CancellationCheck>,
+    file: &mut octocode_engine::types::TextSearchFile,
+    rows: std::ops::Range<usize>,
+    mut visit: impl FnMut(usize, &mut octocode_engine::types::TextSearchMatch) -> Result<(), ToolError>,
+) -> Result<Withholding, ToolError> {
+    // One check per file: a row's visit is bounded work, and every worker
+    // polling the shared cancel per row contended on its lock.
+    scope.cancel.check().map_err(ToolError::cancelled)?;
+    let mut wanted = Vec::new();
+    for index in rows {
+        let Some(hit) = file.matches.get_mut(index) else {
+            continue;
+        };
+        if hit.deferred.is_some() && hit.value.is_empty() {
+            wanted.push(index);
+        } else {
+            visit(index, hit)?;
+        }
+    }
+    if wanted.is_empty() {
+        return Ok(Withholding::default());
+    }
+    wanted.sort_unstable_by_key(|&i| file.matches[i].line);
+    let path = scope.output_root.join(&file.path);
+    validate_matched(scope.paths, &path)?;
+    #[cfg(test)]
+    REREAD_FILES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(path.clone());
+    #[cfg(any(test, feature = "test-support"))]
+    super::race(&BEFORE_REREAD, &path);
+    match reread(scope, file, &path, &wanted, &mut visit)? {
+        Reread::Same => Ok(Withholding::default()),
+        Reread::Changed => withhold(scope, file, &path, wanted),
+    }
+}
+
+/// Whether a re-read found the bytes the scan matched.
+enum Reread {
+    Same,
+    /// Other bytes, or none: the file changed or could not be read.
+    Changed,
+}
+
+/// A changed source's `wanted` rows (sorted by line): a stored scan
+/// restarts; a fresh one shows each row's line as the file now reads, judged
+/// alone by the shared redactor as text of `path`
+/// ([`octocode_runtime_base::security::row_shown_unchecked`], see [`WithheldRows`]). The
+/// failed re-read's visit may have released the text it rebuilt, so each row
+/// is rebuilt again, by one read of the file ([`rebuild_unproven`]). A row
+/// that read does not reach keeps no text ([`Withholding::unreached`]).
+fn withhold(
+    scope: &PageScope<'_, impl CancellationCheck>,
+    file: &mut octocode_engine::types::TextSearchFile,
+    path: &std::path::Path,
+    wanted: Vec<usize>,
+) -> Result<Withholding, ToolError> {
+    if let Expected::Stored(_) = (scope.expected_digest)(path) {
+        return Err(changed_since_scan(scope.query));
+    }
+    let reached = rebuild_unproven(scope, file, path, &wanted)?;
+    let mut held = Withholding::default();
+    for (index, reached) in wanted.into_iter().zip(reached) {
+        let hit = &mut file.matches[index];
+        if !reached {
+            hit.value.clear();
+            held.unreached.push(index);
+            continue;
+        }
+        let shown = octocode_runtime_base::security::row_shown_unchecked(
+            scope.security,
+            &hit.value,
+            Some(path),
+        );
+        if shown != hit.value {
+            held.replaced.push(index);
+        }
+        hit.value = shown;
+        hit.deferred = None;
+        held.rows.push(index);
+    }
+    Ok(held)
+}
+
+/// Rebuild the `wanted` rows (sorted by line) of a source that no longer
+/// holds the bytes the scan read, from one read of the file as it now reads
+/// that is proved one version's ([`octocode_engine::text::Settling`]): no
+/// write moved it, or the file only grew and the bytes it took are the start
+/// of one version. A read a write moved otherwise is made again while the
+/// call's cancel passes: text no read proved, kept on each row for
+/// [`withhold`] to judge alone. Returns, for each wanted row, whether that
+/// read reached its line: a file gone, unreadable, ending before the line
+/// (caught short while a writer rewrites it) or never settling gives the row
+/// no text.
+fn rebuild_unproven(
+    scope: &PageScope<'_, impl CancellationCheck>,
+    file: &mut octocode_engine::types::TextSearchFile,
+    path: &std::path::Path,
+    wanted: &[usize],
+) -> Result<Vec<bool>, ToolError> {
+    use octocode_engine::text::Proved;
+    let mut settling = octocode_engine::text::Settling::default();
+    let live = || scope.cancel.check().is_ok();
+    loop {
+        scope.cancel.check().map_err(ToolError::cancelled)?;
+        let Ok((input, opened)) = octocode_engine::text::open_regular(path) else {
+            return Ok(vec![false; wanted.len()]);
+        };
+        let (reached, (len, digest)) = rebuild_lines(scope, file, &input, wanted);
+        let taken = || {
+            Some(octocode_engine::text::Taken::Hashed {
+                len,
+                digest,
+                keep: false,
+            })
+        };
+        match settling.settled_read(&input, &opened, taken, &live) {
+            Proved::Whole(_) | Proved::Prefix(_) => return Ok(reached),
+            Proved::Again => {}
+            Proved::Unsettled => return Ok(vec![false; wanted.len()]),
+        }
+    }
+}
+
+/// [`rebuild_unproven`]'s one read of `input`: each `wanted` row whose line
+/// it reaches takes that line's text; returns which rows it reached, and
+/// how many bytes it took from the file's start with their SHA-256.
+fn rebuild_lines(
+    scope: &PageScope<'_, impl CancellationCheck>,
+    file: &mut octocode_engine::types::TextSearchFile,
+    input: &std::fs::File,
+    wanted: &[usize],
+) -> (Vec<bool>, (u64, [u8; 32])) {
+    use std::io::BufRead;
+    let mut reached = vec![false; wanted.len()];
+    let mut input = std::io::BufReader::new(CheckedRead {
+        input,
+        cancel: scope.cancel,
+    });
+    let (mut taken, mut hasher) = (0u64, octocode_engine::digest::HashWriter::default());
+    let mut bytes = Vec::new();
+    let (mut line, mut at) = (0u32, 0);
+    while at < wanted.len() {
+        bytes.clear();
+        let read =
+            std::io::Read::take(&mut input, ROW_LINE_BYTES + 1).read_until(b'\n', &mut bytes);
+        hasher.update(&bytes);
+        taken += bytes.len() as u64;
+        match read {
+            Ok(0) | Err(_) => break,
+            Ok(read) if read as u64 > ROW_LINE_BYTES => break,
+            Ok(_) => {}
+        }
+        line = line.saturating_add(1);
+        while let Some(&index) = wanted.get(at).filter(|&&i| file.matches[i].line == line) {
+            file.matches[index].value = row_text(&bytes, line);
+            reached[at] = true;
+            at += 1;
+        }
+        while wanted.get(at).is_some_and(|&i| file.matches[i].line < line) {
+            at += 1;
+        }
+    }
+    (reached, (taken, hasher.finalize()))
+}
+
+/// Rebuild the `unreached` rows (indexes in line order, see
+/// [`Withholding::unreached`]) from `bytes`, a later read of their changed
+/// file that its secret check then judges: each row whose line that read
+/// holds shows it, no longer deferred. Returns the rows it does not reach
+/// either.
+pub(in crate::local_search) fn rebuild_from_read(
+    file: &mut octocode_engine::types::TextSearchFile,
+    unreached: &[usize],
+    bytes: &[u8],
+) -> Vec<usize> {
+    let mut lines = bytes.split_inclusive(|byte| *byte == b'\n');
+    let (mut line, mut current) = (0u32, None);
+    let mut left = Vec::new();
+    for &index in unreached {
+        let wanted = file.matches[index].line;
+        while line < wanted {
+            let Some(next) = lines.next() else {
+                break;
+            };
+            line = line.saturating_add(1);
+            current = Some(next);
+        }
+        match current.filter(|_| line == wanted) {
+            Some(text) => {
+                let hit = &mut file.matches[index];
+                hit.value = row_text(text, wanted);
+                hit.deferred = None;
+            }
+            None => left.push(index),
+        }
+    }
+    left
+}
+
+/// The longest line a re-read rebuilds a row from: the engine's line-buffer
+/// ceiling.
+const ROW_LINE_BYTES: u64 = 64 * 1024 * 1024;
+
+/// The text of line `line` of a source, its bytes `bytes` with their line
+/// break: decoded as the search decoded it, and as localFetch reads it, its
+/// byte-order mark (line 1) and anything from a NUL on dropped.
+fn row_text(bytes: &[u8], line: u32) -> String {
+    let value_bytes = if line == 1 {
+        &bytes[octocode_engine::text::bom_len(bytes)..]
+    } else {
+        bytes
+    };
+    let value_bytes = value_bytes
+        .split(|byte| *byte == 0)
+        .next()
+        .unwrap_or_default();
+    let text = octocode_engine::text::Decoded::interior(value_bytes).text;
+    text.strip_suffix('\n')
+        .map(|s| s.strip_suffix('\r').unwrap_or(s))
+        .unwrap_or(&text)
+        .to_owned()
+}
+
+/// A failed read: the cancel's reason when it stopped the read, else a
+/// changed source.
+fn read_failed(cancel: &impl CancellationCheck) -> Result<Reread, ToolError> {
+    cancel
+        .check()
+        .map(|()| Reread::Changed)
+        .map_err(ToolError::cancelled)
+}
+
+/// Rebuild the `wanted` rows (sorted by line) from `path`, visiting each,
+/// while hashing the whole source against the scan's digest.
+fn reread(
+    scope: &PageScope<'_, impl CancellationCheck>,
+    file: &mut octocode_engine::types::TextSearchFile,
+    path: &std::path::Path,
+    wanted: &[usize],
+    visit: &mut impl FnMut(usize, &mut octocode_engine::types::TextSearchMatch) -> Result<(), ToolError>,
+) -> Result<Reread, ToolError> {
+    use std::io::BufRead;
+    let Some(source) = file.source else {
+        return Ok(Reread::Changed);
+    };
+    let Ok((input, _)) = octocode_engine::text::open_regular(path) else {
+        return Ok(Reread::Changed);
+    };
+    let mut input = std::io::BufReader::new(CheckedRead {
+        input: &input,
+        cancel: scope.cancel,
+    });
+    let mut digest = octocode_engine::digest::HashWriter::default();
+    let mut bytes = Vec::new();
+    let mut line = 0u32;
+    let mut at = 0;
+    let mut size = 0u64;
+    // `CheckedRead` polls the cancel on every read of the file, so the
+    // lines served from its buffer need no check of their own.
+    while at < wanted.len() {
+        bytes.clear();
+        // Match the engine's line-buffer ceiling, including a terminating newline.
+        let Ok(read) =
+            std::io::Read::take(&mut input, ROW_LINE_BYTES + 1).read_until(b'\n', &mut bytes)
+        else {
+            return read_failed(scope.cancel);
+        };
+        if read == 0 {
+            break;
+        }
+        if read as u64 > ROW_LINE_BYTES {
+            return Ok(Reread::Changed);
+        }
+        digest.update(&bytes);
+        size += read as u64;
+        line = line.saturating_add(1);
+        while let Some(&index) = wanted.get(at).filter(|&&i| file.matches[i].line == line) {
+            let hit = &mut file.matches[index];
+            // The row's column, offset, rank and digest are the scan's: only
+            // its text is rebuilt.
+            hit.value = row_text(&bytes, line);
+            visit(index, hit)?;
+            at += 1;
+        }
+    }
+    // The remaining source still binds the snapshot, but has no values to
+    // reconstruct. A binary tail can be larger than the searcher's line cap.
+    drop(bytes);
+    let mut chunk = vec![0u8; 64 * 1024];
+    loop {
+        scope.cancel.check().map_err(ToolError::cancelled)?;
+        let Ok(read) = std::io::Read::read(&mut input, &mut chunk) else {
+            return read_failed(scope.cancel);
+        };
+        if read == 0 {
+            break;
+        }
+        digest.update(&chunk[..read]);
+        size += read as u64;
+    }
+    if at != wanted.len() || size != source.size || digest.finalize() != source.digest {
+        return Ok(Reread::Changed);
+    }
+    Ok(Reread::Same)
+}
+
+struct CheckedRead<'a, C> {
+    input: &'a std::fs::File,
+    cancel: &'a C,
+}
+
+impl<C: CancellationCheck> std::io::Read for CheckedRead<'_, C> {
+    fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+        self.cancel.check().map_err(std::io::Error::other)?;
+        std::io::Read::read(&mut self.input, bytes)
+    }
+}

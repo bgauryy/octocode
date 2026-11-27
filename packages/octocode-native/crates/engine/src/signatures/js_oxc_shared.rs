@@ -1,0 +1,95 @@
+use oxc_ast::ast::{ModuleExportName, PropertyKey};
+use oxc_span::Span;
+
+use crate::graph::{GraphPosition, GraphRange};
+
+/// Maps oxc byte spans to graph `(line, character)` positions, where
+/// `character` counts UTF-16 code units from the line start (the LSP wire
+/// convention): the shared [`LineIndex`] under the tree-sitter rule, so oxc
+/// and tree-sitter positions agree.
+///
+/// [`LineIndex`]: crate::text::LineIndex
+pub(super) struct SpanPositions<'a> {
+    content: &'a str,
+    index: crate::text::LineIndex,
+}
+
+impl<'a> SpanPositions<'a> {
+    pub(super) fn new(content: &'a str) -> Self {
+        Self {
+            content,
+            index: crate::text::LineIndex::tree_sitter(content),
+        }
+    }
+
+    pub(super) fn position(&self, byte_offset: u32) -> GraphPosition {
+        let (line, character) = self.index.byte_to_position(self.content, byte_offset);
+        GraphPosition { line, character }
+    }
+
+    /// The source text of `span` with whitespace runs collapsed to one space:
+    /// a signature as written, on one line.
+    pub(super) fn written(&self, span: Span) -> String {
+        self.content
+            .get(span.start as usize..span.end as usize)
+            .unwrap_or_default()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// The parameter list and return type a function writes.
+    pub(super) fn signature(
+        &self,
+        params: Span,
+        returns: Option<&oxc_ast::ast::TSTypeAnnotation>,
+    ) -> (Option<String>, Option<String>) {
+        use oxc_span::GetSpan;
+        (
+            Some(self.written(params)),
+            // The annotation's span holds its `:`; the type follows it.
+            returns.map(|annotation| {
+                self.written(annotation.type_annotation.span())
+                    .trim_start_matches(':')
+                    .trim_start()
+                    .to_owned()
+            }),
+        )
+    }
+
+    pub(super) fn range(&self, span: Span) -> GraphRange {
+        GraphRange {
+            start: self.position(span.start),
+            end: self.position(span.end),
+        }
+    }
+
+    /// Convert an LSP `(line, character)` (0-based, UTF-16) to a byte offset.
+    pub(super) fn byte_offset(&self, line: u32, character: u32) -> u32 {
+        self.index.position_to_byte(self.content, line, character)
+    }
+
+    pub(super) fn byte_range(&self, range: &GraphRange) -> crate::graph::ByteRange {
+        crate::graph::ByteRange {
+            start_byte: self.byte_offset(range.start.line, range.start.character),
+            end_byte: self.byte_offset(range.end.line, range.end.character),
+        }
+    }
+}
+
+pub(super) fn module_export_name(name: &ModuleExportName) -> Option<String> {
+    match name {
+        ModuleExportName::IdentifierName(id) => Some(id.name.as_str().to_string()),
+        ModuleExportName::IdentifierReference(id) => Some(id.name.as_str().to_string()),
+        ModuleExportName::StringLiteral(s) => Some(s.value.as_str().to_string()),
+    }
+}
+
+pub(super) fn property_key_name(key: &PropertyKey) -> Option<(String, Span)> {
+    match key {
+        PropertyKey::StaticIdentifier(id) => Some((id.name.as_str().to_string(), id.span)),
+        PropertyKey::PrivateIdentifier(p) => Some((format!("#{}", p.name.as_str()), p.span)),
+        PropertyKey::StringLiteral(s) => Some((s.value.as_str().to_string(), s.span)),
+        _ => None,
+    }
+}

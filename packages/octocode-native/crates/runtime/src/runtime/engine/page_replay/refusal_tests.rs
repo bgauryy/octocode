@@ -1,0 +1,222 @@
+//! A refused cursor names its own cause, true on both surfaces and under
+//! either storage mode, with the error code of that cause: a handle that is
+//! not issued, or sent to the wrong tool, is the caller's input; any other
+//! cause is saved work this runtime cannot answer.
+use super::*;
+use crate::runtime::engine::cursors::SavedWork;
+use crate::runtime::engine::{Channel, ToolRuntime};
+use octocode_io::cancellation::Cancellation;
+use octocode_runtime_base::execution::ExecutionContext;
+use octocode_runtime_base::id::ToolId;
+use octocode_runtime_base::response::cursor::issued;
+use octocode_test_support::json_fixture;
+use std::time::{Duration, Instant};
+
+const PERSISTENT: &[(&str, &str)] = &[("OCTOCODE_STORAGE_MODE", "persistent")];
+
+fn context() -> ExecutionContext {
+    ExecutionContext {
+        cancellation: Cancellation::new(),
+        deadline: Some(Instant::now() + Duration::from_secs(30)),
+        response_window: None,
+        github_credential: None,
+    }
+}
+
+/// A handle `runtime` retains for `tool`.
+fn issue(runtime: &ToolRuntime, tool: ToolId) -> String {
+    let mut pending = runtime
+        .cursors
+        .pending(page_replay_key("", &[], &[], None), None);
+    let token = pending.insert(
+        tool,
+        json_fixture(r#"{"queries": [{"path": "must-not-be-read"}]}"#),
+        SavedWork::ToolResume { index: Some(0) },
+    );
+    runtime.cursors.retain(pending, &context()).unwrap();
+    token
+}
+
+async fn refusal(
+    runtime: &ToolRuntime,
+    tool: &str,
+    cursor: &str,
+    channel: Channel,
+    code: ErrorCode,
+) -> String {
+    let result = runtime
+        .execute(
+            runtime
+                .admit(format!("refusal-{cursor}-{channel:?}"))
+                .unwrap(),
+            tool.into(),
+            json!({"cursor": cursor}),
+            channel,
+        )
+        .await;
+    let Err(error) = result else {
+        panic!("{tool} must refuse {cursor}");
+    };
+    assert_eq!(error.code, code, "{}", error.message);
+    assert!(
+        error.message.contains("No source or provider was called")
+            && error.message.contains("original request without cursor"),
+        "{}",
+        error.message
+    );
+    error.message
+}
+
+#[tokio::test]
+async fn a_malformed_cursor_is_named_malformed() {
+    let home = tempfile::tempdir().unwrap();
+    let runtime = super::super::construction_tests::runtime(home.path(), PERSISTENT);
+    for cursor in [
+        "cursor2.garbage",
+        "not-a-cursor",
+        "cursor2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    ] {
+        let message = refusal(
+            &runtime,
+            "localFetch",
+            cursor,
+            Channel::Cli,
+            ErrorCode::InvalidInput,
+        )
+        .await;
+        assert!(message.starts_with("Malformed cursor"), "{message}");
+    }
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn an_unknown_cursor_names_expiry_and_the_actual_storage_mode() {
+    let unknown = issued::placeholder();
+    let home = tempfile::tempdir().unwrap();
+    let persistent = super::super::construction_tests::runtime(home.path(), PERSISTENT);
+    for channel in [Channel::Cli, Channel::Mcp] {
+        let message = refusal(
+            &persistent,
+            "localFetch",
+            &unknown,
+            channel,
+            ErrorCode::ResponseSnapshotExpired,
+        )
+        .await;
+        assert!(
+            message.starts_with("Unknown or expired cursor"),
+            "{message}"
+        );
+        assert!(
+            message.contains(&format!("{} seconds", CONTINUATION_IDLE.as_secs())),
+            "{message}"
+        );
+        assert!(!message.contains("memory"), "{message}");
+    }
+    persistent.close().await;
+    let home = tempfile::tempdir().unwrap();
+    let memory = super::super::construction_tests::runtime(
+        home.path(),
+        &[("OCTOCODE_STORAGE_MODE", "memory")],
+    );
+    let message = refusal(
+        &memory,
+        "localFetch",
+        &unknown,
+        Channel::Cli,
+        ErrorCode::ResponseSnapshotExpired,
+    )
+    .await;
+    assert!(
+        message.starts_with("Unknown or expired cursor"),
+        "{message}"
+    );
+    assert!(message.contains("storage.mode is memory"), "{message}");
+    memory.close().await;
+}
+
+#[tokio::test]
+async fn a_cursor_resumes_on_either_surface_under_the_same_credential() {
+    let home = tempfile::tempdir().unwrap();
+    let runtime = super::super::construction_tests::runtime(home.path(), PERSISTENT);
+    for channel in [Channel::Mcp, Channel::Cli] {
+        let token = issue(&runtime, ToolId::LocalFetch);
+        // The handle is accepted: the resumed row then runs (and fails on its
+        // unreadable path), instead of the cursor being refused.
+        let result = runtime
+            .execute(
+                runtime
+                    .admit(format!("surface-{token}-{channel:?}"))
+                    .unwrap(),
+                "localFetch".into(),
+                json!({"cursor": token}),
+                channel,
+            )
+            .await;
+        if let Err(error) = result {
+            assert!(
+                !error.message.contains("resumes only on the surface"),
+                "{channel:?}: {}",
+                error.message
+            );
+            assert_ne!(
+                error.code,
+                ErrorCode::ResponseSnapshotExpired,
+                "{}",
+                error.message
+            );
+        }
+    }
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn a_cursor_sent_to_another_tool_names_the_tool_mismatch() {
+    let home = tempfile::tempdir().unwrap();
+    let runtime = super::super::construction_tests::runtime(home.path(), PERSISTENT);
+    let token = issue(&runtime, ToolId::LocalSearch);
+    let message = refusal(
+        &runtime,
+        "localFetch",
+        &token,
+        Channel::Cli,
+        ErrorCode::InvalidInput,
+    )
+    .await;
+    assert!(message.contains("issued to another tool"), "{message}");
+    runtime.close().await;
+}
+
+/// A cursor another Octocode build issued (its saved work is stored under
+/// that build's identity, in the same home) is refused with a cause that
+/// names the build, never resumed under this build's rows or ended silently.
+#[tokio::test]
+async fn a_cursor_another_build_issued_is_refused_naming_the_build() {
+    let home = tempfile::tempdir().unwrap();
+    let runtime = super::super::construction_tests::runtime(home.path(), PERSISTENT);
+    let other = crate::runtime::engine::cursors::Registry::scoped(
+        octocode_runtime_base::cache::CacheConfig::derived(),
+        Some(octocode_runtime_base::cache::Directory::Continuations.path(&runtime.config.home)),
+        replay_policy(&runtime.config, &runtime.input.cwd, "0123456789abcdef").into(),
+    );
+    let mut pending = other.pending(page_replay_key("", &[], &[], None), None);
+    let token = pending.insert(
+        ToolId::LocalFetch,
+        json_fixture(r#"{"queries": [{"path": "must-not-be-read"}]}"#),
+        SavedWork::ToolResume { index: Some(0) },
+    );
+    other.retain(pending, &context()).unwrap();
+    let message = refusal(
+        &runtime,
+        "localFetch",
+        &token,
+        Channel::Cli,
+        ErrorCode::ResponseSnapshotExpired,
+    )
+    .await;
+    assert!(
+        message.contains("Octocode build (an upgrade or rebuild)"),
+        "{message}"
+    );
+    runtime.close().await;
+}

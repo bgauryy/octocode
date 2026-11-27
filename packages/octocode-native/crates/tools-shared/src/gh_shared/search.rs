@@ -1,0 +1,300 @@
+//! GitHub search paging: the 1,000-result window, next pages, completeness and repair leads.
+use super::{
+    GhFailure, REPOSITORY_SEARCH_HINT, RepoPath, repository_not_found,
+    repository_not_found_message, repository_recovery,
+};
+use octocode_github::{ProviderError, ProviderErrorKind, ProviderErrorReason};
+use octocode_runtime_base::id::ToolId;
+use octocode_runtime_base::response::result::query_row;
+use serde_json::{Value, json};
+
+/// Keywords are ANDed literal terms: a bare GitHub boolean operator (`OR`,
+/// `NOT`, `AND`, as GitHub spells them) standing as a word of a keyword
+/// would be searched as a word (quoted into a phrase) and silently empty
+/// the search, so it is refused, naming the operator and the one way to ask
+/// for alternatives.
+pub fn reject_boolean_keywords<S: AsRef<str>>(keywords: &[S]) -> Result<(), ProviderError> {
+    let operator = keywords
+        .iter()
+        .flat_map(|keyword| keyword.as_ref().split_whitespace())
+        .find_map(|word| ["OR", "NOT", "AND"].into_iter().find(|op| word == *op));
+    match operator {
+        Some(operator) => Err(ProviderError::new(
+            ProviderErrorKind::Validation,
+            format!(
+                "keywords are ANDed literal terms; {operator} is no operator here: run one search per alternative"
+            ),
+        )),
+        None => Ok(()),
+    }
+}
+
+/// Results GitHub search reaches for one query, however many match.
+pub(crate) const SEARCH_RESULT_CAP: usize = octocode_github::SEARCH_RESULT_CAP;
+
+/// Where a GitHub search endpoint draws its 1,000-result line through the
+/// pages of one query.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchWindow {
+    /// A page is served while its first result lies inside the cap, so the
+    /// last page may run past it: repository, issue and commit search.
+    PageStart,
+    /// A page is served only while its last result lies inside the cap
+    /// (`page * per <= 1000`): code search. When `per` does not divide
+    /// 1,000, the results past the last whole page are unreachable.
+    PageEnd,
+}
+
+impl SearchWindow {
+    /// The last page GitHub serves at `per` rows a page.
+    pub fn last_page(self, per: usize) -> usize {
+        let per = per.max(1);
+        match self {
+            Self::PageStart => SEARCH_RESULT_CAP.div_ceil(per),
+            Self::PageEnd => (SEARCH_RESULT_CAP / per).max(1),
+        }
+    }
+
+    /// What `matched` results reach through this window at `per` a page.
+    pub fn reach(self, matched: usize, per: usize) -> SearchReach {
+        let per = per.max(1);
+        let total = matched.min(self.last_page(per).saturating_mul(per));
+        SearchReach {
+            total,
+            pages: total.div_ceil(per),
+            capped: matched > total,
+        }
+    }
+
+    /// A page past the last one GitHub serves cannot be read.
+    pub fn reject(self, page: usize, per: usize) -> Result<(), ProviderError> {
+        let last = self.last_page(per);
+        if page > last {
+            Err(ProviderError::new(
+                ProviderErrorKind::Validation,
+                format!(
+                    "Page {page} is past GitHub's search window: at {per} per page, page {last} is the last, reaching the first {} results.",
+                    last.saturating_mul(per.max(1))
+                ),
+            )
+            .with_reason(ProviderErrorReason::SearchWindowExceeded))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// What one search's match count reaches through GitHub's 1,000-result
+/// window at `per` rows a page.
+#[derive(Clone, Copy)]
+pub struct SearchReach {
+    /// Reachable results.
+    pub total: usize,
+    pub pages: usize,
+    /// More results matched than the window reaches.
+    pub capped: bool,
+}
+
+impl SearchReach {
+    /// Whether page `current` lies past the last page of a non-empty search.
+    pub fn past_last(&self, current: usize) -> bool {
+        self.total > 0 && current > self.pages
+    }
+}
+
+/// A search failure's one repair lead, replacing its static hint: a page
+/// past the search window leads to the last page a
+/// [`SearchWindow::PageStart`] search serves (`repair`; a code search
+/// re-points it at its own last page); a repository that did not resolve
+/// leads to its [`repository_recovery`] (a search for its name and the
+/// `owner`'s listing), labelled by its [`REPOSITORY_SEARCH_HINT`]. Any other
+/// failure is returned unchanged.
+pub fn with_search_repair(
+    mut failure: GhFailure,
+    tool: ToolId,
+    query: &impl serde::Serialize,
+    per: usize,
+    owner: Option<&str>,
+    repo: Option<&str>,
+) -> GhFailure {
+    let (leads, hints) = if failure.error.reason == Some(ProviderErrorReason::SearchWindowExceeded)
+    {
+        let last = page_replay(tool, query, SearchWindow::PageStart.last_page(per))
+            .map(octocode_runtime_base::response::result::Continuation::build);
+        (
+            last.map_or_else(|| json!({}), |last| json!({ "repair": last })),
+            Vec::new(),
+        )
+    } else if let Some(repo) = repo.filter(|_| repository_not_found(&failure.error)) {
+        // Named as on every GitHub read when the owner is known.
+        if let Some(owner) = owner {
+            failure.message = repository_not_found_message(owner, repo);
+        }
+        (
+            repository_repair(tool, query, owner, repo),
+            vec![REPOSITORY_SEARCH_HINT.to_owned()],
+        )
+    } else {
+        return failure;
+    };
+    failure.hints = hints;
+    let mut next = failure.calls.take().unwrap_or_else(|| Box::new(json!({})));
+    if let (Some(next), Value::Object(leads)) = (next.as_object_mut(), leads) {
+        next.extend(leads);
+    }
+    failure.calls = Some(next);
+    failure
+}
+
+/// The leads of a `repo` GitHub did not resolve: its
+/// [`repository_recovery`], and first, when the name is a clone URL's
+/// (`flask.git`, GitHub's URL for cloning `flask`), `repair`: the same
+/// `query` of `tool` naming the repository without the suffix (the first
+/// `related[]` request, a channel every tool's failure row declares), which
+/// the name search asks for too. A name the URL form does not explain
+/// keeps only the recovery.
+pub fn repository_repair(
+    tool: ToolId,
+    query: &impl serde::Serialize,
+    owner: Option<&str>,
+    repo: &str,
+) -> Value {
+    let Some(bare) = without_clone_suffix(repo) else {
+        return repository_recovery(owner, repo);
+    };
+    let mut row = query_row(query, &[]);
+    let mut leads = Value::Object(serde_json::Map::new());
+    if row.get("repo").and_then(Value::as_str) == Some(repo) {
+        row["repo"] = json!(bare);
+        leads["repair"] =
+            octocode_runtime_base::response::result::Continuation::related(tool, row).build();
+    }
+    if let (Value::Object(leads), Value::Object(recovery)) =
+        (&mut leads, repository_recovery(owner, bare))
+    {
+        leads.extend(recovery);
+    }
+    leads
+}
+
+/// `repo` without the `.git` a clone URL ends with (any ASCII case);
+/// `None` when it has none, or is nothing else.
+fn without_clone_suffix(repo: &str) -> Option<&str> {
+    let split = repo.len().checked_sub(".git".len())?;
+    let (bare, suffix) = (repo.get(..split)?, repo.get(split..)?);
+    (suffix.eq_ignore_ascii_case(".git") && !bare.is_empty()).then_some(bare)
+}
+
+/// `next.nextPage`: the same query at the page after `page`. GitHub's own
+/// search window ([`SearchWindow`]) decides `has_more`.
+pub fn add_next(
+    value: &mut Value,
+    tool: ToolId,
+    query: &impl serde::Serialize,
+    page: usize,
+    has_more: bool,
+) {
+    if !has_more {
+        return;
+    }
+    if let Some(next) = page_replay(tool, query, page + 1) {
+        value["calls"] = octocode_runtime_base::response::collection::walk_calls(tool, None, next);
+    }
+}
+
+/// The same query at `page`: an exact replay, none when the query is not
+/// an object row.
+fn page_replay(
+    tool: ToolId,
+    query: &impl serde::Serialize,
+    page: usize,
+) -> Option<octocode_runtime_base::response::result::Continuation> {
+    octocode_runtime_base::response::collection::continued_page(
+        tool,
+        query_row(query, &[]),
+        "page",
+        page,
+        &[],
+    )
+}
+
+/// The listing that checks an empty search's `path` scope (a path that is
+/// not there lists nothing): its parent directory, at the searched `ref`
+/// when one is set. `None` without `owner`, `repo` and a `path`.
+pub fn path_check(row: &Value) -> Option<Value> {
+    let (owner, repo) = (row["owner"].as_str()?, row["repo"].as_str()?);
+    let path = row["path"].as_str()?.trim_matches('/');
+    if path.is_empty() {
+        return None;
+    }
+    let at = RepoPath {
+        owner,
+        repo,
+        path: path.rsplit_once('/').map_or("", |(parent, _)| parent),
+        reference: row["ref"].as_str(),
+    };
+    Some(at.lead(ToolId::GhStructure).build())
+}
+
+/// What GitHub said about one search page's completeness.
+#[derive(Clone, Copy)]
+pub struct SearchCompleteness<'a> {
+    pub tool: ToolId,
+    /// GitHub's own match count (past the cap, more than `reachable`).
+    pub matched: usize,
+    /// The results the search window reaches (`total`).
+    pub reachable: usize,
+    /// GitHub's incomplete-results flag.
+    pub incomplete: bool,
+    pub page: usize,
+    pub has_more: bool,
+    /// What one result is (`code`, `repository`), for the count warning.
+    pub subject: &'a str,
+}
+
+/// Provider-side incompleteness of a search page: the 1,000-result cap and
+/// GitHub's own incomplete-results flag (with a `retry` of the same page).
+/// Past the cap the first page states GitHub's match count, since the
+/// reachable `total` is not the count. Only the last reachable page of
+/// a capped search ends coverage (`terminalLimit`: no executable
+/// continuation remains).
+pub fn apply_partial(
+    value: &mut Value,
+    query: &impl serde::Serialize,
+    facts: &SearchCompleteness<'_>,
+) {
+    use octocode_runtime_base::response::paging::{PartialReason, mark_partial, terminal_limit};
+    let SearchCompleteness {
+        tool,
+        matched,
+        reachable,
+        incomplete,
+        page,
+        has_more,
+        subject,
+    } = *facts;
+    if matched > reachable {
+        // The match count is this call's fact; that search stops at its
+        // window is the cap reason (`providerResultCap`), not a per-call
+        // note.
+        // Every page states it: a page can be read on its own.
+        let warnings = vec![format!(
+            "GitHub matched {matched} {subject} results; the first {reachable} are reachable."
+        )];
+        if let Some(pagination) = value.get_mut("pagination").and_then(Value::as_object_mut) {
+            // The total stops at the reachable window: a floor.
+            pagination.insert("countScope".into(), Value::String("capped".into()));
+        }
+        if has_more {
+            mark_partial(value, PartialReason::ProviderResultCap, &warnings);
+        } else {
+            terminal_limit(value, PartialReason::ProviderResultCap, &warnings);
+        }
+    }
+    if incomplete {
+        mark_partial(value, PartialReason::ProviderIncompleteResults, &[]);
+        if let Some(retry) = page_replay(tool, query, page) {
+            value["calls"]["retry"] = retry.build();
+        }
+    }
+}

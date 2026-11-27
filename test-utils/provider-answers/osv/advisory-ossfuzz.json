@@ -1,0 +1,74 @@
+{
+ "case": "osv/advisory-ossfuzz",
+ "tool": "securityCheck",
+ "query": {
+  "operation": "advisory",
+  "id": "OSV-2020-111",
+  "view": "details"
+ },
+ "recordedAt": "2026-11-08",
+ "unread": [
+  "affected[*].package.purl",
+  "schema_version"
+ ],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.osv.dev/v1/vulns/OSV-2020-111",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:81abe86ecb8c01a8da6a1bcefca93afddf1c88035fd11c16752c1495b9c48fd7",
+   "body": {
+    "id": "OSV-2020-111",
+    "summary": "Heap-use-after-free in int std::__1::__cxx_atomic_fetch_sub<int>",
+    "details": "OSS-Fuzz report: https://bugs.chromium.org/p/oss-fuzz/issues/detail?id=21604\n\n```\nCrash type: Heap-use-after-free WRITE 4\nCrash state:\nint std::__1::__cxx_atomic_fetch_sub<int>\nstd::__1::__atomic_base<int, true>::operator--\nObject::free\n```\n",
+    "modified": "2022-04-13T03:04:37.331327Z",
+    "published": "2020-06-24T01:51:14.570467Z",
+    "references": [
+     {
+      "type": "REPORT",
+      "url": "https://bugs.chromium.org/p/oss-fuzz/issues/detail?id=21604"
+     }
+    ],
+    "affected": [
+     {
+      "package": {
+       "name": "poppler",
+       "ecosystem": "OSS-Fuzz",
+       "purl": "pkg:generic/poppler"
+      },
+      "ranges": [
+       {
+        "type": "GIT",
+        "repo": "https://anongit.freedesktop.org/git/poppler/poppler.git",
+        "events": [
+         {
+          "introduced": "e4badf4d745b8e8f9a0a25b6c3cc97fbadbbb499"
+         },
+         {
+          "fixed": "155f73bdd261622323491df4aebb840cde8bfee1"
+         }
+        ]
+       }
+      ],
+      "ecosystem_specific": {
+       "severity": "HIGH"
+      },
+      "database_specific": {
+       "source": "https://github.com/google/oss-fuzz-vulns/blob/main/vulns/poppler/OSV-2020-111.yaml"
+      }
+     }
+    ],
+    "schema_version": "1.7.3"
+   }
+  }
+ ]
+}

@@ -1,0 +1,13 @@
+{
+  // Declarations of the public entry points (package.json exports).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "dist/types"
+  },
+  "include": ["src/index.ts", "src/cli.ts", "src/mcp.ts", "src/analysis.ts"],
+  "exclude": []
+}

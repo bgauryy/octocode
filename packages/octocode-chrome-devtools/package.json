@@ -1,0 +1,64 @@
+{
+  "name": "@octocodeai/octocode-chrome-devtools",
+  "version": "0.4.1",
+  "license": "MIT",
+  "description": "Control Chrome over MCP or CLI. Inspect pages, run browser plans, and save screenshots, network captures, and traces.",
+  "type": "module",
+  "bin": "./bin/octocode-chrome-devtools.mjs",
+  "exports": {
+    ".": "./dist/mcp.js",
+    "./cli": "./dist/cli.js",
+    "./runtime": "./dist/runtime.js",
+    "./skill": "./skills/octocode-chrome-devtools/SKILL.md",
+    "./skills/*": "./skills/*",
+    "./package.json": "./package.json"
+  },
+  "mcp": {
+    "type": "stdio",
+    "command": "octocode-chrome-devtools",
+    "args": []
+  },
+  "engines": {
+    "node": "^24.15.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/server": "^2.3.1",
+    "@octocodeai/config": "workspace:*",
+    "@types/node": "^24.19.2",
+    "esbuild": "^0.28.2",
+    "octocode-mcp-cli": "workspace:*",
+    "prettier": "^3.9.10",
+    "ws": "^8.22.0",
+    "zod": "^4.6.7"
+  },
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "clean": "rm -rf dist/",
+    "lint:own": "prettier --check \"src/**/*.{ts,mts}\" \"tools/**/*.mjs\" \"tests/**/*.mjs\" && node tools/check.mjs",
+    "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
+    "lint": "yarn lint:own && yarn lint:oxlint",
+    "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
+    "test:run": "node ../../scripts/test-tmp.mjs node --test tests/unit/*.test.mjs tests/*-self-test.mjs",
+    "test": "yarn build && yarn test:run",
+    "verify:own": "yarn build && yarn lint:own && yarn typecheck && yarn test:run",
+    "verify": "yarn verify:own && yarn lint:oxlint",
+    "prepack": "yarn build",
+    "format": "prettier --write \"src/**/*.{ts,mts}\" \"tools/**/*.mjs\" \"tests/**/*.mjs\""
+  },
+  "files": [
+    "dist",
+    "bin",
+    "docs",
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bgauryy/octocode.git",
+    "directory": "packages/octocode-chrome-devtools"
+  }
+}

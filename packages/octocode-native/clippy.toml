@@ -1,0 +1,11 @@
+# Test code may assert with unwrap/expect/panic. Clippy does not count a
+# module mounted under `cfg(all(test, unix))` as test code, so those modules
+# carry their own `#[expect(clippy::expect_used)]`.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+# Tests may print diagnostics; library code may not (`print_stdout`/`print_stderr`).
+allow-print-in-tests = true
+disallowed-methods = [
+    { path = "alloc::string::String::leak", reason = "leaks per call in a long-lived server process — bind to a local instead" },
+]

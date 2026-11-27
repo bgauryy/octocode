@@ -1,0 +1,447 @@
+{
+ "case": "maven/search",
+ "tool": "artifactSearch",
+ "query": {
+  "operation": "search",
+  "ecosystem": "maven",
+  "keywords": [
+   "gson"
+  ],
+  "limit": 5,
+  "view": "details"
+ },
+ "recordedAt": "2026-11-08",
+ "unread": [
+  "project.artifactId",
+  "project.build",
+  "project.dependencies.dependency[*].groupId",
+  "project.dependencies.dependency[*].optional",
+  "project.dependencies.dependency[*].scope",
+  "project.dependencies.dependency[*].type",
+  "project.dependencies.dependency[*].version",
+  "project.description",
+  "project.developers",
+  "project.groupId",
+  "project.inceptionYear",
+  "project.licenses",
+  "project.modelVersion",
+  "project.name",
+  "project.packaging",
+  "project.parent",
+  "project.profiles",
+  "project.properties",
+  "project.repositories.repository.url",
+  "project.scm",
+  "project.url",
+  "project.version",
+  "response.docs[*].p",
+  "response.docs[*].timestamp",
+  "responseHeader.params.indent",
+  "responseHeader.params.spellcheck",
+  "responseHeader.params.version",
+  "responseHeader.params.wt"
+ ],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://central.sonatype.com/solrsearch/select?q=gson&rows=5&start=0&wt=json",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:ec6bf1e84a89a6beebd9e7fb224146af61d8f26e0d0ee667f7a251ae04f63664",
+   "body": {
+    "responseHeader": {
+     "status": 0,
+     "QTime": 0,
+     "params": {
+      "q": "gson",
+      "core": "",
+      "indent": "off",
+      "spellcheck": "false",
+      "start": "",
+      "spellcheck.count": "0",
+      "sort": "",
+      "rows": "5",
+      "wt": "json",
+      "version": "None"
+     }
+    },
+    "response": {
+     "numFound": 56,
+     "start": 0,
+     "docs": [
+      {
+       "id": "de.gerdi-project:GSON",
+       "g": "de.gerdi-project",
+       "a": "GSON",
+       "latestVersion": "6.0.6",
+       "repositoryId": "central",
+       "p": "jar",
+       "timestamp": 1574671198000,
+       "versionCount": 0,
+       "ec": []
+      },
+      {
+       "id": "org.mattshoe.shoebox:Kdux.gson",
+       "g": "org.mattshoe.shoebox",
+       "a": "Kdux.gson",
+       "latestVersion": "1.0.6",
+       "repositoryId": "central",
+       "p": "aar",
+       "timestamp": 1725318598000,
+       "versionCount": 0,
+       "ec": []
+      },
+      {
+       "id": "com.commsen.wedeploy:com.commsen.wedeploy.data.mapper.gson",
+       "g": "com.commsen.wedeploy",
+       "a": "com.commsen.wedeploy.data.mapper.gson",
+       "latestVersion": "1.0.0",
+       "repositoryId": "central",
+       "p": "jar",
+       "timestamp": 1503955458000,
+       "versionCount": 0,
+       "ec": []
+      },
+      {
+       "id": "com.liferay:com.liferay.shared.dependencies.gson",
+       "g": "com.liferay",
+       "a": "com.liferay.shared.dependencies.gson",
+       "latestVersion": "6.0.0",
+       "repositoryId": "central",
+       "p": "jar",
+       "timestamp": 1709214902000,
+       "versionCount": 0,
+       "ec": []
+      },
+      {
+       "id": "de.dentrassi.kura.addons:de.dentrassi.kura.addons.camel.gson",
+       "g": "de.dentrassi.kura.addons",
+       "a": "de.dentrassi.kura.addons.camel.gson",
+       "latestVersion": "0.8.3",
+       "repositoryId": "central",
+       "p": "dp",
+       "timestamp": 1633527319000,
+       "versionCount": 0,
+       "ec": []
+      }
+     ]
+    },
+    "spellcheck": {
+     "suggestions": []
+    }
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://repo1.maven.org/maven2/com/liferay/com.liferay.shared.dependencies.gson/6.0.0/com.liferay.shared.dependencies.gson-6.0.0.pom",
+    "accept": "application/xml"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "text/xml"
+    ],
+    [
+     "etag",
+     "\"5d289d456045eb472dd23afd3df3fdab\""
+    ]
+   ],
+   "digest": "sha256:ff2c2d84e6e88798d3f5b8ad2101e9823b532b3642d5c5a47019f398683b045b",
+   "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<project xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd\" xmlns=\"http://maven.apache.org/POM/4.0.0\"\n    xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n  <!-- This module was also published with a richer model, Gradle metadata,  -->\n  <!-- which should be used instead. Do not delete the following line which  -->\n  <!-- is to indicate to Gradle or any Gradle module metadata file consumer  -->\n  <!-- that they should prefer consuming it instead. -->\n  <!-- do_not_remove: published-with-gradle-metadata -->\n  <modelVersion>4.0.0</modelVersion>\n  <groupId>com.liferay</groupId>\n  <artifactId>com.liferay.shared.dependencies.gson</artifactId>\n  <version>6.0.0</version>\n  <description>Liferay Shared Dependencies Gson</description>\n  <licenses>\n    <license>\n      <name>LGPL 2.1</name>\n      <url>http://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt</url>\n    </license>\n  </licenses>\n  <developers>\n    <developer>\n      <name>Brian Wing Shun Chan</name>\n      <organization>Liferay, Inc.</organization>\n      <organizationUrl>http://www.liferay.com</organizationUrl>\n    </developer>\n  </developers>\n  <scm>\n    <connection>scm:git:person@example.test:liferay/liferay-portal.git</connection>\n    <developerConnection>scm:git:person@example.test:liferay/liferay-portal.git</developerConnection>\n    <url>http://github.com/liferay/liferay-portal</url>\n  </scm>\n</project>\n"
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://repo1.maven.org/maven2/de/dentrassi/kura/addons/de.dentrassi.kura.addons.camel.gson/0.8.3/de.dentrassi.kura.addons.camel.gson-0.8.3.pom",
+    "accept": "application/xml"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "text/xml"
+    ],
+    [
+     "etag",
+     "\"0d37bd9e6a230a5795886e2f398b29bb\""
+    ]
+   ],
+   "digest": "sha256:8cba9e1094bbb5509f6230789b0010484d78fcacbef7f0873e19d0b7b94d9737",
+   "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<project xmlns=\"http://maven.apache.org/POM/4.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd\">\n    <modelVersion>4.0.0</modelVersion>\n\n    <parent>\n        <groupId>de.dentrassi.kura.addons</groupId>\n        <artifactId>camel</artifactId>\n        <version>0.8.3</version>\n        <relativePath>..</relativePath>\n    </parent>\n\n    <artifactId>de.dentrassi.kura.addons.camel.gson</artifactId>\n\n    <packaging>dp</packaging>\n\n    <dependencies>\n        <dependency>\n            <groupId>org.apache.camel</groupId>\n            <artifactId>camel-gson</artifactId>\n            <version>${camel-version}</version>\n        </dependency>\n        <dependency>\n            <groupId>com.google.code.gson</groupId>\n            <artifactId>gson</artifactId>\n            <version>2.8.8</version>\n        </dependency>\n    </dependencies>\n\n    <build>\n        <plugins>\n            <plugin>\n                <groupId>de.dentrassi.maven</groupId>\n                <artifactId>osgi-dp</artifactId>\n                <extensions>true</extensions>\n            </plugin>\n        </plugins>\n    </build>\n\n</project>\n"
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://repo1.maven.org/maven2/de/gerdi-project/GSON/6.0.6/GSON-6.0.6.pom",
+    "accept": "application/xml"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "text/xml"
+    ],
+    [
+     "etag",
+     "\"96be554a5a8b10acc6f6a35812966893\""
+    ]
+   ],
+   "digest": "sha256:40b4c9edf539849c062a561062335eec724bf7197ee1e2682fd4d911e91c4383",
+   "body": "<project xmlns=\"http://maven.apache.org/POM/4.0.0\"\n\t\t xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n\t\t xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0\n\t\t http://maven.apache.org/xsd/maven-4.0.0.xsd\">\n\t<modelVersion>4.0.0</modelVersion>\n\t<parent>\n\t\t<groupId>de.gerdi-project</groupId>\n\t\t<artifactId>GeRDI-parent</artifactId>\n\t\t<version>4.1.0</version>\n\t</parent>\n\t\n\t<artifactId>GSON</artifactId>\n\t<version>6.0.6</version>\n\t<packaging>jar</packaging>\n\t<name>GSON</name>\n\t<description>This library provides helper functions and common JSON structures using GSON.</description>\n\t<inceptionYear>2017</inceptionYear>\n\n\t<properties>\n\t\t<gson.dependency.version>2.8.5</gson.dependency.version>\n\t\t<jsoup.dependency.version>1.11.3</jsoup.dependency.version>\n\t\t<jts.dependency.version>1.13</jts.dependency.version>\n\t</properties>\n\n\t<profiles>\n\t\t<profile>\n\t\t\t<id>generateConstants</id>\n\t\t\t<activation>\n\t\t\t\t<property>\n\t\t\t\t\t<name>generate</name>\n\t\t\t\t</property>\n\t\t\t</activation>\n\t\t\t<build>\n\t\t\t\t<plugins>\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.codehaus.mojo</groupId>\n\t\t\t\t\t\t<artifactId>exec-maven-plugin</artifactId>\n\t\t\t\t\t\t<version>${exec.plugin.version}</version>\n\t\t\t\t\t\t<executions>\n\t\t\t\t\t\t\t<!-- generate classes -->\n\t\t\t\t\t\t\t<execution>\n\t\t\t\t\t\t\t\t<id>Generate Classes</id>\n\t\t\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t\t\t<goal>java</goal>\n\t\t\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t\t\t<phase>compile</phase>\n\t\t\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t\t\t\t<mainClass>de.gerdiproject.generator.research.utils.ResearchGenerator</mainClass>\n\t\t\t\t\t\t\t\t</configuration>\n\t\t\t\t\t\t\t</execution>\n\t\t\t\t\t\t\t\n\t\t\t\t\t\t\t<!-- format generated classes -->\n\t\t\t\t\t\t\t<execution>\n\t\t\t\t\t\t\t\t<id>Format Code</id>\n\t\t\t\t\t\t\t\t<phase>compile</phase>\n\t\t\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t\t\t<goal>exec</goal>\n\t\t\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t\t\t\t<executable>${project.build.directory}/harvester-utils/scripts/formatting/astyle-format.${script.extension}</executable>\n\t\t\t\t\t\t\t\t</configuration>\n\t\t\t\t\t\t\t</execution>\n\t\t\t\t\t\t</executions>\n\t\t\t\t\t</plugin>\n\t\t\t\t</plugins>\n\t\t\t</build>\n\t\t</profile>\n\t</profiles>\n\n\t<dependencies>\n\t\t<!-- https://mvnrepository.com/artifact/com.google.code.gson/gson -->\n\t\t<dependency>\n\t\t\t<groupId>com.google.code.gson</groupId>\n\t\t\t<artifactId>gson</artifactId>\n\t\t\t<version>${gson.dependency.version}</version>\n\t\t</dependency>\n\t\t\n\t\t<!-- https://mvnrepository.com/artifact/org.jsoup/jsoup -->\n\t\t<dependency>\n\t\t\t<groupId>org.jsoup</groupId>\n\t\t\t<artifactId>jsoup</artifactId>\n\t\t\t<version>${jsoup.dependency.version}</version>\n\t\t</dependency>\n\t\t\n        <!-- https://mvnrepository.com/artifact/com.vividsolutions/jts -->\n\t\t<dependency>\n\t\t\t<groupId>com.vividsolutions</groupId>\n\t\t\t<artifactId>jts</artifactId>\n\t\t\t<version>${jts.dependency.version}</version>\n\t\t</dependency>\n\t</dependencies>\n\n\t<developers>\n\t\t<developer>\n\t\t\t<name>Robin Weiss</name>\n\t\t\t<email>person@example.test</email>\n\t\t\t<organization>Kiel University</organization>\n\t\t\t<organizationUrl>http://www.uni-kiel.de/index-e.shtml</organizationUrl>\n\t\t</developer>\n\t\t<developer>\n\t\t\t<name>Fidan Limani</name>\n\t\t\t<email>person@example.test</email>\n\t\t\t<organization>ZBW</organization>\n\t\t\t<organizationUrl>https://www.zbw.eu</organizationUrl>\n\t\t</developer>\n\t</developers>\n\n\t<!-- Define Sonatype repository for retrieving SNAPSHOT versions -->\n\t<repositories>\n\t\t<repository>\n\t\t\t<id>Sonatype</id>\n\t\t\t<url>https://oss.sonatype.org/content/repositories/snapshots/</url>\n\t\t</repository>\n\t</repositories>\n</project>\n"
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://repo1.maven.org/maven2/org/mattshoe/shoebox/Kdux.gson/1.0.6/Kdux.gson-1.0.6.pom",
+    "accept": "application/xml"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "text/xml"
+    ],
+    [
+     "etag",
+     "\"b659e9cc75468678f8a952ffd89b7eee\""
+    ]
+   ],
+   "digest": "sha256:a763e699ddfb259ea9f00a7fbf6d8073b8624c7b8452945b2ab6d14c0367de62",
+   "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<project xmlns=\"http://maven.apache.org/POM/4.0.0\" xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n  <!-- This module was also published with a richer model, Gradle metadata,  -->\n  <!-- which should be used instead. Do not delete the following line which  -->\n  <!-- is to indicate to Gradle or any Gradle module metadata file consumer  -->\n  <!-- that they should prefer consuming it instead. -->\n  <!-- do_not_remove: published-with-gradle-metadata -->\n  <modelVersion>4.0.0</modelVersion>\n  <groupId>org.mattshoe.shoebox</groupId>\n  <artifactId>Kdux.gson</artifactId>\n  <version>1.0.6</version>\n  <packaging>aar</packaging>\n  <name>Kdux</name>\n  <description>Kdux is a Kotlin-based, platform-agnostic state management library that implements the Redux pattern, \nproviding structured concurrency with built-in coroutine support. It is designed to integrate seamlessly \nwith any Kotlin project, particularly excelling in Android applications using MVI architecture.</description>\n  <url>https://github.com/mattshoe/kdux</url>\n  <inceptionYear>2024</inceptionYear>\n  <licenses>\n    <license>\n      <name>The Apache License, Version 2.0</name>\n      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>\n    </license>\n  </licenses>\n  <developers>\n    <developer>\n      <id>mattshoe</id>\n      <name>Matthew Shoemaker</name>\n      <email>person@example.test</email>\n    </developer>\n  </developers>\n  <scm>\n    <connection>scm:git:person@example.test:mattshoe/kdux.git</connection>\n    <developerConnection>scm:git:person@example.test:mattshoe/kdux.git</developerConnection>\n    <url>https://github.com/mattshoe/kdux</url>\n  </scm>\n  <properties>\n    <myProp>value</myProp>\n  </properties>\n  <dependencies>\n    <dependency>\n      <groupId>org.jetbrains.kotlin</groupId>\n      <artifactId>kotlin-stdlib</artifactId>\n      <version>2.0.10-RC2</version>\n      <scope>compile</scope>\n    </dependency>\n    <dependency>\n      <groupId>org.mattshoe.shoebox</groupId>\n      <artifactId>Kdux</artifactId>\n      <version>1.0.6</version>\n      <scope>runtime</scope>\n    </dependency>\n    <dependency>\n      <groupId>com.google.code.gson</groupId>\n      <artifactId>gson</artifactId>\n      <version>2.11.0</version>\n      <scope>runtime</scope>\n    </dependency>\n  </dependencies>\n</project>\n"
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://repo1.maven.org/maven2/com/commsen/wedeploy/com.commsen.wedeploy.data.mapper.gson/1.0.0/com.commsen.wedeploy.data.mapper.gson-1.0.0.pom",
+    "accept": "application/xml"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "text/xml"
+    ],
+    [
+     "etag",
+     "\"ee71fac74e0db13c7d92ebf1ff5ab7c2\""
+    ]
+   ],
+   "digest": "sha256:417900cb7ddd3a8e6b50495626b36609ecc8c2e534fb029304801dfb21fce039",
+   "body": "<project xmlns=\"http://maven.apache.org/POM/4.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n\txsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd\">\n\t<modelVersion>4.0.0</modelVersion>\n\t<parent>\n\t\t<groupId>com.commsen.wedeploy</groupId>\n\t\t<artifactId>parent</artifactId>\n\t\t<version>1.0.0</version>\n\t</parent>\n\n\t<artifactId>com.commsen.wedeploy.data.mapper.gson</artifactId>\n\t<name>WeDeploy Java client :: mapper :: gson</name>\n\t<description>\n\t\tModule provides Gson based implementation of data mapper used by \"WeDeploy Java client :: data\".\n\t</description>\n\n\t<properties>\n\t\t<_.eccentric.modularity.metadata />\n\t\t<site.dir>${project.basedir}/../../../wedeploy-client-site</site.dir>\n\t</properties>\n\n\t<dependencies>\n\t\t<dependency>\n\t\t\t<groupId>com.commsen.wedeploy</groupId>\n\t\t\t<artifactId>com.commsen.wedeploy.client</artifactId>\n\t\t</dependency>\n\t\t<dependency>\n\t\t\t<groupId>com.commsen.em</groupId>\n\t\t\t<artifactId>em.annotations</artifactId>\n\t\t\t<optional>true</optional>\n\t\t</dependency>\n\t\t<dependency>\n\t\t\t<groupId>com.google.code.gson</groupId>\n\t\t\t<artifactId>gson</artifactId>\n\t\t</dependency>\n\t\t<!-- test -->\n\t\t<dependency>\n\t\t\t<groupId>com.commsen.wedeploy</groupId>\n\t\t\t<artifactId>com.commsen.wedeploy.client</artifactId>\n\t\t\t<type>test-jar</type>\n\t\t\t<scope>test</scope>\n\t\t</dependency>\n\t\t<dependency>\n\t\t\t<groupId>junit</groupId>\n\t\t\t<artifactId>junit</artifactId>\n\t\t\t<scope>test</scope>\n\t\t</dependency>\n\t</dependencies>\n\n\t<build>\n\t\t<plugins>\n\t\t\t<plugin>\n\t\t\t\t<groupId>biz.aQute.bnd</groupId>\n\t\t\t\t<artifactId>bnd-baseline-maven-plugin</artifactId>\n\t\t\t</plugin>\n\t\t</plugins>\n\t</build>\n\n</project>"
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://repo1.maven.org/maven2/de/dentrassi/kura/addons/camel/0.8.3/camel-0.8.3.pom",
+    "accept": "application/xml"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "text/xml"
+    ],
+    [
+     "etag",
+     "\"f0f36942a93c01c273a7a1a6c057a289\""
+    ]
+   ],
+   "digest": "sha256:bbd8c3a67c8bd1a319c657b6bef2a806ae1f78933be15844641347f14c0b7372",
+   "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<project xmlns=\"http://maven.apache.org/POM/4.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd\">\n    <modelVersion>4.0.0</modelVersion>\n\n    <parent>\n        <groupId>de.dentrassi.kura.addons</groupId>\n        <artifactId>kura-addons</artifactId>\n        <version>0.8.3</version>\n    </parent>\n\n    <artifactId>camel</artifactId>\n    <packaging>pom</packaging>\n\n    <name>Addons to the Camel Runtime in Kura</name>\n    <description>This project is a parent to Camel addons for Kura</description>\n\n    <modules>\n        <module>de.dentrassi.kura.addons.camel.groovy</module>\n        <module>de.dentrassi.kura.addons.camel.gson</module>\n        <module>de.dentrassi.kura.addons.camel.http</module>\n        <module>de.dentrassi.kura.addons.camel.iec60870</module>\n        <module>de.dentrassi.kura.addons.camel.jetty</module>\n        <module>de.dentrassi.kura.addons.camel.swagger</module>\n        <module>de.dentrassi.kura.addons.camel.weather</module>\n    </modules>\n</project>\n",
+   "unread": [
+    "project.parent.groupId",
+    "project.artifactId",
+    "project.packaging",
+    "project.name",
+    "project.description",
+    "project.issueManagement",
+    "project.dependencyManagement",
+    "project.profiles",
+    "project.reporting",
+    "project.distributionManagement",
+    "project.organization",
+    "project.repositories",
+    "project.dependencies"
+   ],
+   "unreadReasons": {
+    "project.parent.groupId": "Ancestor-parent coordinates describe the enrichment chain, not the requested artifact.",
+    "project.artifactId": "This is the ancestor artifact, not the package named by the query.",
+    "project.packaging": "The ancestor POM build packaging is outside the selected package source metadata.",
+    "project.name": "The ancestor display name does not describe the requested child artifact.",
+    "project.description": "The ancestor description does not describe the requested child artifact.",
+    "project.issueManagement": "Issue tracker administration is outside ArtifactSchema source/package metadata.",
+    "project.dependencyManagement": "Managed build/BOM defaults are not the requested artifact runtime dependencies.",
+    "project.profiles": "Ancestor build profiles are outside ArtifactSchema selected package metadata.",
+    "project.reporting": "Reporting plugins are build configuration, not requested package metadata.",
+    "project.distributionManagement": "Publishing destinations are build administration, not package source repositories.",
+    "project.organization": "Ancestor maintainer organization metadata is outside ArtifactSchema.",
+    "project.repositories": "Dependency resolution repositories are not the package source repository.",
+    "project.dependencies": "This search selects package identity/source; these are the enrichment ancestor requirements, not the queried child release runtime dependencies."
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://repo1.maven.org/maven2/de/gerdi-project/GeRDI-parent/4.1.0/GeRDI-parent-4.1.0.pom",
+    "accept": "application/xml"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "text/xml"
+    ],
+    [
+     "etag",
+     "\"f75e5be895edd4f8963c55a5c13e7b8a\""
+    ]
+   ],
+   "digest": "sha256:c128bc5dc33fc0e26135d5d711471b8340eeac2e133f6a5715e01368e7ebddc9",
+   "body": "<project xmlns=\"http://maven.apache.org/POM/4.0.0\"\n\t\t xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n\t\t xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0\n\t\t http://maven.apache.org/xsd/maven-4.0.0.xsd\">\n\t<modelVersion>4.0.0</modelVersion>\n\t<groupId>de.gerdi-project</groupId>\n\t<artifactId>GeRDI-parent</artifactId>\n\t<version>4.1.0</version>\n\t\n\t<packaging>pom</packaging>\n\t<name>GeRDI Parent Pom</name>\n\t<description>This is a parent pom for GeRDI projects. It provides SpotBugs and PMD testing.</description>\n\t<url>http://www.gerdi-project.de</url>\n\n\t<properties>\n\t\t<!-- Plugin Versions -->\n\t\t<compiler.plugin.version>3.8.0</compiler.plugin.version>\n\t\t<dependency.plugin.version>3.1.1</dependency.plugin.version>\n\t\t<exec.plugin.version>1.6.0</exec.plugin.version>\n\t\t<gpg.plugin.version>1.6</gpg.plugin.version>\n\t\t<jar.plugin.version>3.0.2</jar.plugin.version>\n\t\t<javadoc.plugin.version>3.0.1</javadoc.plugin.version>\n\t\t<jetty.plugin.version>9.3.11.v20160721</jetty.plugin.version>\n\t\t<jxr.plugin.version>2.5</jxr.plugin.version>\n\t\t<license.plugin.version>3.0</license.plugin.version>\n\t\t<lombok.plugin.version>1.18.6.0</lombok.plugin.version>\n\t\t<pmd.plugin.version>3.11.0</pmd.plugin.version>\n\t\t<war.plugin.version>3.2.2</war.plugin.version>\n\t\t<source.plugin.version>3.0.1</source.plugin.version>\n\t\t<spotbugs.plugin.version>3.1.11</spotbugs.plugin.version>\n\t\t<staging.plugin.version>1.6.7</staging.plugin.version>\n\t\t<surefire.plugin.version>2.22.0</surefire.plugin.version>\n\n\t\t<!-- Dependency Versions -->\n\t\t<hamcrest.dependency.version>1.3</hamcrest.dependency.version>\n\t\t<harvesterutils.dependency.version>1.5.3</harvesterutils.dependency.version>\n\t\t<javaxws.dependency.version>2.3.1</javaxws.dependency.version>\n\t\t<junit.dependency.version>4.12</junit.dependency.version>\n\t\t<logbackclassic.dependency.version>1.2.3</logbackclassic.dependency.version>\n\t\t<lombok.dependency.version>1.18.4</lombok.dependency.version>\n\t\t<slf4j.dependency.version>1.7.25</slf4j.dependency.version>\n\t\t<spotbugs.annotations.dependency.version>3.1.12</spotbugs.annotations.dependency.version>\n\n\t\t<!-- Misc. Properties -->\n\t\t<invalid.script.extensions>*</invalid.script.extensions>\n\t\t<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>\n\t\t<reports.directory>target/reports/</reports.directory>\n\n\t\t<!-- Code Check -->\n\t\t<cpd.goal>cpd</cpd.goal>\n\t\t<pmd.goal>pmd</pmd.goal>\n\t\t<skip.codecheck>false</skip.codecheck>\n\t\t<skip.formattingcheck>true</skip.formattingcheck>\n\t\t<spotbugs.goal>spotbugs</spotbugs.goal>\n\t</properties>\n\n\t<licenses>\n\t\t<license>\n\t\t\t<name>The Apache License, Version 2.0</name>\n\t\t\t<url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>\n\t\t</license>\n\t</licenses>\n\n\t<profiles>\n\t\t<profile>\n\t\t\t<id>war</id>\n\t\t\t<activation>\n\t\t\t\t<file>\n\t\t\t\t\t<exists>Dockerfile</exists>\n\t\t\t\t</file>\n\t\t\t</activation>\n\t\t\t<build>\n\t\t\t\t<plugins>\n\t\t\t\t\t<!-- Generate war and move it to /target/ folder -->\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.apache.maven.plugins</groupId>\n\t\t\t\t\t\t<artifactId>maven-war-plugin</artifactId>\n\t\t\t\t\t\t<version>${war.plugin.version}</version>\n\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t\t<outputDirectory>${project.build.directory}</outputDirectory>\n\t\t\t\t\t\t\t<archiveClasses>true</archiveClasses>\n\t\t\t\t\t\t</configuration>\n\t\t\t\t\t</plugin>\n\t\t\t\t</plugins>\n\t\t\t</build>\n\t\t</profile>\n\n\t\t<profile>\n\t\t\t<id>jar</id>\n\t\t\t<activation>\n\t\t\t\t<file>\n\t\t\t\t\t<missing>Dockerfile</missing>\n\t\t\t\t</file>\n\t\t\t</activation>\n\t\t\t<build>\n\t\t\t\t<plugins>\n\t\t\t\t\t<!-- Generate jar and move it to /target/ folder -->\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.apache.maven.plugins</groupId>\n\t\t\t\t\t\t<artifactId>maven-jar-plugin</artifactId>\n\t\t\t\t\t\t<version>${jar.plugin.version}</version>\n\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t\t<outputDirectory>${project.build.directory}</outputDirectory>\n\t\t\t\t\t\t\t<excludes>\n\t\t\t\t\t\t\t\t<exclude>**/de/gerdiproject/generator/**</exclude>\n\t\t\t\t\t\t\t</excludes>\n\t\t\t\t\t\t</configuration>\n\t\t\t\t\t</plugin>\n\t\t\t\t\t\n\t\t\t\t\t<!-- Use Delombok to add javadoc for Lombok generated methods -->\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.projectlombok</groupId>\n\t\t\t\t\t\t<artifactId>lombok-maven-plugin</artifactId>\n\t\t\t\t\t\t<version>${lombok.plugin.version}</version>\n\t\t\t\t\t\t<executions>\n\t\t\t\t\t\t\t<execution>\n\t\t\t\t\t\t\t\t<id>delombok</id>\n\t\t\t\t\t\t\t\t<phase>prepare-package</phase>\n\t\t\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t\t\t<goal>delombok</goal>\n\t\t\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t\t\t\t<sourceDirectory>${project.basedir}/src/main/java</sourceDirectory>\n\t\t\t\t\t\t\t\t\t<outputDirectory>${project.build.directory}/delombok</outputDirectory>\n\t\t\t\t\t\t\t\t\t<addOutputDirectory>false</addOutputDirectory>\n\t\t\t\t\t\t\t\t</configuration>\n\t\t\t\t\t\t\t</execution>\n\t\t\t\t\t\t</executions>\n\t\t\t\t\t</plugin>\n\n\t\t\t\t\t<!-- Add javadoc -->\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.apache.maven.plugins</groupId>\n\t\t\t\t\t\t<artifactId>maven-javadoc-plugin</artifactId>\n\t\t\t\t\t\t<version>${javadoc.plugin.version}</version>\n\t\t\t\t\t\t<executions>\n\t\t\t\t\t\t\t<execution>\n\t\t\t\t\t\t\t\t<id>attach-javadocs</id>\n\t\t\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t\t\t<goal>jar</goal>\n\t\t\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t\t</execution>\n\t\t\t\t\t\t</executions>\n\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t\t<sourcepath>${project.build.directory}/delombok</sourcepath>\n\t\t\t\t\t\t\t<outputDirectory>${project.build.directory}/javadoc</outputDirectory>\n\t\t\t\t\t\t\t<quiet>true</quiet>\n\t\t\t\t\t\t</configuration>\n\t\t\t\t\t</plugin>\n\t\t\t\t\t\n\t\t\t\t\t<!-- Add sources -->\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.apache.maven.plugins</groupId>\n\t\t\t\t\t\t<artifactId>maven-source-plugin</artifactId>\n\t\t\t\t\t\t<version>${source.plugin.version}</version>\n\t\t\t\t\t\t<executions>\n\t\t\t\t\t\t\t<execution>\n\t\t\t\t\t\t\t\t<id>attach-sources</id>\n\t\t\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t\t\t<goal>jar</goal>\n\t\t\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t\t</execution>\n\t\t\t\t\t\t</executions>\n\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t\t<outputDirectory>${project.build.directory}</outputDirectory>\n\t\t\t\t\t\t</configuration>\n\t\t\t\t\t</plugin>\n\t\t\t\t</plugins>\n\t\t\t</build>\n\t\t</profile>\n\n\t\t<profile>\n\t\t\t<id>deployment</id>\n\t\t\t<activation>\n\t\t\t\t<property>\n\t\t\t\t\t<name>deploy</name>\n\t\t\t\t</property>\n\t\t\t</activation>\n\t\t\t<build>\n\t\t\t\t<plugins>\n\t\t\t\t\t<!-- Sign artifacts -->\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.apache.maven.plugins</groupId>\n\t\t\t\t\t\t<artifactId>maven-gpg-plugin</artifactId>\n\t\t\t\t\t\t<version>${gpg.plugin.version}</version>\n\t\t\t\t\t\t<executions>\n\t\t\t\t\t\t\t<execution>\n\t\t\t\t\t\t\t\t<id>sign-artifacts</id>\n\t\t\t\t\t\t\t\t<phase>verify</phase>\n\t\t\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t\t\t<goal>sign</goal>\n\t\t\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t\t</execution>\n\t\t\t\t\t\t</executions>\n\t\t\t\t\t</plugin>\n\n\t\t\t\t\t<!-- Stage to maven central -->\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.sonatype.plugins</groupId>\n\t\t\t\t\t\t<artifactId>nexus-staging-maven-plugin</artifactId>\n\t\t\t\t\t\t<version>${staging.plugin.version}</version>\n\t\t\t\t\t\t<extensions>true</extensions>\n\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t\t<serverId>ossrh</serverId>\n\t\t\t\t\t\t\t<nexusUrl>https://oss.sonatype.org/</nexusUrl>\n\t\t\t\t\t\t\t<autoReleaseAfterClose>true</autoReleaseAfterClose>\n\t\t\t\t\t\t</configuration>\n\t\t\t\t\t</plugin>\n\t\t\t\t</plugins>\n\t\t\t</build>\n\t\t</profile>\n\n\t\t<!-- this profile causes the build to fail if any issues are found by PMD or SpotBugs-->\n\t\t<profile>\n\t\t\t<id>strictCodeCheck</id>\n\t\t\t<activation>\n\t\t\t\t<property>\n\t\t\t\t\t<name>check</name>\n\t\t\t\t\t<value>strict</value>\n\t\t\t\t</property>\n\t\t\t</activation>\n\t\t\t\n\t\t\t<properties>\n\t\t\t\t<spotbugs.goal>check</spotbugs.goal>\n\t\t\t\t<pmd.goal>check</pmd.goal>\n\t\t\t\t<cpd.goal>cpd-check</cpd.goal>\n\t\t\t\t<skip.formattingcheck>false</skip.formattingcheck>\n\t\t\t</properties>\n\t\t</profile>\n\n\t\t<!-- Disable CodeCheck -->\n\t\t<profile>\n\t\t\t<id>skipCodeCheck</id>\n\t\t\t<activation>\n\t\t\t\t<property>\n\t\t\t\t\t<name>check</name>\n\t\t\t\t\t<value>disabled</value>\n\t\t\t\t</property>\n\t\t\t</activation>\n\t\t\t<properties>\n\t\t\t\t<skip.codecheck>true</skip.codecheck>\n\t\t\t</properties>\n\t\t</profile>\n\n\t\t<!-- Eclipse Bug Fixes-->\n\t\t<profile>\n\t\t\t<id>eclipse</id>\n\t\t\t<activation>\n\t\t\t\t<property>\n\t\t\t\t\t<name>m2e.version</name>\n\t\t\t\t</property>\n\t\t\t</activation>\n\t\t\t<properties>\n\t\t\t\t<eclipselifecycle.plugin.version>1.0.0</eclipselifecycle.plugin.version>\n\t\t\t</properties>\n\t\t\t<build>\n\t\t\t\t<pluginManagement>\n\t\t\t\t\t<plugins>\n\t\t\t\t\t\t<plugin>\n\t\t\t\t\t\t\t<groupId>org.eclipse.m2e</groupId>\n\t\t\t\t\t\t\t<artifactId>lifecycle-mapping</artifactId>\n\t\t\t\t\t\t\t<version>${eclipselifecycle.plugin.version}</version>\n\t\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t\t\t<lifecycleMappingMetadata>\n\t\t\t\t\t\t\t\t\t<pluginExecutions>\n\t\t\t\t\t\t\t\t\t\t<pluginExecution>\n\t\t\t\t\t\t\t\t\t\t\t<!-- do not unpack HarvesterUtils in Eclipse-->\n\t\t\t\t\t\t\t\t\t\t\t<pluginExecutionFilter>\n\t\t\t\t\t\t\t\t\t\t\t\t<groupId>org.apache.maven.plugins</groupId>\n\t\t\t\t\t\t\t\t\t\t\t\t<artifactId>maven-dependency-plugin</artifactId>\n\t\t\t\t\t\t\t\t\t\t\t\t<versionRange>[${dependency.plugin.version},)</versionRange>\n\t\t\t\t\t\t\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t\t\t\t\t\t\t<goal>\n\t\t\t\t\t\t\t\t\t\t\t\t\t\tunpack-dependencies\n\t\t\t\t\t\t\t\t\t\t\t\t\t</goal>\n\t\t\t\t\t\t\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t\t\t\t\t\t</pluginExecutionFilter>\n\t\t\t\t\t\t\t\t\t\t\t<action>\n\t\t\t\t\t\t\t\t\t\t\t\t<ignore></ignore>\n\t\t\t\t\t\t\t\t\t\t\t</action>\n\t\t\t\t\t\t\t\t\t\t</pluginExecution>\n\t\t\t\t\t\t\t\t\t\t<pluginExecution>\n\t\t\t\t\t\t\t\t\t\t\n\t\t\t\t\t\t\t\t\t\t<!-- do not execute PMD in Eclipse-->\n\t\t\t\t\t\t\t\t\t\t\t<pluginExecutionFilter>\n\t\t\t\t\t\t\t\t\t\t\t\t<groupId>org.apache.maven.plugins</groupId>\n\t\t\t\t\t\t\t\t\t\t\t\t<artifactId>maven-pmd-plugin</artifactId>\n\t\t\t\t\t\t\t\t\t\t\t\t<versionRange>[${pmd.plugin.version},)</versionRange>\n\t\t\t\t\t\t\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t\t\t\t\t\t\t<goal>pmd</goal>\n\t\t\t\t\t\t\t\t\t\t\t\t\t<goal>cpd</goal>\n\t\t\t\t\t\t\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t\t\t\t\t\t</pluginExecutionFilter>\n\t\t\t\t\t\t\t\t\t\t\t<action>\n\t\t\t\t\t\t\t\t\t\t\t\t<ignore></ignore>\n\t\t\t\t\t\t\t\t\t\t\t</action>\n\t\t\t\t\t\t\t\t\t\t</pluginExecution>\n\t\t\t\t\t\t\t\t\t\t\n\t\t\t\t\t\t\t\t\t\t<!-- do not execute SpotBugs in Eclipse-->\n\t\t\t\t\t\t\t\t\t\t<pluginExecution>\n\t\t\t\t\t\t\t\t\t\t\t<pluginExecutionFilter>\n\t\t\t\t\t\t\t\t\t\t\t\t<groupId>com.github.spotbugs</groupId>\n\t\t\t\t\t\t\t\t\t\t\t\t<artifactId>spotbugs-maven-plugin</artifactId>\n\t\t\t\t\t\t\t\t\t\t\t\t<versionRange>[${spotbugs.plugin.version},)</versionRange>\n\t\t\t\t\t\t\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t\t\t\t\t\t\t<goal>\n\t\t\t\t\t\t\t\t\t\t\t\t\t\tspotbugs\n\t\t\t\t\t\t\t\t\t\t\t\t\t</goal>\n\t\t\t\t\t\t\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t\t\t\t\t\t</pluginExecutionFilter>\n\t\t\t\t\t\t\t\t\t\t\t<action>\n\t\t\t\t\t\t\t\t\t\t\t\t<ignore></ignore>\n\t\t\t\t\t\t\t\t\t\t\t</action>\n\t\t\t\t\t\t\t\t\t\t</pluginExecution>\n\t\t\t\t\t\t\t\t\t\t\n\t\t\t\t\t\t\t\t\t\t<!-- do not execute AStyle in Eclipse-->\n\t\t\t\t\t\t\t\t\t\t<pluginExecution>\n\t\t\t\t\t\t\t\t\t\t\t<pluginExecutionFilter>\n\t\t\t\t\t\t\t\t\t\t\t\t<groupId>org.codehaus.mojo</groupId>\n\t\t\t\t\t\t\t\t\t\t\t\t<artifactId>exec-maven-plugin</artifactId>\n\t\t\t\t\t\t\t\t\t\t\t\t<versionRange>[${exec.plugin.version},)</versionRange>\n\t\t\t\t\t\t\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t\t\t\t\t\t\t<goal>\n\t\t\t\t\t\t\t\t\t\t\t\t\t\texec\n\t\t\t\t\t\t\t\t\t\t\t\t\t</goal>\n\t\t\t\t\t\t\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t\t\t\t\t\t</pluginExecutionFilter>\n\t\t\t\t\t\t\t\t\t\t\t<action>\n\t\t\t\t\t\t\t\t\t\t\t\t<ignore></ignore>\n\t\t\t\t\t\t\t\t\t\t\t</action>\n\t\t\t\t\t\t\t\t\t\t</pluginExecution>\n\t\t\t\t\t\t\t\t\t\t\n\t\t\t\t\t\t\t\t\t\t<!-- do not execute Delombok in Eclipse-->\n\t\t\t\t\t\t\t\t\t\t<pluginExecution>\n\t\t\t\t\t\t\t\t\t\t\t<pluginExecutionFilter>\n\t\t\t\t\t\t\t\t\t\t\t\t<groupId>org.projectlombok</groupId>\n\t\t\t\t\t\t\t\t\t\t\t\t<artifactId>lombok-maven-plugin</artifactId>\n\t\t\t\t\t\t\t\t\t\t\t\t<versionRange>[${lombok.plugin.version},)</versionRange>\n\t\t\t\t\t\t\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t\t\t\t\t\t\t<goal>\n\t\t\t\t\t\t\t\t\t\t\t\t\t\tdelombok\n\t\t\t\t\t\t\t\t\t\t\t\t\t</goal>\n\t\t\t\t\t\t\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t\t\t\t\t\t</pluginExecutionFilter>\n\t\t\t\t\t\t\t\t\t\t\t<action>\n\t\t\t\t\t\t\t\t\t\t\t\t<ignore></ignore>\n\t\t\t\t\t\t\t\t\t\t\t</action>\n\t\t\t\t\t\t\t\t\t\t</pluginExecution>\n\t\t\t\t\t\t\t\t\t</pluginExecutions>\n\t\t\t\t\t\t\t\t</lifecycleMappingMetadata>\n\t\t\t\t\t\t\t</configuration>\n\t\t\t\t\t\t</plugin>\n\t\t\t\t\t</plugins>\n\t\t\t\t</pluginManagement>\n\t\t\t</build>\n\t\t</profile>\n\n\t\t<!-- Profile that is activated on Windows -->\n\t\t<profile>\n\t\t\t<id>windows</id>\n\t\t\t<activation>\n\t\t\t\t<os>\n\t\t\t\t\t<family>Windows</family>\n\t\t\t\t</os>\n\t\t\t</activation>\n\t\t\t<properties>\n\t\t\t\t<script.extension>bat</script.extension>\n\t\t\t\t<invalid.script.extensions>**/*.sh</invalid.script.extensions>\n\t\t\t</properties>\n\t\t</profile>\n\n\t\t<!-- Profile that is activated on Linux -->\n\t\t<profile>\n\t\t\t<id>unix</id>\n\t\t\t<activation>\n\t\t\t\t<os>\n\t\t\t\t\t<family>unix</family>\n\t\t\t\t</os>\n\t\t\t</activation>\n\t\t\t<properties>\n\t\t\t\t<script.extension>sh</script.extension>\n\t\t\t\t<invalid.script.extensions>**/*.bat</invalid.script.extensions>\n\t\t\t</properties>\n\t\t</profile>\n\n\t\t<!-- Profile that is activated on Macs -->\n\t\t<profile>\n\t\t\t<id>mac</id>\n\t\t\t<activation>\n\t\t\t\t<os> \n\t\t\t\t\t<family>mac</family>\n\t\t\t\t</os>\n\t\t\t</activation>\n\t\t\t<properties>\n\t\t\t\t<script.extension>sh</script.extension>\n\t\t\t\t<invalid.script.extensions>**/*.bat</invalid.script.extensions>\n\t\t\t</properties>\n\t\t</profile>\n\n\t\t<profile>\n\t\t\t<id>java8</id>\n\t\t\t<activation>\n\t\t\t\t<jdk>1.8</jdk>\n\t\t\t</activation>\n\t\t\t<properties>\n\t\t\t\t<java.version>1.8</java.version>\n\t\t\t</properties>\n\t\t\t\n\t\t\t<build>\n\t\t\t\t<plugins>\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.apache.maven.plugins</groupId>\n\t\t\t\t\t\t<artifactId>maven-compiler-plugin</artifactId>\n\t\t\t\t\t\t<version>${compiler.plugin.version}</version>\n\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t\t<source>${java.version}</source>\n\t\t\t\t\t\t\t<target>${java.version}</target>\n\t\t\t\t\t\t</configuration>\n\t\t\t\t\t</plugin>\n\t\t\t\t</plugins>\n\t\t\t</build>\n\t\t</profile>\n\n\t\t<profile>\n\t\t\t<id>java11</id>\n\t\t\t\t<activation>\n\t\t\t\t\t<jdk>11</jdk>\n\t\t\t\t</activation>\n\t\t\t<properties>\n\t\t\t\t<java.version>11</java.version>\n\t\t\t</properties>\n\t\t\t<build>\n\t\t\t\t<plugins>\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.apache.maven.plugins</groupId>\n\t\t\t\t\t\t<artifactId>maven-compiler-plugin</artifactId>\n\t\t\t\t\t\t<version>${compiler.plugin.version}</version>\n\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t\t<release>${java.version}</release>\n\t\t\t\t\t\t</configuration>\n\t\t\t\t\t</plugin>\n\t\t\t\t</plugins>\n\t\t\t</build>\n\t\t\t<dependencies>\n\t\t\t\t<!-- https://mvnrepository.com/artifact/javax.xml.ws/jaxws-api -->\n\t\t\t\t<dependency>\n\t\t\t\t\t<groupId>javax.xml.ws</groupId>\n\t\t\t\t\t<artifactId>jaxws-api</artifactId>\n\t\t\t\t\t<version>${javaxws.dependency.version}</version>\n\t\t\t\t</dependency>\n\t\t\t</dependencies>\n\t\t</profile>\n\n\t\t<profile>\n\t\t\t<id>ensureLicenseHeaders</id>\n\t\t\t<activation>\n\t\t\t\t<property>\n\t\t\t\t\t<name>addHeaders</name>\n\t\t\t\t</property>\n\t\t\t</activation>\n\t\t\t<build>\n\t\t\t\t<plugins>\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.codehaus.mojo</groupId>\n\t\t\t\t\t\t<artifactId>exec-maven-plugin</artifactId>\n\t\t\t\t\t\t<version>${exec.plugin.version}</version>\n\t\t\t\t\t\t<executions>\n\t\t\t\t\t\t\t<execution>\n\t\t\t\t\t\t\t\t<id>Add License Headers</id>\n\t\t\t\t\t\t\t\t<phase>generate-resources</phase>\n\t\t\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t\t\t<goal>exec</goal>\n\t\t\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t\t\t\t<executable>${project.build.directory}/harvester-utils/scripts/addLicenses.${script.extension}</executable>\n\t\t\t\t\t\t\t\t</configuration>\n\t\t\t\t\t\t\t</execution>\n\t\t\t\t\t\t</executions>\n\t\t\t\t\t</plugin>\n\t\t\t\t</plugins>\n\t\t\t</build>\n\t\t</profile>\n\n\t\t<profile>\n\t\t\t<id>ensureLicenseHeadersInternal</id>\n\t\t\t<activation>\n\t\t\t\t<property>\n\t\t\t\t\t<name>addHeadersInternal</name>\n\t\t\t\t</property>\n\t\t\t</activation>\n\t\t\t<build>\n\t\t\t\t<plugins>\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>com.mycila</groupId>\n\t\t\t\t\t\t<artifactId>license-maven-plugin</artifactId>\n\t\t\t\t\t\t<version>${license.plugin.version}</version>\n\t\t\t\t\t\t<executions>\n\t\t\t\t\t\t\t<execution>\n\t\t\t\t\t\t\t\t<id>Add License Headers Internal</id>\n\t\t\t\t\t\t\t\t<phase>process-sources</phase>\n\t\t\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t\t\t<goal>format</goal>\n\t\t\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t\t\t\t<header>com/mycila/maven/plugin/license/templates/APACHE-2.txt</header>\n\t\t\t\t\t\t\t\t\t<properties>\n\t\t\t\t\t\t\t\t\t\t<email>http://www.gerdi-project.de</email>\n\t\t\t\t\t\t\t\t\t</properties>\n\t\t\t\t\t\t\t\t\t<includes>\n\t\t\t\t\t\t\t\t\t\t<include>**/*.java</include>\n\t\t\t\t\t\t\t\t\t\t<include>**/*.sh</include>\n\t\t\t\t\t\t\t\t\t\t<include>**/*.bat</include>\n\t\t\t\t\t\t\t\t\t</includes>\n\t\t\t\t\t\t\t\t\t<excludes>\n\t\t\t\t\t\t\t\t\t\t<exclude>${project.build.directory}/harvester-utils/scripts/**/*</exclude>\n\t\t\t\t\t\t\t\t\t</excludes>\n\t\t\t\t\t\t\t\t</configuration>\n\t\t\t\t\t\t\t</execution>\n\t\t\t\t\t\t</executions>\n\t\t\t\t\t</plugin>\n\t\t\t\t</plugins>\n\t\t\t</build>\n\t\t</profile>\n\n\t\t<profile>\n\t\t\t<!-- Auto-formats all files -->\n\t\t\t<id>formatFiles</id>\n\t\t\t<activation>\n\t\t\t\t<property>\n\t\t\t\t\t<name>format</name>\n\t\t\t\t</property>\n\t\t\t</activation>\n\t\t\t<build>\n\t\t\t\t<plugins>\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.codehaus.mojo</groupId>\n\t\t\t\t\t\t<artifactId>exec-maven-plugin</artifactId>\n\t\t\t\t\t\t<version>${exec.plugin.version}</version>\n\t\t\t\t\t\t<executions>\n\t\t\t\t\t\t\t<execution>\n\t\t\t\t\t\t\t\t<id>Format Code</id>\n\t\t\t\t\t\t\t\t<phase>process-sources</phase>\n\t\t\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t\t\t<goal>exec</goal>\n\t\t\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t\t\t\t<executable>${project.build.directory}/harvester-utils/scripts/formatting/astyle-format.${script.extension}</executable>\n\t\t\t\t\t\t\t\t</configuration>\n\t\t\t\t\t\t\t</execution>\n\t\t\t\t\t\t</executions>\n\t\t\t\t\t</plugin>\n\t\t\t\t</plugins>\n\t\t\t</build>\n\t\t</profile>\n\n\t\t<profile>\n\t\t\t<id>dockerBuild</id>\n\t\t\t<activation>\n\t\t\t\t<property>\n\t\t\t\t\t<name>dockerBuild</name>\n\t\t\t\t</property>\n\t\t\t\t<file>\n\t\t\t\t\t<exists>Dockerfile</exists>\n\t\t\t\t</file>\n\t\t\t</activation>\n\t\t\t<build>\n\t\t\t\t<plugins>\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.codehaus.mojo</groupId>\n\t\t\t\t\t\t<artifactId>exec-maven-plugin</artifactId>\n\t\t\t\t\t\t<version>${exec.plugin.version}</version>\n\t\t\t\t\t\t<executions>\n\t\t\t\t\t\t\t<execution>\n\t\t\t\t\t\t\t\t<id>Docker Build</id>\n\t\t\t\t\t\t\t\t<phase>package</phase>\n\t\t\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t\t\t<goal>exec</goal>\n\t\t\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t\t\t\t<executable>${project.build.directory}/harvester-utils/scripts/docker-build.${script.extension}</executable>\n\t\t\t\t\t\t\t\t</configuration>\n\t\t\t\t\t\t\t</execution>\n\t\t\t\t\t\t</executions>\n\t\t\t\t\t</plugin>\n\t\t\t\t</plugins>\n\t\t\t</build>\n\t\t</profile>\n\n\t\t<profile>\n\t\t\t<id>dockerRun</id>\n\t\t\t<activation>\n\t\t\t\t<property>\n\t\t\t\t\t<name>run</name>\n\t\t\t\t\t<value>docker</value>\n\t\t\t\t</property>\n\t\t\t\t<file>\n\t\t\t\t\t<exists>Dockerfile</exists>\n\t\t\t\t</file>\n\t\t\t</activation>\n\t\t\t<build>\n\t\t\t\t<plugins>\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.codehaus.mojo</groupId>\n\t\t\t\t\t\t<artifactId>exec-maven-plugin</artifactId>\n\t\t\t\t\t\t<version>${exec.plugin.version}</version>\n\t\t\t\t\t\t<executions>\n\t\t\t\t\t\t\t<execution>\n\t\t\t\t\t\t\t\t<id>Docker Build and Run</id>\n\t\t\t\t\t\t\t\t<phase>package</phase>\n\t\t\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t\t\t<goal>exec</goal>\n\t\t\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t\t\t\t<executable>${project.build.directory}/harvester-utils/scripts/docker-run.${script.extension}</executable>\n\t\t\t\t\t\t\t\t</configuration>\n\t\t\t\t\t\t\t</execution>\n\t\t\t\t\t\t</executions>\n\t\t\t\t\t</plugin>\n\t\t\t\t</plugins>\n\t\t\t</build>\n\t\t</profile>\n\n\t\t<profile>\n\t\t\t<id>jettyRun</id>\n\t\t\t<activation>\n\t\t\t\t<property>\n\t\t\t\t\t<name>run</name>\n\t\t\t\t\t<value>jetty</value>\n\t\t\t\t</property>\n\t\t\t</activation>\n\t\t\t<build>\n\t\t\t\t<plugins>\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.eclipse.jetty</groupId>\n\t\t\t\t\t\t<artifactId>jetty-maven-plugin</artifactId>\n\t\t\t\t\t\t<version>${jetty.plugin.version}</version>\n\t\t\t\t\t\t<executions>\n\t\t\t\t\t\t\t<execution>\n\t\t\t\t\t\t\t\t<id>Run Jetty</id>\n\t\t\t\t\t\t\t\t<phase>package</phase>\n\t\t\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t\t\t<goal>deploy-war</goal>\n\t\t\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t\t\t\t<webApp>\n\t\t\t\t\t\t\t\t\t\t<contextPath>/${project.artifactId}</contextPath>\n\t\t\t\t\t\t\t\t\t\t<tempDirectory>${project.build.directory}/jetty</tempDirectory>\n\t\t\t\t\t\t\t\t\t</webApp>\n\t\t\t\t\t\t\t\t\t<daemon>false</daemon>\n\t\t\t\t\t\t\t\t\t<systemProperties>\n\t\t\t\t\t\t\t\t\t\t<systemProperty>\n\t\t\t\t\t\t\t\t\t\t\t<name>DEPLOYMENT_TYPE</name>\n\t\t\t\t\t\t\t\t\t\t\t<value>jetty</value>\n\t\t\t\t\t\t\t\t\t\t</systemProperty>\n\t\t\t\t\t\t\t\t\t</systemProperties>\n\t\t\t\t\t\t\t\t</configuration>\n\t\t\t\t\t\t\t</execution>\n\t\t\t\t\t\t</executions>\n\t\t\t\t\t</plugin>\n\t\t\t\t</plugins>\n\t\t\t</build>\n\t\t</profile>\n\t</profiles>\n\n\t<build>\n\t\t<finalName>${project.artifactId}_${project.version}</finalName>\n\t\t<directory>target/</directory>\n\n\t\t<plugins>\n\t\t\t<!-- Unpack Utilities -->\n\t\t\t<plugin>\n\t\t\t\t<groupId>org.apache.maven.plugins</groupId>\n\t\t\t\t<artifactId>maven-dependency-plugin</artifactId>\n\t\t\t\t<version>${dependency.plugin.version}</version>\n\t\t\t\t<executions>\n\t\t\t\t\t<execution>\n\t\t\t\t\t\t<id>unpack-shared-resources</id>\n\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t<goal>unpack-dependencies</goal>\n\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t<phase>initialize</phase>\n\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t\t<!--<includes>setup/**</includes>-->\n\t\t\t\t\t\t\t<outputDirectory>${basedir}</outputDirectory>\n\t\t\t\t\t\t\t<excludeTransitive>true</excludeTransitive>\n\t\t\t\t\t\t\t<overWrite>false</overWrite>\n\t\t\t\t\t\t\t<includeGroupIds>de.gerdi-project</includeGroupIds>\n\t\t\t\t\t\t\t<includeTypes>zip</includeTypes>\n\t\t\t\t\t\t\t<excludes>${invalid.script.extensions}</excludes>\n\t\t\t\t\t\t</configuration>\n\t\t\t\t\t</execution>\n\t\t\t\t</executions>\n\t\t\t</plugin>\n\n\t\t\t<!-- Surefire -->\n\t\t\t<plugin>\n\t\t\t\t<groupId>org.apache.maven.plugins</groupId>\n\t\t\t\t<artifactId>maven-surefire-plugin</artifactId>\n\t\t\t\t<version>${surefire.plugin.version}</version>\n\t\t\t\t<configuration>\n\t\t\t\t\t<skipTests>${skip.codecheck}</skipTests>\n\t\t\t\t</configuration>\n\t\t\t</plugin>\n\n\t\t\t<!-- PMD -->\n\t\t\t<plugin>\n\t\t\t\t<groupId>org.apache.maven.plugins</groupId>\n\t\t\t\t<artifactId>maven-pmd-plugin</artifactId>\n\t\t\t\t<version>${pmd.plugin.version}</version>\n\t\t\t\t<configuration>\n\t\t\t\t\t<linkXRef>true</linkXRef>\n\t\t\t\t\t<targetJdk>${java.version}</targetJdk>\n\t\t\t\t\t<includeTests>false</includeTests>\n\t\t\t\t\t<failOnViolation>true</failOnViolation>\n\t\t\t\t\t<printFailingErrors>true</printFailingErrors>\n\t\t\t\t\t<targetDirectory>${reports.directory}</targetDirectory>\n\t\t\t\t\t<skip>${skip.codecheck}</skip>\n\t\t\t\t\t<rulesets>\n\t\t\t\t\t\t<ruleset>target/harvester-utils/pmd/gerdi-ruleset.xml</ruleset>\n\t\t\t\t\t</rulesets>\n\t\t\t\t</configuration>\n\t\t\t\t<executions>\n\t\t\t\t\t<execution>\n\t\t\t\t\t\t<phase>process-test-sources</phase>\n\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t<goal>${pmd.goal}</goal>\n\t\t\t\t\t\t\t<goal>${cpd.goal}</goal>\n\t\t\t\t\t\t</goals>\n\t\t\t\t\t</execution>\n\t\t\t\t</executions>\n\t\t\t</plugin>\n\n\t\t\t<!-- SpotBugs -->\n\t\t\t<plugin>\n\t\t\t\t<groupId>com.github.spotbugs</groupId>\n\t\t\t\t<artifactId>spotbugs-maven-plugin</artifactId>\n\t\t\t\t<version>${spotbugs.plugin.version}</version>\n\t\t\t\t<configuration>\n\t\t\t\t\t<effort>Max</effort>\n\t\t\t\t\t<threshold>Max</threshold>\n\t\t\t\t\t<includeTests>true</includeTests>\n\t\t\t\t\t<failOnError>true</failOnError>\n\t\t\t\t\t<xmlOutput>true</xmlOutput>\n\t\t\t\t\t<xmlOutputDirectory>${reports.directory}</xmlOutputDirectory>\n\t\t\t\t\t<skip>${skip.codecheck}</skip>\n\t\t\t\t</configuration>\n\t\t\t\t<executions>\n\t\t\t\t\t<execution>\n\t\t\t\t\t\t<phase>process-test-sources</phase>\n\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t<goal>${spotbugs.goal}</goal>\n\t\t\t\t\t\t</goals>\n\t\t\t\t\t</execution>\n\t\t\t\t</executions>\n\t\t\t\t<dependencies>\n\t\t\t\t\t<dependency>\n\t\t\t\t\t\t<groupId>junit</groupId>\n\t\t\t\t\t\t<artifactId>junit</artifactId>\n\t\t\t\t\t\t<version>${junit.dependency.version}</version>\n\t\t\t\t\t</dependency>\n\t\t\t\t\t<dependency>\n\t\t\t\t\t\t<groupId>org.hamcrest</groupId>\n\t\t\t\t\t\t<artifactId>hamcrest-library</artifactId>\n\t\t\t\t\t\t<version>${hamcrest.dependency.version}</version>\n\t\t\t\t\t</dependency>\n\t\t\t\t</dependencies>\n\t\t\t</plugin>\n\n\t\t\t<!-- AStyle Check -->\n\t\t\t<plugin>\n\t\t\t\t<groupId>org.codehaus.mojo</groupId>\n\t\t\t\t<artifactId>exec-maven-plugin</artifactId>\n\t\t\t\t<version>${exec.plugin.version}</version>\n\t\t\t\t<executions>\n\t\t\t\t\t<execution>\n\t\t\t\t\t\t<id>Code Format Check</id>\n\t\t\t\t\t\t<phase>process-test-sources</phase>\n\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t<goal>exec</goal>\n\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t\t<skip>${skip.formattingcheck}</skip>\n\t\t\t\t\t\t\t<executable>${project.build.directory}/harvester-utils/scripts/formatting/astyle-check.${script.extension}</executable>\n\t\t\t\t\t\t</configuration>\n\t\t\t\t\t</execution>\n\t\t\t\t</executions>\n\t\t\t</plugin>\n\t\t</plugins>\n\t</build>\n\n\t<dependencies>\n\t\t<!-- https://mvnrepository.com/artifact/com.github.spotbugs/spotbugs-annotations -->\n\t\t<dependency>\n\t\t\t<groupId>com.github.spotbugs</groupId>\n\t\t\t<artifactId>spotbugs-annotations</artifactId>\n\t\t\t<version>${spotbugs.annotations.dependency.version}</version>\n\t\t\t<scope>test</scope>\n\t\t</dependency>\n\n\t\t<!-- required for logging -->\n\t\t<dependency>\n\t\t\t<groupId>org.slf4j</groupId>\n\t\t\t<artifactId>slf4j-api</artifactId>\n\t\t\t<version>${slf4j.dependency.version}</version>\n\t\t</dependency>\n\n\t\t<dependency>\n\t\t\t<groupId>ch.qos.logback</groupId>\n\t\t\t<artifactId>logback-classic</artifactId>\n\t\t\t<version>${logbackclassic.dependency.version}</version>\n\t\t</dependency>\n\n\t\t<dependency>\n\t\t\t<groupId>junit</groupId>\n\t\t\t<artifactId>junit</artifactId>\n\t\t\t<version>${junit.dependency.version}</version>\n\t\t\t<scope>test</scope>\n\t\t</dependency>\n\n\t\t<!-- https://mvnrepository.com/artifact/org.projectlombok/lombok -->\n\t\t<dependency>\n\t\t\t<groupId>org.projectlombok</groupId>\n\t\t\t<artifactId>lombok</artifactId>\n\t\t\t<version>${lombok.dependency.version}</version>\n\t\t\t<scope>provided</scope>\n\t\t</dependency>\n\n\t\t<dependency>\n\t\t\t<groupId>de.gerdi-project</groupId>\n\t\t\t<artifactId>GeRDI-harvester-utilities-archive</artifactId>\n\t\t\t<version>${harvesterutils.dependency.version}</version>\n\t\t\t<classifier>resources</classifier>\n\t\t\t<type>zip</type>\n\t\t\t<scope>provided</scope>\n\t\t</dependency>\n\t</dependencies>\n\n\t<reporting>\n\t\t<plugins>\n\t\t\t<!-- PMD -->\n\t\t\t<plugin>\n\t\t\t\t<groupId>org.apache.maven.plugins</groupId>\n\t\t\t\t<artifactId>maven-pmd-plugin</artifactId>\n\t\t\t\t<version>${pmd.plugin.version}</version>\n\t\t\t</plugin>\n\n\t\t\t<!-- resolves PMD issue: [WARNING] Unable to locate Source XRef to link to - DISABLED -->\n\t\t\t<plugin>\n\t\t\t\t<groupId>org.apache.maven.plugins</groupId>\n\t\t\t\t<artifactId>maven-jxr-plugin</artifactId>\n\t\t\t\t<version>${jxr.plugin.version}</version>\n\t\t\t</plugin>\n\n\t\t\t<!-- SpotBugs -->\n\t\t\t<plugin>\n\t\t\t\t<groupId>com.github.spotbugs</groupId>\n\t\t\t\t<artifactId>spotbugs-maven-plugin</artifactId>\n\t\t\t\t<version>${spotbugs.plugin.version}</version>\n\t\t\t</plugin>\n\t\t</plugins>\n\t</reporting>\n\n\t<distributionManagement>\n\t\t<snapshotRepository>\n\t\t\t<id>ossrh</id>\n\t\t\t<url>https://oss.sonatype.org/content/repositories/snapshots</url>\n\t\t</snapshotRepository>\n\n\t\t<repository>\n\t\t\t<id>ossrh</id>\n\t\t\t<url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>\n\t\t</repository>\n\t</distributionManagement>\n\n\t<developers>\n\t\t<developer>\n\t\t\t<name>Robin Weiss</name>\n\t\t\t<email>person@example.test</email>\n\t\t\t<organization>Kiel University</organization>\n\t\t\t<organizationUrl>http://www.uni-kiel.de/index-e.shtml</organizationUrl>\n\t\t</developer>\n\t</developers>\n\n\t<scm>\n\t\t<connection>scm:git:ssh://person@example.test:7999/hl/parentpoms.git</connection>\n\t\t<developerConnection>scm:git:ssh://person@example.test:7999/hl/parentpoms.git</developerConnection>\n\t\t<url>https://code.gerdi-project.de/scm/hl/parentpoms.git</url>\n\t\t<tag>HEAD</tag>\n\t</scm>\n\n\t<!-- Define Sonatype repository for retrieving SNAPSHOT versions -->\n\t<repositories>\n\t\t<repository>\n\t\t\t<id>Sonatype</id>\n\t\t\t<url>https://oss.sonatype.org/content/repositories/snapshots/</url>\n\t\t</repository>\n\n\t\t<repository>\n\t\t\t<id>projectlombok.org</id>\n\t\t\t<url>http://projectlombok.org/mavenrepo</url>\n\t\t</repository>\n\t</repositories>\n</project>\n",
+   "unread": [
+    "project.parent.groupId",
+    "project.artifactId",
+    "project.packaging",
+    "project.name",
+    "project.description",
+    "project.issueManagement",
+    "project.dependencyManagement",
+    "project.profiles",
+    "project.reporting",
+    "project.distributionManagement",
+    "project.organization",
+    "project.repositories",
+    "project.dependencies",
+    "project.scm.developerConnection"
+   ],
+   "unreadReasons": {
+    "project.parent.groupId": "Ancestor-parent coordinates describe the enrichment chain, not the requested artifact.",
+    "project.artifactId": "This is the ancestor artifact, not the package named by the query.",
+    "project.packaging": "The ancestor POM build packaging is outside the selected package source metadata.",
+    "project.name": "The ancestor display name does not describe the requested child artifact.",
+    "project.description": "The ancestor description does not describe the requested child artifact.",
+    "project.issueManagement": "Issue tracker administration is outside ArtifactSchema source/package metadata.",
+    "project.dependencyManagement": "Managed build/BOM defaults are not the requested artifact runtime dependencies.",
+    "project.profiles": "Ancestor build profiles are outside ArtifactSchema selected package metadata.",
+    "project.reporting": "Reporting plugins are build configuration, not requested package metadata.",
+    "project.distributionManagement": "Publishing destinations are build administration, not package source repositories.",
+    "project.organization": "Ancestor maintainer organization metadata is outside ArtifactSchema.",
+    "project.repositories": "Dependency resolution repositories are not the package source repository.",
+    "project.dependencies": "This search selects package identity/source; these are the enrichment ancestor requirements, not the queried child release runtime dependencies.",
+    "project.scm.developerConnection": "The recorder redacts the SSH user/host address; the canonical SCM source URL is retained and checked separately."
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://repo1.maven.org/maven2/com/commsen/wedeploy/parent/1.0.0/parent-1.0.0.pom",
+    "accept": "application/xml"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "text/xml"
+    ],
+    [
+     "etag",
+     "\"ffb990f7bc00aef6dec80ef2dc5ff4f9\""
+    ]
+   ],
+   "digest": "sha256:41d86a399b539987f1861d5d6e05c6e793f878d8b71ec4e82a29039472ccb1c1",
+   "body": "<project xmlns=\"http://maven.apache.org/POM/4.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n\txsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd\">\n\t<modelVersion>4.0.0</modelVersion>\n\n\t<groupId>com.commsen.wedeploy</groupId>\n\t<artifactId>parent</artifactId>\n\t<packaging>pom</packaging>\n\t<version>1.0.0</version>\n\n\t<name>WeDeploy Java client</name>\n\t<description>\n\t\tWeDeploy client library for Java! Allows Java applications to talk to WeDeploy cloud services as if they were local ones!\n\t</description>\n\t<url>https://azzazzel.github.io/wedeploy-client</url>\n\n\t<licenses>\n\t\t<license>\n\t\t\t<name>Apache License, Version 2.0</name>\n\t\t\t<url>https://www.apache.org/licenses/LICENSE-2.0</url>\n\t\t</license>\n\t</licenses>\n\n\t<organization>\n\t\t<name>Commsen International</name>\n\t\t<url>http://commsen.com/</url>\n\t</organization>\n\n\t<developers>\n\t\t<developer>\n\t\t\t<name>Milen Dyankov</name>\n\t\t\t<url>http://milendyankov.com</url>\n\t\t</developer>\n\t</developers>\n\n\t<scm>\n\t\t<url>https://github.com/azzazzel/wedeploy-client/blob/v.${project.version}/java-client</url>\n\t\t<connection>scm:git:https://github.com/azzazzel/wedeploy-client.git</connection>\n\t</scm>\n\n\t<issueManagement>\n\t\t<system>Github</system>\n\t\t<url>https://github.com/azzazzel/wedeploy-client/issues</url>\n\t</issueManagement>\n\n\t<properties>\n\t\t<maven.compiler.source>1.8</maven.compiler.source>\n\t\t<maven.compiler.target>1.8</maven.compiler.target>\n\t\t<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>\n\t\t<site.dir>${project.basedir}/../../wedeploy-client-site</site.dir>\n\t</properties>\n\n\t<dependencyManagement>\n\t\t<dependencies>\n\t\t\t<dependency>\n\t\t\t\t<groupId>com.commsen.wedeploy</groupId>\n\t\t\t\t<artifactId>com.commsen.wedeploy.client</artifactId>\n\t\t\t\t<version>${project.version}</version>\n\t\t\t</dependency>\n\t\t\t<dependency>\n\t\t\t\t<groupId>com.commsen.wedeploy</groupId>\n\t\t\t\t<artifactId>com.commsen.wedeploy.client.cloud</artifactId>\n\t\t\t\t<version>${project.version}</version>\n\t\t\t</dependency>\n\t\t\t<dependency>\n\t\t\t\t<groupId>com.commsen.wedeploy</groupId>\n\t\t\t\t<artifactId>com.commsen.wedeploy.client.data</artifactId>\n\t\t\t\t<version>${project.version}</version>\n\t\t\t</dependency>\n\t\t\t<dependency>\n\t\t\t\t<groupId>com.commsen.wedeploy</groupId>\n\t\t\t\t<artifactId>com.commsen.wedeploy.data.mapper.gson</artifactId>\n\t\t\t\t<version>${project.version}</version>\n\t\t\t</dependency>\n\t\t\t<dependency>\n\t\t\t\t<groupId>com.commsen.wedeploy</groupId>\n\t\t\t\t<artifactId>com.commsen.wedeploy.transport.rest.okhttp</artifactId>\n\t\t\t\t<version>${project.version}</version>\n\t\t\t</dependency>\n\t\t\t<dependency>\n\t\t\t\t<groupId>com.commsen.em</groupId>\n\t\t\t\t<artifactId>em.annotations</artifactId>\n\t\t\t\t<version>0.1.0</version>\n\t\t\t</dependency>\n\t\t\t<dependency>\n\t\t\t\t<groupId>org.slf4j</groupId>\n\t\t\t\t<artifactId>slf4j-api</artifactId>\n\t\t\t\t<version>1.7.25</version>\n\t\t\t</dependency>\n\t\t\t<dependency>\n\t\t\t\t<groupId>com.google.code.gson</groupId>\n\t\t\t\t<artifactId>gson</artifactId>\n\t\t\t\t<version>2.8.1</version>\n\t\t\t</dependency>\n\t\t\t<dependency>\n\t\t\t\t<groupId>com.squareup.okhttp3</groupId>\n\t\t\t\t<artifactId>okhttp</artifactId>\n\t\t\t\t<version>3.8.1</version>\n\t\t\t</dependency>\n\t\t\t<!-- test -->\n\t\t\t<dependency>\n\t\t\t\t<groupId>com.commsen.wedeploy</groupId>\n\t\t\t\t<artifactId>com.commsen.wedeploy.client</artifactId>\n\t\t\t\t<version>${project.version}</version>\n\t\t\t\t<type>test-jar</type>\n\t\t\t\t<scope>test</scope>\n\t\t\t</dependency>\n\t\t\t<dependency>\n\t\t\t\t<groupId>junit</groupId>\n\t\t\t\t<artifactId>junit</artifactId>\n\t\t\t\t<version>4.12</version>\n\t\t\t\t<scope>test</scope>\n\t\t\t</dependency>\n\t\t\t<dependency>\n\t\t\t\t<groupId>com.github.stefanbirkner</groupId>\n\t\t\t\t<artifactId>system-rules</artifactId>\n\t\t\t\t<version>1.16.1</version>\n\t\t\t\t<scope>test</scope>\n\t\t\t</dependency>\n\t\t\t<dependency>\n\t\t\t\t<groupId>ch.qos.logback</groupId>\n\t\t\t\t<artifactId>logback-classic</artifactId>\n\t\t\t\t<version>1.2.3</version>\n\t\t\t\t<scope>test</scope>\n\t\t\t</dependency>\n\n\t\t</dependencies>\n\t</dependencyManagement>\n\n\t<build>\n\t\t<pluginManagement>\n\t\t\t<plugins>\n\t\t\t\t<plugin>\n\t\t\t\t\t<groupId>biz.aQute.bnd</groupId>\n\t\t\t\t\t<artifactId>bnd-baseline-maven-plugin</artifactId>\n\t\t\t\t\t<version>3.4.0</version>\n\t\t\t\t\t<configuration>\n\t\t\t\t\t\t<fullReport>true</fullReport>\n\t\t\t\t\t</configuration>\n\t\t\t\t\t<executions>\n\t\t\t\t\t\t<execution>\n\t\t\t\t\t\t\t<id>baseline</id>\n\t\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t\t<goal>baseline</goal>\n\t\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t</execution>\n\t\t\t\t\t</executions>\n\t\t\t\t</plugin>\n\t\t\t</plugins>\n\t\t</pluginManagement>\n\n\t\t<extensions>\n\t\t\t<extension>\n\t\t\t\t<groupId>com.commsen.em</groupId>\n\t\t\t\t<artifactId>em-maven-extension</artifactId>\n\t\t\t\t<version>0.1.0</version>\n\t\t\t</extension>\n\t\t</extensions>\n\t</build>\n\n\t<distributionManagement>\n\t\t<snapshotRepository>\n\t\t\t<id>ossrh</id>\n\t\t\t<url>https://oss.sonatype.org/content/repositories/snapshots</url>\n\t\t</snapshotRepository>\n\t\t<repository>\n\t\t\t<id>ossrh</id>\n\t\t\t<url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>\n\t\t</repository>\n\t\t<site>\n\t\t\t<id>GitHub pages</id>\n\t\t\t<url>https://azzazzel.github.io/wedeploy-client</url>\n\t\t</site>\n\t</distributionManagement>\n\n\t<profiles>\n\t\t<profile>\n\t\t\t<id>site</id>\n\t\t\t<build>\n\t\t\t\t<defaultGoal>site site:stage</defaultGoal>\n\t\t\t\t<plugins>\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.apache.maven.plugins</groupId>\n\t\t\t\t\t\t<artifactId>maven-site-plugin</artifactId>\n\t\t\t\t\t\t<version>3.6</version>\n\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t\t<stagingDirectory>${site.dir}</stagingDirectory>\n\t\t\t\t\t\t\t<skipDeploy>true</skipDeploy>\n\t\t\t\t\t\t</configuration>\n\t\t\t\t\t</plugin>\n\t\t\t\t</plugins>\n\t\t\t</build>\n\t\t\t<reporting>\n\t\t\t\t<plugins>\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.apache.maven.plugins</groupId>\n\t\t\t\t\t\t<artifactId>maven-project-info-reports-plugin</artifactId>\n\t\t\t\t\t\t<version>2.9</version>\n\t\t\t\t\t</plugin>\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.apache.maven.plugins</groupId>\n\t\t\t\t\t\t<artifactId>maven-surefire-report-plugin</artifactId>\n\t\t\t\t\t\t<version>2.20</version>\n\t\t\t\t\t</plugin>\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.apache.maven.plugins</groupId>\n\t\t\t\t\t\t<artifactId>maven-changelog-plugin</artifactId>\n\t\t\t\t\t\t<version>2.3</version>\n\t\t\t\t\t</plugin>\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.apache.maven.plugins</groupId>\n\t\t\t\t\t\t<artifactId>maven-javadoc-plugin</artifactId>\n\t\t\t\t\t\t<version>3.0.0-M1</version>\n\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t</configuration>\n\t\t\t\t\t</plugin>\n\t\t\t\t</plugins>\n\t\t\t</reporting>\n\t\t</profile>\n\n\t\t<profile>\n\t\t\t<id>release</id>\n\t\t\t<build>\n\t\t\t\t<plugins>\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.sonatype.plugins</groupId>\n\t\t\t\t\t\t<artifactId>nexus-staging-maven-plugin</artifactId>\n\t\t\t\t\t\t<version>1.6.8</version>\n\t\t\t\t\t\t<extensions>true</extensions>\n\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t\t<serverId>ossrh</serverId>\n\t\t\t\t\t\t\t<nexusUrl>https://oss.sonatype.org/</nexusUrl>\n\t\t\t\t\t\t\t<autoReleaseAfterClose>false</autoReleaseAfterClose>\n\t\t\t\t\t\t</configuration>\n\t\t\t\t\t</plugin>\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.apache.maven.plugins</groupId>\n\t\t\t\t\t\t<artifactId>maven-source-plugin</artifactId>\n\t\t\t\t\t\t<version>3.0.1</version>\n\t\t\t\t\t\t<executions>\n\t\t\t\t\t\t\t<execution>\n\t\t\t\t\t\t\t\t<id>attach-sources</id>\n\t\t\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t\t\t<goal>jar-no-fork</goal>\n\t\t\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t\t</execution>\n\t\t\t\t\t\t</executions>\n\t\t\t\t\t</plugin>\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.apache.maven.plugins</groupId>\n\t\t\t\t\t\t<artifactId>maven-javadoc-plugin</artifactId>\n\t\t\t\t\t\t<version>2.10.4</version>\n\t\t\t\t\t\t<executions>\n\t\t\t\t\t\t\t<execution>\n\t\t\t\t\t\t\t\t<id>attach-javadocs</id>\n\t\t\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t\t\t<goal>jar</goal>\n\t\t\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t\t</execution>\n\t\t\t\t\t\t</executions>\n\t\t\t\t\t</plugin>\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.apache.maven.plugins</groupId>\n\t\t\t\t\t\t<artifactId>maven-gpg-plugin</artifactId>\n\t\t\t\t\t\t<version>1.5</version>\n\t\t\t\t\t\t<executions>\n\t\t\t\t\t\t\t<execution>\n\t\t\t\t\t\t\t\t<id>sign-artifacts</id>\n\t\t\t\t\t\t\t\t<phase>verify</phase>\n\t\t\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t\t\t<goal>sign</goal>\n\t\t\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t\t</execution>\n\t\t\t\t\t\t</executions>\n\t\t\t\t\t</plugin>\n\t\t\t\t</plugins>\n\t\t\t</build>\n\t\t</profile>\n\t\t<profile>\n\t\t\t<id>uninstall</id>\n\t\t\t<build>\n\t\t\t\t<defaultGoal>build-helper:remove-project-artifact</defaultGoal>\n\t\t\t</build>\n\t\t</profile>\n\t</profiles>\n\n\t<modules>\n\t\t<module>com.commsen.wedeploy.client</module>\n\t\t<module>com.commsen.wedeploy.client.cloud</module>\n\t\t<module>com.commsen.wedeploy.client.data</module>\n\t\t<module>com.commsen.wedeploy.data.mapper.gson</module>\n\t\t<module>com.commsen.wedeploy.transport.rest.okhttp</module>\n\t\t<module>tests</module>\n\t\t<module>wedeploy-client-bom</module>\n\t</modules>\n\n\n</project>\n",
+   "unread": [
+    "project.parent.groupId",
+    "project.artifactId",
+    "project.packaging",
+    "project.name",
+    "project.description",
+    "project.issueManagement",
+    "project.dependencyManagement",
+    "project.profiles",
+    "project.reporting",
+    "project.distributionManagement",
+    "project.organization",
+    "project.repositories",
+    "project.dependencies"
+   ],
+   "unreadReasons": {
+    "project.parent.groupId": "Ancestor-parent coordinates describe the enrichment chain, not the requested artifact.",
+    "project.artifactId": "This is the ancestor artifact, not the package named by the query.",
+    "project.packaging": "The ancestor POM build packaging is outside the selected package source metadata.",
+    "project.name": "The ancestor display name does not describe the requested child artifact.",
+    "project.description": "The ancestor description does not describe the requested child artifact.",
+    "project.issueManagement": "Issue tracker administration is outside ArtifactSchema source/package metadata.",
+    "project.dependencyManagement": "Managed build/BOM defaults are not the requested artifact runtime dependencies.",
+    "project.profiles": "Ancestor build profiles are outside ArtifactSchema selected package metadata.",
+    "project.reporting": "Reporting plugins are build configuration, not requested package metadata.",
+    "project.distributionManagement": "Publishing destinations are build administration, not package source repositories.",
+    "project.organization": "Ancestor maintainer organization metadata is outside ArtifactSchema.",
+    "project.repositories": "Dependency resolution repositories are not the package source repository.",
+    "project.dependencies": "This search selects package identity/source; these are the enrichment ancestor requirements, not the queried child release runtime dependencies."
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://repo1.maven.org/maven2/de/dentrassi/kura/addons/kura-addons/0.8.3/kura-addons-0.8.3.pom",
+    "accept": "application/xml"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "text/xml"
+    ],
+    [
+     "etag",
+     "\"6e1d241ac3bd11e8771593108dd09021\""
+    ]
+   ],
+   "digest": "sha256:86bb6973468e4700c3e5dacb77ba8ab260238dbf47a74228c1501e1205d3f841",
+   "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<project xmlns=\"http://maven.apache.org/POM/4.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd\">\n    <modelVersion>4.0.0</modelVersion>\n\n    <groupId>de.dentrassi.kura.addons</groupId>\n    <artifactId>kura-addons</artifactId>\n    <version>0.8.3</version>\n    <packaging>pom</packaging>\n\n    <name>Addons for Eclipse Kura™</name>\n    <description>This projects is the parent of a few addons for Eclipse Kura™</description>\n\n    <url>https://github.com/ctron/kura-addons</url>\n\n    <inceptionYear>2016</inceptionYear>\n\n    <licenses>\n        <license>\n            <name>The Apache Software License, Version 2.0</name>\n            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>\n            <distribution>repo</distribution>\n        </license>\n        <license>\n            <name>Eclipse Public License 1.0</name>\n            <url>https://www.eclipse.org/legal/epl-v10.html</url>\n            <distribution>repo</distribution>\n        </license>\n    </licenses>\n\n    <developers>\n        <developer>\n            <id>ctron</id>\n            <name>Jens Reimann</name>\n            <email>person@example.test</email>\n            <url>https://dentrassi.de</url>\n\n            <organization>Red Hat</organization>\n            <organizationUrl>http://redhat.com</organizationUrl>\n        </developer>\n    </developers>\n\n    <scm>\n        <url>https://github.com/ctron/kura-addons</url>\n        <connection>scm:git:person@example.test:ctron/kura-addons.git</connection>\n        <tag>kura-addons-0.8.3</tag>\n    </scm>\n\n    <distributionManagement>\n        <snapshotRepository>\n            <id>ossrh</id>\n            <url>https://oss.sonatype.org/content/repositories/snapshots</url>\n        </snapshotRepository>\n        <repository>\n            <id>ossrh</id>\n            <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>\n        </repository>\n    </distributionManagement>\n\n    <issueManagement>\n        <url>https://github.com/ctron/kura-addons/issues</url>\n        <system>GitHub Issues</system>\n    </issueManagement>\n\n    <properties>\n        <camel-version>2.25.3</camel-version>\n        <spring-version>4.1.4.RELEASE_2</spring-version>\n        <slf4j.version>1.7.21</slf4j.version>\n\n        <kura.api.version>2.1.0</kura.api.version>\n\n        <osgi-dp.plugin.version>0.4.0</osgi-dp.plugin.version>\n\n        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>\n    </properties>\n\n    <modules>\n        <module>amqp</module>\n        <module>camel</module>\n        <module>drools</module>\n        <module>examples</module>\n        <module>milo</module>\n        <module>neoscada</module>\n        <module>paho</module>\n        <module>repackage</module>\n        <module>snmp</module>\n        <module>utils</module>\n    </modules>\n\n    <build>\n        <pluginManagement>\n            <plugins>\n                <plugin>\n                    <groupId>de.dentrassi.maven</groupId>\n                    <artifactId>osgi-dp</artifactId>\n                    <version>${osgi-dp.plugin.version}</version>\n                </plugin>\n\n                <plugin>\n                    <groupId>org.apache.felix</groupId>\n                    <artifactId>maven-bundle-plugin</artifactId>\n                    <version>4.2.1</version>\n                    <extensions>true</extensions>\n                </plugin>\n\n                <plugin>\n                    <groupId>org.apache.maven.plugins</groupId>\n                    <artifactId>maven-compiler-plugin</artifactId>\n                    <version>3.8.1</version>\n                    <configuration>\n                        <source>1.8</source>\n                        <target>1.8</target>\n                    </configuration>\n                </plugin>\n\n                <plugin>\n                    <groupId>org.apache.maven.plugins</groupId>\n                    <artifactId>maven-deploy-plugin</artifactId>\n                    <version>2.8.2</version>\n                </plugin>\n\n                <plugin>\n                    <groupId>org.apache.maven.plugins</groupId>\n                    <artifactId>maven-javadoc-plugin</artifactId>\n                    <version>2.10.4</version>\n                    <configuration>\n                        <javadocExecutable>${java.home}/bin/javadoc</javadocExecutable>\n                    </configuration>\n                </plugin>\n\n                <plugin>\n                    <groupId>org.apache.maven.plugins</groupId>\n                    <artifactId>maven-source-plugin</artifactId>\n                    <version>3.0.1</version>\n                </plugin>\n\n                <plugin>\n                    <groupId>org.apache.maven.plugins</groupId>\n                    <artifactId>maven-release-plugin</artifactId>\n                    <version>2.5.3</version>\n                </plugin>\n\n                <plugin>\n                    <groupId>org.apache.maven.plugins</groupId>\n                    <artifactId>maven-gpg-plugin</artifactId>\n                    <version>1.6</version>\n                </plugin>\n\n                <plugin>\n                    <artifactId>maven-surefire-plugin</artifactId>\n                    <version>2.22.2</version>\n                </plugin>\n\n            </plugins>\n        </pluginManagement>\n\n        <plugins>\n\n            <plugin>\n                <groupId>org.apache.maven.plugins</groupId>\n                <artifactId>maven-release-plugin</artifactId>\n                <configuration>\n                    <autoVersionSubmodules>true</autoVersionSubmodules>\n                    <useReleaseProfile>false</useReleaseProfile>\n                    <releaseProfiles>release</releaseProfiles>\n                    <goals>deploy</goals>\n                </configuration>\n            </plugin>\n\n        </plugins>\n    </build>\n\n    <dependencyManagement>\n        <dependencies>\n\n            <dependency>\n                <groupId>org.slf4j</groupId>\n                <artifactId>slf4j-api</artifactId>\n                <version>${slf4j.version}</version>\n            </dependency>\n\n            <dependency>\n                <groupId>org.slf4j</groupId>\n                <artifactId>jcl-over-slf4j</artifactId>\n                <version>${slf4j.version}</version>\n            </dependency>\n\n            <!-- Security overrides -->\n\n            <dependency>\n                <groupId>org.yaml</groupId>\n                <artifactId>snakeyaml</artifactId>\n                <version>[1.26,)</version>\n            </dependency>\n\n            <!-- Kura -->\n\n            <dependency>\n                <groupId>org.eclipse.kura</groupId>\n                <artifactId>org.eclipse.kura.api</artifactId>\n                <version>${kura.api.version}</version>\n            </dependency>\n\n            <!-- OSGi -->\n\n            <dependency>\n                <groupId>org.osgi</groupId>\n                <artifactId>org.osgi.service.component.annotations</artifactId>\n                <version>1.3.0</version>\n                <scope>provided</scope>\n            </dependency>\n            <dependency>\n                <groupId>org.osgi</groupId>\n                <artifactId>org.osgi.service.metatype.annotations</artifactId>\n                <version>1.3.0</version>\n                <scope>provided</scope>\n            </dependency>\n\n        </dependencies>\n    </dependencyManagement>\n\n    <profiles>\n\n        <profile>\n            <id>source-and-docs</id>\n            <activation>\n                <activeByDefault>true</activeByDefault>\n            </activation>\n            <build>\n                <plugins>\n\n                    <plugin>\n                        <groupId>org.apache.maven.plugins</groupId>\n                        <artifactId>maven-source-plugin</artifactId>\n                        <executions>\n                            <execution>\n                                <id>attach-sources</id>\n                                <goals>\n                                    <goal>jar-no-fork</goal>\n                                </goals>\n                            </execution>\n                        </executions>\n                    </plugin>\n\n                    <plugin>\n                        <groupId>org.apache.maven.plugins</groupId>\n                        <artifactId>maven-javadoc-plugin</artifactId>\n                        <executions>\n                            <execution>\n                                <id>attach-javadocs</id>\n                                <goals>\n                                    <goal>jar</goal>\n                                </goals>\n                            </execution>\n                        </executions>\n                    </plugin>\n\n                </plugins>\n            </build>\n        </profile>\n\n        <profile>\n            <id>release</id>\n            <build>\n                <plugins>\n                    <plugin>\n                        <groupId>org.apache.maven.plugins</groupId>\n                        <artifactId>maven-gpg-plugin</artifactId>\n                        <executions>\n                            <execution>\n                                <id>sign-artifacts</id>\n                                <phase>verify</phase>\n                                <goals>\n                                    <goal>sign</goal>\n                                </goals>\n                            </execution>\n                        </executions>\n                    </plugin>\n                </plugins>\n            </build>\n        </profile>\n    </profiles>\n\n</project>\n",
+   "unread": [
+    "project.parent.groupId",
+    "project.artifactId",
+    "project.packaging",
+    "project.name",
+    "project.description",
+    "project.issueManagement",
+    "project.dependencyManagement",
+    "project.profiles",
+    "project.reporting",
+    "project.distributionManagement",
+    "project.organization",
+    "project.repositories",
+    "project.dependencies",
+    "project.scm.developerConnection"
+   ],
+   "unreadReasons": {
+    "project.parent.groupId": "Ancestor-parent coordinates describe the enrichment chain, not the requested artifact.",
+    "project.artifactId": "This is the ancestor artifact, not the package named by the query.",
+    "project.packaging": "The ancestor POM build packaging is outside the selected package source metadata.",
+    "project.name": "The ancestor display name does not describe the requested child artifact.",
+    "project.description": "The ancestor description does not describe the requested child artifact.",
+    "project.issueManagement": "Issue tracker administration is outside ArtifactSchema source/package metadata.",
+    "project.dependencyManagement": "Managed build/BOM defaults are not the requested artifact runtime dependencies.",
+    "project.profiles": "Ancestor build profiles are outside ArtifactSchema selected package metadata.",
+    "project.reporting": "Reporting plugins are build configuration, not requested package metadata.",
+    "project.distributionManagement": "Publishing destinations are build administration, not package source repositories.",
+    "project.organization": "Ancestor maintainer organization metadata is outside ArtifactSchema.",
+    "project.repositories": "Dependency resolution repositories are not the package source repository.",
+    "project.dependencies": "This search selects package identity/source; these are the enrichment ancestor requirements, not the queried child release runtime dependencies.",
+    "project.scm.developerConnection": "The recorder redacts the SSH user/host address; the canonical SCM source URL is retained and checked separately."
+   }
+  }
+ ]
+}

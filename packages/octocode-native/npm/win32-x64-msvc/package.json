@@ -1,0 +1,26 @@
+{
+  "name": "@octocodeai/octocode-native-win32-x64-msvc",
+  "description": "Octocode native binary — win32-x64-msvc",
+  "version": "20.2.0",
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bgauryy/octocode.git",
+    "directory": "packages/octocode-native"
+  },
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "octocode.exe",
+    "README.md"
+  ],
+  "preferUnplugged": true,
+  "publishConfig": {
+    "access": "public"
+  }
+}

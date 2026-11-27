@@ -1,0 +1,490 @@
+//! Optional on-disk mirror of a key's blocking facts, so short-lived CLI
+//! processes honor each other's limits.
+use super::{KeyState, key_state::KeyFacts, now_ms};
+use crate::ProviderError;
+use lock::{WriteLock, lock_file, lock_file_blocking, off_worker};
+use octocode_io::cancellation::Cancellation;
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::{Duration, Instant, SystemTime},
+};
+
+/// The longest a write that cannot be cancelled waits for a peer's lock.
+/// Past it the write is deferred, never made unlocked: the facts stay in
+/// memory and the next write carries them ([`KeyState::persist_with`]).
+const WRITE_LOCK_WAIT: Duration = Duration::from_secs(1);
+/// How far past now a peer's start stamp may lie and still count. A start is
+/// reserved at most one quota window ahead (the spacing chain until the
+/// bucket resets, inside the tool deadline), so a stamp beyond this comes
+/// from a clock that jumped or a damaged file, never from a live reservation,
+/// and it must not hold the group until its own time arrives.
+const PEER_STAMP_HORIZON_MS: u64 = 120_000;
+/// How far past now a cooldown end or a bucket reset may lie and still be
+/// mirrored to the file or merged from it. GitHub meters its primary limits
+/// over a one-hour window, so a bucket resets at most an hour ahead, and a
+/// secondary limit asks for minutes
+/// (<https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api>);
+/// the start-stamp allowance covers a drifting clock. A limit past this comes
+/// from a bogus header or a clock that jumped: the process that received it
+/// still honors it, but it holds no other process.
+const PEER_LIMIT_HORIZON_MS: u64 = 3_600_000 + PEER_STAMP_HORIZON_MS;
+
+/// Whether a limit ending at `until_ms` (epoch milliseconds) still holds at
+/// `now_ms` and lies inside [`PEER_LIMIT_HORIZON_MS`]: one other processes
+/// share.
+fn shared_limit(until_ms: u64, now_ms: u64) -> bool {
+    until_ms > now_ms && until_ms <= now_ms.saturating_add(PEER_LIMIT_HORIZON_MS)
+}
+
+/// One write on the blocking pool, awaitable by every party that waits for
+/// it: the request that started it and any flush. A write whose runtime
+/// already stopped ends as cancelled: there is nothing left to wait for.
+type Write = futures_util::future::Shared<
+    futures_util::future::Map<tokio::task::JoinHandle<()>, fn(Result<(), tokio::task::JoinError>)>,
+>;
+
+/// A tracked write and, in tests, the key state that started it
+/// (`KeyState::has_running_write`).
+struct Tracked {
+    write: Write,
+    #[cfg(test)]
+    by: usize,
+}
+
+/// Writes of every key of every budget in this process that may still be
+/// queued or running: detached ones ([`KeyState::persist_detached`]) and
+/// awaited ones ([`KeyState::persist_awaited`]), whose request may be
+/// dropped (cancelled) before they end.
+static WRITES: std::sync::Mutex<Vec<Tracked>> = std::sync::Mutex::new(Vec::new());
+
+fn writes() -> std::sync::MutexGuard<'static, Vec<Tracked>> {
+    WRITES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Whether `write` has not ended yet (polled once, without waiting).
+fn running(write: &Write) -> bool {
+    use futures_util::FutureExt as _;
+    write.clone().now_or_never().is_none()
+}
+
+impl KeyState {
+    /// Track `write`, which this key state started, until it ends; the
+    /// returned handle awaits it too.
+    #[cfg_attr(
+        not(test),
+        expect(
+            clippy::unused_self,
+            reason = "only tests read which key state started a write (`has_running_write`)"
+        )
+    )]
+    fn track(self: &Arc<Self>, write: tokio::task::JoinHandle<()>) -> Write {
+        use futures_util::FutureExt as _;
+        let ended: fn(Result<(), tokio::task::JoinError>) = |_| {};
+        let write = write.map(ended).shared();
+        let mut tracked = writes();
+        tracked.retain(|tracked| running(&tracked.write));
+        tracked.push(Tracked {
+            write: write.clone(),
+            #[cfg(test)]
+            by: Arc::as_ptr(self).addr(),
+        });
+        write
+    }
+
+    /// Whether a write this key state started is tracked and still running:
+    /// what a test checks of its own write, whatever else the process writes.
+    #[cfg(test)]
+    pub(super) fn has_running_write(self: &Arc<Self>) -> bool {
+        let by = Arc::as_ptr(self).addr();
+        writes()
+            .iter()
+            .any(|tracked| tracked.by == by && running(&tracked.write))
+    }
+}
+
+/// Await every tracked write, including those a finishing write started.
+/// Writes are awaited through shared handles, so a flush running beside
+/// another (or beside the request that started a write) still waits for
+/// each one.
+pub(super) async fn flush_detached() {
+    loop {
+        let pending: Vec<Write> = writes()
+            .iter()
+            .filter(|tracked| running(&tracked.write))
+            .map(|tracked| tracked.write.clone())
+            .collect();
+        if pending.is_empty() {
+            writes().retain(|tracked| running(&tracked.write));
+            return;
+        }
+        futures_util::future::join_all(pending).await;
+    }
+}
+
+/// Say on stderr, once per process ([`octocode_io::notice`]), that the shared
+/// record cannot be used and this process paces alone: the request still goes
+/// ahead under its own limits.
+fn warn_unshared(action: &str, path: &Path, error: &dyn std::fmt::Display) {
+    octocode_io::notice::raise(
+        octocode_io::notice::kind::GITHUB_BUDGET_UNSHARED,
+        format!(
+            "[octocode] warning: GitHub rate-limit state shared with other octocode processes cannot be used ({action} {}: {error}); this process paces its GitHub requests alone.",
+            path.display()
+        ),
+    );
+}
+
+/// The state file's bytes: `None` when it does not exist yet, or cannot be
+/// read (with the warning).
+fn read_state(path: &Path) -> Option<Vec<u8>> {
+    #[cfg(test)]
+    tests::record_io(path);
+    match std::fs::read(path) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => {
+            warn_unshared("read", path, &error);
+            None
+        }
+    }
+}
+
+pub(super) struct Persist {
+    pub(super) path: PathBuf,
+    pub(super) seen: Option<FileStamp>,
+}
+
+/// What tells one write of the state file from the next: every write renames
+/// a fresh file, so its inode changes even when two writes share an mtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct FileStamp {
+    modified: Option<SystemTime>,
+    len: u64,
+    #[cfg(unix)]
+    inode: (u64, u64),
+}
+
+fn file_stamp(path: &Path) -> Option<FileStamp> {
+    let meta = std::fs::metadata(path).ok()?;
+    Some(FileStamp {
+        modified: meta.modified().ok(),
+        len: meta.len(),
+        #[cfg(unix)]
+        inode: {
+            use std::os::unix::fs::MetadataExt;
+            (meta.dev(), meta.ino())
+        },
+    })
+}
+
+impl KeyFacts {
+    /// Keep the most restrictive of two views (memory vs. disk). A limit of
+    /// `other` past the horizon others share ([`shared_limit`]) is not taken.
+    pub(super) fn merge(&mut self, other: Self, now_ms: u64) {
+        for (name, bucket) in other.buckets {
+            if !shared_limit(bucket.reset.saturating_mul(1000), now_ms) {
+                continue;
+            }
+            let replace = self
+                .buckets
+                .get(&name)
+                .is_none_or(|current| bucket.restricts_more_than(current));
+            if replace {
+                self.buckets.insert(name, bucket);
+            }
+        }
+        if shared_limit(other.cooldown_until_ms, now_ms) {
+            self.cooldown_until_ms = self.cooldown_until_ms.max(other.cooldown_until_ms);
+        }
+        self.pull_request_max_age = match (self.pull_request_max_age, other.pull_request_max_age) {
+            (Some(left), Some(right)) => Some(left.min(right)),
+            (left, right) => left.or(right),
+        };
+        // A route this view found stands; a peer's fills in the owners it
+        // has not listed. A stale one costs one 404 and a new probe.
+        for (owner, route) in other.owner_routes {
+            self.owner_routes.entry(owner).or_insert(route);
+        }
+        let horizon = now_ms.saturating_add(PEER_STAMP_HORIZON_MS);
+        for (group, stamp) in other.last_start_ms {
+            if stamp > horizon {
+                continue;
+            }
+            let entry = self.last_start_ms.entry(group).or_default();
+            *entry = (*entry).max(stamp);
+        }
+    }
+
+    /// Only facts that can block, pace or answer a future request are
+    /// persisted: exhausted buckets, the live quota of quota-paced groups, the
+    /// lifetime GitHub states for a pull request, and each owner's listing
+    /// route. A cooldown or bucket past the horizon others share
+    /// ([`shared_limit`]) stays in this process.
+    pub(super) fn blocking_view(&self, now_ms: u64) -> Self {
+        Self {
+            owner_routes: self.owner_routes.clone(),
+            buckets: self
+                .buckets
+                .iter()
+                .filter(|(name, b)| {
+                    (b.remaining == 0 || super::Group::paces_bucket(name))
+                        && shared_limit(b.reset.saturating_mul(1000), now_ms)
+                })
+                .map(|(name, b)| (name.clone(), *b))
+                .collect(),
+            cooldown_until_ms: if shared_limit(self.cooldown_until_ms, now_ms) {
+                self.cooldown_until_ms
+            } else {
+                0
+            },
+            last_start_ms: self
+                .last_start_ms
+                .iter()
+                .filter(|(_, stamp)| stamp.saturating_add(60_000) > now_ms)
+                .map(|(group, stamp)| (group.clone(), *stamp))
+                .collect(),
+            pull_request_max_age: self.pull_request_max_age,
+            circuit_failures: 0,
+            circuit_open_until_ms: 0,
+            circuit_cause: None,
+        }
+    }
+}
+
+impl KeyState {
+    /// Mirror this key's facts to its file under `dir`, created here once:
+    /// a directory that cannot be created leaves the key in-memory only.
+    pub(super) fn attach_dir(&self, dir: &Path) {
+        let mut persist = self
+            .persist
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if persist.is_some() {
+            return;
+        }
+        let path = dir.join(self.key.file_name());
+        if let Err(error) = octocode_io::atomic::create_private_dir_all(dir) {
+            warn_unshared("create the directory of", &path, &error);
+            return;
+        }
+        *persist = Some(Persist { path, seen: None });
+    }
+
+    /// Merge the on-disk view when another process has written it since we
+    /// last looked (one `stat` per logical request; see [`FileStamp`]).
+    pub(crate) fn refresh_from_disk(&self) {
+        let mut persist = self
+            .persist
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(persist) = persist.as_mut() else {
+            return;
+        };
+        let Some(stamp) = file_stamp(&persist.path) else {
+            return;
+        };
+        if persist.seen == Some(stamp) {
+            return;
+        }
+        persist.seen = Some(stamp);
+        let Some(disk) = read_state(&persist.path)
+            .and_then(|bytes| serde_json::from_slice::<KeyFacts>(&bytes).ok())
+        else {
+            return;
+        };
+        self.facts().merge(disk, now_ms());
+    }
+
+    /// Run `reserve` on this key's facts with the on-disk facts of every
+    /// other process merged in, and write the result, all under the file
+    /// lock: a slot one process takes is visible to the next before it
+    /// reserves. Without a mirror it runs on the in-memory facts alone. A lock
+    /// a peer process holds is waited for without blocking the runtime, until
+    /// the request's `deadline` or `cancellation`.
+    ///
+    /// The read and the write run on the blocking pool, not on the async
+    /// worker that polls this request, and each carries the lock: a request
+    /// dropped mid-write releases it only once the write is done.
+    pub(super) async fn reserve_shared<R>(
+        self: &Arc<Self>,
+        deadline: Instant,
+        cancellation: &Cancellation,
+        waits: &crate::budget::ClientWaits,
+        reserve: impl FnOnce(&mut KeyFacts) -> R,
+    ) -> Result<R, ProviderError> {
+        let path = self
+            .persist
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .map(|persist| persist.path.clone());
+        let Some(path) = path else {
+            return Ok(reserve(&mut self.facts()));
+        };
+        let lock = lock_file(&path, deadline, cancellation, waits).await?;
+        let (lock, path, on_disk) = off_worker(move || {
+            let on_disk = read_state(&path);
+            (lock, path, on_disk)
+        })
+        .await?;
+        let (result, view) = {
+            let mut facts = self.facts();
+            if let Some(disk) = on_disk
+                .as_deref()
+                .and_then(|bytes| serde_json::from_slice::<KeyFacts>(bytes).ok())
+            {
+                facts.merge(disk, now_ms());
+            }
+            let result = reserve(&mut facts);
+            (result, facts.blocking_view(now_ms()))
+        };
+        let state = Arc::clone(self);
+        off_worker(move || {
+            state.write_view(&path, on_disk.as_deref(), &view);
+            drop(lock);
+        })
+        .await?;
+        Ok(result)
+    }
+
+    /// Mirror the blocking facts to disk without awaiting the write
+    /// ([`Self::persist_detached`]).
+    pub(super) fn persist(self: &Arc<Self>) {
+        self.persist_detached(|_| {});
+    }
+
+    /// [`Self::persist_with`] without awaiting it. On an async worker the
+    /// write runs on the blocking pool (it takes the peer lock and may wait
+    /// for it up to `WRITE_LOCK_WAIT`), tracked until
+    /// [`super::GitHubBudget::flush_detached_writes`] awaits it: tokio runs no
+    /// still-queued blocking task at shutdown, so a process that ends right
+    /// after the write (a CLI call, an MCP server stopping) flushes first.
+    /// Each write merges the current view into the file, so two writes
+    /// finishing out of order still leave the latest facts.
+    pub(super) fn persist_detached(
+        self: &Arc<Self>,
+        adjust: impl FnOnce(&mut KeyFacts) + Send + 'static,
+    ) {
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                let state = Arc::clone(self);
+                // Tracked until it ends; nothing here waits for it. The task
+                // runs once spawned and `track` keeps its own handle, so the
+                // returned one is dropped on purpose.
+                drop(
+                    self.track(handle.spawn_blocking(octocode_io::notice::carried(move || {
+                        state.persist_with(adjust);
+                    }))),
+                );
+            }
+            Err(_) => self.persist_with(adjust),
+        }
+    }
+
+    /// [`Self::persist_with`] on the blocking pool, awaited by the request: it
+    /// is on disk (or deferred to the next write, past `WRITE_LOCK_WAIT`) before
+    /// the request ends, so a process that exits next still leaves it behind.
+    /// It is tracked like a detached write, so a request dropped mid-write
+    /// (a cancel) still leaves it to the flush before exit.
+    pub(super) async fn persist_awaited(
+        self: &Arc<Self>,
+        adjust: impl FnOnce(&mut KeyFacts) + Send + 'static,
+    ) {
+        let state = Arc::clone(self);
+        self.track(tokio::task::spawn_blocking(octocode_io::notice::carried(
+            move || {
+                state.persist_with(adjust);
+            },
+        )))
+        .await;
+    }
+
+    /// [`Self::persist`] with `adjust` applied before the write. The file's
+    /// facts are merged into this key's own first, as
+    /// [`Self::refresh_from_disk`] merges them: the write records the file's
+    /// new stamp as seen, so a peer fact the file carried must already be in
+    /// memory. `adjust` runs on the merged facts, so what the caller took back
+    /// in memory (a handed-back start, a forgotten route) is not restored from
+    /// the file. A merged view equal to the file is not written again (a
+    /// repeat exhaust or cooldown with the same reset); a new start
+    /// reservation always changes it, and it must reach the file, because it
+    /// is what spaces the next process's search.
+    pub(super) fn persist_with(&self, adjust: impl FnOnce(&mut KeyFacts)) {
+        let path = {
+            let persist = self
+                .persist
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            match persist.as_ref() {
+                Some(persist) => persist.path.clone(),
+                None => return,
+            }
+        };
+        // Serialize read-merge-write across processes: without it, two CLI
+        // processes read the same file and the later rename drops the other's
+        // start stamps and window slots. Released on drop. Only a filesystem
+        // without lock support writes unlocked (as every process on it does).
+        // A lock not taken in time defers the write: `adjust` lands in the
+        // in-memory facts, which the next write merges in, so a skipped write
+        // costs freshness while an unlocked one could drop a peer's facts.
+        let _lock = match lock_file_blocking(&path, Instant::now() + WRITE_LOCK_WAIT) {
+            WriteLock::Held(lock) => Some(lock),
+            WriteLock::Unsupported => None,
+            WriteLock::Unavailable => {
+                adjust(&mut self.facts());
+                return;
+            }
+        };
+        let now = now_ms();
+        let on_disk = read_state(&path);
+        let disk = on_disk
+            .as_deref()
+            .and_then(|bytes| serde_json::from_slice::<KeyFacts>(bytes).ok());
+        let view = {
+            let mut facts = self.facts();
+            if let Some(disk) = disk {
+                facts.merge(disk, now);
+            }
+            adjust(&mut facts);
+            facts.blocking_view(now)
+        };
+        self.write_view(&path, on_disk.as_deref(), &view);
+    }
+
+    /// Write `view` unless the file already holds it, through a unique temp
+    /// file and an atomic rename; the caller holds the file lock.
+    fn write_view(&self, path: &Path, on_disk: Option<&[u8]>, view: &KeyFacts) {
+        #[cfg(test)]
+        tests::record_io(path);
+        let Ok(bytes) = serde_json::to_vec(view) else {
+            return;
+        };
+        if on_disk == Some(bytes.as_slice()) {
+            return;
+        }
+        // No fsync: this is a rebuildable cache, and a flush here would hold the
+        // peer lock for a disk write (see `WRITE_LOCK_WAIT`). The rename keeps it whole.
+        if let Err(error) = octocode_io::atomic::write_atomic(path, &bytes, false) {
+            warn_unshared("write", path, &error);
+            return;
+        }
+        if let Some(stamp) = file_stamp(path)
+            && let Some(persist) = self
+                .persist
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .as_mut()
+        {
+            persist.seen = Some(stamp);
+        }
+    }
+}
+
+mod lock;
+#[cfg(test)]
+mod recovery_tests;
+#[cfg(test)]
+mod tests;

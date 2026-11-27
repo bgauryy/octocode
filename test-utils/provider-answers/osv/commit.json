@@ -1,0 +1,433 @@
+{
+ "case": "osv/commit",
+ "tool": "securityCheck",
+ "query": {
+  "operation": "commit",
+  "ref": "6879efc2c1596d11a6a6ad296f80063b558d5e0f",
+  "view": "details"
+ },
+ "recordedAt": "2026-11-08",
+ "unread": [
+  "affected[*].database_specific.vanir_signatures",
+  "affected[*].database_specific.vanir_signatures_modified",
+  "affected[*].package.purl",
+  "affected[*].ranges[*].database_specific.extracted_events[*].cpe",
+  "affected[*].ranges[*].database_specific.extracted_events[*].range[*].fixed",
+  "affected[*].ranges[*].database_specific.extracted_events[*].source",
+  "affected[*].ranges[*].events",
+  "affected[*].ranges[*].repo",
+  "affected[*].versions",
+  "aliases",
+  "database_specific",
+  "details",
+  "modified",
+  "published",
+  "references",
+  "related",
+  "results[*].vulns[*].modified",
+  "schema_version"
+ ],
+ "exchanges": [
+  {
+   "request": {
+    "method": "POST",
+    "url": "https://api.osv.dev/v1/querybatch",
+    "accept": "application/json",
+    "body": {
+     "queries": [
+      {
+       "commit": "6879efc2c1596d11a6a6ad296f80063b558d5e0f"
+      }
+     ]
+    }
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:6d7c28ecf998651d3573e59eccee4dd316f28eea67af63ce9451fefc84e98208",
+   "body": {
+    "results": [
+     {
+      "vulns": [
+       {
+        "id": "CVE-2023-25193",
+        "modified": "2026-10-28T10:36:19.846827Z"
+       },
+       {
+        "id": "CVE-2026-22693",
+        "modified": "2026-10-28T10:50:39.491760Z"
+       },
+       {
+        "id": "OSV-2020-484",
+        "modified": "2022-04-13T03:04:32.842142Z"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.osv.dev/v1/vulns/CVE-2023-25193",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:5094d4735e149475bedc8077dd57c6c47e9351ac6b67af0d04c52192d96b5da6",
+   "body": {
+    "id": "CVE-2023-25193",
+    "details": "hb-ot-layout-gsubgpos.hh in HarfBuzz through 6.0.0 allows attackers to trigger O(n^2) growth via consecutive marks during the process of looking back for base glyphs when attaching marks.",
+    "aliases": [
+     "BIT-java-2023-25193",
+     "BIT-java-min-2023-25193",
+     "BIT-jre-2023-25193"
+    ],
+    "modified": "2026-10-28T10:36:19.846827171Z",
+    "published": "2023-02-04T00:00:00Z",
+    "related": [
+     "ALSA-2023:4158",
+     "openSUSE-SU-2025:0067-1"
+    ],
+    "database_specific": {
+     "cna_assigner": "mitre",
+     "osv_generated_from": "https://github.com/CVEProject/cvelistV5/tree/main/cves/2023/25xxx/CVE-2023-25193.json"
+    },
+    "references": [
+     {
+      "type": "WEB",
+      "url": "https://chromium.googlesource.com/chromium/src/+/e1f324aa681af54101c1f2d173d92adb80e37088/DEPS#361"
+     },
+     {
+      "type": "FIX",
+      "url": "https://github.com/harfbuzz/harfbuzz/commit/85be877925ddbf34f74a1229f3ca1716bb6170dc"
+     }
+    ],
+    "affected": [
+     {
+      "ranges": [
+       {
+        "type": "GIT",
+        "repo": "https://github.com/harfbuzz/harfbuzz",
+        "events": [
+         {
+          "introduced": "0"
+         },
+         {
+          "fixed": "85be877925ddbf34f74a1229f3ca1716bb6170dc"
+         }
+        ],
+        "database_specific": {
+         "extracted_events": [
+          {
+           "source": "CPE_RANGE",
+           "cpe": "cpe:2.3:a:harfbuzz_project:harfbuzz:*:*:*:*:*:*:*:*",
+           "range": [
+            {
+             "introduced": "0"
+            },
+            {
+             "last_affected": "6.0.0"
+            }
+           ]
+          },
+          {
+           "range": [
+            {
+             "fixed": "85be877925ddbf34f74a1229f3ca1716bb6170dc"
+            }
+           ],
+           "source": "REFERENCES_COMMIT"
+          }
+         ]
+        }
+       }
+      ],
+      "versions": [
+       "3.0.0",
+       "pango-start"
+      ],
+      "database_specific": {
+       "source": "https://storage.googleapis.com/cve-osv-conversion/osv-output/CVE-2023-25193.json",
+       "vanir_signatures": [
+        {
+         "deprecated": false,
+         "digest": {
+          "line_hashes": [
+           "199082770400909606321589194843450527664",
+           "87419159144381551629992409665691100659",
+           "316516650934869293814167978590599149972",
+           "203275194265138133167303134542089474071"
+          ],
+          "threshold": 0.9
+         },
+         "id": "CVE-2023-25193-cb610f4e",
+         "signature_type": "Line",
+         "signature_version": "v1",
+         "source": "https://github.com/harfbuzz/harfbuzz/commit/85be877925ddbf34f74a1229f3ca1716bb6170dc",
+         "target": {
+          "file": "src/hb-ot-layout-gsubgpos.hh"
+         }
+        }
+       ],
+       "vanir_signatures_modified": "2026-10-28T10:36:19Z"
+      }
+     }
+    ],
+    "schema_version": "1.9.2",
+    "severity": [
+     {
+      "type": "CVSS_V3",
+      "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+     }
+    ]
+   },
+   "unread": [
+    "affected[*].database_specific.source",
+    "affected[*].package.ecosystem",
+    "affected[*].package.name",
+    "affected[*].ranges[*].database_specific.extracted_events[*].range[*].last_affected",
+    "affected[*].ranges[*].type",
+    "summary"
+   ],
+   "unreadReasons": {
+    "affected[*].ranges[*].type": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown under `affected[].ranges[].type` on the advisory read.",
+    "affected[*].ranges[*].database_specific.extracted_events[*].range[*].last_affected": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown under `affected[].ranges[].database_specific` on the advisory read.",
+    "affected[*].database_specific.source": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as the row's `source` on the advisory read.",
+    "summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on OSV's row of the advisory read (checked by osv/advisory-ghsa.carried and osv/advisory-ossfuzz.carried).",
+    "affected[*].package.name": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `affected[].packageName` on the advisory read.",
+    "affected[*].package.ecosystem": "Not shown by any operation, as osv/advisory-ghsa already declares (`affected[*].package.ecosystem`): the advisory read names the package, not its ecosystem. It matched the list row's `source` URL before the lean row. Pre-existing gap, declared 2026-11-11."
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.osv.dev/v1/vulns/CVE-2026-22693",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:74f6eec3f10505d748ba8a82e9d1167d1a6db2f1ec3d8ce5e7c345f62431192e",
+   "body": {
+    "id": "CVE-2026-22693",
+    "summary": "Null Pointer Dereference in SubtableUnicodesCache::create leading to DoS",
+    "details": "HarfBuzz is a text shaping engine. Prior to version 12.3.0, a null pointer dereference vulnerability exists in the SubtableUnicodesCache::create function located in src/hb-ot-cmap-table.hh. The function fails to check if hb_malloc returns NULL before using placement new to construct an object at the returned pointer address. When hb_malloc fails to allocate memory (which can occur in low-memory conditions or when using custom allocators that simulate allocation failures), it returns NULL. The code then attempts to call the constructor on this null pointer using placement new syntax, resulting in undefined behavior and a Segmentation Fault. This issue has been patched in version 12.3.0.",
+    "aliases": [
+     "GHSA-xvjr-f2r9-c7ww"
+    ],
+    "modified": "2026-10-28T10:50:39.491760795Z",
+    "published": "2026-01-10T05:53:21.019Z",
+    "related": [
+     "SUSE-SU-2026:0287-1",
+     "openSUSE-SU-2026:20409-1"
+    ],
+    "database_specific": {
+     "cna_assigner": "GitHub_M",
+     "cwe_ids": [
+      "CWE-476"
+     ],
+     "osv_generated_from": "https://github.com/CVEProject/cvelistV5/tree/main/cves/2026/22xxx/CVE-2026-22693.json"
+    },
+    "references": [
+     {
+      "type": "WEB",
+      "url": "http://www.openwall.com/lists/oss-security/2026/01/11/1"
+     },
+     {
+      "type": "FIX",
+      "url": "https://github.com/harfbuzz/harfbuzz/commit/1265ff8d990284f04d8768f35b0e20ae5f60daae"
+     }
+    ],
+    "affected": [
+     {
+      "ranges": [
+       {
+        "type": "GIT",
+        "repo": "https://github.com/harfbuzz/harfbuzz",
+        "events": [
+         {
+          "introduced": "0"
+         },
+         {
+          "fixed": "b0af59229cc233a66106c696534ac39be56093d8"
+         },
+         {
+          "fixed": "1265ff8d990284f04d8768f35b0e20ae5f60daae"
+         }
+        ],
+        "database_specific": {
+         "extracted_events": [
+          {
+           "cpe": "cpe:2.3:a:harfbuzz_project:harfbuzz:*:*:*:*:*:*:*:*",
+           "range": [
+            {
+             "introduced": "0"
+            },
+            {
+             "fixed": "12.3.0"
+            }
+           ],
+           "source": "CPE_RANGE"
+          },
+          {
+           "range": [
+            {
+             "fixed": "1265ff8d990284f04d8768f35b0e20ae5f60daae"
+            }
+           ],
+           "source": "REFERENCES_COMMIT"
+          }
+         ]
+        }
+       }
+      ],
+      "versions": [
+       "3.0.0",
+       "pango-start"
+      ],
+      "database_specific": {
+       "source": "https://storage.googleapis.com/cve-osv-conversion/osv-output/CVE-2026-22693.json",
+       "vanir_signatures": [
+        {
+         "signature_version": "v1",
+         "source": "https://github.com/harfbuzz/harfbuzz/commit/1265ff8d990284f04d8768f35b0e20ae5f60daae",
+         "target": {
+          "file": "src/hb-ot-cmap-table.hh"
+         },
+         "deprecated": false,
+         "digest": {
+          "line_hashes": [
+           "80158200511459329662009509604176239649",
+           "269812551193405405030909560017218000803",
+           "287943558458180786502219214808000465190",
+           "114193614789981825841109685050469821207"
+          ],
+          "threshold": 0.9
+         },
+         "id": "CVE-2026-22693-c74a1b77",
+         "signature_type": "Line"
+        }
+       ],
+       "vanir_signatures_modified": "2026-10-28T10:50:39Z"
+      }
+     }
+    ],
+    "schema_version": "1.9.2",
+    "severity": [
+     {
+      "type": "CVSS_V3",
+      "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L"
+     }
+    ]
+   },
+   "unread": [
+    "affected[*].database_specific.source",
+    "affected[*].package.ecosystem",
+    "affected[*].package.name",
+    "affected[*].ranges[*].database_specific.extracted_events[*].range[*].last_affected",
+    "affected[*].ranges[*].type",
+    "summary"
+   ],
+   "unreadReasons": {
+    "affected[*].ranges[*].type": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown under `affected[].ranges[].type` on the advisory read.",
+    "affected[*].ranges[*].database_specific.extracted_events[*].range[*].last_affected": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown under `affected[].ranges[].database_specific` on the advisory read.",
+    "affected[*].database_specific.source": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as the row's `source` on the advisory read.",
+    "summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on OSV's row of the advisory read (checked by osv/advisory-ghsa.carried and osv/advisory-ossfuzz.carried).",
+    "affected[*].package.name": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `affected[].packageName` on the advisory read.",
+    "affected[*].package.ecosystem": "Not shown by any operation, as osv/advisory-ghsa already declares (`affected[*].package.ecosystem`): the advisory read names the package, not its ecosystem. It matched the list row's `source` URL before the lean row. Pre-existing gap, declared 2026-11-11."
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.osv.dev/v1/vulns/OSV-2020-484",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:a1d78ea62fa033cb9e9c08e75dc675adacae3e01a4f87e89eb2c2b481d47dc9c",
+   "body": {
+    "id": "OSV-2020-484",
+    "summary": "Heap-buffer-overflow in AAT::KerxSubTableFormat4<AAT::KerxSubTableHeader>::driver_context_t::transition",
+    "details": "OSS-Fuzz report: https://bugs.chromium.org/p/oss-fuzz/issues/detail?id=12532\n\n```\nCrash type: Heap-buffer-overflow READ 4\nCrash state:\nAAT::KerxSubTableFormat4<AAT::KerxSubTableHeader>::driver_context_t::transition\nvoid AAT::StateTableDriver<AAT::ExtendedTypes, AAT::KerxSubTableFormat4<AAT::Ker\nAAT::KerxSubTableFormat4<AAT::KerxSubTableHeader>::apply\n```\n",
+    "modified": "2022-04-13T03:04:32.842142Z",
+    "published": "2020-07-01T00:00:12.297418Z",
+    "references": [
+     {
+      "type": "REPORT",
+      "url": "https://bugs.chromium.org/p/oss-fuzz/issues/detail?id=12532"
+     }
+    ],
+    "affected": [
+     {
+      "package": {
+       "name": "harfbuzz",
+       "ecosystem": "OSS-Fuzz",
+       "purl": "pkg:generic/harfbuzz"
+      },
+      "ranges": [
+       {
+        "type": "GIT",
+        "repo": "https://github.com/harfbuzz/harfbuzz.git",
+        "events": [
+         {
+          "introduced": "4009a05ca7de21fff2176621597cd0cd01e9d80e"
+         },
+         {
+          "fixed": "cc8e9a436fa408a1c63f4b9afb7643cea76a079c"
+         }
+        ]
+       }
+      ],
+      "versions": [
+       "2.2.0",
+       "2.3.0"
+      ],
+      "ecosystem_specific": {
+       "severity": "MEDIUM"
+      },
+      "database_specific": {
+       "source": "https://github.com/google/oss-fuzz-vulns/blob/main/vulns/harfbuzz/OSV-2020-484.yaml"
+      }
+     }
+    ],
+    "schema_version": "1.7.3"
+   },
+   "unread": [
+    "affected[*].database_specific.source",
+    "affected[*].package.ecosystem",
+    "affected[*].package.name",
+    "affected[*].ranges[*].database_specific.extracted_events[*].range[*].last_affected",
+    "affected[*].ranges[*].type",
+    "summary"
+   ],
+   "unreadReasons": {
+    "affected[*].ranges[*].type": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown under `affected[].ranges[].type` on the advisory read.",
+    "affected[*].ranges[*].database_specific.extracted_events[*].range[*].last_affected": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown under `affected[].ranges[].database_specific` on the advisory read.",
+    "affected[*].database_specific.source": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as the row's `source` on the advisory read.",
+    "summary": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `summary` on OSV's row of the advisory read (checked by osv/advisory-ghsa.carried and osv/advisory-ossfuzz.carried).",
+    "affected[*].package.name": "Lean list row (owner decision 2026-11-11): not on the list row; read through securityCheck operation `advisory` by the row's id, which the row's related[] calls offer for every listed id. Shown as `affected[].packageName` on the advisory read.",
+    "affected[*].package.ecosystem": "Not shown by any operation, as osv/advisory-ghsa already declares (`affected[*].package.ecosystem`): the advisory read names the package, not its ecosystem. It matched the list row's `source` URL before the lean row. Pre-existing gap, declared 2026-11-11."
+   }
+  }
+ ]
+}

@@ -1,0 +1,39 @@
+[package]
+name = "octocode-io"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The one owner of the primitives Octocode crates share (listed in src/lib.rs)"
+
+# No doctests: nextest runs the tests (crates/runtime/Cargo.toml).
+[lib]
+doctest = false
+
+[dependencies]
+bytes = { workspace = true }
+futures-util = { workspace = true }
+getrandom = { workspace = true }
+hex = { workspace = true }
+# The request's URI and the proxy matcher reqwest's `system-proxy` uses:
+# a network failure names the proxy the client chose.
+http = "1"
+hyper-util = { version = "0.1", default-features = false, features = ["client-proxy", "client-proxy-system"] }
+lru = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "time"] }
+tokio-util = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[dev-dependencies]
+flate2 = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "io-util", "time", "macros"] }
+wiremock = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,21 +1,15 @@
-import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 
-export async function readJsonFile<T>(filePath: string): Promise<T | null> {
+export async function readJsonFile<T>(
+  filePath: string
+): Promise<T | undefined> {
   try {
-    try {
-      await fsPromises.access(filePath, fs.constants.R_OK);
-    } catch {
-      return null;
-    }
-
     const content = await fsPromises.readFile(filePath, 'utf-8');
-    if (!content.trim()) {
-      return null;
-    }
-
     return JSON.parse(content) as T;
-  } catch {
-    return null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw new Error(`Cannot read configuration at ${filePath}`, {
+      cause: error,
+    });
   }
 }

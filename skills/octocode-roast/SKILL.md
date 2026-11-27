@@ -1,45 +1,28 @@
 ---
 name: octocode-roast
-description: "Use when code needs a blunt evidence-backed roast or memorable critique: smell inventory, debt ranking, hot-path autopsy, savage/diff review, security or performance sins, or practical redemption paths. Phrases like roast this, brutal review, top sins, cleanup debt. Polite evidence-first PR review → octocode-research."
+description: "Load this skill first when explicitly asked to roast or harshly critique code or a design. Rank verified defects by impact and give each a pointed critique, repair and proving check."
 ---
 
 # Octocode Roast
 
-Sharp code critique with proof and a repair path.
-Flow: `TARGET → INSPECT → INVENTORY → AUTOPSY → CHECKPOINT → REDEEM`.
+Pin the named files, symbols, diff, PR or branch to a revision or working tree. Ask only if the target is missing. Roast the code, never the coder: sharp and dry by default, aggressive stand-up when requested ("brutal", "harsh" or "no mercy" count). Exaggerate the absurdity, never the evidence.
 
-## Lobby rules
-- Target patterns, never people; obey the requested scope and widen only with approval.
-- Cite or drop it: every major finding needs an exact anchor, impact, confidence, and repair move.
-- Obey explicit user targets first. Only widen to staged/diff/repo scope when no target was given or the user asks for a broader pass.
-- Punch the code, not the coder; avoid insults about ability, identity, or experience.
-- Never reveal a secret; redact values and use restrained language for security or production-sensitive findings.
-- Rank confirmed security, data loss, correctness, and user-impacting performance above style or taste.
-- Default to medium tone; use savage/nuclear only when explicitly requested. Do not edit or install before consent.
-- Stop when: the target resolves to no files; the checkpoint is reached — important versus redundant findings summarized, nothing edited yet; a repair, a scope widening, or an install needs consent; savage/nuclear tone was not requested; or evidence is pattern-only — report the lead with its confidence instead of asserting exploitability, latency, or outage.
+Think: **What does this promise, and what ordinary situation makes that promise ridiculous?**
 
-## Severity
-- Capital offenses: confirmed secret exposure, injection/RCE paths, data loss or corruption, auth/access bypass.
-- Felonies: risky security controls, N+1 or hot-path performance damage, brittle async/concurrency, dangerous coupling, change-blocking god functions.
-- Crimes: broad type abuse, hidden state, poor errors, missing tests around risky logic.
-- Slop: duplicate ceremony, AI-ish verbosity, unclear naming, style residue that slows maintenance.
-- Misdemeanors: TODO fossils, console logs, formatting noise.
-If there are 20+ issues, triage the top 10 by impact and confidence, then separate important findings from redundant noise.
+## Hunt
 
-## Smart routes — load only what the current step needs
-- When you have the target and are ready to inspect it, load `references/roast-playbook.md` — the phase-by-phase run through inspection, inventory, autopsy, and the pre-fix checkpoint.
-- When building the inventory and ranking generic smells, load `references/sin-catalog.md`; for language-specific patterns or structural queries load `references/language-sins.md` — choose evidence appropriate to the code.
-- When the user picks repairs at the checkpoint, load `references/redemption-flow.md` — redeem findings through consent-gated fixes and verification.
-- When scope spans a monorepo or many categories, load `references/parallel-roasting.md` — split the inspection and inventory across workers without duplicating findings.
-- When research tooling is needed, load `references/octocode.md` and use `octocode-research` if available — verify before joking; mark reduced coverage otherwise.
-- When improving this skill, prefer `octocode-graph-eval`; otherwise load `references/improve-loop.md` — require an accept/revert criterion.
+1. Find promises and suspect paths with Octocode structure, text and AST searches, LSP callers and history; exact-read source. Whole-repo scope needs a request (else ask, or limit to the named paths): prioritize consequence, fan-in and churn. Exclude generated code unless targeted or exposing a generator defect.
+2. Trace input → guards → callers → outcome; check tests, fixtures and docs. Try the strongest innocent explanation before keeping a finding. Exploit, latency and outage claims need a trace/measurement; suspicious syntax stays a lead.
+3. Challenge impressive metrics and complexity against the real outcome and a simpler baseline.
 
-## Related routes
-- Use `octocode-research` for evidence gathering; `octocode-graph-eval` to measure roast usefulness; `octocode-prompt-optimizer` only for tone/instruction wording.
-- Use `octocode-skills` when changing this skill folder.
+The [hunt catalog](references/hunt.md) has probes per promise or failure. Follow every page and continuation before concluding absence; disclose unread scope and partial LSP coverage.
 
-## Output
-Use: `Top roast`, `Important findings`, `Redundant / low-value findings`, `Autopsy`, `Redemption paths`, `Fix checkpoint`. Each finding includes `file:line`, evidence, impact, confidence, and repair move.
+## Rank, write, deliver
 
-## Scripts
-None — this skill is instruction-only. Evidence comes from `octocode-research` and the host's own repo tools; verification runs the target project's own checks.
+Set severity, deduplicate by root cause and build each bit per [rank and write](references/rank-and-write.md). Return one row per ranked finding:
+
+`**<Critical|High|Medium|Low> · <path:line or design section>.** <trigger> → <mechanism> → <consequence>. Evidence: <trace, run or measurement>. Repair: <smallest fix>. Check: <fails before, passes after>. Confidence: <high|medium|low>. <punchline>`
+
+Then the fix order. Stay read-only unless repairs are requested; [output](output.md) owns repair results and saved reports.
+
+Finish when each finding survives a countercheck, or none holds; report checked scope and unresolved leads. A requested PR merge verdict belongs to `octocode-pr-review`.

@@ -1,0 +1,77 @@
+#!/usr/bin/env node
+// Read-only, logging `gh` for a benchmark arm. Refuses writes, passes every allowed call to the real gh
+// unchanged, and appends {run, t, args, exit, stdoutChars, stderrChars, ms, refused} to a log.
+// BENCH_GH_REAL: the real gh binary. BENCH_GH_LOG: the log file (optional). RUN_ID: the session's name.
+// An ES module through the repo root's package.json ("type": "module"); the file needs no extension.
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+
+const args = process.argv.slice(2);
+const READ = new Set([
+  'search', 'repo view', 'pr view', 'pr diff', 'pr list', 'pr checks', 'issue view', 'issue list', 'release view',
+  'release list', 'api', '--version', 'version', 'help', 'run list', 'run view', 'workflow list', 'label list',
+]);
+
+// Code points of a UTF-8 buffer: every byte that is not a continuation byte starts one.
+const chars = buffer => buffer.reduce((count, byte) => count + ((byte & 0xc0) === 0x80 ? 0 : 1), 0);
+
+function log(exit, stdoutChars, stderrChars, ms, refused = null) {
+  if (!process.env.BENCH_GH_LOG) return;
+  const row = { run: process.env.RUN_ID ?? '?', t: Date.now() / 1000, args, exit, stdoutChars, stderrChars, ms, refused };
+  fs.appendFileSync(process.env.BENCH_GH_LOG, `${JSON.stringify(row)}\n`);
+}
+
+function refuse(message) {
+  process.stderr.write(`gh (read-only benchmark): refused: ${message}\n`);
+  log(2, 0, message.length, 0, message);
+  process.exit(2);
+}
+
+// A pipe can take less than the whole buffer, or none of it yet.
+function writeAll(fd, buffer) {
+  let at = 0;
+  while (at < buffer.length) {
+    try {
+      at += fs.writeSync(fd, buffer, at);
+    } catch (error) {
+      if (error.code === 'EPIPE') return;
+      if (error.code !== 'EAGAIN') throw error;
+    }
+  }
+}
+
+const words = args.filter(arg => !arg.startsWith('-'));
+const allowed = READ.has(words.slice(0, 1).join(' ')) || READ.has(words.slice(0, 2).join(' ')) || ['--version', '--help', '-h'].includes(args[0]);
+if (!args.length || !allowed) refuse(`only read-only commands are allowed: ${args.slice(0, 3).join(' ')}`);
+
+if (words[0] === 'api') {
+  let method = 'GET';
+  args.forEach((arg, i) => {
+    if ((arg === '-X' || arg === '--method') && i + 1 < args.length) method = args[i + 1].toUpperCase();
+    else if (arg.startsWith('--method=')) method = arg.slice('--method='.length).toUpperCase();
+    else if (arg.startsWith('-X') && arg.length > 2) method = arg.slice(2).toUpperCase();
+  });
+  const hasFields = args.some(arg => ['-f', '-F', '--field', '--raw-field', '--input'].includes(arg) || ['--field=', '--raw-field=', '--input='].some(prefix => arg.startsWith(prefix)));
+  if ((words[1] ?? '') === 'graphql') {
+    if (args.join(' ').toLowerCase().includes('mutation')) refuse('GraphQL mutations are not allowed');
+  } else {
+    const explicit = args.some(arg => arg.startsWith('-X') || arg === '--method' || arg.startsWith('--method='));
+    if (method !== 'GET' || (hasFields && !explicit)) refuse('only GET API calls are allowed (fields need -X GET)');
+  }
+}
+
+const real = process.env.BENCH_GH_REAL;
+if (!real) {
+  process.stderr.write('gh (read-only benchmark): BENCH_GH_REAL does not name the real gh\n');
+  process.exit(127);
+}
+const started = Date.now();
+const ran = spawnSync(real, args, { maxBuffer: 2 ** 31 - 1, stdio: ['inherit', 'pipe', 'pipe'] });
+if (ran.error) {
+  process.stderr.write(`gh (read-only benchmark): ${real} failed to start: ${ran.error.message}\n`);
+  process.exit(127);
+}
+writeAll(1, ran.stdout);
+writeAll(2, ran.stderr);
+log(ran.status ?? 1, chars(ran.stdout), chars(ran.stderr), Date.now() - started);
+process.exit(ran.status ?? 1);

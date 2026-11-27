@@ -1,0 +1,9 @@
+# cargo-mutants config (https://mutants.rs/config-file.html). Mutation testing
+# is occasional, not a gate: run it on changed code, e.g.
+#   git diff origin/main > /tmp/diff && cargo mutants --in-diff /tmp/diff
+#   cargo mutants -f crates/io/src/lib.rs
+
+test_tool = "nextest"
+# `--all-features` compiles every crate's tests and matches the `yarn lint`
+# selection.
+all_features = true

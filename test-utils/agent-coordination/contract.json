@@ -1,0 +1,581 @@
+{
+ "version": 1,
+ "description": "Vectors octocode-agents-communication must satisfy: the lease key of a path (src/runtime/paths.ts leaseKey), when two reservations overlap, and when one call's requests refuse each other. See README.md.",
+ "fold": [
+  {
+   "name": "ascii upper",
+   "component": "README.MD",
+   "folded": "readme.md"
+  },
+  {
+   "name": "sharp s folds to ss",
+   "component": "Stra\u00dfe.ts",
+   "folded": "strasse.ts"
+  },
+  {
+   "name": "capital sharp s folds to ss",
+   "component": "STRA\u1e9eE.ts",
+   "folded": "strasse.ts"
+  },
+  {
+   "name": "ss spelling",
+   "component": "STRASSE.ts",
+   "folded": "strasse.ts"
+  },
+  {
+   "name": "greek final sigma folds to sigma",
+   "component": "\u03bf\u03b4\u03bf\u03c2",
+   "folded": "\u03bf\u03b4\u03bf\u03c3"
+  },
+  {
+   "name": "greek capital sigma",
+   "component": "\u039f\u0394\u039f\u03a3",
+   "folded": "\u03bf\u03b4\u03bf\u03c3"
+  },
+  {
+   "name": "greek lone final sigma",
+   "component": "\u03c2",
+   "folded": "\u03c3"
+  },
+  {
+   "name": "greek accented, final sigma",
+   "component": "\u039f\u03b4\u03cc\u03c2",
+   "folded": "\u03bf\u03b4\u03bf\u0301\u03c3"
+  },
+  {
+   "name": "turkish dotted capital I folds to i + combining dot above",
+   "component": "\u0130stanbul.ts",
+   "folded": "i\u0307stanbul.ts"
+  },
+  {
+   "name": "plain i",
+   "component": "istanbul.ts",
+   "folded": "istanbul.ts"
+  },
+  {
+   "name": "dotless i has no folding",
+   "component": "\u0131",
+   "folded": "\u0131"
+  },
+  {
+   "name": "ligature fi folds to fi",
+   "component": "\ufb01le.ts",
+   "folded": "file.ts"
+  },
+  {
+   "name": "ligature ffi folds to ffi",
+   "component": "\ufb03x.ts",
+   "folded": "ffix.ts"
+  },
+  {
+   "name": "precomposed e acute",
+   "component": "caf\u00e9",
+   "folded": "cafe\u0301"
+  },
+  {
+   "name": "decomposed e + combining acute",
+   "component": "cafe\u0301",
+   "folded": "cafe\u0301"
+  },
+  {
+   "name": "capital precomposed E acute",
+   "component": "CAF\u00c9",
+   "folded": "cafe\u0301"
+  },
+  {
+   "name": "angstrom sign canonically equals A + ring above",
+   "component": "\u212b",
+   "folded": "a\u030a"
+  },
+  {
+   "name": "A + combining ring above",
+   "component": "A\u030a",
+   "folded": "a\u030a"
+  },
+  {
+   "name": "combining marks reorder canonically (dot below before dot above)",
+   "component": "a\u0307\u0323",
+   "folded": "a\u0323\u0307"
+  },
+  {
+   "name": "long s with dot above, then dot below: folds then reorders",
+   "component": "\u1e9b\u0323",
+   "folded": "s\u0323\u0307"
+  },
+  {
+   "name": "title case digraph",
+   "component": "\u01c5",
+   "folded": "\u01c6"
+  },
+  {
+   "name": "greek ypogegrammeni capital folds to three code points",
+   "component": "\u1f88",
+   "folded": "\u03b1\u0313\u03b9"
+  },
+  {
+   "name": "fullwidth capital A",
+   "component": "\uff21",
+   "folded": "\uff41"
+  },
+  {
+   "name": "hangul syllables decompose to jamo",
+   "component": "\ud55c\uae00",
+   "folded": "\u1112\u1161\u11ab\u1100\u1173\u11af"
+  },
+  {
+   "name": "cherokee small letter folds to capital",
+   "component": "\uab70",
+   "folded": "\u13a0"
+  },
+  {
+   "name": "empty component is ASCII",
+   "component": "",
+   "folded": ""
+  }
+ ],
+ "keys": [
+  {
+   "name": "relative path folds each component",
+   "path": "Src/Lib/Stra\u00dfe.ts",
+   "key": "/src/lib/strasse.ts"
+  },
+  {
+   "name": "dot components are not components",
+   "path": "./src/./A.ts",
+   "key": "/src/a.ts"
+  },
+  {
+   "name": "one component only",
+   "path": "Makefile",
+   "key": "/makefile"
+  },
+  {
+   "name": "workspace root is the empty key",
+   "path": ".",
+   "key": ""
+  },
+  {
+   "name": "decomposed accent",
+   "path": "docs/cafe\u0301.md",
+   "key": "/docs/cafe\u0301.md"
+  }
+ ],
+ "overlap": [
+  {
+   "name": "same file",
+   "a": {
+    "path": "src/a.ts",
+    "kind": "file"
+   },
+   "b": {
+    "path": "src/a.ts",
+    "kind": "file"
+   },
+   "overlap": true
+  },
+  {
+   "name": "same file, other case",
+   "a": {
+    "path": "src/A.ts",
+    "kind": "file"
+   },
+   "b": {
+    "path": "SRC/a.TS",
+    "kind": "file"
+   },
+   "overlap": true
+  },
+  {
+   "name": "same file, sharp s against ss",
+   "a": {
+    "path": "src/Stra\u00dfe.ts",
+    "kind": "file"
+   },
+   "b": {
+    "path": "src/STRASSE.ts",
+    "kind": "file"
+   },
+   "overlap": true
+  },
+  {
+   "name": "same file, composed against decomposed accent",
+   "a": {
+    "path": "src/caf\u00e9.ts",
+    "kind": "file"
+   },
+   "b": {
+    "path": "src/cafe\u0301.ts",
+    "kind": "file"
+   },
+   "overlap": true
+  },
+  {
+   "name": "same file, ligature against letters",
+   "a": {
+    "path": "src/\ufb01le.ts",
+    "kind": "file"
+   },
+   "b": {
+    "path": "src/FILE.ts",
+    "kind": "file"
+   },
+   "overlap": true
+  },
+  {
+   "name": "greek final sigma against capital sigma",
+   "a": {
+    "path": "\u03bf\u03b4\u03bf\u03c2/a.ts",
+    "kind": "file"
+   },
+   "b": {
+    "path": "\u039f\u0394\u039f\u03a3/a.ts",
+    "kind": "file"
+   },
+   "overlap": true
+  },
+  {
+   "name": "dotless i is a different letter",
+   "a": {
+    "path": "src/\u0131.ts",
+    "kind": "file"
+   },
+   "b": {
+    "path": "src/i.ts",
+    "kind": "file"
+   },
+   "overlap": false
+  },
+  {
+   "name": "tree covers a file inside",
+   "a": {
+    "path": "src",
+    "kind": "tree"
+   },
+   "b": {
+    "path": "src/a.ts",
+    "kind": "file"
+   },
+   "overlap": true
+  },
+  {
+   "name": "file inside against its tree (symmetric)",
+   "a": {
+    "path": "src/a.ts",
+    "kind": "file"
+   },
+   "b": {
+    "path": "src",
+    "kind": "tree"
+   },
+   "overlap": true
+  },
+  {
+   "name": "tree covers a deep descendant",
+   "a": {
+    "path": "src",
+    "kind": "tree"
+   },
+   "b": {
+    "path": "src/lib/deep/x.ts",
+    "kind": "file"
+   },
+   "overlap": true
+  },
+  {
+   "name": "ancestor tree against descendant tree",
+   "a": {
+    "path": "src",
+    "kind": "tree"
+   },
+   "b": {
+    "path": "src/lib",
+    "kind": "tree"
+   },
+   "overlap": true
+  },
+  {
+   "name": "descendant tree against ancestor tree",
+   "a": {
+    "path": "src/lib",
+    "kind": "tree"
+   },
+   "b": {
+    "path": "src",
+    "kind": "tree"
+   },
+   "overlap": true
+  },
+  {
+   "name": "tree against a file with the same key",
+   "a": {
+    "path": "src",
+    "kind": "tree"
+   },
+   "b": {
+    "path": "src",
+    "kind": "file"
+   },
+   "overlap": true
+  },
+  {
+   "name": "tree against the same tree",
+   "a": {
+    "path": "src",
+    "kind": "tree"
+   },
+   "b": {
+    "path": "SRC",
+    "kind": "tree"
+   },
+   "overlap": true
+  },
+  {
+   "name": "trees compare folded: tree covers a case-variant child",
+   "a": {
+    "path": "SRC",
+    "kind": "tree"
+   },
+   "b": {
+    "path": "src/Stra\u00dfe.ts",
+    "kind": "file"
+   },
+   "overlap": true
+  },
+  {
+   "name": "workspace tree covers every path",
+   "a": {
+    "path": ".",
+    "kind": "tree"
+   },
+   "b": {
+    "path": "src/a.ts",
+    "kind": "file"
+   },
+   "overlap": true
+  },
+  {
+   "name": "sibling files",
+   "a": {
+    "path": "src/a.ts",
+    "kind": "file"
+   },
+   "b": {
+    "path": "src/b.ts",
+    "kind": "file"
+   },
+   "overlap": false
+  },
+  {
+   "name": "sibling trees",
+   "a": {
+    "path": "src/a",
+    "kind": "tree"
+   },
+   "b": {
+    "path": "src/b",
+    "kind": "tree"
+   },
+   "overlap": false
+  },
+  {
+   "name": "a tree does not cover a name that only shares its prefix",
+   "a": {
+    "path": "src/lib",
+    "kind": "tree"
+   },
+   "b": {
+    "path": "src/library.ts",
+    "kind": "file"
+   },
+   "overlap": false
+  },
+  {
+   "name": "trees sharing a name prefix do not overlap",
+   "a": {
+    "path": "src/lib",
+    "kind": "tree"
+   },
+   "b": {
+    "path": "src/lib-old",
+    "kind": "tree"
+   },
+   "overlap": false
+  },
+  {
+   "name": "a file does not cover paths beneath its key",
+   "a": {
+    "path": "src",
+    "kind": "file"
+   },
+   "b": {
+    "path": "src/a.ts",
+    "kind": "file"
+   },
+   "overlap": false
+  },
+  {
+   "name": "a file above a file is no conflict (files cover only their key)",
+   "a": {
+    "path": "src/a.ts",
+    "kind": "file"
+   },
+   "b": {
+    "path": "src",
+    "kind": "file"
+   },
+   "overlap": false
+  },
+  {
+   "name": "file against a tree elsewhere",
+   "a": {
+    "path": "docs/a.md",
+    "kind": "file"
+   },
+   "b": {
+    "path": "src",
+    "kind": "tree"
+   },
+   "overlap": false
+  }
+ ],
+ "batches": [
+  {
+   "name": "disjoint files",
+   "paths": [
+    {
+     "path": "a.ts",
+     "kind": "file"
+    },
+    {
+     "path": "b.ts",
+     "kind": "file"
+    }
+   ],
+   "refused": false
+  },
+  {
+   "name": "disjoint trees and files",
+   "paths": [
+    {
+     "path": "src",
+     "kind": "tree"
+    },
+    {
+     "path": "docs/a.md",
+     "kind": "file"
+    }
+   ],
+   "refused": false
+  },
+  {
+   "name": "the same path twice",
+   "paths": [
+    {
+     "path": "a.ts",
+     "kind": "file"
+    },
+    {
+     "path": "a.ts",
+     "kind": "file"
+    }
+   ],
+   "refused": true
+  },
+  {
+   "name": "two spellings of one path",
+   "paths": [
+    {
+     "path": "X.ts",
+     "kind": "file"
+    },
+    {
+     "path": "x.ts",
+     "kind": "file"
+    }
+   ],
+   "refused": true
+  },
+  {
+   "name": "sharp s and ss",
+   "paths": [
+    {
+     "path": "Stra\u00dfe.ts",
+     "kind": "file"
+    },
+    {
+     "path": "STRASSE.ts",
+     "kind": "file"
+    }
+   ],
+   "refused": true
+  },
+  {
+   "name": "a tree and a path inside it",
+   "paths": [
+    {
+     "path": "src",
+     "kind": "tree"
+    },
+    {
+     "path": "src/a.ts",
+     "kind": "file"
+    }
+   ],
+   "refused": true
+  },
+  {
+   "name": "a path and the tree above it",
+   "paths": [
+    {
+     "path": "src/a.ts",
+     "kind": "file"
+    },
+    {
+     "path": "src",
+     "kind": "tree"
+    }
+   ],
+   "refused": true
+  },
+  {
+   "name": "a tree and its descendant tree",
+   "paths": [
+    {
+     "path": "src",
+     "kind": "tree"
+    },
+    {
+     "path": "src/lib",
+     "kind": "tree"
+    }
+   ],
+   "refused": true
+  },
+  {
+   "name": "overlap anywhere in a longer set",
+   "paths": [
+    {
+     "path": "a.ts",
+     "kind": "file"
+    },
+    {
+     "path": "b.ts",
+     "kind": "file"
+    },
+    {
+     "path": "src",
+     "kind": "tree"
+    },
+    {
+     "path": "c.ts",
+     "kind": "file"
+    },
+    {
+     "path": "src/x/y.ts",
+     "kind": "file"
+    }
+   ],
+   "refused": true
+  }
+ ]
+}

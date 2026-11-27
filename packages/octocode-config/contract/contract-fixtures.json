@@ -1,0 +1,7341 @@
+[
+  {
+    "id": "graph-build.basic",
+    "tool": "graphBuild",
+    "input": {
+      "queries": [
+        {
+          "path": "."
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "path": ".",
+          "keep": 3,
+          "refresh": false
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-build.cap",
+    "tool": "graphBuild",
+    "input": {
+      "queries": [
+        {
+          "maxFiles": 50001
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.valid-0-stats",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "stats"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "stats",
+          "path": ".",
+          "includeProvenance": false,
+          "view": "summary"
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-1-find",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "find",
+          "target": "server",
+          "kind": "symbol"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "find",
+          "path": ".",
+          "includeProvenance": false,
+          "limit": 50,
+          "kind": "symbol",
+          "target": "server"
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-2-node",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "node",
+          "target": "src/server.ts"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "node",
+          "path": ".",
+          "includeProvenance": false,
+          "target": "src/server.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-3-symbols",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "symbols",
+          "target": "src/server.ts"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "symbols",
+          "path": ".",
+          "includeProvenance": false,
+          "target": "src/server.ts",
+          "limit": 50
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-4-deps",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "deps",
+          "target": "src/server.ts",
+          "depth": 2
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "deps",
+          "path": ".",
+          "includeProvenance": false,
+          "target": "src/server.ts",
+          "confidence": "high",
+          "limit": 50,
+          "depth": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-5-dependents",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "dependents",
+          "target": "src/server.ts",
+          "depth": 2
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "dependents",
+          "path": ".",
+          "includeProvenance": false,
+          "target": "src/server.ts",
+          "confidence": "high",
+          "limit": 50,
+          "depth": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-6-callers",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "callers",
+          "target": "src/server.ts",
+          "depth": 2
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "callers",
+          "path": ".",
+          "includeProvenance": false,
+          "target": "src/server.ts",
+          "confidence": "high",
+          "limit": 50,
+          "depth": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-7-callees",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "callees",
+          "target": "src/server.ts",
+          "depth": 2
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "callees",
+          "path": ".",
+          "includeProvenance": false,
+          "target": "src/server.ts",
+          "confidence": "high",
+          "limit": 50,
+          "depth": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-8-walk",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "walk",
+          "target": "src/server.ts",
+          "depth": 2
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "walk",
+          "path": ".",
+          "includeProvenance": false,
+          "target": "src/server.ts",
+          "confidence": "high",
+          "limit": 50,
+          "depth": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-9-path",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "path",
+          "target": "src/a.ts",
+          "to": "src/b.ts"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "path",
+          "path": ".",
+          "includeProvenance": false,
+          "target": "src/a.ts",
+          "confidence": "high",
+          "to": "src/b.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-10-cycles",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "cycles",
+          "edges": [
+            "imports"
+          ]
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "cycles",
+          "path": ".",
+          "includeProvenance": false,
+          "edges": [
+            "imports"
+          ],
+          "confidence": "high",
+          "limit": 50
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-11-hubs",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "hubs",
+          "direction": "out"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "hubs",
+          "path": ".",
+          "includeProvenance": false,
+          "confidence": "high",
+          "limit": 50,
+          "direction": "out",
+          "rankBy": "degree"
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-12-diagnostics",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "diagnostics",
+          "target": "src/"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "diagnostics",
+          "path": ".",
+          "includeProvenance": false,
+          "limit": 50,
+          "target": "src/"
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-13-witnesses",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "witnesses",
+          "target": "src/server.ts",
+          "edges": [
+            "calls"
+          ],
+          "limit": 1
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "witnesses",
+          "path": ".",
+          "includeProvenance": false,
+          "limit": 1,
+          "edges": [
+            "calls"
+          ],
+          "confidence": "high",
+          "target": "src/server.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-14-witnesses",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "witnesses",
+          "to": "src/worker.ts#run"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "witnesses",
+          "path": ".",
+          "includeProvenance": false,
+          "limit": 50,
+          "confidence": "high",
+          "to": "src/worker.ts#run"
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-15-witnesses",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "witnesses",
+          "edges": [
+            "passes"
+          ]
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "witnesses",
+          "path": ".",
+          "includeProvenance": false,
+          "limit": 50,
+          "edges": [
+            "passes"
+          ],
+          "confidence": "high"
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-16-unresolved",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "unresolved",
+          "target": "src/server.ts",
+          "limit": 1
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "unresolved",
+          "path": ".",
+          "includeProvenance": false,
+          "limit": 1,
+          "target": "src/server.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-17-unresolved",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "unresolved",
+          "edges": [
+            "passes"
+          ],
+          "limit": 1
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "unresolved",
+          "path": ".",
+          "includeProvenance": false,
+          "limit": 1,
+          "edges": [
+            "passes"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-18-unresolved",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "unresolved",
+          "edges": [
+            "calls",
+            "passes"
+          ],
+          "limit": 1
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "unresolved",
+          "path": ".",
+          "includeProvenance": false,
+          "limit": 1,
+          "edges": [
+            "calls",
+            "passes"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-19-stale",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "stale"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "stale",
+          "path": ".",
+          "includeProvenance": false,
+          "limit": 50
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-20-impact",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "impact",
+          "target": "src/a.ts"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "impact",
+          "path": ".",
+          "includeProvenance": false,
+          "limit": 50,
+          "target": "src/a.ts",
+          "depth": 3
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-21-impact",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "impact",
+          "changed": [
+            "src/a.ts"
+          ]
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "impact",
+          "path": ".",
+          "includeProvenance": false,
+          "limit": 50,
+          "changed": [
+            "src/a.ts"
+          ],
+          "depth": 3
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-22-impact",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "impact",
+          "since": "main"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "impact",
+          "path": ".",
+          "includeProvenance": false,
+          "limit": 50,
+          "since": "main",
+          "depth": 3
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-23-impact",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "impact",
+          "target": "src/a.ts",
+          "changed": [
+            "src/b.ts"
+          ],
+          "since": "main"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "impact",
+          "path": ".",
+          "includeProvenance": false,
+          "limit": 50,
+          "target": "src/a.ts",
+          "changed": [
+            "src/b.ts"
+          ],
+          "since": "main",
+          "depth": 3
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-24-drift",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "drift",
+          "baseline": "20261025-baseline"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "drift",
+          "path": ".",
+          "includeProvenance": false,
+          "limit": 50,
+          "baseline": "20261025-baseline"
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-25-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "path": ".",
+          "includeProvenance": false,
+          "target": "server",
+          "limit": 50
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-26-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "path": "src",
+          "graph": "20261026-snapshot",
+          "target": "./server",
+          "kind": "symbol",
+          "limit": 1
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "path": "src",
+          "graph": "20261026-snapshot",
+          "includeProvenance": false,
+          "target": "./server",
+          "kind": "symbol",
+          "limit": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-27-find",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "find",
+          "kind": "file",
+          "limit": 1000
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "find",
+          "path": ".",
+          "includeProvenance": false,
+          "limit": 1000,
+          "kind": "file"
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-28-symbols",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "symbols"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "symbols",
+          "path": ".",
+          "includeProvenance": false,
+          "limit": 50
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-29-symbols",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "symbols",
+          "target": [
+            "src/a.ts",
+            "src/b.ts"
+          ],
+          "limit": 1000
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "symbols",
+          "path": ".",
+          "includeProvenance": false,
+          "target": [
+            "src/a.ts",
+            "src/b.ts"
+          ],
+          "limit": 1000
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.valid-30-issues",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "issues",
+          "detectors": [
+            "cycle",
+            "unreachable-file"
+          ],
+          "entries": [
+            "src/main.ts"
+          ],
+          "minScore": 0.5,
+          "minTier": 60
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "issues",
+          "path": ".",
+          "includeProvenance": false,
+          "limit": 50,
+          "detectors": [
+            "cycle",
+            "unreachable-file"
+          ],
+          "entries": [
+            "src/main.ts"
+          ],
+          "minScore": 0.5,
+          "minTier": 60
+        }
+      ]
+    }
+  },
+  {
+    "id": "graph-query.invalid-0-node",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "node"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-1-deps",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "deps"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-2-dependents",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "dependents"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-3-callers",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "callers"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-4-callees",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "callees"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-5-walk",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "walk"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-6-path",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "path",
+          "target": "src/a.ts"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-7-path",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "path",
+          "to": "src/b.ts"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-8-drift",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "drift"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-9-impact",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "impact"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-10-impact",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "impact",
+          "changed": []
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-11-stats",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "stats",
+          "graph": "../outside"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-12-stats",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "stats",
+          "target": "ignored"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-13-stats",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "stats",
+          "limit": 1
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-14-unresolved",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "unresolved",
+          "to": "src/worker.ts"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-15-unresolved",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "unresolved",
+          "confidence": "low"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-16-unresolved",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "unresolved",
+          "edges": []
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-17-unresolved",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "unresolved",
+          "edges": [
+            "invokes"
+          ]
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-18-witnesses",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "witnesses",
+          "depth": 2
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-19-node",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "node",
+          "target": "a.ts",
+          "depth": 2
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-20-find",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "find",
+          "target": "server",
+          "baseline": "ignored"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-21-path",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "path",
+          "target": "a.ts",
+          "to": "b.ts",
+          "depth": 1
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-22-hubs",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "hubs",
+          "direction": "both"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-23-cycles",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "cycles",
+          "kind": "file"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-24-cycles",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "cycles",
+          "target": "ignored"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-25-impact",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "impact",
+          "since": "main",
+          "confidence": "low"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-26-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-27-symbols",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "symbols",
+          "target": []
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-28-issues",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "issues",
+          "detectors": [
+            "typo"
+          ]
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-29-issues",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "issues",
+          "minTier": 75
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-30-issues",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "issues",
+          "target": "ignored"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-31-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": ""
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-32-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "kind": "method"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-33-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "limit": 0
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-34-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "to": "other"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-35-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "edges": [
+            "calls"
+          ]
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-36-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "confidence": "high"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-37-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "depth": 1
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-38-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "direction": "out"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-39-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "changed": [
+            "src/a.ts"
+          ]
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-40-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "since": "main"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-41-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "baseline": "20261026-snapshot"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-42-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "list": "candidates"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graph-query.invalid-43-candidates",
+    "tool": "graphQuery",
+    "input": {
+      "queries": [
+        {
+          "operation": "candidates",
+          "target": "server",
+          "cycle": "server"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "artifact.package-url-npm",
+    "tool": "artifactSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "https://example.org/package"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.package-url-pypi",
+    "tool": "artifactSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "pypi",
+          "packageName": "https://example.org/package"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.package-url-crates",
+    "tool": "artifactSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "crates",
+          "packageName": "https://example.org/package"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.package-url-maven",
+    "tool": "artifactSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "maven",
+          "packageName": "https://example.org/package"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.package-url-nuget",
+    "tool": "artifactSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "nuget",
+          "packageName": "https://example.org/package"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.package-url-go",
+    "tool": "artifactSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "go",
+          "packageName": "https://example.org/package"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.package-url-packagist",
+    "tool": "artifactSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "packagist",
+          "packageName": "https://example.org/package"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.package-url-rubygems",
+    "tool": "artifactSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "rubygems",
+          "packageName": "https://example.org/package"
+        }
+      ]
+    }
+  },
+  {
+    "id": "security.package",
+    "tool": "securityCheck",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "package",
+          "ecosystem": "npm",
+          "packageName": "lodash",
+          "version": "4.17.20"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "package",
+          "ecosystem": "npm",
+          "packageName": "lodash",
+          "version": "4.17.20",
+          "view": "summary"
+        }
+      ]
+    }
+  },
+  {
+    "id": "security.short-commit",
+    "tool": "securityCheck",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "commit",
+          "commitSha": "6879efc"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.http-registry",
+    "tool": "artifactSearch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "cache",
+          "registryUrl": "http://registry.example.org/npm/"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "cache",
+          "registryUrl": "http://registry.example.org/npm/",
+          "view": "summary"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.untrimmed-keywords",
+    "tool": "artifactSearch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "search",
+          "ecosystem": "crates",
+          "keywords": [
+            " parser "
+          ]
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "search",
+          "keywords": [
+            " parser "
+          ],
+          "limit": 20,
+          "view": "summary",
+          "ecosystem": "crates"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.padded-coordinate",
+    "tool": "artifactSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": " cache "
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.registry-query",
+    "diagnostics": true,
+    "tool": "artifactSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "cache",
+          "registryUrl": "https://registry.example.org/?token=x"
+        }
+      ]
+    },
+    "issues": [
+      {
+        "path": [
+          "queries",
+          0,
+          "registryUrl"
+        ],
+        "message": "Use an HTTP(S) registry URL without credentials, query or fragment."
+      }
+    ]
+  },
+  {
+    "id": "artifact.registry-fragment",
+    "diagnostics": true,
+    "tool": "artifactSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "cache",
+          "registryUrl": "https://registry.example.org/#package"
+        }
+      ]
+    },
+    "issues": [
+      {
+        "path": [
+          "queries",
+          0,
+          "registryUrl"
+        ],
+        "message": "Use an HTTP(S) registry URL without credentials, query or fragment."
+      }
+    ]
+  },
+  {
+    "id": "artifact.registry-invalid",
+    "diagnostics": false,
+    "tool": "artifactSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "cache",
+          "registryUrl": "not a URL"
+        }
+      ]
+    }
+  },
+  {
+    "id": "local-fetch.complete",
+    "tool": "localFetch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "view": "content"
+        }
+      ]
+    }
+  },
+  {
+    "id": "local-fetch.ranges",
+    "tool": "localFetch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "ranges": [
+            {
+              "startLine": 3,
+              "endLine": 5
+            },
+            {
+              "startLine": 9,
+              "endLine": 12
+            }
+          ],
+          "block": true
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "view": "content",
+          "ranges": [
+            {
+              "startLine": 3,
+              "endLine": 5
+            },
+            {
+              "startLine": 9,
+              "endLine": 12
+            }
+          ],
+          "block": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "local-fetch.matches",
+    "tool": "localFetch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "matchString": [
+            "expire",
+            "remove"
+          ],
+          "regexEngine": "rust",
+          "contextLines": {
+            "before": 0,
+            "after": 100
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "view": "content",
+          "matchString": [
+            "expire",
+            "remove"
+          ],
+          "regexEngine": "rust",
+          "caseMode": "smart",
+          "contextLines": {
+            "before": 0,
+            "after": 100
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "local-fetch.compact",
+    "tool": "localFetch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "view": "compact"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "view": "compact"
+        }
+      ]
+    }
+  },
+  {
+    "id": "local-fetch.symbols",
+    "tool": "localFetch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "view": "symbols"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "view": "symbols"
+        }
+      ]
+    }
+  },
+  {
+    "id": "local-fetch.reversed-range",
+    "tool": "localFetch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "ranges": [
+            {
+              "startLine": 3,
+              "endLine": 2
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "local-fetch.ranges-match",
+    "tool": "localFetch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "ranges": [
+            {
+              "startLine": 1,
+              "endLine": 3
+            }
+          ],
+          "matchString": [
+            "expire"
+          ]
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "view": "content",
+          "matchString": [
+            "expire"
+          ],
+          "regexEngine": "literal",
+          "caseMode": "smart",
+          "ranges": [
+            {
+              "startLine": 1,
+              "endLine": 3
+            }
+          ],
+          "contextLines": {
+            "before": 0,
+            "after": 0
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "local-fetch.orphan-context",
+    "tool": "localFetch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "contextLines": {
+            "before": 1,
+            "after": 2
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "local-fetch.symbol-selection",
+    "tool": "localFetch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "view": "symbols",
+          "ranges": [
+            {
+              "startLine": 1,
+              "endLine": 3
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "local-fetch.byte-mode",
+    "tool": "localFetch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "unit": "bytes"
+        }
+      ]
+    }
+  },
+  {
+    "id": "local-fetch.physical-budget",
+    "tool": "localFetch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "length": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "local-search.literal",
+    "tool": "localSearch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "path": "src",
+          "matchString": [
+            "expire"
+          ]
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "path": "src",
+          "multiline": "off",
+          "sort": {
+            "by": "traversal",
+            "order": "asc"
+          },
+          "page": 1,
+          "matchString": [
+            "expire"
+          ],
+          "regexEngine": "literal",
+          "caseMode": "smart",
+          "wholeWord": false,
+          "view": "content",
+          "contextLines": {
+            "before": 0,
+            "after": 0
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "local-search.unique",
+    "tool": "localSearch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "path": "src",
+          "matchString": [
+            "expire"
+          ],
+          "view": "matchOnly",
+          "unique": "count"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "path": "src",
+          "multiline": "off",
+          "sort": {
+            "by": "traversal",
+            "order": "asc"
+          },
+          "page": 1,
+          "matchString": [
+            "expire"
+          ],
+          "regexEngine": "literal",
+          "caseMode": "smart",
+          "wholeWord": false,
+          "view": "matchOnly",
+          "unique": "count"
+        }
+      ]
+    }
+  },
+  {
+    "id": "local-search.scoped",
+    "tool": "localSearch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "path": "src",
+          "matchString": [
+            "expire"
+          ],
+          "fileHas": [
+            "Cache"
+          ],
+          "fileLacks": [
+            "deprecated"
+          ],
+          "sort": {
+            "by": "path",
+            "order": "desc"
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "path": "src",
+          "multiline": "off",
+          "sort": {
+            "by": "path",
+            "order": "desc"
+          },
+          "page": 1,
+          "matchString": [
+            "expire"
+          ],
+          "regexEngine": "literal",
+          "caseMode": "smart",
+          "wholeWord": false,
+          "fileHas": [
+            "Cache"
+          ],
+          "fileLacks": [
+            "deprecated"
+          ],
+          "view": "content",
+          "contextLines": {
+            "before": 0,
+            "after": 0
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "local-search.unique-view",
+    "tool": "localSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "path": "src",
+          "matchString": [
+            "expire"
+          ],
+          "view": "files",
+          "unique": "list"
+        }
+      ]
+    }
+  },
+  {
+    "id": "local-search.scalar-match",
+    "tool": "localSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "path": "src",
+          "matchString": "expire"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.npm-range",
+    "tool": "artifactSearch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "@scope/cache",
+          "version": "^2",
+          "registryUrl": "https://registry.example.org/npm/"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "@scope/cache",
+          "version": "^2",
+          "registryUrl": "https://registry.example.org/npm/",
+          "view": "summary"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.maven-coordinate",
+    "tool": "artifactSearch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "maven",
+          "packageName": "org.example:cache",
+          "version": "1.0"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "maven",
+          "packageName": "org.example:cache",
+          "version": "1.0",
+          "view": "summary"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.discovery",
+    "tool": "artifactSearch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "search",
+          "ecosystem": "crates",
+          "keywords": [
+            "parser"
+          ]
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "search",
+          "keywords": [
+            "parser"
+          ],
+          "limit": 20,
+          "view": "summary",
+          "ecosystem": "crates"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.exclusive",
+    "tool": "artifactSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "cache",
+          "keywords": [
+            "cache"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.registry-credentials",
+    "tool": "artifactSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "cache",
+          "registryUrl": "https://user:secret@example.org"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.registry-scheme",
+    "tool": "artifactSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "cache",
+          "registryUrl": "ftp://example.org"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.version-suffix",
+    "tool": "artifactSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "cache@2"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.exact-version",
+    "tool": "artifactSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "go",
+          "packageName": "example.org/cache",
+          "version": "^2"
+        }
+      ]
+    }
+  },
+  {
+    "id": "localSearch.removed-classification",
+    "tool": "localSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "path": "src",
+          "matchString": [
+            "expire"
+          ],
+          "classification": {
+            "predicates": [
+              "Does this expire keys?"
+            ],
+            "background": "Find cache expiry."
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "localSearch.removed-classification-alias",
+    "tool": "localSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "path": "src",
+          "matchString": [
+            "expire"
+          ],
+          "clasifyContext": {
+            "classifiers": [
+              "Does this expire keys?"
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "localFetch.removed-classification",
+    "tool": "localFetch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "classification": {
+            "predicates": [
+              "Does this expire keys?"
+            ],
+            "background": "Find cache expiry."
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "localFetch.removed-classification-alias",
+    "tool": "localFetch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "clasifyContext": {
+            "classifiers": [
+              "Does this expire keys?"
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "ghSearchCode.removed-classification",
+    "tool": "ghSearchCode",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "keywords": [
+            "expire"
+          ],
+          "classification": {
+            "predicates": [
+              "Does this expire keys?"
+            ],
+            "background": "Find cache expiry."
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "ghSearchCode.removed-classification-alias",
+    "tool": "ghSearchCode",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "keywords": [
+            "expire"
+          ],
+          "clasifyContext": {
+            "classifiers": [
+              "Does this expire keys?"
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "ghGetFileContent.removed-classification",
+    "tool": "ghGetFileContent",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "path": "src/cache.ts",
+          "classification": {
+            "predicates": [
+              "Does this expire keys?"
+            ],
+            "background": "Find cache expiry."
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "ghGetFileContent.removed-classification-alias",
+    "tool": "ghGetFileContent",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "path": "src/cache.ts",
+          "clasifyContext": {
+            "classifiers": [
+              "Does this expire keys?"
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.ordinal-boundary-0",
+    "tool": "astSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": ".",
+          "rule": {
+            "nthChild": "2147483647n+2147483647"
+          }
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "path": ".",
+          "page": 1,
+          "operation": "match",
+          "sort": {
+            "by": "path",
+            "order": "asc"
+          },
+          "rule": {
+            "nthChild": "2147483647n+2147483647"
+          },
+          "view": "content"
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.ordinal-boundary-1",
+    "tool": "astSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": ".",
+          "rule": {
+            "nthChild": "-2147483648n-2147483648"
+          }
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "path": ".",
+          "page": 1,
+          "operation": "match",
+          "sort": {
+            "by": "path",
+            "order": "asc"
+          },
+          "rule": {
+            "nthChild": "-2147483648n-2147483648"
+          },
+          "view": "content"
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.ordinal-boundary-2",
+    "tool": "astSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": ".",
+          "rule": {
+            "nthChild": "0 0 2n - 0 1"
+          }
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "path": ".",
+          "page": 1,
+          "operation": "match",
+          "sort": {
+            "by": "path",
+            "order": "asc"
+          },
+          "rule": {
+            "nthChild": "0 0 2n - 0 1"
+          },
+          "view": "content"
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.ordinal-boundary-3",
+    "tool": "astSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": ".",
+          "rule": {
+            "nthChild": "n+ 2"
+          }
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "path": ".",
+          "page": 1,
+          "operation": "match",
+          "sort": {
+            "by": "path",
+            "order": "asc"
+          },
+          "rule": {
+            "nthChild": "n+ 2"
+          },
+          "view": "content"
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.ordinal-boundary-4",
+    "tool": "astSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": ".",
+          "rule": {
+            "nthChild": "2147483648n"
+          }
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "ast-search.ordinal-boundary-5",
+    "tool": "astSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": ".",
+          "rule": {
+            "nthChild": "-2147483649"
+          }
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "ast-search.ordinal-boundary-6",
+    "tool": "astSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": ".",
+          "rule": {
+            "nthChild": "n+2147483648"
+          }
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "ast-search.ordinal-boundary-7",
+    "tool": "astSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": ".",
+          "rule": {
+            "nthChild": "n﻿+2"
+          }
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "artifact.registry-empty-query",
+    "tool": "artifactSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "zod",
+          "registryUrl": "https://registry.example.org/?"
+        }
+      ]
+    },
+    "accepted": false,
+    "diagnostics": true,
+    "issues": [
+      {
+        "path": [
+          "queries",
+          0,
+          "registryUrl"
+        ],
+        "message": "Use an HTTP(S) registry URL without credentials, query or fragment."
+      }
+    ]
+  },
+  {
+    "id": "artifact.registry-empty-fragment",
+    "tool": "artifactSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "zod",
+          "registryUrl": "https://registry.example.org/#"
+        }
+      ]
+    },
+    "accepted": false,
+    "diagnostics": true,
+    "issues": [
+      {
+        "path": [
+          "queries",
+          0,
+          "registryUrl"
+        ],
+        "message": "Use an HTTP(S) registry URL without credentials, query or fragment."
+      }
+    ]
+  },
+  {
+    "id": "artifact.registry-components-0",
+    "tool": "artifactSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "zod",
+          "registryUrl": "https://registry.example.org/%3F%23"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "zod",
+          "registryUrl": "https://registry.example.org/%3F%23",
+          "view": "summary"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.registry-components-1",
+    "tool": "artifactSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "zod",
+          "registryUrl": "HTTPS://registry.example.org/npm/"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "zod",
+          "registryUrl": "HTTPS://registry.example.org/npm/",
+          "view": "summary"
+        }
+      ]
+    }
+  },
+  {
+    "id": "artifact.registry-components-2",
+    "tool": "artifactSearch",
+    "input": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "zod",
+          "registryUrl": "https:/registry.example.org/"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "operation": "resolve",
+          "ecosystem": "npm",
+          "packageName": "zod",
+          "registryUrl": "https:/registry.example.org/",
+          "view": "summary"
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.multiple-box-diagnostics",
+    "tool": "clasify",
+    "input": {
+      "queries": [
+        {
+          "operation": "models"
+        },
+        {
+          "operation": "evaluate",
+          "content": "a picture",
+          "questions": {
+            "first": {
+              "type": "box"
+            },
+            "last": {
+              "type": "box"
+            }
+          }
+        }
+      ]
+    },
+    "accepted": false,
+    "diagnostics": true,
+    "issues": [
+      {
+        "path": [
+          "queries",
+          1,
+          "questions",
+          "first"
+        ],
+        "message": "A box question needs an image: an image source or resource, or assets {<key>: {source}} named in content."
+      },
+      {
+        "path": [
+          "queries",
+          1,
+          "questions",
+          "last"
+        ],
+        "message": "A box question needs an image: an image source or resource, or assets {<key>: {source}} named in content."
+      }
+    ]
+  },
+  {
+    "id": "github-repo.keyword-only",
+    "tool": "ghSearchRepo",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "search",
+          "keywords": [
+            "cache"
+          ]
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "search",
+          "keywords": [
+            "cache"
+          ],
+          "sort": {
+            "by": "relevance",
+            "order": "desc"
+          },
+          "limit": 50,
+          "page": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-repo.owner-search",
+    "tool": "ghSearchRepo",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "search",
+          "owner": "o"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "search",
+          "owner": "o",
+          "sort": {
+            "by": "relevance",
+            "order": "desc"
+          },
+          "limit": 50,
+          "page": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-code.extension-only",
+    "tool": "ghSearchCode",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "owner": "o",
+          "extensions": [
+            "ts"
+          ]
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "owner": "o",
+          "extensions": [
+            "ts"
+          ],
+          "matchIn": [
+            "content"
+          ],
+          "contextLines": {
+            "before": 0,
+            "after": 0
+          },
+          "limit": 50,
+          "page": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-code.name-only",
+    "tool": "ghSearchCode",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "owner": "o",
+          "nameContains": "cache"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "owner": "o",
+          "nameContains": "cache",
+          "matchIn": [
+            "content"
+          ],
+          "contextLines": {
+            "before": 0,
+            "after": 0
+          },
+          "limit": 50,
+          "page": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-code.prefix-only",
+    "tool": "ghSearchCode",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "owner": "o",
+          "path": "src"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "owner": "o",
+          "path": "src",
+          "matchIn": [
+            "content"
+          ],
+          "contextLines": {
+            "before": 0,
+            "after": 0
+          },
+          "limit": 50,
+          "page": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-repo.search",
+    "tool": "ghSearchRepo",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "search",
+          "filters": {
+            "language": "TypeScript",
+            "stars": {
+              "min": 100
+            },
+            "createdAt": {
+              "from": "2026-01-01T00:00:00Z"
+            },
+            "archive": "only"
+          },
+          "sort": {
+            "by": "stars",
+            "order": "desc"
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "search",
+          "filters": {
+            "language": "TypeScript",
+            "stars": {
+              "min": 100
+            },
+            "createdAt": {
+              "from": "2026-01-01T00:00:00Z"
+            },
+            "archive": "only"
+          },
+          "sort": {
+            "by": "stars",
+            "order": "desc"
+          },
+          "limit": 50,
+          "page": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-repo.list",
+    "tool": "ghSearchRepo",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "list",
+          "owner": "o",
+          "filters": {
+            "archive": "include"
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "list",
+          "owner": "o",
+          "filters": {
+            "archive": "include"
+          },
+          "sort": {
+            "by": "pushedAt",
+            "order": "desc"
+          },
+          "limit": 50,
+          "page": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-repo.get",
+    "tool": "ghSearchRepo",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "get",
+          "owner": "o",
+          "repo": "r"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "get",
+          "owner": "o",
+          "repo": "r"
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-repo.no-constraint",
+    "tool": "ghSearchRepo",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "search"
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-repo.repo-without-owner",
+    "tool": "ghSearchRepo",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "search",
+          "repo": "r"
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-repo.numeric-order",
+    "tool": "ghSearchRepo",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "search",
+          "filters": {
+            "stars": {
+              "min": 10,
+              "max": 2
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-repo.date-order",
+    "tool": "ghSearchRepo",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "search",
+          "filters": {
+            "createdAt": {
+              "from": "2026-02-01T00:00:00Z",
+              "to": "2026-01-01T00:00:00Z"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-repo.qualifiers",
+    "tool": "ghSearchRepo",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "search",
+          "keywords": [
+            "x"
+          ],
+          "qualifiers": "repo:evil/x"
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-code.content",
+    "tool": "ghSearchCode",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "keywords": [
+            "expire"
+          ]
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "keywords": [
+            "expire"
+          ],
+          "matchIn": [
+            "content"
+          ],
+          "contextLines": {
+            "before": 0,
+            "after": 0
+          },
+          "limit": 50,
+          "page": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-code.paths",
+    "tool": "ghSearchCode",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "ref": "main",
+          "path": "src",
+          "nameContains": "cache",
+          "extensions": [
+            "ts"
+          ],
+          "matchIn": [
+            "path"
+          ]
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "ref": "main",
+          "extensions": [
+            "ts"
+          ],
+          "nameContains": "cache",
+          "path": "src",
+          "matchIn": [
+            "path"
+          ],
+          "contextLines": {
+            "before": 0,
+            "after": 0
+          },
+          "limit": 50,
+          "page": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-code.no-constraint",
+    "tool": "ghSearchCode",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "owner": "o"
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-code.ref-without-repo",
+    "diagnostics": true,
+    "tool": "ghSearchCode",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "owner": "o",
+          "keywords": [
+            "x"
+          ],
+          "ref": "main"
+        }
+      ]
+    },
+    "issues": [
+      {
+        "path": [
+          "queries",
+          0,
+          "repo"
+        ],
+        "message": "ref requires one repository."
+      }
+    ]
+  },
+  {
+    "id": "github-structure.tree",
+    "tool": "ghStructure",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "tree",
+          "owner": "o",
+          "repo": "r",
+          "path": "src",
+          "maxDepth": 2,
+          "include": [
+            "**/*.ts"
+          ],
+          "materialize": true
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "tree",
+          "owner": "o",
+          "repo": "r",
+          "path": "src",
+          "maxDepth": 2,
+          "include": [
+            "**/*.ts"
+          ],
+          "materialize": true,
+          "sort": {
+            "by": "path",
+            "order": "asc"
+          },
+          "limit": 300
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-structure.refs",
+    "tool": "ghStructure",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "refs",
+          "owner": "o",
+          "repo": "r",
+          "ref": "main"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "refs",
+          "owner": "o",
+          "repo": "r",
+          "ref": "main",
+          "limit": 30
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-structure.languages",
+    "tool": "ghStructure",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "languages",
+          "owner": "o",
+          "repo": "r"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "languages",
+          "owner": "o",
+          "repo": "r"
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-structure.languages-scope",
+    "tool": "ghStructure",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "languages",
+          "owner": "o",
+          "repo": "r",
+          "path": "src"
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-content.complete",
+    "tool": "ghGetFileContent",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "path": "src/a.ts",
+          "ref": "main"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "ref": "main",
+          "path": "src/a.ts",
+          "view": "content"
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-content.match",
+    "tool": "ghGetFileContent",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "path": "src/a.ts",
+          "matchString": [
+            "expire"
+          ],
+          "caseMode": "insensitive"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "path": "src/a.ts",
+          "view": "content",
+          "matchString": [
+            "expire"
+          ],
+          "regexEngine": "literal",
+          "caseMode": "insensitive",
+          "contextLines": {
+            "before": 0,
+            "after": 0
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-content.whole-word",
+    "tool": "ghGetFileContent",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "path": "src/a.ts",
+          "matchString": [
+            "expire"
+          ],
+          "wholeWord": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "github-content.scalar-match",
+    "tool": "ghGetFileContent",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "path": "src/a.ts",
+          "matchString": "expire"
+        }
+      ]
+    }
+  },
+  {
+    "id": "clone.shallow",
+    "tool": "ghCloneRepo",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r"
+        }
+      ]
+    }
+  },
+  {
+    "id": "clone.sparse",
+    "tool": "ghCloneRepo",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "paths": [
+            "src",
+            ".github"
+          ]
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "paths": [
+            "src",
+            ".github"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "clone.history-depth",
+    "tool": "ghCloneRepo",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "historyDepth": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "clone.parent-segment",
+    "tool": "ghCloneRepo",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "paths": [
+            "src/../outside"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "clone.newline-path",
+    "tool": "ghCloneRepo",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "paths": [
+            "src\ndocs"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "structure-search.tree",
+    "tool": "structureSearch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "tree",
+          "path": "src",
+          "maxDepth": 2
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "path": "src",
+          "view": "paths",
+          "page": 1,
+          "operation": "tree",
+          "maxDepth": 2
+        }
+      ]
+    }
+  },
+  {
+    "id": "structure-search.files",
+    "tool": "structureSearch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "files",
+          "path": "src",
+          "modifiedAt": {
+            "from": "2026-01-01T00:00:00Z"
+          },
+          "bytes": {
+            "min": 1,
+            "max": 1024
+          },
+          "sort": {
+            "by": "bytes",
+            "order": "desc"
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "path": "src",
+          "view": "paths",
+          "page": 1,
+          "operation": "files",
+          "modifiedAt": {
+            "from": "2026-01-01T00:00:00Z"
+          },
+          "bytes": {
+            "min": 1,
+            "max": 1024
+          },
+          "sort": {
+            "by": "bytes",
+            "order": "desc"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "structure-search.depth-range",
+    "diagnostics": true,
+    "tool": "structureSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "files",
+          "path": "src",
+          "minDepth": 3,
+          "maxDepth": 2
+        }
+      ]
+    },
+    "issues": [
+      {
+        "path": [
+          "queries",
+          0,
+          "minDepth"
+        ],
+        "message": "minDepth must be less than or equal to maxDepth."
+      }
+    ]
+  },
+  {
+    "id": "history-search.global-pr",
+    "tool": "ghSearchHistory",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "pullRequest"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-search.global-pr-state-only",
+    "tool": "ghSearchHistory",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "filters": {
+            "state": "open"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-search.global-pr-keywords",
+    "tool": "ghSearchHistory",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "keywords": [
+            "tokio"
+          ]
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "keywords": [
+            "tokio"
+          ],
+          "limit": 50,
+          "page": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-search.global-pr-author",
+    "tool": "ghSearchHistory",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "filters": {
+            "author": "octocat",
+            "state": "open"
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "limit": 50,
+          "page": 1,
+          "filters": {
+            "state": "open",
+            "author": "octocat"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-search.owner-pr",
+    "tool": "ghSearchHistory",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "owner": "o"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "limit": 50,
+          "page": 1,
+          "owner": "o"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-search.repo-without-owner",
+    "tool": "ghSearchHistory",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "repo": "r"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-search.closed-merged",
+    "tool": "ghSearchHistory",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "owner": "o",
+          "repo": "r",
+          "filters": {
+            "state": "closed",
+            "isMerged": true
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "limit": 50,
+          "page": 1,
+          "owner": "o",
+          "repo": "r",
+          "filters": {
+            "state": "closed",
+            "isMerged": true
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-search.open-unmerged",
+    "tool": "ghSearchHistory",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "owner": "o",
+          "repo": "r",
+          "filters": {
+            "state": "open",
+            "isMerged": false
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "limit": 50,
+          "page": 1,
+          "owner": "o",
+          "repo": "r",
+          "filters": {
+            "state": "open",
+            "isMerged": false
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-search.merged-unspecified-state",
+    "tool": "ghSearchHistory",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "owner": "o",
+          "repo": "r",
+          "filters": {
+            "isMerged": true
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "limit": 50,
+          "page": 1,
+          "owner": "o",
+          "repo": "r",
+          "filters": {
+            "isMerged": true
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-search.pull-request",
+    "tool": "ghSearchHistory",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "owner": "o",
+          "repo": "r",
+          "filters": {
+            "state": "closed",
+            "isMerged": false,
+            "labels": [
+              "good first issue"
+            ],
+            "headRef": "feature",
+            "createdAt": {
+              "from": "2026-01-01T00:00:00Z"
+            }
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "limit": 50,
+          "page": 1,
+          "owner": "o",
+          "repo": "r",
+          "filters": {
+            "state": "closed",
+            "createdAt": {
+              "from": "2026-01-01T00:00:00Z"
+            },
+            "labels": [
+              "good first issue"
+            ],
+            "isMerged": false,
+            "headRef": "feature"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-search.issue",
+    "tool": "ghSearchHistory",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "issue",
+          "owner": "o",
+          "repo": "r",
+          "filters": {
+            "linked": true,
+            "author": "alice"
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "issue",
+          "limit": 50,
+          "page": 1,
+          "owner": "o",
+          "repo": "r",
+          "filters": {
+            "author": "alice",
+            "linked": true
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-search.commit-path",
+    "tool": "ghSearchHistory",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "commit",
+          "owner": "o",
+          "repo": "r",
+          "path": "src",
+          "ref": "main",
+          "filters": {
+            "committedAt": {
+              "from": "2026-01-01T00:00:00Z"
+            },
+            "committer": "a@b.c"
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "commit",
+          "owner": "o",
+          "repo": "r",
+          "limit": 50,
+          "page": 1,
+          "path": "src",
+          "ref": "main",
+          "filters": {
+            "committer": "a@b.c",
+            "committedAt": {
+              "from": "2026-01-01T00:00:00Z"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-search.commit-message",
+    "tool": "ghSearchHistory",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "commit",
+          "owner": "o",
+          "repo": "r",
+          "keywords": [
+            "fix"
+          ],
+          "filters": {
+            "committedAt": {
+              "from": "2026-01-01T00:00:00Z",
+              "to": "2026-02-01T00:00:00Z"
+            }
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "commit",
+          "owner": "o",
+          "repo": "r",
+          "limit": 50,
+          "page": 1,
+          "keywords": [
+            "fix"
+          ],
+          "filters": {
+            "committedAt": {
+              "from": "2026-01-01T00:00:00Z",
+              "to": "2026-02-01T00:00:00Z"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-search.open-merged",
+    "diagnostics": true,
+    "tool": "ghSearchHistory",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "owner": "o",
+          "repo": "r",
+          "filters": {
+            "state": "open",
+            "isMerged": true
+          }
+        }
+      ]
+    },
+    "issues": [
+      {
+        "path": [
+          "queries",
+          0,
+          "filters",
+          "isMerged"
+        ],
+        "message": "isMerged:true selects merged pull requests, and those are closed: drop state or set state:\"closed\"."
+      }
+    ]
+  },
+  {
+    "id": "history-search.issue-scope",
+    "tool": "ghSearchHistory",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "issue",
+          "owner": "o"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-search.keyword-path",
+    "tool": "ghSearchHistory",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "commit",
+          "owner": "o",
+          "repo": "r",
+          "keywords": [
+            "fix"
+          ],
+          "path": "src"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-search.issue-review",
+    "tool": "ghSearchHistory",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "issue",
+          "owner": "o",
+          "repo": "r",
+          "filters": {
+            "reviewedBy": "o"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-search.negated-filter-retired",
+    "tool": "ghSearchHistory",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "issue",
+          "owner": "o",
+          "repo": "r",
+          "filters": {
+            "notAuthor": [
+              "bot"
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-search.wrapped-filter",
+    "tool": "ghSearchHistory",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "issue",
+          "owner": "o",
+          "repo": "r",
+          "filters": {
+            "author": {
+              "include": [
+                "o"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-item.pr",
+    "tool": "ghGetHistoryItem",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "owner": "o",
+          "repo": "r",
+          "number": 1,
+          "sections": [
+            "patches",
+            "reviewComments"
+          ],
+          "include": [
+            "src/**"
+          ],
+          "fileStatus": [
+            "modified"
+          ],
+          "matchString": [
+            "expire"
+          ]
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "operation": "pullRequest",
+          "number": 1,
+          "sections": [
+            "patches",
+            "reviewComments"
+          ],
+          "include": [
+            "src/**"
+          ],
+          "fileStatus": [
+            "modified"
+          ],
+          "matchString": [
+            "expire"
+          ],
+          "contextLines": {
+            "before": 0,
+            "after": 0
+          },
+          "regexEngine": "literal",
+          "caseMode": "smart"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-item.issue",
+    "tool": "ghGetHistoryItem",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "issue",
+          "owner": "o",
+          "repo": "r",
+          "number": 1,
+          "sections": [
+            "body",
+            "comments"
+          ]
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "operation": "issue",
+          "number": 1,
+          "sections": [
+            "body",
+            "comments"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-item.commit",
+    "tool": "ghGetHistoryItem",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "commit",
+          "owner": "o",
+          "repo": "r",
+          "ref": "main",
+          "sections": [
+            "files",
+            "patches"
+          ]
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "operation": "commit",
+          "ref": "main",
+          "sections": [
+            "files",
+            "patches"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-item.compare",
+    "tool": "ghGetHistoryItem",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "compare",
+          "owner": "o",
+          "repo": "r",
+          "baseRef": "v1",
+          "headRef": "main",
+          "sections": [
+            "commits",
+            "files",
+            "patches"
+          ]
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "operation": "compare",
+          "baseRef": "v1",
+          "headRef": "main",
+          "sections": [
+            "commits",
+            "files",
+            "patches"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-item.pr-number",
+    "tool": "ghGetHistoryItem",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "owner": "o",
+          "repo": "r"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-item.issue-files",
+    "tool": "ghGetHistoryItem",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "issue",
+          "owner": "o",
+          "repo": "r",
+          "number": 1,
+          "sections": [
+            "files"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.valid-relations",
+    "tool": "astSearch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": "src/cache.ts",
+          "rule": {
+            "kind": "function_declaration",
+            "has": {
+              "kind": "identifier",
+              "field": "name",
+              "nthChild": "2n+1"
+            },
+            "inside": {
+              "kind": "program",
+              "stopBy": "end"
+            }
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "page": 1,
+          "operation": "match",
+          "sort": {
+            "by": "path",
+            "order": "asc"
+          },
+          "rule": {
+            "kind": "function_declaration",
+            "inside": {
+              "kind": "program",
+              "stopBy": "end"
+            },
+            "has": {
+              "kind": "identifier",
+              "nthChild": "2n+1",
+              "field": "name"
+            }
+          },
+          "view": "content"
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.depth-boundary",
+    "tool": "astSearch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": "src/cache.ts",
+          "rule": {
+            "not": {
+              "not": {
+                "not": {
+                  "not": {
+                    "not": {
+                      "not": {
+                        "not": {
+                          "not": {
+                            "not": {
+                              "not": {
+                                "not": {
+                                  "not": {
+                                    "not": {
+                                      "not": {
+                                        "not": {
+                                          "not": {
+                                            "not": {
+                                              "not": {
+                                                "not": {
+                                                  "not": {
+                                                    "not": {
+                                                      "not": {
+                                                        "not": {
+                                                          "not": {
+                                                            "not": {
+                                                              "not": {
+                                                                "not": {
+                                                                  "not": {
+                                                                    "not": {
+                                                                      "not": {
+                                                                        "not": {
+                                                                          "not": {
+                                                                            "not": {
+                                                                              "not": {
+                                                                                "not": {
+                                                                                  "not": {
+                                                                                    "not": {
+                                                                                      "not": {
+                                                                                        "not": {
+                                                                                          "not": {
+                                                                                            "not": {
+                                                                                              "not": {
+                                                                                                "not": {
+                                                                                                  "not": {
+                                                                                                    "not": {
+                                                                                                      "not": {
+                                                                                                        "not": {
+                                                                                                          "not": {
+                                                                                                            "not": {
+                                                                                                              "not": {
+                                                                                                                "not": {
+                                                                                                                  "not": {
+                                                                                                                    "not": {
+                                                                                                                      "not": {
+                                                                                                                        "not": {
+                                                                                                                          "not": {
+                                                                                                                            "not": {
+                                                                                                                              "not": {
+                                                                                                                                "not": {
+                                                                                                                                  "not": {
+                                                                                                                                    "not": {
+                                                                                                                                      "not": {
+                                                                                                                                        "not": {
+                                                                                                                                          "kind": "identifier"
+                                                                                                                                        }
+                                                                                                                                      }
+                                                                                                                                    }
+                                                                                                                                  }
+                                                                                                                                }
+                                                                                                                              }
+                                                                                                                            }
+                                                                                                                          }
+                                                                                                                        }
+                                                                                                                      }
+                                                                                                                    }
+                                                                                                                  }
+                                                                                                                }
+                                                                                                              }
+                                                                                                            }
+                                                                                                          }
+                                                                                                        }
+                                                                                                      }
+                                                                                                    }
+                                                                                                  }
+                                                                                                }
+                                                                                              }
+                                                                                            }
+                                                                                          }
+                                                                                        }
+                                                                                      }
+                                                                                    }
+                                                                                  }
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "page": 1,
+          "operation": "match",
+          "sort": {
+            "by": "path",
+            "order": "asc"
+          },
+          "rule": {
+            "not": {
+              "not": {
+                "not": {
+                  "not": {
+                    "not": {
+                      "not": {
+                        "not": {
+                          "not": {
+                            "not": {
+                              "not": {
+                                "not": {
+                                  "not": {
+                                    "not": {
+                                      "not": {
+                                        "not": {
+                                          "not": {
+                                            "not": {
+                                              "not": {
+                                                "not": {
+                                                  "not": {
+                                                    "not": {
+                                                      "not": {
+                                                        "not": {
+                                                          "not": {
+                                                            "not": {
+                                                              "not": {
+                                                                "not": {
+                                                                  "not": {
+                                                                    "not": {
+                                                                      "not": {
+                                                                        "not": {
+                                                                          "not": {
+                                                                            "not": {
+                                                                              "not": {
+                                                                                "not": {
+                                                                                  "not": {
+                                                                                    "not": {
+                                                                                      "not": {
+                                                                                        "not": {
+                                                                                          "not": {
+                                                                                            "not": {
+                                                                                              "not": {
+                                                                                                "not": {
+                                                                                                  "not": {
+                                                                                                    "not": {
+                                                                                                      "not": {
+                                                                                                        "not": {
+                                                                                                          "not": {
+                                                                                                            "not": {
+                                                                                                              "not": {
+                                                                                                                "not": {
+                                                                                                                  "not": {
+                                                                                                                    "not": {
+                                                                                                                      "not": {
+                                                                                                                        "not": {
+                                                                                                                          "not": {
+                                                                                                                            "not": {
+                                                                                                                              "not": {
+                                                                                                                                "not": {
+                                                                                                                                  "not": {
+                                                                                                                                    "not": {
+                                                                                                                                      "not": {
+                                                                                                                                        "not": {
+                                                                                                                                          "kind": "identifier"
+                                                                                                                                        }
+                                                                                                                                      }
+                                                                                                                                    }
+                                                                                                                                  }
+                                                                                                                                }
+                                                                                                                              }
+                                                                                                                            }
+                                                                                                                          }
+                                                                                                                        }
+                                                                                                                      }
+                                                                                                                    }
+                                                                                                                  }
+                                                                                                                }
+                                                                                                              }
+                                                                                                            }
+                                                                                                          }
+                                                                                                        }
+                                                                                                      }
+                                                                                                    }
+                                                                                                  }
+                                                                                                }
+                                                                                              }
+                                                                                            }
+                                                                                          }
+                                                                                        }
+                                                                                      }
+                                                                                    }
+                                                                                  }
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "view": "content"
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.depth-overflow",
+    "tool": "astSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": "src/cache.ts",
+          "rule": {
+            "not": {
+              "not": {
+                "not": {
+                  "not": {
+                    "not": {
+                      "not": {
+                        "not": {
+                          "not": {
+                            "not": {
+                              "not": {
+                                "not": {
+                                  "not": {
+                                    "not": {
+                                      "not": {
+                                        "not": {
+                                          "not": {
+                                            "not": {
+                                              "not": {
+                                                "not": {
+                                                  "not": {
+                                                    "not": {
+                                                      "not": {
+                                                        "not": {
+                                                          "not": {
+                                                            "not": {
+                                                              "not": {
+                                                                "not": {
+                                                                  "not": {
+                                                                    "not": {
+                                                                      "not": {
+                                                                        "not": {
+                                                                          "not": {
+                                                                            "not": {
+                                                                              "not": {
+                                                                                "not": {
+                                                                                  "not": {
+                                                                                    "not": {
+                                                                                      "not": {
+                                                                                        "not": {
+                                                                                          "not": {
+                                                                                            "not": {
+                                                                                              "not": {
+                                                                                                "not": {
+                                                                                                  "not": {
+                                                                                                    "not": {
+                                                                                                      "not": {
+                                                                                                        "not": {
+                                                                                                          "not": {
+                                                                                                            "not": {
+                                                                                                              "not": {
+                                                                                                                "not": {
+                                                                                                                  "not": {
+                                                                                                                    "not": {
+                                                                                                                      "not": {
+                                                                                                                        "not": {
+                                                                                                                          "not": {
+                                                                                                                            "not": {
+                                                                                                                              "not": {
+                                                                                                                                "not": {
+                                                                                                                                  "not": {
+                                                                                                                                    "not": {
+                                                                                                                                      "not": {
+                                                                                                                                        "not": {
+                                                                                                                                          "not": {
+                                                                                                                                            "kind": "identifier"
+                                                                                                                                          }
+                                                                                                                                        }
+                                                                                                                                      }
+                                                                                                                                    }
+                                                                                                                                  }
+                                                                                                                                }
+                                                                                                                              }
+                                                                                                                            }
+                                                                                                                          }
+                                                                                                                        }
+                                                                                                                      }
+                                                                                                                    }
+                                                                                                                  }
+                                                                                                                }
+                                                                                                              }
+                                                                                                            }
+                                                                                                          }
+                                                                                                        }
+                                                                                                      }
+                                                                                                    }
+                                                                                                  }
+                                                                                                }
+                                                                                              }
+                                                                                            }
+                                                                                          }
+                                                                                        }
+                                                                                      }
+                                                                                    }
+                                                                                  }
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                }
+                                                              }
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.ordinal-overflow",
+    "tool": "astSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": "src/cache.ts",
+          "rule": {
+            "nthChild": "2147483648n"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.empty-relation",
+    "tool": "astSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": "src/cache.ts",
+          "rule": {
+            "has": {
+              "field": "name"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.empty-scope",
+    "tool": "astSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": "src/cache.ts",
+          "rule": {
+            "kind": "identifier"
+          },
+          "scope": {
+            "start": {
+              "line": 1,
+              "column": 2
+            },
+            "end": {
+              "line": 1,
+              "column": 2
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.match",
+    "tool": "astSearch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": "src",
+          "parser": "typescript",
+          "rule": {
+            "pattern": "expire($X)"
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "path": "src",
+          "parser": "typescript",
+          "page": 1,
+          "operation": "match",
+          "sort": {
+            "by": "path",
+            "order": "asc"
+          },
+          "rule": {
+            "pattern": "expire($X)"
+          },
+          "view": "content"
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.syntax-tree",
+    "tool": "astSearch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "syntaxTree",
+          "path": "src/cache.ts",
+          "namedOnly": false
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "page": 1,
+          "operation": "syntaxTree",
+          "namedOnly": false,
+          "path": "src/cache.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.symbols",
+    "tool": "astSearch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "symbols",
+          "path": "src",
+          "symbolFilter": {
+            "terms": [
+              "expire"
+            ],
+            "mode": "exact",
+            "caseMode": "sensitive"
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "path": "src",
+          "page": 1,
+          "operation": "symbols",
+          "symbolFilter": {
+            "terms": [
+              "expire"
+            ],
+            "mode": "exact",
+            "caseMode": "sensitive"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.scope-order",
+    "tool": "astSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": "src/cache.ts",
+          "rule": {
+            "pattern": "expire($X)"
+          },
+          "scope": {
+            "start": {
+              "line": 2,
+              "column": 1
+            },
+            "end": {
+              "line": 1,
+              "column": 1
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.nth-child",
+    "tool": "astSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": "src/cache.ts",
+          "rule": {
+            "nthChild": "2n++1"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.relational-field",
+    "tool": "astSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": "src/cache.ts",
+          "rule": {
+            "follows": {
+              "kind": "identifier",
+              "field": "name"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.bare-field",
+    "tool": "astSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": "src/cache.ts",
+          "rule": {
+            "kind": "identifier",
+            "field": "name"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.bare-stop",
+    "tool": "astSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": "src/cache.ts",
+          "rule": {
+            "kind": "identifier",
+            "stopBy": "end"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.rule-range",
+    "tool": "astSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": "src/cache.ts",
+          "rule": {
+            "range": {
+              "start": {
+                "line": 2
+              },
+              "end": {
+                "line": 1
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.utility-reference",
+    "tool": "astSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": "src/cache.ts",
+          "rule": {
+            "matches": "helper"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.context-selector",
+    "tool": "astSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": "src/cache.ts",
+          "rule": {
+            "pattern": {
+              "context": "foo($X)"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.stop-utility",
+    "tool": "astSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": "src/cache.ts",
+          "rule": {
+            "kind": "identifier",
+            "inside": {
+              "kind": "program",
+              "stopBy": {
+                "matches": "helper"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.nested-utility",
+    "tool": "astSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": "src/cache.ts",
+          "rule": {
+            "all": [
+              {
+                "kind": "identifier",
+                "precedes": {
+                  "matches": "helper"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "ast-search.wrapped-rule",
+    "tool": "astSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "match",
+          "path": "src/cache.ts",
+          "rule": {
+            "rule": {
+              "kind": "identifier"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "lsp.definition",
+    "tool": "lspSearch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "symbolName": "expire",
+          "line": 1,
+          "operation": "definition",
+          "contextLines": {
+            "before": 1,
+            "after": 2
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "page": 1,
+          "path": "src/cache.ts",
+          "symbolName": "expire",
+          "line": 1,
+          "occurrence": 0,
+          "operation": "definition",
+          "view": "content",
+          "contextLines": {
+            "before": 1,
+            "after": 2
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "lsp.references-grouped",
+    "tool": "lspSearch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "symbolName": "expire",
+          "line": 1,
+          "operation": "references",
+          "view": "files",
+          "includeDeclaration": false
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "page": 1,
+          "path": "src/cache.ts",
+          "symbolName": "expire",
+          "line": 1,
+          "occurrence": 0,
+          "operation": "references",
+          "includeDeclaration": false,
+          "view": "files"
+        }
+      ]
+    }
+  },
+  {
+    "id": "lsp.workspace",
+    "tool": "lspSearch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "workspaceSymbol",
+          "workspaceRoot": ".",
+          "symbolFuzzy": "expire"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "workspaceRoot": ".",
+          "page": 1,
+          "operation": "workspaceSymbol",
+          "symbolFuzzy": "expire"
+        }
+      ]
+    }
+  },
+  {
+    "id": "lsp.anchor",
+    "tool": "lspSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "operation": "definition"
+        }
+      ]
+    }
+  },
+  {
+    "id": "lsp.anchor-by-name",
+    "tool": "lspSearch",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "symbolName": "expire",
+          "operation": "callers"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "page": 1,
+          "path": "src/cache.ts",
+          "symbolName": "expire",
+          "occurrence": 0,
+          "operation": "callers",
+          "depth": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "lsp.occurrence-without-line",
+    "tool": "lspSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "symbolName": "expire",
+          "operation": "callers",
+          "occurrence": 1
+        }
+      ]
+    }
+  },
+  {
+    "id": "lsp.group-context",
+    "tool": "lspSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "symbolName": "expire",
+          "line": 1,
+          "operation": "references",
+          "view": "files",
+          "contextLines": {
+            "before": 1,
+            "after": 1
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "lsp.rust-context-retired",
+    "tool": "lspSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "path": "src/lib.rs",
+          "operation": "diagnostic",
+          "rustContext": {
+            "features": [
+              "cache"
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "lsp.callers-depth-zero",
+    "tool": "lspSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "symbolName": "expire",
+          "line": 1,
+          "operation": "callers",
+          "depth": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "lsp.callees-depth-zero",
+    "tool": "lspSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "symbolName": "expire",
+          "line": 1,
+          "operation": "callees",
+          "depth": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "lsp.supertypes-depth-zero",
+    "tool": "lspSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "symbolName": "expire",
+          "line": 1,
+          "operation": "supertypes",
+          "depth": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "lsp.subtypes-depth-zero",
+    "tool": "lspSearch",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "path": "src/cache.ts",
+          "symbolName": "expire",
+          "line": 1,
+          "operation": "subtypes",
+          "depth": 0
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.models",
+    "tool": "clasify",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "models"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "models"
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.content",
+    "tool": "clasify",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "content": "Restart after rotating the credential.",
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          },
+          "operation": "evaluate",
+          "content": "Restart after rotating the credential."
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.structured-primitives",
+    "tool": "clasify",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "content": {
+            "instruction": "Restart the service after replacing credentials."
+          },
+          "background": "Credential rotation",
+          "questions": {
+            "required": {
+              "type": "noul",
+              "instructions": {
+                "question": "Does instruction require a restart?"
+              },
+              "criteria": {
+                "true": "Explicit restart.",
+                "false": [
+                  "No restart."
+                ]
+              }
+            },
+            "route": {
+              "type": "choice",
+              "criteria": {
+                "restart": "Restart required.",
+                "hot": "No restart.",
+                "unknown": null
+              }
+            },
+            "support": {
+              "type": "score",
+              "criteria": [
+                "Unrelated.",
+                [
+                  "Mentions rotation."
+                ],
+                {
+                  "meaning": "Explicit steps."
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "background": "Credential rotation",
+          "questions": {
+            "required": {
+              "type": "noul",
+              "instructions": {
+                "question": "Does instruction require a restart?"
+              },
+              "criteria": {
+                "true": "Explicit restart.",
+                "false": [
+                  "No restart."
+                ]
+              }
+            },
+            "route": {
+              "type": "choice",
+              "criteria": {
+                "restart": "Restart required.",
+                "hot": "No restart.",
+                "unknown": null
+              }
+            },
+            "support": {
+              "type": "score",
+              "criteria": [
+                "Unrelated.",
+                [
+                  "Mentions rotation."
+                ],
+                {
+                  "meaning": "Explicit steps."
+                }
+              ]
+            }
+          },
+          "operation": "evaluate",
+          "content": {
+            "instruction": "Restart the service after replacing credentials."
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.source-local",
+    "tool": "clasify",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "source": {
+            "tool": "localFetch",
+            "query": {
+              "path": "src/cache.ts",
+              "ranges": [
+                {
+                  "startLine": 1,
+                  "endLine": 5
+                }
+              ]
+            }
+          },
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          },
+          "operation": "evaluate",
+          "source": {
+            "tool": "localFetch",
+            "query": {
+              "path": "src/cache.ts",
+              "ranges": [
+                {
+                  "startLine": 1,
+                  "endLine": 5
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.source-github",
+    "tool": "clasify",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "source": {
+            "tool": "ghGetFileContent",
+            "query": {
+              "owner": "o",
+              "repo": "r",
+              "path": "src/cache.ts",
+              "ref": "main"
+            }
+          },
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          },
+          "operation": "evaluate",
+          "source": {
+            "tool": "ghGetFileContent",
+            "query": {
+              "owner": "o",
+              "repo": "r",
+              "path": "src/cache.ts",
+              "ref": "main"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.source-url",
+    "tool": "clasify",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "source": {
+            "url": "https://docs.example.org/guide#rotation"
+          },
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          },
+          "operation": "evaluate",
+          "source": {
+            "url": "https://docs.example.org/guide#rotation"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.image-local",
+    "tool": "clasify",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "content": "frame",
+          "assets": {
+            "frame": {
+              "source": {
+                "tool": "localFetch",
+                "query": {
+                  "path": "shots/settings.png"
+                }
+              }
+            }
+          },
+          "questions": {
+            "button": {
+              "type": "box",
+              "instructions": "Locate the Save button in frame."
+            }
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "questions": {
+            "button": {
+              "type": "box",
+              "instructions": "Locate the Save button in frame."
+            }
+          },
+          "assets": {
+            "frame": {
+              "source": {
+                "tool": "localFetch",
+                "query": {
+                  "path": "shots/settings.png"
+                }
+              }
+            }
+          },
+          "operation": "evaluate",
+          "content": "frame"
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.image-github",
+    "tool": "clasify",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "content": "frame",
+          "assets": {
+            "frame": {
+              "source": {
+                "tool": "ghGetFileContent",
+                "query": {
+                  "owner": "o",
+                  "repo": "r",
+                  "path": "shot.jpg",
+                  "ref": "main"
+                }
+              }
+            }
+          },
+          "questions": {
+            "button": {
+              "type": "box",
+              "instructions": "Locate the Save button in frame."
+            }
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "questions": {
+            "button": {
+              "type": "box",
+              "instructions": "Locate the Save button in frame."
+            }
+          },
+          "assets": {
+            "frame": {
+              "source": {
+                "tool": "ghGetFileContent",
+                "query": {
+                  "owner": "o",
+                  "repo": "r",
+                  "path": "shot.jpg",
+                  "ref": "main"
+                }
+              }
+            }
+          },
+          "operation": "evaluate",
+          "content": "frame"
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.image-url",
+    "tool": "clasify",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "content": "frame",
+          "assets": {
+            "frame": {
+              "source": {
+                "url": "https://example.org/shot.png"
+              }
+            }
+          },
+          "questions": {
+            "button": {
+              "type": "box",
+              "instructions": "Locate the Save button in frame."
+            }
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "questions": {
+            "button": {
+              "type": "box",
+              "instructions": "Locate the Save button in frame."
+            }
+          },
+          "assets": {
+            "frame": {
+              "source": {
+                "url": "https://example.org/shot.png"
+              }
+            }
+          },
+          "operation": "evaluate",
+          "content": "frame"
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.sections",
+    "tool": "clasify",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "sections",
+          "resources": {
+            "local": {
+              "tool": "localFetch",
+              "query": {
+                "path": "src/cache.ts",
+                "ranges": [
+                  {
+                    "startLine": 1,
+                    "endLine": 5
+                  }
+                ]
+              }
+            },
+            "github": {
+              "tool": "ghGetFileContent",
+              "query": {
+                "owner": "o",
+                "repo": "r",
+                "path": "src/cache.ts",
+                "ref": "main"
+              }
+            },
+            "web": {
+              "url": "https://docs.example.org/guide#rotation"
+            }
+          },
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "sections",
+          "resources": {
+            "local": {
+              "tool": "localFetch",
+              "query": {
+                "path": "src/cache.ts",
+                "ranges": [
+                  {
+                    "startLine": 1,
+                    "endLine": 5
+                  }
+                ]
+              }
+            },
+            "github": {
+              "tool": "ghGetFileContent",
+              "query": {
+                "owner": "o",
+                "repo": "r",
+                "path": "src/cache.ts",
+                "ref": "main"
+              }
+            },
+            "web": {
+              "url": "https://docs.example.org/guide#rotation"
+            }
+          },
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.provider-optional",
+    "tool": "clasify",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "content": [],
+          "longContext": true,
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": null,
+              "criteria": {
+                "true": "The content contains evidence."
+              }
+            }
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "longContext": true,
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": null,
+              "criteria": {
+                "true": "The content contains evidence."
+              }
+            }
+          },
+          "operation": "evaluate",
+          "content": []
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.content-and-source",
+    "tool": "clasify",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "content": "Restart after rotating the credential.",
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          },
+          "source": {
+            "url": "https://docs.example.org/guide#rotation"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.missing-content-source",
+    "tool": "clasify",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.unit-source",
+    "tool": "clasify",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "source": {
+            "tool": "localSearch",
+            "query": {
+              "path": "src",
+              "matchString": [
+                "retry"
+              ]
+            }
+          },
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          }
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          },
+          "operation": "evaluate",
+          "source": {
+            "tool": "localSearch",
+            "query": {
+              "path": "src",
+              "matchString": [
+                "retry"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.unit-source-foreign-field",
+    "tool": "clasify",
+    "accepted": false,
+    "messages": [
+      "query is the row a direct localSearch call takes."
+    ],
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "source": {
+            "tool": "localSearch",
+            "query": {
+              "path": "src",
+              "matchString": [
+                "retry"
+              ],
+              "owner": "o"
+            }
+          },
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.unit-source-missing-field",
+    "tool": "clasify",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "source": {
+            "tool": "ghGetHistoryItem",
+            "query": {}
+          },
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.per-item-string",
+    "diagnostics": true,
+    "tool": "clasify",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "content": "Restart after rotating the credential.",
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          },
+          "perItem": true
+        }
+      ]
+    },
+    "issues": [
+      {
+        "path": [
+          "queries",
+          0,
+          "perItem"
+        ],
+        "message": "perItem:true judges each item of a content array: send content as an array, or drop perItem. A tool source already judges each row; resources judge each file."
+      }
+    ]
+  },
+  {
+    "id": "clasify.per-item-array",
+    "tool": "clasify",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "content": [
+            "first",
+            "second"
+          ],
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          },
+          "perItem": true
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          },
+          "operation": "evaluate",
+          "content": [
+            "first",
+            "second"
+          ],
+          "perItem": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.per-item-with-source",
+    "tool": "clasify",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "source": {
+            "tool": "localSearch",
+            "query": {
+              "path": "src",
+              "matchString": [
+                "retry"
+              ]
+            }
+          },
+          "perItem": true,
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.assets-without-content",
+    "tool": "clasify",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "assets": {
+            "shot": {
+              "source": {
+                "tool": "localFetch",
+                "query": {
+                  "path": "shot.png"
+                }
+              }
+            }
+          },
+          "questions": {
+            "error": {
+              "type": "noul",
+              "instructions": "Does shot show an error?"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.box-without-image",
+    "diagnostics": true,
+    "tool": "clasify",
+    "accepted": false,
+    "messages": [
+      "A box question needs an image: add assets {<key>: {source}} and content that names each key."
+    ],
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "content": "Restart after rotating the credential.",
+          "questions": {
+            "where": {
+              "type": "box",
+              "instructions": "Where is the Save button?"
+            }
+          }
+        }
+      ]
+    },
+    "issues": [
+      {
+        "path": [
+          "queries",
+          0,
+          "questions",
+          "where"
+        ],
+        "message": "A box question needs an image: an image source or resource, or assets {<key>: {source}} named in content."
+      }
+    ]
+  },
+  {
+    "id": "clasify.sections-empty",
+    "tool": "clasify",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "sections",
+          "resources": {},
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.source-raw-only",
+    "tool": "clasify",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "source": {
+            "tool": "localFetch",
+            "query": {
+              "path": "src/cache.ts",
+              "view": "compact"
+            }
+          },
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.source-https-only",
+    "tool": "clasify",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "source": {
+            "url": "http://example.org/guide"
+          },
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.models-with-content",
+    "tool": "clasify",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "models",
+          "content": "Restart after rotating the credential.",
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.removed-state",
+    "tool": "clasify",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "state": "text",
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.brief",
+    "tool": "clasify",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "content": "Restart after rotating the credential.",
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          },
+          "mainGoal": "Check restart",
+          "reasoning": "Inspect source"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": "Does the text require a restart?"
+            }
+          },
+          "operation": "evaluate",
+          "content": "Restart after rotating the credential.",
+          "mainGoal": "Check restart",
+          "reasoning": "Inspect source"
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.removed-yesno",
+    "tool": "clasify",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "content": "Restart after rotating the credential.",
+          "questions": {
+            "relevant": {
+              "type": "yesno",
+              "instructions": "Restart?"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.empty-predicate-0",
+    "tool": "clasify",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "content": "Restart after rotating the credential.",
+          "questions": {
+            "relevant": {
+              "type": "noul"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.empty-predicate-1",
+    "tool": "clasify",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "content": "Restart after rotating the credential.",
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": null,
+              "criteria": {
+                "true": null
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "clasify.empty-predicate-2",
+    "tool": "clasify",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "evaluate",
+          "content": "Restart after rotating the credential.",
+          "questions": {
+            "relevant": {
+              "type": "noul",
+              "instructions": " ",
+              "criteria": {
+                "true": {},
+                "false": []
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "graphBuild.resume",
+    "tool": "graphBuild",
+    "input": {
+      "cursor": "returned-cursor"
+    },
+    "accepted": true,
+    "normalized": {
+      "cursor": "returned-cursor"
+    }
+  },
+  {
+    "id": "graphBuild.resume-with-queries",
+    "tool": "graphBuild",
+    "input": {
+      "cursor": "returned-cursor",
+      "queries": [
+        {}
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graphBuild.bare-row",
+    "tool": "graphBuild",
+    "input": {},
+    "accepted": false
+  },
+  {
+    "id": "graphBuild.empty-batch",
+    "tool": "graphBuild",
+    "input": {
+      "queries": []
+    },
+    "accepted": false
+  },
+  {
+    "id": "graphBuild.old-snapshot",
+    "tool": "graphBuild",
+    "input": {
+      "responseSnapshot": "saved"
+    },
+    "accepted": false
+  },
+  {
+    "id": "graphQuery.resume",
+    "tool": "graphQuery",
+    "input": {
+      "cursor": "returned-cursor"
+    },
+    "accepted": true,
+    "normalized": {
+      "cursor": "returned-cursor"
+    }
+  },
+  {
+    "id": "graphQuery.resume-with-queries",
+    "tool": "graphQuery",
+    "input": {
+      "cursor": "returned-cursor",
+      "queries": [
+        {}
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "graphQuery.bare-row",
+    "tool": "graphQuery",
+    "input": {},
+    "accepted": false
+  },
+  {
+    "id": "graphQuery.empty-batch",
+    "tool": "graphQuery",
+    "input": {
+      "queries": []
+    },
+    "accepted": false
+  },
+  {
+    "id": "graphQuery.old-snapshot",
+    "tool": "graphQuery",
+    "input": {
+      "responseSnapshot": "saved"
+    },
+    "accepted": false
+  },
+  {
+    "id": "clasify.resume",
+    "tool": "clasify",
+    "input": {
+      "cursor": "returned-cursor"
+    },
+    "accepted": true,
+    "normalized": {
+      "cursor": "returned-cursor"
+    }
+  },
+  {
+    "id": "clasify.resume-with-queries",
+    "tool": "clasify",
+    "input": {
+      "cursor": "returned-cursor",
+      "queries": [
+        {}
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "clasify.bare-row",
+    "tool": "clasify",
+    "input": {},
+    "accepted": false
+  },
+  {
+    "id": "clasify.empty-batch",
+    "tool": "clasify",
+    "input": {
+      "queries": []
+    },
+    "accepted": false
+  },
+  {
+    "id": "clasify.old-snapshot",
+    "tool": "clasify",
+    "input": {
+      "responseSnapshot": "saved"
+    },
+    "accepted": false
+  },
+  {
+    "id": "ghSearchRepo.resume",
+    "tool": "ghSearchRepo",
+    "input": {
+      "cursor": "returned-cursor"
+    },
+    "accepted": true,
+    "normalized": {
+      "cursor": "returned-cursor"
+    }
+  },
+  {
+    "id": "ghSearchRepo.resume-with-queries",
+    "tool": "ghSearchRepo",
+    "input": {
+      "cursor": "returned-cursor",
+      "queries": [
+        {}
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "ghSearchRepo.bare-row",
+    "tool": "ghSearchRepo",
+    "input": {},
+    "accepted": false
+  },
+  {
+    "id": "ghSearchRepo.empty-batch",
+    "tool": "ghSearchRepo",
+    "input": {
+      "queries": []
+    },
+    "accepted": false
+  },
+  {
+    "id": "ghSearchRepo.old-snapshot",
+    "tool": "ghSearchRepo",
+    "input": {
+      "responseSnapshot": "saved"
+    },
+    "accepted": false
+  },
+  {
+    "id": "ghSearchCode.resume",
+    "tool": "ghSearchCode",
+    "input": {
+      "cursor": "returned-cursor"
+    },
+    "accepted": true,
+    "normalized": {
+      "cursor": "returned-cursor"
+    }
+  },
+  {
+    "id": "ghSearchCode.resume-with-queries",
+    "tool": "ghSearchCode",
+    "input": {
+      "cursor": "returned-cursor",
+      "queries": [
+        {}
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "ghSearchCode.bare-row",
+    "tool": "ghSearchCode",
+    "input": {},
+    "accepted": false
+  },
+  {
+    "id": "ghSearchCode.empty-batch",
+    "tool": "ghSearchCode",
+    "input": {
+      "queries": []
+    },
+    "accepted": false
+  },
+  {
+    "id": "ghSearchCode.old-snapshot",
+    "tool": "ghSearchCode",
+    "input": {
+      "responseSnapshot": "saved"
+    },
+    "accepted": false
+  },
+  {
+    "id": "ghStructure.resume",
+    "tool": "ghStructure",
+    "input": {
+      "cursor": "returned-cursor"
+    },
+    "accepted": true,
+    "normalized": {
+      "cursor": "returned-cursor"
+    }
+  },
+  {
+    "id": "ghStructure.resume-with-queries",
+    "tool": "ghStructure",
+    "input": {
+      "cursor": "returned-cursor",
+      "queries": [
+        {}
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "ghStructure.bare-row",
+    "tool": "ghStructure",
+    "input": {},
+    "accepted": false
+  },
+  {
+    "id": "ghStructure.empty-batch",
+    "tool": "ghStructure",
+    "input": {
+      "queries": []
+    },
+    "accepted": false
+  },
+  {
+    "id": "ghStructure.old-snapshot",
+    "tool": "ghStructure",
+    "input": {
+      "responseSnapshot": "saved"
+    },
+    "accepted": false
+  },
+  {
+    "id": "ghGetFileContent.resume",
+    "tool": "ghGetFileContent",
+    "input": {
+      "cursor": "returned-cursor"
+    },
+    "accepted": true,
+    "normalized": {
+      "cursor": "returned-cursor"
+    }
+  },
+  {
+    "id": "ghGetFileContent.resume-with-queries",
+    "tool": "ghGetFileContent",
+    "input": {
+      "cursor": "returned-cursor",
+      "queries": [
+        {}
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "ghGetFileContent.bare-row",
+    "tool": "ghGetFileContent",
+    "input": {},
+    "accepted": false
+  },
+  {
+    "id": "ghGetFileContent.empty-batch",
+    "tool": "ghGetFileContent",
+    "input": {
+      "queries": []
+    },
+    "accepted": false
+  },
+  {
+    "id": "ghGetFileContent.old-snapshot",
+    "tool": "ghGetFileContent",
+    "input": {
+      "responseSnapshot": "saved"
+    },
+    "accepted": false
+  },
+  {
+    "id": "ghSearchHistory.resume",
+    "tool": "ghSearchHistory",
+    "input": {
+      "cursor": "returned-cursor"
+    },
+    "accepted": true,
+    "normalized": {
+      "cursor": "returned-cursor"
+    }
+  },
+  {
+    "id": "ghSearchHistory.resume-with-queries",
+    "tool": "ghSearchHistory",
+    "input": {
+      "cursor": "returned-cursor",
+      "queries": [
+        {}
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "ghSearchHistory.bare-row",
+    "tool": "ghSearchHistory",
+    "input": {},
+    "accepted": false
+  },
+  {
+    "id": "ghSearchHistory.empty-batch",
+    "tool": "ghSearchHistory",
+    "input": {
+      "queries": []
+    },
+    "accepted": false
+  },
+  {
+    "id": "ghSearchHistory.old-snapshot",
+    "tool": "ghSearchHistory",
+    "input": {
+      "responseSnapshot": "saved"
+    },
+    "accepted": false
+  },
+  {
+    "id": "ghGetHistoryItem.resume",
+    "tool": "ghGetHistoryItem",
+    "input": {
+      "cursor": "returned-cursor"
+    },
+    "accepted": true,
+    "normalized": {
+      "cursor": "returned-cursor"
+    }
+  },
+  {
+    "id": "ghGetHistoryItem.resume-with-queries",
+    "tool": "ghGetHistoryItem",
+    "input": {
+      "cursor": "returned-cursor",
+      "queries": [
+        {}
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "ghGetHistoryItem.bare-row",
+    "tool": "ghGetHistoryItem",
+    "input": {},
+    "accepted": false
+  },
+  {
+    "id": "ghGetHistoryItem.empty-batch",
+    "tool": "ghGetHistoryItem",
+    "input": {
+      "queries": []
+    },
+    "accepted": false
+  },
+  {
+    "id": "ghGetHistoryItem.old-snapshot",
+    "tool": "ghGetHistoryItem",
+    "input": {
+      "responseSnapshot": "saved"
+    },
+    "accepted": false
+  },
+  {
+    "id": "artifactSearch.resume",
+    "tool": "artifactSearch",
+    "input": {
+      "cursor": "returned-cursor"
+    },
+    "accepted": true,
+    "normalized": {
+      "cursor": "returned-cursor"
+    }
+  },
+  {
+    "id": "artifactSearch.resume-with-queries",
+    "tool": "artifactSearch",
+    "input": {
+      "cursor": "returned-cursor",
+      "queries": [
+        {}
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "artifactSearch.bare-row",
+    "tool": "artifactSearch",
+    "input": {},
+    "accepted": false
+  },
+  {
+    "id": "artifactSearch.empty-batch",
+    "tool": "artifactSearch",
+    "input": {
+      "queries": []
+    },
+    "accepted": false
+  },
+  {
+    "id": "artifactSearch.old-snapshot",
+    "tool": "artifactSearch",
+    "input": {
+      "responseSnapshot": "saved"
+    },
+    "accepted": false
+  },
+  {
+    "id": "ghCloneRepo.resume",
+    "tool": "ghCloneRepo",
+    "input": {
+      "cursor": "returned-cursor"
+    },
+    "accepted": true,
+    "normalized": {
+      "cursor": "returned-cursor"
+    }
+  },
+  {
+    "id": "ghCloneRepo.resume-with-queries",
+    "tool": "ghCloneRepo",
+    "input": {
+      "cursor": "returned-cursor",
+      "queries": [
+        {}
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "ghCloneRepo.bare-row",
+    "tool": "ghCloneRepo",
+    "input": {},
+    "accepted": false
+  },
+  {
+    "id": "ghCloneRepo.empty-batch",
+    "tool": "ghCloneRepo",
+    "input": {
+      "queries": []
+    },
+    "accepted": false
+  },
+  {
+    "id": "ghCloneRepo.old-snapshot",
+    "tool": "ghCloneRepo",
+    "input": {
+      "responseSnapshot": "saved"
+    },
+    "accepted": false
+  },
+  {
+    "id": "localSearch.resume",
+    "tool": "localSearch",
+    "input": {
+      "cursor": "returned-cursor"
+    },
+    "accepted": true,
+    "normalized": {
+      "cursor": "returned-cursor"
+    }
+  },
+  {
+    "id": "localSearch.resume-with-queries",
+    "tool": "localSearch",
+    "input": {
+      "cursor": "returned-cursor",
+      "queries": [
+        {}
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "localSearch.bare-row",
+    "tool": "localSearch",
+    "input": {},
+    "accepted": false
+  },
+  {
+    "id": "localSearch.empty-batch",
+    "tool": "localSearch",
+    "input": {
+      "queries": []
+    },
+    "accepted": false
+  },
+  {
+    "id": "localSearch.old-snapshot",
+    "tool": "localSearch",
+    "input": {
+      "responseSnapshot": "saved"
+    },
+    "accepted": false
+  },
+  {
+    "id": "structureSearch.resume",
+    "tool": "structureSearch",
+    "input": {
+      "cursor": "returned-cursor"
+    },
+    "accepted": true,
+    "normalized": {
+      "cursor": "returned-cursor"
+    }
+  },
+  {
+    "id": "structureSearch.resume-with-queries",
+    "tool": "structureSearch",
+    "input": {
+      "cursor": "returned-cursor",
+      "queries": [
+        {}
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "structureSearch.bare-row",
+    "tool": "structureSearch",
+    "input": {},
+    "accepted": false
+  },
+  {
+    "id": "structureSearch.empty-batch",
+    "tool": "structureSearch",
+    "input": {
+      "queries": []
+    },
+    "accepted": false
+  },
+  {
+    "id": "structureSearch.old-snapshot",
+    "tool": "structureSearch",
+    "input": {
+      "responseSnapshot": "saved"
+    },
+    "accepted": false
+  },
+  {
+    "id": "astSearch.resume",
+    "tool": "astSearch",
+    "input": {
+      "cursor": "returned-cursor"
+    },
+    "accepted": true,
+    "normalized": {
+      "cursor": "returned-cursor"
+    }
+  },
+  {
+    "id": "astSearch.resume-with-queries",
+    "tool": "astSearch",
+    "input": {
+      "cursor": "returned-cursor",
+      "queries": [
+        {}
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "astSearch.bare-row",
+    "tool": "astSearch",
+    "input": {},
+    "accepted": false
+  },
+  {
+    "id": "astSearch.empty-batch",
+    "tool": "astSearch",
+    "input": {
+      "queries": []
+    },
+    "accepted": false
+  },
+  {
+    "id": "astSearch.old-snapshot",
+    "tool": "astSearch",
+    "input": {
+      "responseSnapshot": "saved"
+    },
+    "accepted": false
+  },
+  {
+    "id": "localFetch.resume",
+    "tool": "localFetch",
+    "input": {
+      "cursor": "returned-cursor"
+    },
+    "accepted": true,
+    "normalized": {
+      "cursor": "returned-cursor"
+    }
+  },
+  {
+    "id": "localFetch.resume-with-queries",
+    "tool": "localFetch",
+    "input": {
+      "cursor": "returned-cursor",
+      "queries": [
+        {}
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "localFetch.bare-row",
+    "tool": "localFetch",
+    "input": {},
+    "accepted": false
+  },
+  {
+    "id": "localFetch.empty-batch",
+    "tool": "localFetch",
+    "input": {
+      "queries": []
+    },
+    "accepted": false
+  },
+  {
+    "id": "localFetch.old-snapshot",
+    "tool": "localFetch",
+    "input": {
+      "responseSnapshot": "saved"
+    },
+    "accepted": false
+  },
+  {
+    "id": "lspSearch.resume",
+    "tool": "lspSearch",
+    "input": {
+      "cursor": "returned-cursor"
+    },
+    "accepted": true,
+    "normalized": {
+      "cursor": "returned-cursor"
+    }
+  },
+  {
+    "id": "lspSearch.resume-with-queries",
+    "tool": "lspSearch",
+    "input": {
+      "cursor": "returned-cursor",
+      "queries": [
+        {}
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "lspSearch.bare-row",
+    "tool": "lspSearch",
+    "input": {},
+    "accepted": false
+  },
+  {
+    "id": "lspSearch.empty-batch",
+    "tool": "lspSearch",
+    "input": {
+      "queries": []
+    },
+    "accepted": false
+  },
+  {
+    "id": "lspSearch.old-snapshot",
+    "tool": "lspSearch",
+    "input": {
+      "responseSnapshot": "saved"
+    },
+    "accepted": false
+  },
+  {
+    "id": "securityCheck.resume",
+    "tool": "securityCheck",
+    "input": {
+      "cursor": "returned-cursor"
+    },
+    "accepted": true,
+    "normalized": {
+      "cursor": "returned-cursor"
+    }
+  },
+  {
+    "id": "securityCheck.resume-with-queries",
+    "tool": "securityCheck",
+    "input": {
+      "cursor": "returned-cursor",
+      "queries": [
+        {}
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "securityCheck.bare-row",
+    "tool": "securityCheck",
+    "input": {},
+    "accepted": false
+  },
+  {
+    "id": "securityCheck.empty-batch",
+    "tool": "securityCheck",
+    "input": {
+      "queries": []
+    },
+    "accepted": false
+  },
+  {
+    "id": "securityCheck.old-snapshot",
+    "tool": "securityCheck",
+    "input": {
+      "responseSnapshot": "saved"
+    },
+    "accepted": false
+  }
+]

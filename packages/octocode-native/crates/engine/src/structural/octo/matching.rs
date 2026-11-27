@@ -1,0 +1,468 @@
+use crate::num::saturating_u32;
+use std::time::Instant;
+
+use tree_sitter::{Language, Node};
+
+use crate::structural::types::{
+    FileMatches, StructuralDemand, StructuralDetailedMatch, StructuralMatch,
+};
+
+mod capture;
+mod walk;
+
+pub(super) use capture::CaptureEnv;
+pub(in crate::structural) use walk::parse_tree_with_deadline;
+pub(super) use walk::{ancestors_from_root, collect_kind_matches, parse_tree, visit_named};
+
+/// The code of a parse cut short by its deadline or cancellation.
+pub const PARSE_INTERRUPTED: &str = "structural.parse.interrupted";
+/// The code of a match cut short by its execution deadline.
+pub const MATCH_DEADLINE: &str = "structural.match.deadline";
+
+#[derive(Debug, Clone)]
+pub(in crate::structural) struct ExecutionError {
+    pub(in crate::structural) code: &'static str,
+    pub(in crate::structural) stage: &'static str,
+    pub(in crate::structural) message: String,
+}
+/// When matching stops. Production matching runs each file to completion
+/// ([`Deadline::UNBOUNDED`]) and reads no clock; a bound one is checked at
+/// every step.
+#[derive(Clone, Copy, Debug)]
+pub(in crate::structural) struct Deadline(Option<Instant>);
+
+impl Deadline {
+    pub(in crate::structural) const UNBOUNDED: Self = Self(None);
+    #[cfg(test)]
+    pub(in crate::structural) fn at(instant: Instant) -> Self {
+        Self(Some(instant))
+    }
+    /// The deadline of a parse this match runs: an unbounded match parses
+    /// the whole file.
+    pub(in crate::structural) fn parse_by(self) -> Instant {
+        self.0
+            .unwrap_or_else(crate::signatures::extractor::whole_file_deadline)
+    }
+}
+
+impl ExecutionError {
+    pub(in crate::structural) fn check(deadline: Deadline) -> Result<(), Self> {
+        if deadline.0.is_some_and(|at| Instant::now() >= at) {
+            Err(Self::limit(
+                MATCH_DEADLINE,
+                "match",
+                "Structural matching exceeded its execution deadline",
+            ))
+        } else {
+            Ok(())
+        }
+    }
+    pub(super) fn limit(
+        code: &'static str,
+        stage: &'static str,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            code,
+            stage,
+            message: message.into(),
+        }
+    }
+    pub(in crate::structural) fn diagnostic(
+        &self,
+        path: &str,
+    ) -> crate::structural::types::StructuralDiagnostic {
+        crate::structural::types::StructuralDiagnostic::new(self.code, "warning", self.stage, &self.message)
+            .with_path(path).with_recovery("Narrow the search scope or simplify the structural query; this file was not completely evaluated.")
+    }
+}
+impl std::fmt::Display for ExecutionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}] {}", self.code, self.message)
+    }
+}
+
+/// A match paired with the tree-sitter `kind` of the node it matched. The
+/// non-detailed API discards `node_kind`; the detailed API surfaces it as
+/// `StructuralDetailedMatch.node_kind` so callers can see what shape was hit
+/// without re-parsing.
+pub(in crate::structural) struct MatchWithKind {
+    pub(in crate::structural) matched: StructuralMatch,
+    pub(in crate::structural) node_kind: NodeKind,
+}
+
+impl MatchWithKind {
+    pub(super) fn new(node: Node<'_>, matched: StructuralMatch) -> Self {
+        Self {
+            node_kind: NodeKind {
+                language: node.language().to_owned(),
+                id: node.kind_id(),
+            },
+            matched,
+        }
+    }
+}
+
+/// What a matcher keeps of the matches it finds, by the caller's
+/// [`StructuralDemand`]: a match is built only when it is kept or priced.
+/// It also records whether the file parsed with recovered syntax that could
+/// hide a match ([`super::recovery`]).
+pub(in crate::structural) struct Found<'a> {
+    source: Option<crate::structural::SourceBinder<'a>>,
+    source_error: Option<crate::text::analysis::SourceError>,
+    kept: Kept<'a>,
+    recovered: bool,
+    /// Macro bodies whose re-parse could not read a node the query matched,
+    /// sorted, each once.
+    recovered_bodies: Vec<crate::structural::types::RecoveredBody>,
+    /// Which 1-based start lines a scope keeps; `None` keeps every match.
+    keep_line: Option<&'a (dyn Fn(u32) -> bool + Sync)>,
+    /// The share this source's tree is parsed through, the source's path
+    /// and the scan's stop ([`Self::parse`]).
+    trees: Option<SharedTrees<'a>>,
+    /// Every match pushed, kept or not: what the prefilter audit reads.
+    #[cfg(test)]
+    pushed: u32,
+}
+
+/// Where a source's tree is parsed once for the scans beside this one.
+type SharedTrees<'a> = (
+    &'a crate::structural::files::TreeShare,
+    &'a std::path::Path,
+    &'a crate::search::walk::Stop<'a>,
+);
+
+/// Each kept match or price with its node's [`SourceOrder`].
+enum Kept<'a> {
+    Matches(Vec<(SourceOrder, MatchWithKind)>),
+    Priced(
+        &'a (dyn Fn(&StructuralDetailedMatch) -> u32 + Sync),
+        Vec<(SourceOrder, u32)>,
+    ),
+    Counted(u32),
+}
+
+/// Where a matched node sits in its file: by start, an enclosing node
+/// first. The walk reaches a macro body's re-parsed parts after the body's
+/// own nodes, so a file's matches are put in this order when it is done.
+type SourceOrder = (usize, std::cmp::Reverse<usize>);
+
+fn source_order(node: Node<'_>) -> SourceOrder {
+    (node.start_byte(), std::cmp::Reverse(node.end_byte()))
+}
+
+/// `kept` in source order (a stable sort: equal spans keep walk order).
+fn in_source_order<T>(mut kept: Vec<(SourceOrder, T)>) -> Vec<T> {
+    kept.sort_by_key(|(order, _)| *order);
+    kept.into_iter().map(|(_, item)| item).collect()
+}
+
+impl<'a> Found<'a> {
+    pub(in crate::structural) fn new(demand: StructuralDemand<'a>) -> Self {
+        let kept = match demand {
+            StructuralDemand::Matches => Kept::Matches(Vec::new()),
+            StructuralDemand::Count | StructuralDemand::Exists => Kept::Counted(0),
+            StructuralDemand::Priced(price)
+            | StructuralDemand::Paged(crate::structural::types::PagedWindow { price, .. }) => {
+                Kept::Priced(price, Vec::new())
+            }
+        };
+        Self {
+            kept,
+            source: None,
+            source_error: None,
+            recovered: false,
+            recovered_bodies: Vec::new(),
+            keep_line: None,
+            trees: None,
+            #[cfg(test)]
+            pushed: 0,
+        }
+    }
+
+    /// Parse the source at `path` through `trees`: once for every scan
+    /// beside this one that matches the same text ([`Self::parse`]).
+    pub(in crate::structural) fn share_trees(
+        &mut self,
+        trees: &'a crate::structural::files::TreeShare,
+        path: &'a std::path::Path,
+        stop: &'a crate::search::walk::Stop<'a>,
+    ) {
+        self.trees = Some((trees, path, stop));
+    }
+
+    /// The tree of `content` by `language`, as
+    /// [`parse_tree_with_deadline`] parses it by `deadline`: from the
+    /// share the source's tree is parsed through when this file has one,
+    /// whose tree is that same parse of the same text.
+    pub(in crate::structural) fn parse(
+        &self,
+        language: &Language,
+        content: &str,
+        deadline: super::Deadline,
+    ) -> Result<tree_sitter::Tree, ExecutionError> {
+        let parse = || parse_tree_with_deadline(language, content, deadline.parse_by());
+        match self.trees {
+            Some((trees, path, stop)) => trees.tree((path, language, content), stop, parse),
+            None => parse(),
+        }
+    }
+
+    /// How many matches were pushed, kept or not.
+    #[cfg(test)]
+    pub(in crate::structural) fn pushed(&self) -> u32 {
+        self.pushed
+    }
+
+    /// Keep only the matches whose 1-based start line `keep` admits.
+    pub(in crate::structural) fn keep_lines(&mut self, keep: &'a (dyn Fn(u32) -> bool + Sync)) {
+        self.keep_line = Some(keep);
+    }
+
+    pub(in crate::structural) fn bind_source(
+        &mut self,
+        source: crate::structural::SourceBinder<'a>,
+    ) {
+        self.source = Some(source);
+    }
+    pub(in crate::structural) fn source_error(
+        &self,
+    ) -> Option<&crate::text::analysis::SourceError> {
+        self.source_error.as_ref()
+    }
+
+    /// One match of `node`; `build` makes it only when this demand keeps
+    /// or prices it.
+    pub(super) fn push(&mut self, node: Node<'_>, build: impl FnOnce() -> StructuralMatch) {
+        #[cfg(test)]
+        {
+            self.pushed += 1;
+        }
+        if self.source_error.is_some() {
+            return;
+        }
+        if let Some(keep) = self.keep_line {
+            let line = saturating_u32(node.start_position().row).saturating_add(1);
+            if !keep(line) {
+                return;
+            }
+        }
+        let build = || {
+            let mut matched = build();
+            if let Some(source) = &mut self.source {
+                source.bind_raw_match(&mut matched)?;
+            }
+            Ok::<_, crate::text::analysis::SourceError>(matched)
+        };
+        match &mut self.kept {
+            Kept::Matches(matches) => match build() {
+                Ok(matched) => {
+                    matches.push((source_order(node), MatchWithKind::new(node, matched)));
+                }
+                Err(error) => self.source_error = Some(error),
+            },
+            Kept::Priced(price, prices) => {
+                let matched = match build() {
+                    Ok(matched) => matched,
+                    Err(error) => {
+                        self.source_error = Some(error);
+                        return;
+                    }
+                };
+                let found = MatchWithKind::new(node, matched);
+                prices.push((
+                    source_order(node),
+                    price(&StructuralDetailedMatch::from_match(
+                        found.matched,
+                        found.node_kind,
+                    )),
+                ));
+            }
+            Kept::Counted(count) => *count = count.saturating_add(1),
+        }
+    }
+
+    /// The file parsed with recovered syntax that could hide a match.
+    pub(super) fn mark_recovered(&mut self) {
+        self.recovered = true;
+    }
+
+    /// Whether the file parsed with recovered syntax that could hide a match.
+    pub(in crate::structural) fn recovered(&self) -> bool {
+        self.recovered
+    }
+
+    /// A macro body whose re-parse could not read a node the query matched:
+    /// a match inside it may be missing.
+    pub(super) fn mark_recovered_body(&mut self, body: &crate::structural::types::RecoveredBody) {
+        if let Err(at) = self.recovered_bodies.binary_search(body) {
+            self.recovered_bodies.insert(at, body.clone());
+        }
+    }
+
+    /// The macro bodies whose re-parse could hide a match, sorted.
+    pub(in crate::structural) fn recovered_bodies(
+        &self,
+    ) -> &[crate::structural::types::RecoveredBody] {
+        &self.recovered_bodies
+    }
+
+    /// The kept matches (empty for a count or a price demand).
+    pub(in crate::structural) fn into_matches(self) -> Vec<MatchWithKind> {
+        match self.kept {
+            Kept::Matches(matches) => in_source_order(matches),
+            Kept::Priced(..) | Kept::Counted(_) => Vec::new(),
+        }
+    }
+
+    /// What a file keeps, as the detailed shape.
+    pub(in crate::structural) fn into_file_matches(self) -> FileMatches {
+        match self.kept {
+            Kept::Matches(matches) => FileMatches::Held(
+                in_source_order(matches)
+                    .into_iter()
+                    .map(|m| StructuralDetailedMatch::from_match(m.matched, m.node_kind))
+                    .collect(),
+            ),
+            Kept::Priced(_, prices) => FileMatches::Priced(in_source_order(prices)),
+            Kept::Counted(count) => FileMatches::Counted(count),
+        }
+    }
+}
+
+/// A matched node's kind as a grammar symbol id. The name is only
+/// materialized (one `String`) when the detailed API consumes it; the
+/// non-detailed API drops it without allocating.
+pub(in crate::structural) struct NodeKind {
+    language: Language,
+    id: u16,
+}
+
+impl From<NodeKind> for String {
+    fn from(kind: NodeKind) -> Self {
+        if kind.id == u16::MAX {
+            return "ERROR".to_owned();
+        }
+        kind.language
+            .node_kind_for_id(kind.id)
+            .unwrap_or_default()
+            .to_owned()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum CandidatePlan {
+    Any,
+    Kinds(Vec<String>),
+    Empty,
+}
+
+impl CandidatePlan {
+    pub(super) fn from_kind(kind: impl Into<String>) -> Self {
+        Self::from_kinds([kind.into()])
+    }
+
+    pub(super) fn from_kinds(kinds: impl IntoIterator<Item = String>) -> Self {
+        let mut kinds = kinds.into_iter().collect::<Vec<_>>();
+        kinds.sort();
+        kinds.dedup();
+        if kinds.is_empty() {
+            Self::Empty
+        } else {
+            Self::Kinds(kinds)
+        }
+    }
+
+    pub(super) fn matches(&self, candidate: Node<'_>) -> bool {
+        self.matches_kind(crate::signatures::node_kinds::kind_of(candidate))
+    }
+
+    pub(super) fn matches_kind(&self, kind: &str) -> bool {
+        match self {
+            Self::Any => true,
+            Self::Kinds(kinds) => kinds.iter().any(|candidate| candidate == kind),
+            Self::Empty => false,
+        }
+    }
+
+    pub(super) fn intersect(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Empty, _) | (_, Self::Empty) => Self::Empty,
+            (Self::Any, plan) | (plan, Self::Any) => plan,
+            (Self::Kinds(left), Self::Kinds(right)) => {
+                Self::from_kinds(left.into_iter().filter(|kind| right.contains(kind)))
+            }
+        }
+    }
+
+    pub(super) fn union(plans: impl IntoIterator<Item = Self>) -> Self {
+        let mut kinds = Vec::new();
+        for plan in plans {
+            match plan {
+                Self::Any => return Self::Any,
+                Self::Kinds(plan_kinds) => kinds.extend(plan_kinds),
+                Self::Empty => {}
+            }
+        }
+        Self::from_kinds(kinds)
+    }
+}
+
+/// Raw capture position: (start_row, start_byte_col, end_row, end_byte_col),
+/// tree-sitter native. Converted to 1-based line + char column at build time.
+pub(super) type RawRange = (u32, u32, u32, u32, u32, u32, usize);
+
+/// A capture's span with the index of the captured value it is.
+pub(super) type ListedRange = (usize, RawRange);
+
+/// Each bound name's spans ([`ListedRange`]).
+pub(super) type CapturedRanges = std::collections::HashMap<String, Vec<ListedRange>>;
+
+/// The spans a capture of the node sequence `nodes` lists, each with the
+/// index of the captured value it is: every node but a punctuation token (an
+/// anonymous node that spells no word, such as the `,` between arguments).
+/// The capture's values keep every node, so its text and a backreference
+/// still compare the whole sequence; only its spans leave the separators out.
+pub(super) fn listed_ranges(nodes: &[Node<'_>], text: &str) -> Vec<ListedRange> {
+    nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| {
+            node.is_named()
+                || node_text(**node, text)
+                    .chars()
+                    .any(|c| c.is_alphanumeric() || c == '_')
+        })
+        .map(|(index, node)| (index, raw_range(*node)))
+        .collect()
+}
+
+pub(super) fn raw_range(node: Node<'_>) -> RawRange {
+    let start = node.start_position();
+    let end = node.end_position();
+    (
+        saturating_u32(start.row),
+        saturating_u32(start.column),
+        saturating_u32(end.row),
+        saturating_u32(end.column),
+        saturating_u32(node.start_byte()),
+        saturating_u32(node.end_byte()),
+        super::source_context::tree_id(node),
+    )
+}
+
+// Cursor iteration is O(k); `node.child(i)` scans siblings linearly, so an
+// indexed loop is O(k²) on wide nodes (long argument lists, big arrays).
+pub(super) fn children<'tree>(node: Node<'tree>) -> Vec<Node<'tree>> {
+    node.children(&mut node.walk()).collect()
+}
+
+pub(in crate::structural) fn named_children<'tree>(node: Node<'tree>) -> Vec<Node<'tree>> {
+    node.named_children(&mut node.walk()).collect()
+}
+
+pub(in crate::structural) fn node_text<'a>(node: Node<'_>, source: &'a str) -> &'a str {
+    source
+        .get(node.start_byte()..node.end_byte())
+        .unwrap_or_default()
+}

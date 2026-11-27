@@ -1,0 +1,398 @@
+#!/usr/bin/env node
+
+import { chromeRecipeOptionNames } from './chrome-contract.mjs';
+import { spawn } from 'child_process';
+import { resolve, dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+import { existsSync, readFileSync, realpathSync, mkdirSync } from 'fs';
+import { propagateOctocodeEnv } from './octocode-config.mjs';
+import { flagArgs } from './cli-flags.mjs';
+import { octocodeOutputBase, packageTmpDir } from './engine-io.mjs';
+import { stageHelpers, pruneOldRunDirs } from './sandbox-staging.mjs';
+import { originViolation, readSessionMeta } from './session-meta.mjs';
+import { errorMessage } from './error-message.mjs';
+import { urlSchemeRefusal } from './cdp-policy.mjs';
+
+function requireNode24() {
+  const [major] = process.versions.node.split('.').map(Number);
+  if (!Number.isFinite(major) || major < 24) {
+    console.error(
+      `[CDP_SANDBOX] Node.js 24+ required (you have ${process.versions.node}).`
+    );
+    process.exit(1);
+  }
+}
+requireNode24();
+
+const __dir = dirname(fileURLToPath(import.meta.url));
+const RUNNER = resolve(__dir, 'cdp-runner.mjs');
+// Shared config is bundled in the package so extracted archives run standalone with
+// no npm install; Node's permission model must allow both it and its realpath.
+const CONFIG_ENTRY = resolve(__dir, 'octocode-config.mjs');
+
+const argv = process.argv.slice(2);
+const { getArg, hasFlag } = flagArgs(argv);
+
+const PORT = getArg('--port', '9222');
+const LIST_TARGETS = hasFlag('--list-targets');
+const scriptArg = argv.find(
+  a => !a.startsWith('--') && (a.endsWith('.mjs') || a.endsWith('.js'))
+);
+const SCRIPT_TIMEOUT_MS = Number(getArg('--script-timeout', '300000'));
+const VERBOSE = hasFlag('--verbose');
+
+if (hasFlag('--help') || hasFlag('-h')) {
+  console.log(
+    '[CDP_SANDBOX] Usage: node cdp-sandbox.mjs <script.mjs> [--port 9222] [options]'
+  );
+  console.log('[CDP_SANDBOX] Options are the same as cdp-runner.mjs');
+  process.exit(0);
+}
+
+if (!Number.isSafeInteger(SCRIPT_TIMEOUT_MS) || SCRIPT_TIMEOUT_MS < 1) {
+  console.error('[CDP_SANDBOX] --script-timeout must be a positive integer');
+  process.exit(2);
+}
+
+if (!scriptArg && !LIST_TARGETS) {
+  console.error(
+    '[CDP_SANDBOX] Usage: node cdp-sandbox.mjs <script.mjs> [--port 9222] [options]'
+  );
+  console.error('[CDP_SANDBOX] Options are the same as cdp-runner.mjs');
+  process.exit(1);
+}
+
+propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });
+
+const OCTOCODE_OUTPUT_BASE = octocodeOutputBase();
+const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+const RUNS_DIR = packageTmpDir(OCTOCODE_OUTPUT_BASE);
+mkdirSync(RUNS_DIR, { recursive: true, mode: 0o700 });
+const OUTPUT_DIR = (() => {
+  for (let n = 1; ; n++) {
+    const dir = join(RUNS_DIR, n === 1 ? timestamp : `${timestamp}-${n}`);
+    try {
+      mkdirSync(dir, { mode: 0o700 });
+      return dir;
+    } catch (e) {
+      if (!(e instanceof Error && 'code' in e && e.code === 'EEXIST')) throw e;
+    }
+  }
+})();
+const SESSION_META_DIR = join(RUNS_DIR, 'session-meta', `port-${PORT}`);
+mkdirSync(SESSION_META_DIR, { recursive: true, mode: 0o700 });
+
+const safePath = (p: string) => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+};
+
+// The child reads the whole .octocode tree (staged helpers, earlier runs' artifacts) but writes only below
+// octocode-chrome-devtools/tmp: its run folder, its session metadata and a scratch TMPDIR. The .octocode root holds reports only.
+const OCTOCODE_TREE_REAL = safePath(OCTOCODE_OUTPUT_BASE);
+/** Where scripts import the staged helpers from: `<cwd>/.octocode/octocode-chrome-devtools/tmp/helpers/<name>.mjs`. */
+const HELPERS_DIR = join(RUNS_DIR, 'helpers');
+/** The child's TMPDIR/TMP/TEMP, so a library that writes temp files stays inside the run tree. */
+const SCRATCH_DIR = join(RUNS_DIR, 'tmp');
+mkdirSync(HELPERS_DIR, { recursive: true, mode: 0o700 });
+mkdirSync(SCRATCH_DIR, { recursive: true, mode: 0o700 });
+const SCRATCH_REAL = safePath(SCRATCH_DIR);
+const RUNNER_REAL = safePath(RUNNER);
+const CONFIG_ENTRY_REAL = safePath(CONFIG_ENTRY);
+const OUTPUT_REAL = safePath(OUTPUT_DIR);
+const SESSION_META_REAL = safePath(SESSION_META_DIR);
+
+const HELPERS = [
+  'sourcemap-resolver.mjs',
+  'undercover.mjs',
+  'mandatory-stealth.mjs',
+  'human-input.mjs',
+  'dom-actionability.mjs',
+  'ax-snapshot.mjs',
+  'frame-events.mjs',
+  // Imported at runtime by the staged helpers above.
+  'error-message.mjs',
+];
+stageHelpers(__dir, HELPERS_DIR, HELPERS, message =>
+  console.error(`[CDP_SANDBOX] Warning: ${message}`)
+);
+pruneOldRunDirs(RUNS_DIR, Date.now(), OUTPUT_DIR);
+
+// The port's origin allowlist (open --allow-origin) is a mistake guard: a plan or new tab that would
+// navigate elsewhere is refused here, before the runner connects to Chrome.
+async function refuseUnlistedOrigins() {
+  const newTabUrl = getArg('--new-tab');
+  const scheme = newTabUrl && urlSchemeRefusal(newTabUrl, '--new-tab', null);
+  if (scheme) refuse(scheme);
+  const allowOrigins = readSessionMeta(PORT).allowOrigins;
+  if (!allowOrigins) return;
+  const urls: { url: string; where: string }[] = [];
+  const newTab = getArg('--new-tab');
+  if (newTab) urls.push({ url: newTab, where: '--new-tab' });
+  for (const { url, where } of urls) {
+    const violation = originViolation(url, allowOrigins);
+    if (violation) refuse(`${where}: ${violation}`);
+  }
+  const planFile = getArg('--plan');
+  if (!scriptArg?.endsWith('browser-execute.mjs')) return;
+  try {
+    const text = planFile
+      ? readFileSync(planFile, 'utf8')
+      : process.env.BROWSER_PLAN;
+    if (text) {
+      const { validatePlan } = await import('./cdp-checks/plan-validate.mjs');
+      validatePlan(JSON.parse(text), { allowOrigins });
+    }
+  } catch (error) {
+    const message = errorMessage(error);
+    // Only the allowlist refusal stops here; plan errors keep their usual path inside the runner.
+    if (message.includes('is not allowed for this session')) refuse(message);
+  }
+}
+function refuse(message: string): never {
+  console.error(`[CDP_SANDBOX] ${message}`);
+  process.exit(1);
+}
+await refuseUnlistedOrigins();
+
+let scriptReal = null;
+const allowReadExtra = [];
+if (scriptArg) {
+  const scriptPath = resolve(process.cwd(), scriptArg);
+  if (!existsSync(scriptPath)) {
+    console.error(`[CDP_SANDBOX] Script not found: ${scriptPath}`);
+    process.exit(1);
+  }
+  scriptReal = safePath(scriptPath);
+  allowReadExtra.push(scriptPath, scriptReal);
+}
+
+const spawnArgv = argv.map(a =>
+  a === scriptArg && scriptReal ? scriptReal : a
+);
+
+const readPaths = [
+  ...new Set([
+    RUNNER,
+    RUNNER_REAL,
+    resolve(__dir, 'cdp-connection.mjs'),
+    safePath(resolve(__dir, 'cdp-connection.mjs')),
+    resolve(__dir, 'cdp-checks'),
+    safePath(resolve(__dir, 'cdp-checks')),
+    resolve(__dir, 'mandatory-stealth.mjs'),
+    resolve(__dir, 'undercover.mjs'),
+    resolve(__dir, 'frame-events.mjs'),
+    safePath(resolve(__dir, 'frame-events.mjs')),
+    CONFIG_ENTRY,
+    CONFIG_ENTRY_REAL,
+    ...[
+      'chrome-contract.mjs',
+      'cli-flags.mjs',
+      // The one CDP policy and the live-schema gate the runner and plan steps apply.
+      'cdp-policy.mjs',
+      'cdp-schema.mjs',
+      // Scope routing and dynamic enable for cdp plan steps.
+      'cdp-scope.mjs',
+      'engine-io.mjs',
+      'error-message.mjs',
+      // The runner's own modules, and the page-owner lookup it shares with browser plans.
+      'cdp-runner-guard.mjs',
+      'cdp-runner-session.mjs',
+      'cdp-runner-targets.mjs',
+      'session-registry.mjs',
+      'session-meta.mjs',
+      'emulation-state.mjs',
+      'target-owner.mjs',
+      // Source maps for dev-server-check stacks.
+      'sourcemap-resolver.mjs',
+    ].flatMap(name => [resolve(__dir, name), safePath(resolve(__dir, name))]),
+    OCTOCODE_OUTPUT_BASE,
+    OCTOCODE_TREE_REAL,
+    ...['dom-actionability.mjs', 'human-input.mjs', 'ax-snapshot.mjs'].flatMap(
+      name => [resolve(__dir, name), safePath(resolve(__dir, name))]
+    ),
+    ...allowReadExtra,
+  ]),
+];
+const writePaths = [
+  ...new Set([
+    SCRATCH_DIR,
+    SCRATCH_REAL,
+    OUTPUT_DIR,
+    OUTPUT_REAL,
+    SESSION_META_DIR,
+    SESSION_META_REAL,
+  ]),
+];
+
+const allowNet = Number(process.versions.node.split('.')[0]) >= 25;
+const permFlags = [
+  '--permission',
+  ...(allowNet ? ['--allow-net'] : []),
+  ...readPaths.map(p => `--allow-fs-read=${p}`),
+  ...writePaths.map(p => `--allow-fs-write=${p}`),
+];
+
+// Keep the sandbox hermetic: pass only documented knobs used by examples,
+// never the parent env where tokens/cookies may live.
+const SCRIPT_ENV_ALLOWLIST = [
+  // Every recipe option the contract declares: one source, so a new recipe's keys can never be dropped here.
+  ...new Set(Object.values(chromeRecipeOptionNames).flat()),
+  'BROWSER_PLAN',
+  'MONITOR_MS',
+  'MONITOR_URL',
+  'SHOT_FULL',
+  'SHOT_SELECTOR',
+  'SHOT_FORMAT',
+  'SHOT_QUALITY',
+  'SHOT_SCALE',
+  'SHOT_ANNOTATE',
+  'BODY_URL',
+  'BODY_MATCH',
+  'BODY_WAIT_MS',
+  'SLOW_MS',
+  'MAX_STDOUT_ITEMS',
+  'DOM_SELECTOR',
+  'DOM_REF',
+  'DOM_ROLE',
+  'DOM_NAME',
+  'DOM_ACTION',
+  'DOM_VALUE',
+  'DOM_STABILITY_MS',
+  'DOM_INPUT',
+  'DOM_KEY',
+  'DOM_SETTLE_MS',
+  'DOM_DIALOG',
+  'DOM_STEPS',
+  'DOM_WAIT_TEXT',
+  'DOM_WAIT_MS',
+  'DOM_TO_REF',
+  'DOM_TO_SELECTOR',
+  'DOM_DIFF',
+  'DOM_TRACE_EVENTS',
+  'SNAPSHOT_DEPTH',
+  'SNAPSHOT_WAIT_SELECTOR',
+  'SNAPSHOT_WAIT_TEXT',
+  'SNAPSHOT_WAIT_MS',
+  'SNAPSHOT_MAX',
+  'SNAPSHOT_STDOUT',
+  'SNAPSHOT_TEXT',
+  'SNAPSHOT_PAGE',
+  'SNAPSHOT_ROOT',
+  'SNAPSHOT_VIEWPORT',
+  'SNAPSHOT_OUTLINE',
+  'SNAPSHOT_CONTEXT',
+  'SNAPSHOT_URLS',
+  'SNAPSHOT_CLICKABLE',
+  'WEBMCP_ACTION',
+  'WEBMCP_TOOL',
+  'WEBMCP_INPUT',
+  'WEBMCP_FRAME',
+  'WEBMCP_WAIT_MS',
+  // cdp-checks knobs: which page to measure and how long to observe it. None of these carry secrets.
+  'MEASURE_URL',
+  'MEASURE_EXISTING',
+  'PERF_WAIT_MS',
+  'PERF_SLOW_RESOURCE_MS',
+  'NET_WAIT_MS',
+  'NET_SLOW_MS',
+  'STORAGE_WAIT_MS',
+  'STEALTH_CHECK_URL',
+  'AFFILIATES_CHECK_URL',
+  // dev-check: the page, its wait condition and ceiling.
+  'DEV_URL',
+  'DEV_WAIT_UNTIL',
+  'DEV_IDLE_MS',
+  'DEV_TIMEOUT_MS',
+];
+const scriptEnv = Object.fromEntries(
+  SCRIPT_ENV_ALLOWLIST.filter(key => process.env[key] !== undefined).map(
+    key => [key, process.env[key]]
+  )
+);
+
+const childEnv = {
+  CDP_OUTPUT_DIR: OUTPUT_DIR,
+  CDP_SESSION_META_DIR: SESSION_META_DIR,
+  TMPDIR: SCRATCH_DIR,
+  TMP: SCRATCH_DIR,
+  TEMP: SCRATCH_DIR,
+  ...scriptEnv,
+  ...(VERBOSE ? { CDP_VERBOSE: '1' } : {}),
+  ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+  ...(process.env.WINDIR ? { WINDIR: process.env.WINDIR } : {}),
+};
+
+if (VERBOSE) {
+  console.error(
+    '[CDP_SANDBOX] Launching runner in sandbox (Node.js Permission Model)'
+  );
+  console.error(`[CDP_SANDBOX]  Output dir:    ${OUTPUT_DIR}`);
+  console.error(`[CDP_SANDBOX]  Session meta:  ${SESSION_META_DIR}`);
+  console.error(
+    `[CDP_SANDBOX]  FS write:      output dir + session meta dir + scratch TMPDIR (mode 0700)`
+  );
+  console.error(`[CDP_SANDBOX]  FS read:       .octocode output tree + runner`);
+  console.error(`[CDP_SANDBOX]  child_process: blocked`);
+  console.error(`[CDP_SANDBOX]  workers:       blocked`);
+  console.error(
+    `[CDP_SANDBOX]  env:           minimal allowlist (parent env not inherited)`
+  );
+  console.error(`[CDP_SANDBOX]  Node:           ${process.versions.node}`);
+  console.error(
+    `[CDP_SANDBOX]  Network:       fetch/WebSocket localhost guard; core networking allowed; --allow-net=${allowNet ? 'yes (Node 25+)' : 'skipped (Node <25)'}`
+  );
+  if (!allowNet) {
+    console.error(
+      '[CDP_SANDBOX]  Note: Node 24 grants net under --permission; Node 25+ requires --allow-net'
+    );
+  }
+} else {
+  console.error(
+    `[CDP_SANDBOX] sandboxed (node ${process.versions.node}, fs scoped, net/dns loopback-only) — rerun with --verbose for full detail`
+  );
+}
+
+const child = spawn(
+  process.execPath,
+  [...permFlags, RUNNER_REAL, ...spawnArgv],
+  {
+    stdio: 'inherit',
+    env: childEnv,
+  }
+);
+
+// Forward cancellation so the runner records interruption and cleans up its target.
+for (const signal of ['SIGINT', 'SIGTERM'] as const)
+  process.on(signal, () => {
+    child.kill(signal);
+    setTimeout(() => child.kill('SIGKILL'), 2000).unref();
+  });
+
+const scriptTimer = setTimeout(() => {
+  console.error(
+    `[CDP_SANDBOX] Script timeout after ${SCRIPT_TIMEOUT_MS}ms - killing runner`
+  );
+  child.kill('SIGTERM');
+  setTimeout(() => child.kill('SIGKILL'), 2000).unref();
+}, SCRIPT_TIMEOUT_MS);
+scriptTimer.unref();
+
+child.on('exit', (code, signal) => {
+  clearTimeout(scriptTimer);
+  if (signal) {
+    console.error(`[CDP_SANDBOX] Runner killed by signal: ${signal}`);
+    process.exit(1);
+  }
+  process.exit(code ?? 0);
+});
+
+child.on('error', err => {
+  console.error(
+    `[CDP_SANDBOX] Failed to launch sandboxed runner: ${err.message}`
+  );
+  process.exit(1);
+});

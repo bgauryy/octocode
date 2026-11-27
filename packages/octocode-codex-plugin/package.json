@@ -1,0 +1,44 @@
+{
+  "name": "@octocodeai/codex-plugin",
+  "version": "0.1.0",
+  "description": "Octocode code research tools and public skills for Codex",
+  "type": "module",
+  "license": "MIT",
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "homepage": "https://octocode.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bgauryy/octocode.git",
+    "directory": "packages/octocode-codex-plugin"
+  },
+  "bugs": "https://github.com/bgauryy/octocode/issues",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "plugin.json",
+    "mcp.json",
+    "skills/",
+    "assets/",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "clean": "rm -rf plugin.json mcp.json assets skills LICENSE",
+    "lint:own": "prettier --check package.json tsconfig.json src scripts tests README.md ARCHITECTURE.md",
+    "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
+    "lint": "yarn lint:own && yarn lint:oxlint",
+    "format": "prettier --write package.json tsconfig.json src scripts tests README.md ARCHITECTURE.md",
+    "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
+    "test": "node ../../scripts/test-tmp.mjs node --test tests/package.test.ts",
+    "verify:own": "yarn build && yarn lint:own && yarn typecheck && yarn test",
+    "verify": "yarn verify:own && yarn lint:oxlint",
+    "prepack": "yarn build && yarn typecheck && yarn test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "ajv": "^8.20.0",
+    "prettier": "^3.9.10"
+  }
+}

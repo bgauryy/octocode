@@ -1,0 +1,179 @@
+//! Saved pages bind the complete request and security boundary; lost storage never silently reacquires evidence.
+
+use super::lines;
+use crate::support::{self, Run as _, Workspace};
+use octocode_contract_types::ErrorCode;
+use octocode_test_support::json_fixture;
+use serde_json::{Value, json};
+
+async fn saved_fixture(
+    workspace: &Workspace,
+    runtime: &octocode_native::runtime::ToolRuntime,
+) -> (Value, Value) {
+    let file = workspace.write("saved-partitions.txt", lines("captured"));
+    let query = json!({"path":file,"matchString":["needle"]});
+    let first = runtime
+        .run(
+            "save".into(),
+            "localSearch".into(),
+            json!({"queries":[query],"responseChars":800}),
+        )
+        .await
+        .expect("save");
+    let next = first.structured_content["next"]["input"].clone();
+    assert!(next.is_object(), "{}", first.structured_content);
+    support::assert_cursor_only(&next);
+    octocode_runtime_base::contracts::validate("localSearch", next.clone())
+        .expect("canonical continuation");
+    (query, next)
+}
+
+#[tokio::test]
+async fn saved_pages_reject_mixed_input_tool_credential_config_and_workspace_changes() {
+    use octocode_native::runtime::{Channel, ToolRuntime};
+    let workspace = Workspace::new();
+    let env = [("OCTOCODE_STORAGE_MODE", "persistent".into())];
+    let runtime = workspace.runtime(&env);
+    let (query, next) = saved_fixture(&workspace, &runtime).await;
+    for changed in [
+        query.clone(),
+        json_fixture(r#"{"path": "/changed", "matchString": ["new question"]}"#),
+    ] {
+        let mut mixed = next.clone();
+        mixed["queries"] = json!([changed]);
+        let error = runtime
+            .run("mixed".into(), "localSearch".into(), mixed)
+            .await
+            .expect_err("mixed input");
+        assert_eq!(error.code, ErrorCode::InvalidInput);
+    }
+    let error = runtime
+        .run("tool".into(), "localFetch".into(), next.clone())
+        .await
+        .expect_err("wrong tool");
+    // Sent to the wrong tool: the caller corrects the call.
+    assert_eq!(error.code, ErrorCode::InvalidInput);
+    let admission = runtime
+        .admit_with(
+            "credential".into(),
+            Some(json_fixture(
+                r#"{"githubToken": "different-request-token"}"#,
+            )),
+        )
+        .expect("admit");
+    let error = runtime
+        .execute(admission, "localSearch".into(), next.clone(), Channel::Cli)
+        .await
+        .expect_err("credential boundary");
+    assert_eq!(error.code, ErrorCode::ResponseSnapshotExpired);
+    let admission = runtime.admit("surface".into()).expect("admit");
+    // The surface is no part of a handle's identity: the other one resumes it.
+    let resumed = runtime
+        .execute(admission, "localSearch".into(), next.clone(), Channel::Mcp)
+        .await
+        .expect("a cursor resumes on either surface");
+    assert!(
+        resumed.structured_content["results"].is_array(),
+        "{}",
+        resumed.structured_content
+    );
+    for changed in ["cwd", "config"] {
+        let mut input = workspace.config(&env);
+        if changed == "cwd" {
+            input.cwd = workspace.workspace.join("subdirectory");
+            std::fs::create_dir_all(&input.cwd).expect("cwd");
+        } else {
+            input
+                .env
+                .insert("OCTOCODE_REDACT_EMAILS".into(), "true".into());
+        }
+        let other = ToolRuntime::new(input).expect("other runtime");
+        let error = other
+            .run(changed.into(), "localSearch".into(), next.clone())
+            .await
+            .expect_err("partition");
+        assert_eq!(error.code, ErrorCode::ResponseSnapshotExpired);
+        other.close().await;
+    }
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn failed_snapshot_retention_returns_complete_result_without_display_next() {
+    let workspace = Workspace::new();
+    std::fs::create_dir_all(workspace.home.join("tmp")).expect("cache parent");
+    std::fs::write(workspace.home.join("tmp/response-pages"), "block directory")
+        .expect("blocked cache");
+    let runtime = workspace.runtime(&[("OCTOCODE_STORAGE_MODE", "persistent".into())]);
+    let file = workspace.write("saved.txt", lines("all-evidence"));
+    let response = runtime
+        .run(
+            "fallback".into(),
+            "localSearch".into(),
+            json!({
+                "queries":[{"path":file,"matchString":["needle"]}],
+                "responseChars":800
+            }),
+        )
+        .await
+        .expect("complete fallback");
+    let output = response.structured_content;
+    assert!(output.get("next").is_none(), "{output}");
+    assert!(
+        output["warnings"].to_string().contains("complete result"),
+        "{output}"
+    );
+    assert_eq!(
+        output["results"][0]["data"]["files"][0]["matches"]
+            .as_array()
+            .expect("complete match array")
+            .len(),
+        200
+    );
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn tampered_and_unissued_handles_never_execute() {
+    use base64::Engine as _;
+
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[]);
+    let (_, next) = saved_fixture(&workspace, &runtime).await;
+    let mut token = next["cursor"].as_str().unwrap().to_owned();
+    let last = token.pop().unwrap();
+    token.push(if last == 'A' { 'Q' } else { 'A' });
+    let encoded = token.strip_prefix("cursor2.").expect("current format");
+    assert_eq!(encoded.len(), 44);
+    let (ids, remainder) = encoded.as_bytes().as_chunks::<22>();
+    assert!(remainder.is_empty());
+    for id in ids {
+        assert_eq!(
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(id)
+                .expect("tampered ID remains canonical")
+                .len(),
+            16
+        );
+    }
+    // A well-formed handle with no saved work under it names expired work;
+    // a handle of no issued shape is the caller's input.
+    for (input, code) in [
+        (json!({"cursor":token}), ErrorCode::ResponseSnapshotExpired),
+        (
+            json!({"cursor":format!("cursor2.{}","A".repeat(44))}),
+            ErrorCode::ResponseSnapshotExpired,
+        ),
+        (
+            json!({"cursor":format!("cursor1.{}","0".repeat(64))}),
+            ErrorCode::InvalidInput,
+        ),
+    ] {
+        let error = runtime
+            .run("unissued".into(), "localSearch".into(), input)
+            .await
+            .expect_err("registry lookup");
+        assert_eq!(error.code, code, "{}", error.message);
+    }
+    runtime.close().await;
+}

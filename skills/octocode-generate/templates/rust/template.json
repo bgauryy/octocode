@@ -1,0 +1,17 @@
+{
+  "description": "Rust: pinned stable toolchain, rustfmt, CI with fmt, clippy, nextest and cargo-deny",
+  "scripts": {},
+  "install": [
+    "cargo install --locked cargo-nextest cargo-deny",
+    "cargo deny init"
+  ],
+  "notes": "Add the [lints] table from references/toolchain.md to Cargo.toml. cargo nextest skips doctests: libraries also run cargo test --doc.",
+  "alternatives": {
+    "rustfmt.toml": [
+      ".rustfmt.toml"
+    ],
+    "rust-toolchain.toml": [
+      "rust-toolchain"
+    ]
+  }
+}

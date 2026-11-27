@@ -1,0 +1,7 @@
+{
+  "tasks": [
+    { "id": "api", "owner": "worker-a", "objective": "Implement the API on the client's types", "inputs": ["client-types"], "output": "api-impl" },
+    { "id": "client", "owner": "worker-b", "objective": "Adapt the client to the API", "inputs": ["api-impl"], "output": "client-types" },
+    { "id": "docs", "owner": "worker-c", "objective": "Update the changelog", "output": "changelog" }
+  ]
+}

@@ -1,0 +1,280 @@
+//! The declaration outline: document symbols flattened into graph-facts
+//! declarations, with doc lines, containment and heritage edges.
+
+use oxc_ast::ast::Program;
+
+use crate::deep_stack::job_cancelled;
+
+use crate::graph::{GraphFactDeclaration, GraphFactEdge, GraphFactExport, GraphFactImport};
+use crate::signatures::js_oxc_shared::SpanPositions;
+
+use super::module_facts::collect_module_facts;
+use super::{DocumentSymbol, LocalExports, TYPE_ALIAS_KIND};
+
+/// Declarations (with export names, doc lines, and containment edges) plus
+/// the import and export facts of a parsed module, from its `symbols`.
+/// `common_js_exports` are proven `(local, public)` CommonJS export names.
+pub(super) fn module_outline(
+    program: &Program,
+    line_index: &SpanPositions,
+    file_path: &str,
+    content: &str,
+    symbols: &[DocumentSymbol],
+    common_js_exports: Vec<(String, String)>,
+) -> (
+    Vec<GraphFactDeclaration>,
+    Vec<GraphFactEdge>,
+    Vec<GraphFactImport>,
+    Vec<GraphFactExport>,
+) {
+    let mut local_exports = LocalExports::default();
+    let mut imports = Vec::new();
+    let mut exports = Vec::new();
+    collect_module_facts(
+        program,
+        line_index,
+        &mut imports,
+        &mut exports,
+        &mut local_exports,
+    );
+    for (local, public) in common_js_exports {
+        local_exports.push(local, public);
+    }
+    let mut declarations = Vec::new();
+    let mut edges = Vec::new();
+    flatten_symbols(
+        file_path,
+        symbols,
+        line_index,
+        None,
+        &local_exports,
+        &mut declarations,
+        &mut edges,
+    );
+    attach_doc_lines(content, &mut declarations);
+    (declarations, edges, imports, exports)
+}
+
+fn attach_doc_lines(content: &str, declarations: &mut [GraphFactDeclaration]) {
+    let lines = content.lines().collect::<Vec<_>>();
+    for declaration in declarations {
+        if job_cancelled() {
+            return;
+        }
+        declaration.doc_line = crate::signatures::declaration_doc_line(&lines, declaration, "ts");
+    }
+}
+
+/// `extends`/`implements` edges from a class/interface declaration id to the
+/// base type name as written (`Base`, `ns.Base`). Syntax only: `to` is not a
+/// resolved declaration. A clause whose declaring name has no outline
+/// declaration (a class nested in a function body) is dropped.
+/// Export each declaration a CommonJS value holds (its binding span, see
+/// `CommonJsExports::members`) under its public names, wherever it is
+/// declared: a member function can sit inside the factory that builds the
+/// value.
+pub(super) fn mark_member_exports(
+    declarations: &mut [GraphFactDeclaration],
+    members: &[(oxc_span::Span, String)],
+) {
+    for declaration in declarations.iter_mut() {
+        let Some(start) = declaration
+            .selection_byte_range
+            .map(|span| span.range.start_byte)
+        else {
+            continue;
+        };
+        let mut public = members
+            .iter()
+            .filter(|(span, _)| span.start == start)
+            .map(|(_, name)| name.clone())
+            .peekable();
+        if public.peek().is_none() {
+            continue;
+        }
+        let mut names = match (declaration.exported, declaration.exported_as.is_empty()) {
+            (false, _) => Vec::new(),
+            (true, true) => vec![declaration.name.clone()],
+            (true, false) => declaration.exported_as.clone(),
+        };
+        names.extend(public);
+        names.sort();
+        names.dedup();
+        declaration.exported = true;
+        declaration.exported_as = if names == [declaration.name.as_str()] {
+            Vec::new()
+        } else {
+            names
+        };
+    }
+}
+
+/// Each declared type keyed by its declaration's name token and kind, as the
+/// declaration id it belongs to.
+pub(super) fn declared_types_of(
+    declarations: &[GraphFactDeclaration],
+    declared: Vec<crate::signatures::js_oxc_receiver::declared::DeclaredAt>,
+) -> Vec<crate::graph::GraphFactDeclaredType> {
+    let by_name_start: std::collections::HashMap<(u32, u32, &str), &str> = declarations
+        .iter()
+        .map(|declaration| {
+            (
+                (
+                    declaration.selection_range.start.line,
+                    declaration.selection_range.start.character,
+                    declaration.kind.as_str(),
+                ),
+                declaration.id.as_str(),
+            )
+        })
+        .collect();
+    declared
+        .into_iter()
+        .filter_map(|item| {
+            let key = (item.name_start.line, item.name_start.character, item.kind);
+            Some(crate::graph::GraphFactDeclaredType {
+                declaration_id: (*by_name_start.get(&key)?).to_owned(),
+                ty: item.ty,
+                global: item.global,
+            })
+        })
+        .collect()
+}
+
+pub(super) fn push_heritage_edges(
+    declarations: &[GraphFactDeclaration],
+    heritage: Vec<crate::signatures::js_oxc_calls::GraphHeritage>,
+    edges: &mut Vec<GraphFactEdge>,
+) {
+    if heritage.is_empty() {
+        return;
+    }
+    let by_name_start: std::collections::HashMap<(u32, u32, &str), &str> = declarations
+        .iter()
+        .map(|declaration| {
+            (
+                (
+                    declaration.selection_range.start.line,
+                    declaration.selection_range.start.character,
+                    declaration.kind.as_str(),
+                ),
+                declaration.id.as_str(),
+            )
+        })
+        .collect();
+    for item in heritage {
+        let key = (
+            item.name_start.line,
+            item.name_start.character,
+            item.declaration_kind,
+        );
+        let Some(from) = by_name_start.get(&key) else {
+            continue;
+        };
+        edges.push(GraphFactEdge {
+            id: format!(
+                "{from}->{}:{}:{}:{}",
+                item.to,
+                item.relation,
+                item.line,
+                edges.len()
+            ),
+            from: (*from).to_string(),
+            to: item.to,
+            relation: item.relation.to_owned(),
+            source: "oxc".to_owned(),
+            line: item.line,
+            resolution: "syntax".to_owned(),
+        });
+    }
+}
+
+fn flatten_symbols(
+    file_path: &str,
+    symbols: &[DocumentSymbol],
+    line_index: &SpanPositions,
+    parent: Option<&str>,
+    local_exports: &LocalExports,
+    declarations: &mut Vec<GraphFactDeclaration>,
+    edges: &mut Vec<GraphFactEdge>,
+) {
+    for symbol in symbols {
+        if job_cancelled() {
+            return;
+        }
+        let id = format!(
+            "declaration:{}#{}@{}:{}:{}",
+            file_path,
+            symbol.name,
+            symbol.selection_range.start.line,
+            symbol.selection_range.start.character,
+            symbol_kind_name(symbol.kind)
+        );
+        let line = symbol.selection_range.start.line + 1;
+        let public_names = parent
+            .is_none()
+            .then(|| local_exports.public_names(&symbol.name))
+            .flatten();
+        let exported_as = match &public_names {
+            Some(names) if names.iter().any(|public| public != &symbol.name) => names.clone(),
+            _ => Vec::new(),
+        };
+        declarations.push(GraphFactDeclaration {
+            id: id.clone(),
+            name: symbol.name.clone(),
+            kind: symbol_kind_name(symbol.kind).to_owned(),
+            line,
+            range: symbol.range.clone(),
+            selection_range: symbol.selection_range.clone(),
+            source_range: Some(line_index.byte_range(&symbol.range).into()),
+            selection_byte_range: Some(line_index.byte_range(&symbol.selection_range).into()),
+            parse_assessment: crate::graph::GraphParseAssessment::parsed(symbol.range.clone()),
+            test_identity: None,
+            exported: public_names.is_some(),
+            exported_as,
+            parent: parent.map(str::to_string),
+            owner: None,
+            doc_line: None,
+            prototype: false,
+            return_type: None,
+            try_type: None,
+            return_elements: Vec::new(),
+            asynchronous: false,
+            function_typed: false,
+            params: symbol.params.clone(),
+            returns: symbol.returns.clone(),
+        });
+        if let Some(parent_id) = parent {
+            edges.push(GraphFactEdge {
+                id: format!("{}->{}:contains", parent_id, id),
+                from: parent_id.to_string(),
+                to: id.clone(),
+                relation: "contains".to_owned(),
+                source: "ast".to_owned(),
+                line,
+                resolution: "syntactic".to_owned(),
+            });
+        }
+        flatten_symbols(
+            file_path,
+            &symbol.children,
+            line_index,
+            Some(&id),
+            local_exports,
+            declarations,
+            edges,
+        );
+    }
+}
+
+/// The declaration kind a symbol kind reports: its LSP name when that is one
+/// of [`DECLARATION_KINDS`](crate::signatures::DECLARATION_KINDS), else
+/// `symbol`.
+pub(super) fn symbol_kind_name(kind: u8) -> &'static str {
+    if kind == TYPE_ALIAS_KIND {
+        return "type";
+    }
+    crate::symbol_kind::name(u64::from(kind))
+        .filter(|name| crate::signatures::DECLARATION_KINDS.contains(name))
+        .unwrap_or("symbol")
+}

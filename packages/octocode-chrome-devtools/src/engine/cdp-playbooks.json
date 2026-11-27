@@ -1,0 +1,219 @@
+{
+  "Network": {
+    "summary": "Record a page load's requests and bodies, then throttle or block traffic.",
+    "steps": [
+      "Network.enable",
+      "Page.navigate {url}",
+      "Network.getResponseBody {requestId}",
+      "Network.overrideNetworkState {offline, latency, downloadThroughput, uploadThroughput}",
+      "Network.setBlockedURLs {urlPatterns}"
+    ],
+    "notes": "Listen to Network.requestWillBeSent, responseReceived and loadingFinished before Page.navigate: Network events are not replayed on a late enable. A body is readable after loadingFinished."
+  },
+  "Fetch": {
+    "summary": "Pause matching requests, then fulfill, modify, fail or continue each one.",
+    "steps": [
+      "Fetch.enable {patterns}",
+      "Fetch.fulfillRequest {requestId, responseCode, body}",
+      "Fetch.continueRequest {requestId}",
+      "Fetch.failRequest {requestId, errorReason}",
+      "Fetch.disable"
+    ],
+    "notes": "Fetch is never enabled automatically. Each paused request arrives as Fetch.requestPaused and stays paused until answered; call Fetch.disable when done."
+  },
+  "Debugger": {
+    "summary": "Set a breakpoint, wait for the pause, inspect the frame, then resume.",
+    "steps": [
+      "Debugger.enable",
+      "Debugger.setBreakpointByUrl {lineNumber, url}",
+      "Debugger.evaluateOnCallFrame {callFrameId, expression}",
+      "Debugger.getScriptSource {scriptId}",
+      "Debugger.resume"
+    ],
+    "notes": "Wait for Debugger.paused (it carries callFrames) before evaluating. Always resume: a paused page stops responding."
+  },
+  "Profiler": {
+    "summary": "Sample JavaScript CPU time, or collect precise coverage, around an action.",
+    "steps": [
+      "Profiler.enable",
+      "Profiler.setSamplingInterval {interval}",
+      "Profiler.start",
+      "Profiler.stop",
+      "Profiler.startPreciseCoverage {callCount, detailed}",
+      "Profiler.takePreciseCoverage"
+    ],
+    "notes": "Profiler.stop returns the whole profile; save it whole. Stop precise coverage with Profiler.stopPreciseCoverage."
+  },
+  "HeapProfiler": {
+    "summary": "Collect garbage, then take a full heap snapshot delivered as chunk events.",
+    "steps": [
+      "HeapProfiler.enable",
+      "HeapProfiler.collectGarbage",
+      "HeapProfiler.takeHeapSnapshot {reportProgress}",
+      "HeapProfiler.getObjectByHeapObjectId {objectId}"
+    ],
+    "notes": "Append every HeapProfiler.addHeapSnapshotChunk until takeHeapSnapshot answers; a partial snapshot does not load."
+  },
+  "Tracing": {
+    "summary": "Record a Chrome trace and read it from the returned stream to EOF.",
+    "steps": [
+      "Tracing.getCategories",
+      "Tracing.start {traceConfig, transferMode}",
+      "Tracing.end",
+      "IO.read {handle, size}",
+      "IO.close {handle}"
+    ],
+    "notes": "Tracing.end answers before the data: wait for Tracing.tracingComplete, which carries the stream handle. Read IO.read until eof, then close."
+  },
+  "Storage": {
+    "summary": "Measure quota and usage, read cookies, track databases, or clear an origin.",
+    "steps": [
+      "Storage.getStorageKey {frameId}",
+      "Storage.getUsageAndQuota {origin}",
+      "Storage.getCookies",
+      "Storage.trackIndexedDBForStorageKey {storageKey}",
+      "Storage.clearDataForOrigin {origin, storageTypes}"
+    ],
+    "notes": "Reading cookies and clearing data need the user's permission. IndexedDB, CacheStorage and DOMStorage read details per origin or storage key."
+  },
+  "Emulation": {
+    "summary": "Emulate a device viewport, touch, media features, CPU speed or user agent.",
+    "steps": [
+      "Emulation.setDeviceMetricsOverride {width, height, deviceScaleFactor, mobile}",
+      "Emulation.setTouchEmulationEnabled {enabled}",
+      "Emulation.setEmulatedMedia {features}",
+      "Emulation.setCPUThrottlingRate {rate}",
+      "Emulation.clearDeviceMetricsOverride"
+    ],
+    "notes": "Overrides last only for the connection that set them: use one plan. Emulation.setUserAgentOverride and setTimezoneOverride need the user's permission."
+  },
+  "CSS": {
+    "summary": "Read the computed style and matched rules of an element.",
+    "steps": [
+      "DOM.enable",
+      "CSS.enable",
+      "DOM.getDocument {depth}",
+      "DOM.querySelector {nodeId, selector}",
+      "CSS.getComputedStyleForNode {nodeId}",
+      "CSS.getMatchedStylesForNode {nodeId}"
+    ],
+    "notes": "CSS.enable needs DOM enabled first. A selector with no match returns nodeId 0."
+  },
+  "DOM": {
+    "summary": "Walk the document tree, find nodes, read HTML and box geometry.",
+    "steps": [
+      "DOM.getDocument {depth, pierce}",
+      "DOM.querySelectorAll {nodeId, selector}",
+      "DOM.describeNode {nodeId}",
+      "DOM.getOuterHTML {nodeId}",
+      "DOM.getBoxModel {nodeId}"
+    ],
+    "notes": "nodeIds are valid only until the document changes; pierce: true crosses shadow roots and frames."
+  },
+  "DOMSnapshot": {
+    "summary": "Capture the whole DOM with layout, styles and paint order in one call.",
+    "steps": [
+      "Page.navigate {url}",
+      "DOMSnapshot.captureSnapshot {computedStyles, includePaintOrder, includeDOMRects}",
+      "DOM.getDocument {depth, pierce}",
+      "Page.captureScreenshot {format, captureBeyondViewport}"
+    ],
+    "notes": "Rows reference a shared strings table by index. Save the result whole; it is large on real pages."
+  },
+  "Accessibility": {
+    "summary": "Read the accessibility tree: roles, names and values of every node.",
+    "steps": [
+      "Accessibility.enable",
+      "Accessibility.getFullAXTree {depth}",
+      "Accessibility.getPartialAXTree {nodeId, fetchRelatives}",
+      "Accessibility.queryAXTree {nodeId, accessibleName, role}"
+    ],
+    "notes": "Partial and query calls take a DOM nodeId from DOM.getDocument."
+  },
+  "Page": {
+    "summary": "Navigate, read the frame tree and layout, and capture screenshots or PDFs.",
+    "steps": [
+      "Page.enable",
+      "Page.navigate {url}",
+      "Page.getFrameTree",
+      "Page.getLayoutMetrics",
+      "Page.captureScreenshot {format, captureBeyondViewport}",
+      "Page.printToPDF"
+    ],
+    "notes": "Wait for Page.loadEventFired after navigate. Page.reload, stopLoading and crash change the page; the file: scheme needs the user's permission."
+  },
+  "Target": {
+    "summary": "List targets, attach to one with a flat session, and drive it by sessionId.",
+    "steps": [
+      "Target.getTargets",
+      "Target.setDiscoverTargets {discover}",
+      "Target.attachToTarget {targetId, flatten}",
+      "Target.createTarget {url}",
+      "Target.detachFromTarget {sessionId}"
+    ],
+    "notes": "Send child commands with the returned sessionId and detach when finished. For workers and iframes call Target.setAutoAttach before the activity."
+  },
+  "Security": {
+    "summary": "Observe security state and certificate errors of a page load.",
+    "steps": [
+      "Security.enable",
+      "Network.getCertificate {origin}",
+      "Security.setIgnoreCertificateErrors {ignore}",
+      "Security.disable"
+    ],
+    "notes": "Listen to Security.visibleSecurityStateChanged. Ignoring certificate errors needs the user's permission."
+  },
+  "ServiceWorker": {
+    "summary": "Watch service worker registrations and versions, then stop or unregister one.",
+    "steps": [
+      "ServiceWorker.enable",
+      "ServiceWorker.startWorker {scopeURL}",
+      "ServiceWorker.skipWaiting {scopeURL}",
+      "ServiceWorker.stopWorker {versionId}",
+      "ServiceWorker.unregister {scopeURL}"
+    ],
+    "notes": "Existing registrations arrive as ServiceWorker.workerRegistrationUpdated and workerVersionUpdated right after enable."
+  },
+  "WebAuthn": {
+    "summary": "Add a virtual authenticator, store credentials and let a page sign in.",
+    "steps": [
+      "WebAuthn.enable {enableUI}",
+      "WebAuthn.addVirtualAuthenticator {options}",
+      "WebAuthn.addCredential {authenticatorId, credential}",
+      "WebAuthn.getCredentials {authenticatorId}",
+      "WebAuthn.removeVirtualAuthenticator {authenticatorId}"
+    ],
+    "notes": "Every credential command needs the user's permission. Remove the authenticator when done."
+  },
+  "Audits": {
+    "summary": "Collect DevTools issues, run the form check and read re-encoded images.",
+    "steps": [
+      "Audits.enable",
+      "Page.navigate {url}",
+      "Audits.checkFormsIssues",
+      "Audits.getEncodedResponse {requestId, encoding}"
+    ],
+    "notes": "Existing issues replay as Audits.issueAdded after enable; listen first."
+  },
+  "Animation": {
+    "summary": "Observe animations, change playback speed, pause or seek them.",
+    "steps": [
+      "Animation.enable",
+      "Animation.getPlaybackRate",
+      "Animation.setPlaybackRate {playbackRate}",
+      "Animation.setPaused {animations, paused}",
+      "Animation.seekAnimations {animations, currentTime}"
+    ],
+    "notes": "Animation ids come from Animation.animationStarted: listen before the page animates."
+  },
+  "Media": {
+    "summary": "Record media player events and properties of a page that plays media.",
+    "steps": [
+      "Media.enable",
+      "Page.navigate {url}",
+      "Page.getFrameTree",
+      "Media.disable"
+    ],
+    "notes": "Listen to Media.playerEventsAdded, playerPropertiesChanged and playerMessagesLogged; there are no media commands beyond enable and disable."
+  }
+}

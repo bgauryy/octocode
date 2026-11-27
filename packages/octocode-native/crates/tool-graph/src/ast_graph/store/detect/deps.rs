@@ -1,0 +1,247 @@
+//! Declared-dependency, boundary and unresolved-import detectors.
+use super::*;
+
+pub(super) fn detect_dependencies(c: &mut Ctx) {
+    let v = &c.v;
+    let t = v.t;
+    let mut undeclared = BTreeMap::<(String, u32), Vec<(u32, u32)>>::new();
+    let mut hoisted = BTreeMap::<(String, u32), Vec<(u32, u32)>>::new();
+    for edge in &t.edges {
+        if edge.kind != EdgeKind::Imports || t.nodes[edge.dst as usize].kind != NodeKind::Package {
+            continue;
+        }
+        let component = v
+            .component
+            .get(&edge.src)
+            .map_or(".", |(_, name, _)| *name)
+            .to_owned();
+        match t.str(edge.detail) {
+            "external-hoisted" if v.production(edge.src) => {
+                hoisted
+                    .entry((component, edge.dst))
+                    .or_default()
+                    .push((edge.src, edge.line));
+            }
+            "external-undeclared" if v.production(edge.src) => {
+                undeclared
+                    .entry((component, edge.dst))
+                    .or_default()
+                    .push((edge.src, edge.line));
+            }
+            _ => {}
+        }
+    }
+    let sites = |files: &[(u32, u32)]| {
+        files
+            .iter()
+            .map(|(f, l)| {
+                if *l == NONE {
+                    json!({"path": v.key(*f)})
+                } else {
+                    json!({"path": v.key(*f), "line": l})
+                }
+            })
+            .collect::<Vec<_>>()
+    };
+    // The subject is a package of a component: its importers are its files.
+    let impact = |files: &[(u32, u32)]| {
+        files
+            .iter()
+            .map(|(file, _)| v.impact(*file))
+            .fold(0.0, f64::max)
+    };
+    let mut pending = Vec::new();
+    for ((component, package), files) in &undeclared {
+        let name = t.str(t.nodes[*package as usize].name).to_owned();
+        pending.push((
+            "undeclared-dependency",
+            format!("{component}::{name}"),
+            format!("`{name}` is imported but not declared in the {component} manifest"),
+            0.8,
+            0.75,
+            impact(files),
+            json!({"package": name, "component": component, "importers": files.len(), "sites": sites(files)}),
+            vec!["builtins, workspace siblings and ancestor manifests checked"],
+        ));
+    }
+    for ((component, package), files) in &hoisted {
+        let name = t.str(t.nodes[*package as usize].name).to_owned();
+        pending.push((
+            "undeclared-dependency",
+            format!("{component}::{name}"),
+            format!("Phantom dependency: `{name}` resolves only because another workspace package declares it"),
+            0.6,
+            0.55,
+            impact(files),
+            json!({"package": name, "component": component, "declaredBySibling": true, "importers": files.len(), "sites": sites(files)}),
+            vec!["hoisted by the package manager; breaks when published or installed alone"],
+        ));
+    }
+    push_pending(&mut c.findings, pending);
+}
+
+pub(super) fn detect_boundaries(c: &mut Ctx) {
+    let v = &c.v;
+    let mut entry_counts = BTreeMap::<&str, usize>::new();
+    for file in v.entries.keys() {
+        if let Some((dir, _, _)) = v.component.get(file) {
+            *entry_counts.entry(dir).or_default() += 1;
+        }
+    }
+    let entries_of = |dir: &str| entry_counts.get(dir).copied().unwrap_or(0);
+    let mut crossings = BTreeMap::<(&str, &str), Vec<(u32, u32)>>::new();
+    for file in &v.files {
+        let Some((from, _, from_meta)) = v.component.get(file) else {
+            continue;
+        };
+        if !v.production(*file) {
+            continue;
+        }
+        for target in &v.out[*file as usize] {
+            let Some((to, _, to_meta)) = v.component.get(target) else {
+                continue;
+            };
+            // Package manifests with exports define a public surface (npm);
+            // Go/Cargo import whole packages or crates, never single files.
+            let npm = from_meta.starts_with("npm") && to_meta.starts_with("npm");
+            if npm && from != to && !v.is_entry(*target) && entries_of(to) > 0 {
+                crossings
+                    .entry((from, to))
+                    .or_default()
+                    .push((*file, *target));
+            }
+        }
+    }
+    let mut pending = Vec::new();
+    for ((from, to), pairs) in crossings {
+        let evidence = json!({
+            "from": from, "to": to, "imports": pairs.len(),
+            "sites": pairs.iter().map(|(a, b)| json!({"from": v.key(*a), "to": v.key(*b), "line": v.line(*a, *b)})).collect::<Vec<_>>(),
+        });
+        pending.push((format!("{from} -> {to}"), pairs.len(), evidence, pairs[0].1));
+    }
+    for (subject, count, evidence, target) in pending {
+        push(
+            &mut c.findings,
+            Draft {
+                detector: "boundary-violation",
+                subject,
+                id_parts: &[],
+                title: format!("Deep import into another package's internals ({count} import(s))"),
+                severity: 0.45 * magnitude(count),
+                confidence: 0.6,
+                impact: c.v.impact(target),
+                evidence,
+                controls: vec!["targets that are package entrypoints/exports are allowed"],
+            },
+        );
+    }
+}
+
+pub(super) fn detect_unresolved(c: &mut Ctx) {
+    let t = c.v.t;
+    // An import that climbs above the snapshot root is a scope gap, not a
+    // broken import: its target may exist, unscanned. Its code says which.
+    let mut by_file = BTreeMap::<&str, (Vec<(&str, u32)>, Vec<(&str, u32)>)>::new();
+    for diag in &t.diagnostics {
+        let code = t.str(diag.code);
+        let outside = code == DiagnosticCode::OutsideRoot.as_str();
+        if outside || code == DiagnosticCode::UnresolvedInternal.as_str() {
+            let file = t.str(diag.file);
+            // Fixtures and generated code carry deliberately broken imports.
+            let production = t.by_key(file).is_none_or(|id| {
+                t.nodes[id as usize].flags
+                    & (ROLE_NOT_PRODUCTION | ROLE_NOT_AUTHORED | ROLE_DECLARATION)
+                    == 0
+            });
+            if production {
+                let (out, broken) = by_file.entry(file).or_default();
+                let site = (t.str(diag.message), diag.line);
+                if outside {
+                    out.push(site);
+                } else {
+                    broken.push(site);
+                }
+            }
+        }
+    }
+    let mut pending = Vec::new();
+    for (file, (out, broken)) in by_file {
+        if !broken.is_empty() {
+            pending.push((file.to_owned(), broken, false));
+        }
+        if !out.is_empty() {
+            pending.push((file.to_owned(), out, true));
+        }
+    }
+    for (file, sites, outside) in pending {
+        let (title, confidence, controls, id_parts): (_, _, _, &[&str]) = if outside {
+            (
+                format!("{} import(s) point outside the snapshot root", sites.len()),
+                0.5,
+                vec!["the target lies beyond the scanned root: widen the scan to link it"],
+                &["outside-root"],
+            )
+        } else {
+            (
+                format!("{} internal import(s) could not be resolved", sites.len()),
+                0.8,
+                vec![
+                    "project specifiers only (relative, crate, alias, workspace package); third-party packages are never unresolved",
+                ],
+                &[],
+            )
+        };
+        push(
+            &mut c.findings,
+            Draft {
+                detector: "unresolved-import",
+                subject: file.clone(),
+                id_parts,
+                title,
+                severity: if outside {
+                    0.2
+                } else {
+                    0.5 * magnitude(sites.len())
+                },
+                confidence,
+                impact: t.by_key(&file).map_or(0.5, |id| c.v.impact(id)),
+                evidence: json!({"count": sites.len(), "sites": grouped_sites(&sites), "outsideRoot": outside}),
+                controls,
+            },
+        );
+        // A scope gap claims no more than a hypothesis: the target may exist
+        // unscanned.
+        if outside && let Some(finding) = c.findings.last_mut() {
+            finding.tier = 60;
+        }
+    }
+}
+
+/// The import sites of one file with equal messages merged, in first-seen
+/// order: each message once with every line it was reported at.
+fn grouped_sites(sites: &[(&str, u32)]) -> Vec<Value> {
+    let mut groups = Vec::<(&str, Vec<u32>)>::new();
+    for (message, line) in sites {
+        let at = groups
+            .iter()
+            .position(|(seen, _)| seen == message)
+            .unwrap_or_else(|| {
+                groups.push((message, Vec::new()));
+                groups.len() - 1
+            });
+        if *line != NONE {
+            groups[at].1.push(*line);
+        }
+    }
+    groups
+        .into_iter()
+        .map(|(message, lines)| {
+            if lines.is_empty() {
+                json!({"message": message})
+            } else {
+                json!({"message": message, "lines": lines})
+            }
+        })
+        .collect()
+}

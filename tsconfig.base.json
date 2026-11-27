@@ -1,0 +1,21 @@
+{
+  // Shared compiler options for every TypeScript project in the repo. Packages
+  // extend this file and set only what differs: module/moduleResolution (bundler
+  // for esbuild-bundled packages, NodeNext for code Node runs directly), lib,
+  // types, include, and emit settings.
+  "compilerOptions": {
+    "target": "ES2022",
+    // Node ^24.15 (engines) implements ES2023, so its library (toSorted,
+    // toReversed, findLast) typechecks everywhere; a package that sets its own
+    // `lib` replaces this list.
+    "lib": ["ES2023"],
+    "strict": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "noFallthroughCasesInSwitch": true,
+    "types": ["node"]
+  }
+}

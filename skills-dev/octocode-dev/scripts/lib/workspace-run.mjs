@@ -1,0 +1,155 @@
+// Workspace script execution: sequential and dependency-parallel `yarn workspace` runs,
+// and the full repo `verify` gate.
+import { spawn, spawnSync } from 'node:child_process';
+import {
+  OWN_SCRIPTS,
+  ROOT,
+  SKILL_SCRIPT_POLICY,
+  collectBuildDependencies,
+  getWorkspaceMap,
+  topologicallySort,
+} from './workspaces.mjs';
+import { checkBuildOutputs, checkLayering, checkRequiredScripts } from './workspace-checks.mjs';
+
+function runCommand(command, args, cwd = ROOT) {
+  const result = spawnSync(command, args, {
+    cwd,
+    stdio: 'inherit',
+    env: process.env,
+  });
+
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1);
+  }
+}
+
+function resolveScript(workspace, scriptName, preferScript) {
+  const scripts = workspace.packageJson.scripts || {};
+  return preferScript && scripts[preferScript] ? preferScript : scriptName;
+}
+
+/**
+ * The script a repo-wide run executes for a policy script: its oxlint-free variant (`lint:own`, `verify:own`);
+ * the policy script itself when the workspace runs no oxlint (no `lint:oxlint`); else undefined.
+ */
+function repoScript(workspace, name) {
+  const scripts = workspace.packageJson.scripts ?? {};
+  const own = OWN_SCRIPTS[name];
+  if (!own || scripts[own]) return own ?? name;
+  return scripts[name] && !scripts['lint:oxlint'] ? name : undefined;
+}
+
+/** The script each workspace runs for `scriptName`; an oxlint-free variant resolves per workspace (repoScript). */
+function scriptsFor(workspaces, scriptName) {
+  const policyName = Object.keys(OWN_SCRIPTS).find(name => OWN_SCRIPTS[name] === scriptName);
+  const runs = new Map();
+  for (const workspace of workspaces) {
+    if (!workspace.requiredScripts.includes(policyName ?? scriptName)) continue;
+    const script = policyName ? repoScript(workspace, policyName) : workspace.packageJson.scripts?.[scriptName] && scriptName;
+    if (script) runs.set(workspace.name, script);
+  }
+  return runs;
+}
+
+export function runWorkspaceScript(workspaces, scriptName, preferScript) {
+  const runs = scriptsFor(workspaces, scriptName);
+  const orderedWorkspaces = topologicallySort(workspaces.filter(workspace => runs.has(workspace.name)));
+
+  for (const workspace of orderedWorkspaces) {
+    const script = resolveScript(workspace, runs.get(workspace.name), preferScript);
+    console.log(`\n==> ${workspace.location}: ${script}`);
+    runCommand('yarn', ['workspace', workspace.name, 'run', script]);
+  }
+}
+
+function runPrefixed(label, command, args) {
+  return new Promise(resolve => {
+    const child = spawn(command, args, { cwd: ROOT, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    for (const stream of [child.stdout, child.stderr]) {
+      let pending = '';
+      stream.setEncoding('utf8');
+      stream.on('data', chunk => {
+        const lines = (pending + chunk).split('\n');
+        pending = lines.pop();
+        for (const line of lines) process.stdout.write(`[${label}] ${line}\n`);
+      });
+      stream.on('end', () => pending && process.stdout.write(`[${label}] ${pending}\n`));
+    }
+    child.on('error', error => resolve({ status: 1, error }));
+    child.on('close', status => resolve({ status: status ?? 1 }));
+  });
+}
+
+/**
+ * Runs each workspace as soon as its dependencies (package + BUILD_INPUTS
+ * edges) finished. Independent packages — the separate Cargo workspaces
+ * (native) each own a target dir, so
+ * they never contend on a Cargo lock — overlap. After a failure no new task
+ * starts; running ones finish, then the run exits non-zero.
+ */
+export async function runWorkspaceScriptParallel(workspaces, scriptName, preferScript) {
+  const runs = scriptsFor(workspaces, scriptName);
+  const eligibleWorkspaces = workspaces.filter(workspace => runs.has(workspace.name));
+  const workspaceMap = getWorkspaceMap(eligibleWorkspaces);
+  const results = new Map();
+  let failed = false;
+  const started = Date.now();
+
+  for (const workspace of topologicallySort(eligibleWorkspaces)) {
+    const dependencies = [...collectBuildDependencies(workspace, workspaceMap)].map(name => results.get(name));
+    results.set(
+      workspace.name,
+      Promise.all(dependencies).then(async () => {
+        if (failed) return { workspace, skipped: true };
+        const script = resolveScript(workspace, runs.get(workspace.name), preferScript);
+        const taskStarted = Date.now();
+        console.log(`==> ${workspace.location}: ${script}`);
+        const { status, error } = await runPrefixed(workspace.location, 'yarn', ['workspace', workspace.name, 'run', script]);
+        const seconds = ((Date.now() - taskStarted) / 1000).toFixed(1);
+        if (status !== 0) {
+          failed = true;
+          console.error(`<== ${workspace.location}: ${script} FAILED (${error?.message ?? `exit ${status}`}) after ${seconds}s`);
+        } else {
+          console.log(`<== ${workspace.location}: ${script} ok in ${seconds}s`);
+        }
+        return { workspace, status, seconds };
+      })
+    );
+  }
+
+  const outcomes = await Promise.all(results.values());
+  console.table(
+    outcomes.map(({ workspace, status, seconds, skipped }) => ({
+      workspace: workspace.location,
+      result: skipped ? 'skipped' : status === 0 ? 'ok' : 'FAILED',
+      seconds: seconds ?? '-',
+    }))
+  );
+  console.log(`${scriptName}: ${((Date.now() - started) / 1000).toFixed(1)}s wall`);
+  if (failed) process.exit(1);
+}
+
+export function runVerify(workspaces) {
+  checkRequiredScripts(workspaces);
+  checkLayering(workspaces);
+  runCommand('node', ['--test', 'skills-dev/octocode-dev/scripts/*.test.mjs', 'skills-dev/octocode-dev/scripts/providers/*.test.mjs']);
+  runCommand('node', ['skills-dev/octocode-dev/scripts/dedupe-deps.mjs']);
+  runCommand('node', ['skills-dev/octocode-dev/scripts/docs-verify.mjs']);
+
+  // A workspace with a verify script owns its complete gate; the rest run build/lint/test.
+  // Both run their oxlint-free variants: oxlint ran once, in the baseline pass before this.
+  // Dependency order (package deps + BUILD_INPUTS) keeps generated inputs built first.
+  for (const workspace of topologicallySort(workspaces)) {
+    const policy = workspace.packageJson.scripts?.verify
+      ? ['verify']
+      : SKILL_SCRIPT_POLICY.filter(name => workspace.requiredScripts.includes(name));
+    for (const script of policy.map(name => repoScript(workspace, name)).filter(Boolean)) {
+      console.log(`\n==> ${workspace.location}: ${script}`);
+      runCommand('yarn', ['workspace', workspace.name, 'run', script]);
+    }
+  }
+
+  checkBuildOutputs(workspaces);
+  // After the builds: it validates the research skill's examples against the built CLI's live schemas.
+  runCommand('node', ['skills-dev/octocode-dev/scripts/check-research-guidance.mjs']);
+}

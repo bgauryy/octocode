@@ -1,0 +1,17 @@
+{
+  "name": "@octocodeai/skills-common",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Canonical shared skill report renderers, templates, and output guidance.",
+  "scripts": {
+    "build": "node build.mjs",
+    "lint:own": "node build.mjs --check && node tool-flow.mjs --check",
+    "lint:oxlint": "cd .. && yarn run -T oxlint -c ../.oxlintrc.json .",
+    "lint": "yarn lint:own && yarn lint:oxlint",
+    "test": "node --test tests/*.test.mjs && node scripts/render-report.mjs --self-test"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

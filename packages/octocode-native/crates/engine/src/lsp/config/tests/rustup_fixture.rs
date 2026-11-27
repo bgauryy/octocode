@@ -1,0 +1,119 @@
+//! A stand-in `rustup` for tests of toolchain-component selection: the
+//! `rust-analyzer` proxy on a fake `PATH` links to a script that answers
+//! `rustup which rust-analyzer` as rustup does (a path on stdout, or a failure
+//! when the selected toolchain lacks the component).
+use crate::test_support::TmpDir;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+
+/// The script fails unless `RUSTUP_AUTO_INSTALL=0` is set (rustup 1.29 would
+/// otherwise download a missing toolchain), and records the directory it ran
+/// in. It waits while a `hold` file is next to its directory, and its answer is the
+/// content of the `selected` file.
+const SCRIPT: &str = r#"#!/bin/sh
+dir=$(dirname "$0")
+pwd -P > "$dir/ran-in"
+echo "$*" >> "$dir/runs"
+[ "$1" = which ] && [ "$2" = rust-analyzer ] || { echo "unexpected arguments: $*" >&2; exit 2; }
+[ "$RUSTUP_AUTO_INSTALL" = 0 ] || { echo "rustup would auto-install" >&2; exit 3; }
+while [ -f "$dir/../hold" ]; do sleep 0.02; done
+[ -f "$dir/selected" ] || { echo "error: unknown binary 'rust-analyzer' in toolchain 'bare'" >&2; exit 1; }
+cat "$dir/selected"
+"#;
+
+pub(super) struct FakeRustup {
+    bin: PathBuf,
+}
+
+impl FakeRustup {
+    /// `<root>/cargo/bin/{rustup, rust-analyzer -> rustup}`; no toolchain ships
+    /// the component until [`Self::ships`] is called.
+    pub(super) fn install(root: &TmpDir) -> Self {
+        let bin = root.join("cargo/bin");
+        let rustup = root.write("cargo/bin/rustup", SCRIPT);
+        std::fs::set_permissions(&rustup, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        std::os::unix::fs::symlink("rustup", bin.join("rust-analyzer")).expect("proxy");
+        Self { bin }
+    }
+
+    /// The directory to put on `PATH`.
+    pub(super) fn bin(&self) -> &Path {
+        &self.bin
+    }
+
+    /// A `PATH` with the fake rustup first, then the process's own: what a
+    /// real caller's `PATH` holds (the fake's scripts run system commands).
+    pub(super) fn path(&self) -> std::ffi::OsString {
+        let mut dirs = vec![self.bin.clone()];
+        dirs.extend(std::env::split_paths(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        ));
+        std::env::join_paths(dirs).expect("PATH")
+    }
+
+    pub(super) fn proxy(&self) -> PathBuf {
+        self.bin.join("rust-analyzer")
+    }
+
+    /// The selected toolchain ships `rust-analyzer` at `binary`.
+    pub(super) fn ships(&self, binary: &Path) {
+        std::fs::write(self.bin.join("selected"), format!("{}\n", binary.display()))
+            .expect("selected");
+    }
+
+    /// The selected toolchain lacks the component.
+    pub(super) fn lacks_component(&self) {
+        let _ = std::fs::remove_file(self.bin.join("selected"));
+    }
+
+    /// From now until [`Self::release`], rustup does not answer: it waits for
+    /// its caller to stop. The hold file lies beside the `PATH` directory and
+    /// the log files are made now, so neither holding nor a run changes an
+    /// entry of the `PATH` directory, only files in it.
+    pub(super) fn hold(&self) {
+        for file in [
+            self.hold_file(),
+            self.bin.join("runs"),
+            self.bin.join("ran-in"),
+        ] {
+            if !file.exists() {
+                std::fs::write(file, "").expect("hold");
+            }
+        }
+    }
+
+    /// rustup answers again.
+    pub(super) fn release(&self) {
+        std::fs::remove_file(self.hold_file()).expect("release");
+    }
+
+    fn hold_file(&self) -> PathBuf {
+        self.bin.with_file_name("hold")
+    }
+
+    /// The file each execution appends to, for a caller that waits for one.
+    pub(super) fn run_log(&self) -> PathBuf {
+        self.bin.join("runs")
+    }
+
+    /// How many times the proxy or rustup was executed.
+    pub(super) fn runs(&self) -> usize {
+        std::fs::read_to_string(self.bin.join("runs")).map_or(0, |log| log.lines().count())
+    }
+
+    /// The directory the last `rustup which` ran in.
+    pub(super) fn ran_in(&self) -> PathBuf {
+        PathBuf::from(
+            std::fs::read_to_string(self.bin.join("ran-in"))
+                .expect("rustup was not run")
+                .trim(),
+        )
+    }
+}
+
+/// An executable file at `root/relative`, standing for a toolchain's binary.
+pub(super) fn toolchain_binary(root: &TmpDir, relative: &str) -> PathBuf {
+    let path = root.write(relative, "#!/bin/sh\n");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    path
+}

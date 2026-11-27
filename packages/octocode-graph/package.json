@@ -1,0 +1,89 @@
+{
+  "name": "@octocodeai/octocode-graph",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "Build, query and serve repository graphs using Octocode.",
+  "engines": {
+    "node": ">=24.15.0"
+  },
+  "bin": "bin/octocode-graph.mjs",
+  "imports": {
+    "#graph-browser/*": "./dist/browser/*",
+    "#graph-assets/*": "./dist/assets/*",
+    "#graph-runtime/*": "./dist/runtime/*.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp.d.ts",
+      "default": "./dist/mcp.js"
+    },
+    "./skill": "./skills/octocode-graph/SKILL.md",
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "default": "./dist/cli.js"
+    },
+    "./analysis": {
+      "types": "./dist/analysis.d.ts",
+      "default": "./dist/analysis.js"
+    },
+    "./model-schema": "./dist/scheme/model.json",
+    "./rules-schema": "./dist/scheme/rules.json"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "clean": "rm -rf dist/",
+    "prepack": "yarn build",
+    "format": "prettier --write \"src/**/*.ts\" \"scripts/**/*.{mjs,js}\"",
+    "lint:own": "prettier --check \"src/**/*.ts\" \"scripts/**/*.{mjs,js}\" && node scripts/build.mjs --check-generated && node scripts/lint.mjs skills/octocode-graph",
+    "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
+    "lint": "yarn lint:own && yarn lint:oxlint",
+    "typecheck": "yarn run -T tsgo -p tsconfig.json && yarn run -T tsgo -p tsconfig.browser.json",
+    "test:run": "node --test tests/*.test.mjs",
+    "test": "yarn build && yarn test:run",
+    "verify:own": "yarn build && yarn lint:own && yarn typecheck && yarn test:run",
+    "verify": "yarn verify:own && yarn lint:oxlint",
+    "test:e2e": "yarn build && node scripts/e2e.mjs"
+  },
+  "dependencies": {
+    "octocode": "20.2.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bgauryy/octocode.git",
+    "directory": "packages/octocode-graph"
+  },
+  "devDependencies": {
+    "3d-force-graph": "1.80.1",
+    "@octocodeai/config": "workspace:*",
+    "@types/d3": "^7.4.3",
+    "@types/node": "^24.19.2",
+    "@typescript/native-preview": "7.0.0-dev.20260707.2",
+    "d3": "7.9.0",
+    "esbuild": "^0.28.2",
+    "json-schema-to-typescript": "16.0.0",
+    "prettier": "^3.9.10"
+  },
+  "mcp": {
+    "type": "stdio",
+    "command": "octocode-graph",
+    "args": [
+      "mcp"
+    ]
+  },
+  "types": "./dist/index.d.ts"
+}

@@ -1,0 +1,93 @@
+import { test } from 'node:test';
+import type { TestContext } from 'node:test';
+import assert from 'node:assert/strict';
+import { execFileSync } from './helpers.ts';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { binary, tempWorkspace, jsonCall } from './helpers.ts';
+import { boundTool, type BoundTool } from './helpers.ts';
+import { registerBoundTools } from '../dist/hosts/pi-extension.js';
+import type { JsonRecord } from './json-record.ts';
+const { hostHooks: { HOST_CONTEXT_LIMIT } } = await import('../dist/runtime.js');
+
+function fixture(t: TestContext) {
+  const workspace = tempWorkspace(t, 'communication-awareness-'), database = join(workspace, 'db.sqlite');
+  const call = jsonCall(binary, workspace, database, { stdio: 'pipe' });
+  const hook = (event = 'postToolUse', extra: Record<string, unknown> = {}) => JSON.parse(execFileSync(binary,
+    ['host-hook', '--vendor', 'cursor', '--workspace', workspace, '--database', database],
+    { encoding: 'utf8', input: JSON.stringify({hook_event_name:event, conversation_id:'host', workspace_roots:[workspace], ...extra}) }));
+  return {workspace, database, call, hook};
+}
+
+test('directory exposes declared task/status and updates without changing identity', t => {
+  const f = fixture(t);
+  const a = f.call('join', {name:'reviewer',vendor:'generic',task:'Review database migrations',status:'busy'});
+  assert.equal(f.call('peers',{}).items[0].task, 'Review database migrations');
+  f.call('heartbeat', {task:'Review messaging',status:'available'}, a.id);
+  const peer = f.call('peers',{}).items[0];
+  assert.equal(peer.id,a.id); assert.equal(peer.task,'Review messaging'); assert.equal(peer.status,'available');
+  assert.throws(()=>f.call('heartbeat',{status:'invented'},a.id));
+});
+
+test('hooks announce directory changes once, ignore heartbeats, restore after compaction', t => {
+  const f=fixture(t); f.hook('sessionStart');
+  const a=f.call('join',{name:'reviewer',vendor:'generic',task:'Review SQL',status:'busy'});
+  const joined=f.hook().additional_context;
+  assert.ok(joined.includes(a.id)); assert.ok(joined.includes('Review SQL'));
+  assert.deepEqual(f.hook(),{});
+  f.call('heartbeat',{},a.id); assert.deepEqual(f.hook(),{});
+  f.call('heartbeat',{task:'Review hooks',status:'available'},a.id);
+  assert.ok(f.hook().additional_context.includes('Review hooks'));
+  assert.deepEqual(f.hook(),{});
+  assert.ok(f.hook('postToolUse',{context_generation:'compacted'}).additional_context.includes(a.id));
+  f.call('leave',{},a.id);
+  assert.ok(f.hook('postToolUse',{context_generation:'compacted'}).additional_context.includes(a.id));
+  assert.deepEqual(f.hook('postToolUse',{context_generation:'compacted'}),{});
+});
+
+test('peer expiry generates an update without another peer action', t => {
+  const f=fixture(t);f.hook('sessionStart');const a=f.call('join',{name:'peer',vendor:'generic'});
+  f.hook();const db=new DatabaseSync(f.database);t.after(()=>db.close());
+  db.prepare('UPDATE sessions SET expiresAt=? WHERE id=?').run(Date.now()-1,a.id);
+  assert.ok(f.hook().additional_context.includes(a.id));assert.deepEqual(f.hook(),{});
+});
+
+test('MCP retries reuse the connection request key; new calls remain distinct', t => {
+  const f=fixture(t), a=f.call('join',{name:'sender',vendor:'generic'}), b=f.call('join',{name:'receiver',vendor:'generic'});
+  const frame=(id: number,text='Review SQL')=>({jsonrpc:'2.0',id,method:'tools/call',params:{name:'messages',arguments:{type:'send',input:{to:b.id,parts:[{text}],reasoning:'Coordinate review'}}}});
+  const input=`${[frame(1),frame(1),frame(1,'Changed intent'),frame(2)].map(item=>JSON.stringify(item)).join('\n')}\n`;
+  const rows=execFileSync(binary,['mcp','--workspace',f.workspace,'--database',f.database,'--session',a.id],{encoding:'utf8',input}).trim().split('\n').map((line): JsonRecord=>JSON.parse(line));
+  const result=(i: number)=>JSON.parse(rows[i].result.content[0].text);
+  assert.equal(result(0).id,result(1).id);assert.equal(rows[2].result.isError,true);
+  assert.notEqual(result(0).id,result(3).id);assert.equal(f.call('inbox',{},b.id).items.length,2);
+});
+
+test('Pi re-executions reuse host call IDs, including across bridge registration', async t => {
+  const f=fixture(t), a=f.call('join',{name:'sender',vendor:'generic'}), b=f.call('join',{name:'receiver',vendor:'generic'});
+  const tools=JSON.parse(execFileSync(binary,['schema','tools','--tools','messages'],{encoding:'utf8'}));
+  const bind=()=>{const registered: BoundTool[]=[];registerBoundTools({registerTool:tool=>{registered.push(boundTool(tool));}},{binary,workspace:f.workspace,database:f.database,session:a.id,tools});const [tool]=registered;assert.ok(tool);return tool;};
+  const input={type:'send',input:{to:b.id,parts:[{text:'Review SQL'}],reasoning:'Coordinate review'}};
+  const first=await bind().execute('call-a',input);
+  const retry=await bind().execute('call-a',input);
+  const later=await bind().execute('call-b',input);
+  assert.equal(first.details.id,retry.details.id);assert.notEqual(first.details.id,later.details.id);
+  await assert.rejects(bind().execute('call-a',{...input,input:{...input.input,parts:[{text:'Different request'}]}}));
+  assert.equal(f.call('inbox',{},b.id).items.length,2);
+});
+
+test('bounded directory updates give a continuation and signal changes outside the first page', t => {
+  const f=fixture(t);f.hook('sessionStart');
+  for(let i=0;i<20;i++) f.call('join',{name:`peer-${i}`,vendor:'generic',task:'x'.repeat(256)});
+  const context=f.hook().additional_context;assert.ok(Buffer.byteLength(context)<=HOST_CONTEXT_LIMIT);assert.ok(context.includes('"next"'));
+  const directory=context.split('\n').find((line: string)=>line.startsWith('Peer directory'));assert.ok(directory);
+  const delta=JSON.parse(directory.slice(directory.indexOf('{')));
+  assert.equal(delta.next.command,'agents');assert.equal(delta.next.input.type,'list');
+  const identity=f.call('peers',{}).items.find((x: JsonRecord)=>x.vendor==='cursor').id;
+  assert.ok(f.call(delta.next.command,delta.next.input,identity).items.length>0,'host continuation is executable through the shared capability CLI');
+  const peers=f.call('peers',{}).items.filter((x: JsonRecord)=>x.vendor==='generic');
+  f.call('heartbeat',{task:'Changed outside first page'},peers.at(-1).id);
+  const changed=f.hook().additional_context;assert.ok(changed.includes('"refresh"'));assert.deepEqual(f.hook(),{});
+  f.call('heartbeat',{branch:'feature/changed-outside-first-page'},peers.at(-1).id);
+  assert.ok(f.hook().additional_context.includes('"refresh"'),'Branch changes outside the first page must invalidate the directory');
+  assert.deepEqual(f.hook(),{});
+});

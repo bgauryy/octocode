@@ -1,0 +1,236 @@
+//! Octocode's in-process text search: a gitignore-aware parallel walk feeding
+//! a line-oriented regex searcher, with no external binary. Built on
+//!   * `grep-searcher` + `grep-regex` for line-oriented matching,
+//!   * `grep-pcre2` for lookaround and backreferences,
+//!   * `ignore` for the gitignore-aware walk, include globs and file types.
+//!
+//! It returns a `TextSearchResult` with byte and time stats from the walk.
+
+use crate::error::{Error, Result};
+use crate::types::{CaseRule, PatternSyntax, TextSearchOptions, TextSearchResult};
+use collect::{WalkControl, collect};
+use grep_regex::RegexMatcherBuilder;
+use mode::resolve_mode;
+use pcre2::search_pcre2;
+use result::build_result;
+use state::{CollectState, Held};
+use std::borrow::Cow;
+use std::path::Path;
+use std::sync::Arc;
+
+mod collect;
+mod file_search;
+mod file_terms;
+mod judge_gate;
+mod listed;
+mod mode;
+mod open_gate;
+mod ordered;
+mod pcre2;
+mod result;
+mod sink;
+mod state;
+mod stream;
+mod stream_judge;
+mod visit;
+pub(crate) mod walk_rule;
+mod window;
+pub mod written;
+
+#[cfg(any(test, feature = "test-hooks"))]
+pub use file_search::{DURING_SEARCH_READ, ReadRace};
+pub use listed::{count_listed, listable};
+pub(crate) use pcre2::{
+    ACTIVE_PCRE2_WORKERS, MAX_ACTIVE_PCRE2_WORKERS, Pcre2WorkerSlot, pcre2_builder,
+    release_worker_slot, try_acquire_worker_slot,
+};
+pub use stream::{Anchor, Landmark, Pin, Prepare, Stream, Streamed, Streaming};
+pub use window::{Clock, Earlier, Pause, Resume, SearchWindow, Searched, Windowed};
+
+pub trait TextSearchPathFilter: Send + Sync {
+    fn allows(&self, path: &Path, is_dir: bool) -> bool;
+    /// [`Self::allows`] for a walked entry with the type its directory
+    /// listing gave (`None` when the listing had none): a filter that can
+    /// decide from the type without another `lstat` overrides it.
+    fn allows_entry(&self, path: &Path, file_type: Option<std::fs::FileType>) -> bool {
+        self.allows(path, file_type.is_some_and(|kind| kind.is_dir()))
+    }
+    /// A dot entry the walk left out because hidden entries are off (a
+    /// skipped directory is not descended into), so the caller can count
+    /// it. Called before [`Self::allows`], which never sees the entry.
+    fn skipped_hidden(&self, _path: &Path, _is_dir: bool) {}
+    /// An entry an ignore rule (`.gitignore`, `.ignore`, the git exclude
+    /// file or the global gitignore) left out because ignored entries are
+    /// off (a skipped directory is not descended into), so the caller can
+    /// count it. Called before [`Self::allows`], which never sees the entry.
+    fn skipped_ignored(&self, _path: &Path, _is_dir: bool) {}
+    /// A symlink [`Self::allows`] admitted that the walk did not follow (it
+    /// searches regular files only), so the caller can count it.
+    fn skipped_symlink(&self, _path: &Path) {}
+}
+
+/// Default per-file byte ceiling for the search path. A file larger than this is
+/// skipped before it is opened/searched, so a pathological multi-GB (often
+/// single-line, minified/generated) file cannot force a giant line buffer plus a
+/// lossy-UTF8 copy. Callers may override via [`TextSearchOptions::max_file_bytes`].
+/// Skipped files are surfaced as a `fileTooLarge` cap reason, never silently
+/// dropped.
+pub(crate) const DEFAULT_MAX_SEARCH_FILE_BYTES: u64 = 20 * 1024 * 1024;
+
+/// Default per-file ceiling for line-oriented (non-multiline) search. Line
+/// mode streams the file through a line buffer already bounded by
+/// `file_search::SEARCH_HEAP_LIMIT_BYTES`, so large logs, dumps, and generated files stay
+/// searchable; only multiline search, which buffers the whole file, keeps the
+/// tighter [`DEFAULT_MAX_SEARCH_FILE_BYTES`].
+pub const DEFAULT_MAX_LINE_SEARCH_FILE_BYTES: u64 = 512 * 1024 * 1024;
+
+fn to_engine_err<E: std::fmt::Display>(e: E) -> Error {
+    Error::new(e.to_string())
+}
+
+/// Build the appropriate matcher (default Rust regex, or PCRE2 for `-P`) and run
+/// the search, stopping at the next entry once `cancelled` returns true (the
+/// partial result carries [`CapReason::Cancelled`](crate::types::CapReason::Cancelled)). A literal pattern is
+/// escaped for the regex engine.
+pub fn search_cancellable(
+    opts: TextSearchOptions,
+    path_filter: Arc<dyn TextSearchPathFilter>,
+    cancelled: &(dyn Fn() -> bool + Sync),
+) -> Result<TextSearchResult> {
+    match search_window(opts, path_filter, cancelled, SearchWindow::default())? {
+        Windowed::Whole(result) => Ok(result),
+        Windowed::Paused(_) => Err(Error::new("a text search with no window end paused")),
+    }
+}
+
+/// [`search_cancellable`] for one window of the search ([`window`]): a PCRE2
+/// search pauses past `window.ends`, after the last file it finished in walk
+/// order, and resumes at `window.resume`. A linear engine searches its whole
+/// scope in one window.
+pub fn search_window(
+    opts: TextSearchOptions,
+    path_filter: Arc<dyn TextSearchPathFilter>,
+    cancelled: &(dyn Fn() -> bool + Sync),
+    window: SearchWindow,
+) -> Result<Windowed> {
+    let mode = resolve_mode(&opts);
+
+    let case_insensitive = opts.case == CaseRule::Insensitive;
+    let smart_case = opts.case == CaseRule::Smart;
+    let whole_word = opts.whole_word.unwrap_or(false);
+    let multiline = opts.multiline.unwrap_or(false);
+    let dotall = multiline && opts.multiline_dotall.unwrap_or(false);
+
+    // ── PCRE2 path ──────────────────────────────────────────────────────────────
+    if opts.syntax == PatternSyntax::Pcre2 {
+        let mut b = pcre2_builder();
+        b.caseless(case_insensitive)
+            .case_smart(smart_case)
+            .word(whole_word)
+            .multi_line(multiline)
+            .dotall(dotall)
+            .crlf(true);
+        let matcher = b.build(&opts.pattern).map_err(to_engine_err)?;
+        let terms = mode::term_matchers(&opts, mode, |term| b.build(term).map_err(to_engine_err))?;
+        return search_pcre2(opts, mode, (matcher, terms), path_filter, cancelled, window);
+    }
+
+    // ── Default Rust-regex path ─────────────────────────────────────────────────
+    let b = rust_matcher_builder(&opts);
+    let matcher = b
+        .build(&rust_spelling(&opts, &opts.pattern))
+        .map_err(to_engine_err)?;
+    let terms = mode::term_matchers(&opts, mode, |term| {
+        b.build(&rust_spelling(&opts, term)).map_err(to_engine_err)
+    })?;
+    // The Rust regex engine is linear-time and cannot catastrophically
+    // backtrack: its search is one window.
+    let (state, held) = (
+        CollectState::new(),
+        Arc::new(Held::new(opts.max_held_bytes)),
+    );
+    collect(
+        &opts,
+        (&matcher, &terms),
+        mode,
+        path_filter,
+        (&state, &held),
+        WalkControl { cancelled },
+    )?;
+    if held.exhausted() {
+        return Err(held.refusal());
+    }
+    Ok(Windowed::Whole(build_result(&opts, mode, state.snapshot())))
+}
+
+/// A traversal search that stops once `stream` says its page is full and
+/// resumes at `stream.from` ([`stream`]). The linear engine only: a PCRE2
+/// match cannot be interrupted, so its search runs in windows
+/// ([`search_window`]).
+pub fn search_stream(
+    opts: TextSearchOptions,
+    path_filter: Arc<dyn TextSearchPathFilter>,
+    cancelled: &(dyn Fn() -> bool + Sync),
+    stream: Stream,
+) -> Result<Streaming> {
+    if opts.syntax == PatternSyntax::Pcre2 {
+        return Err(Error::new(
+            "a PCRE2 search runs in windows, not as a stream",
+        ));
+    }
+    let mode = resolve_mode(&opts);
+    let b = rust_matcher_builder(&opts);
+    let matcher = b
+        .build(&rust_spelling(&opts, &opts.pattern))
+        .map_err(to_engine_err)?;
+    let terms = mode::term_matchers(&opts, mode, |term| {
+        b.build(&rust_spelling(&opts, term)).map_err(to_engine_err)
+    })?;
+    stream::run(
+        &opts,
+        mode,
+        (&matcher, &terms),
+        path_filter,
+        cancelled,
+        stream,
+    )
+}
+
+/// The builder of every Rust-regex matcher a search of `opts` runs.
+fn rust_matcher_builder(opts: &TextSearchOptions) -> RegexMatcherBuilder {
+    let multiline = opts.multiline.unwrap_or(false);
+    let mut b = RegexMatcherBuilder::new();
+    b.case_insensitive(opts.case == CaseRule::Insensitive)
+        .case_smart(opts.case == CaseRule::Smart)
+        .word(opts.whole_word.unwrap_or(false))
+        // `^`/`$` always anchor at line boundaries; spanning lines is the
+        // searcher's choice (multiline mode).
+        .multi_line(true)
+        .dot_matches_new_line(multiline && opts.multiline_dotall.unwrap_or(false));
+    // Fast path: in line-oriented (non-multiline) search the
+    // searcher feeds one terminator-stripped line at a time. Declaring the line
+    // terminator lets grep-regex extract inner literals and cheaply skip lines
+    // that cannot match (its primary perf lever) and forbids a pattern from
+    // matching across `\n` (which the line-oriented sink could never surface
+    // anyway). Multiline matchers span lines and must NOT set it.
+    if !multiline {
+        // `$` also matches before `\r\n`, as on the PCRE2
+        // path: a Windows-edited file answers an end-anchored pattern. Set
+        // before the `\n` terminator, which the searcher feeds lines by.
+        b.crlf(true);
+        b.line_terminator(Some(b'\n'));
+    }
+    b
+}
+
+/// `pattern` as the Rust regex engine reads it: a literal is escaped.
+fn rust_spelling<'a>(opts: &TextSearchOptions, pattern: &'a str) -> Cow<'a, str> {
+    if opts.syntax == PatternSyntax::Literal {
+        Cow::Owned(regex::escape(pattern))
+    } else {
+        Cow::Borrowed(pattern)
+    }
+}
+
+#[cfg(test)]
+mod tests;

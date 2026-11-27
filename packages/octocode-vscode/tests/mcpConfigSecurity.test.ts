@@ -2,6 +2,7 @@ import * as fsPromises from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { updateMcpConfigToken } from '../src/mcpConfig';
 import { readJsonFile } from '../src/jsonUtils';
 
 const MCP_SERVER_NAME = 'octocode';
@@ -42,35 +43,9 @@ async function writeConfig(filePath: string, config: McpConfig): Promise<void> {
   );
 }
 
-async function updateMcpConfigToken(
-  configPath: string,
-  token: string | undefined
-): Promise<void> {
-  const existingConfig = await readJsonFile<McpConfig>(configPath);
-  if (!existingConfig?.mcpServers?.[MCP_SERVER_NAME]) return;
-
-  const serverConfig = existingConfig.mcpServers[MCP_SERVER_NAME];
-  if (token) {
-    serverConfig.env = { ...serverConfig.env, GITHUB_TOKEN: token };
-  } else {
-    if (serverConfig.env) {
-      delete serverConfig.env.GITHUB_TOKEN;
-      if (Object.keys(serverConfig.env).length === 0) {
-        delete serverConfig.env;
-      }
-    }
-  }
-
-  await fsPromises.writeFile(
-    configPath,
-    JSON.stringify(existingConfig, null, 2),
-    'utf-8'
-  );
-}
-
 describe('MCP Config Token Security', () => {
   describe('Token write', () => {
-    it('sets GITHUB_TOKEN in server env', async () => {
+    it('sets GH_TOKEN (priority 0) in server env', async () => {
       const dir = await makeTempDir();
       const configPath = path.join(dir, 'mcp.json');
       await writeConfig(configPath, {
@@ -85,7 +60,7 @@ describe('MCP Config Token Security', () => {
 
       await updateMcpConfigToken(configPath, 'ghp_testtoken123');
       const updated = await readJsonFile<McpConfig>(configPath);
-      expect(updated?.mcpServers[MCP_SERVER_NAME]?.env?.GITHUB_TOKEN).toBe(
+      expect(updated?.mcpServers[MCP_SERVER_NAME]?.env?.GH_TOKEN).toBe(
         'ghp_testtoken123'
       );
     });
@@ -108,10 +83,10 @@ describe('MCP Config Token Security', () => {
       const updated = await readJsonFile<McpConfig>(configPath);
       const env = updated?.mcpServers[MCP_SERVER_NAME]?.env;
       expect(env?.OTHER_VAR).toBe('keep-me');
-      expect(env?.GITHUB_TOKEN).toBe('new-token');
+      expect(env?.GH_TOKEN).toBe('new-token');
     });
 
-    it('overwrites existing token', async () => {
+    it('overwrites existing token and drops earlier GITHUB_TOKEN/OCTOCODE_TOKEN copies', async () => {
       const dir = await makeTempDir();
       const configPath = path.join(dir, 'mcp.json');
       await writeConfig(configPath, {
@@ -120,16 +95,16 @@ describe('MCP Config Token Security', () => {
             command: 'npx',
             type: 'stdio',
             args: [],
-            env: { GITHUB_TOKEN: 'old-token' },
+            env: { GITHUB_TOKEN: 'old-token', OCTOCODE_TOKEN: 'older-token' },
           },
         },
       });
 
       await updateMcpConfigToken(configPath, 'new-token');
       const updated = await readJsonFile<McpConfig>(configPath);
-      expect(updated?.mcpServers[MCP_SERVER_NAME]?.env?.GITHUB_TOKEN).toBe(
-        'new-token'
-      );
+      expect(updated?.mcpServers[MCP_SERVER_NAME]?.env).toEqual({
+        GH_TOKEN: 'new-token',
+      });
     });
   });
 
@@ -143,7 +118,7 @@ describe('MCP Config Token Security', () => {
             command: 'npx',
             type: 'stdio',
             args: [],
-            env: { GITHUB_TOKEN: 'secret', OTHER: 'keep' },
+            env: { GH_TOKEN: 'secret', OCTOCODE_TOKEN: 'earlier', GITHUB_TOKEN: 'legacy', OTHER: 'keep' },
           },
         },
       });
@@ -152,6 +127,8 @@ describe('MCP Config Token Security', () => {
       const updated = await readJsonFile<McpConfig>(configPath);
       const env = updated?.mcpServers[MCP_SERVER_NAME]?.env;
       expect(env?.GITHUB_TOKEN).toBeUndefined();
+      expect(env?.OCTOCODE_TOKEN).toBeUndefined();
+      expect(env?.GH_TOKEN).toBeUndefined();
       expect(env?.OTHER).toBe('keep');
     });
 
@@ -220,17 +197,17 @@ describe('MCP Config Token Security', () => {
     it('preserves other servers in config', async () => {
       const dir = await makeTempDir();
       const configPath = path.join(dir, 'mcp.json');
+      const other = { command: 'other-cmd', type: 'stdio', args: ['--flag'] };
       await writeConfig(configPath, {
         mcpServers: {
           [MCP_SERVER_NAME]: { command: 'npx', type: 'stdio', args: [] },
-          other: { command: 'other-cmd', type: 'stdio', args: ['--flag'] },
+          other,
         },
       });
 
       await updateMcpConfigToken(configPath, 'tok');
       const updated = await readJsonFile<McpConfig>(configPath);
-      expect(updated?.mcpServers.other).toBeDefined();
-      expect(updated?.mcpServers.other.command).toBe('other-cmd');
+      expect(updated?.mcpServers.other).toEqual(other);
     });
   });
 });

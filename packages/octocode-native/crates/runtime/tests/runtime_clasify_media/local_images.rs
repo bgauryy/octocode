@@ -1,0 +1,402 @@
+//! Local images: byte-exact hiding, mutation invalidation, placeholders and multiple assets, and refused images.
+
+use super::{png, provider, requests, row, runtime};
+use crate::runtime_clasify::clasify;
+use crate::support::Workspace;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
+use octocode_test_support::json_fixture;
+use serde_json::{Value, json};
+
+#[tokio::test]
+async fn unread_local_image_is_byte_exact_hidden_and_saved_with_box() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    let bytes = png();
+    std::fs::write(workspace.workspace.join("one.png"), &bytes).unwrap();
+    let runtime = runtime(&workspace, &server, &[]);
+    let out = clasify(&runtime, vec![row("one.png")]).await;
+    let result = &out["results"][0]["data"];
+    assert_eq!(result["answers"]["bounds"]["box"]["left"], 0.2, "{out}");
+    let asset = &result["assets"]["image_a"];
+    assert_eq!(
+        (asset["width"].as_u64(), asset["height"].as_u64()),
+        (Some(280), Some(280))
+    );
+    assert_eq!(asset["format"], "png");
+    assert_eq!(
+        std::fs::read(asset["path"].as_str().unwrap()).unwrap(),
+        bytes
+    );
+    assert!(asset["sourceDigest"].as_str().unwrap().len() == 64);
+    assert!(
+        result.get("hints").is_none(),
+        "images do not advertise localFetch of binary"
+    );
+    assert!(!out.to_string().contains("data_base64"));
+    assert!(!out.to_string().contains(&STANDARD.encode(&bytes)));
+    let sent = requests(&server).await;
+    assert_eq!(sent.len(), 1);
+    assert_eq!(
+        sent[0].headers.get("typesafe-danger-zone-images").unwrap(),
+        "true"
+    );
+    let body: Value = serde_json::from_slice(&sent[0].body).unwrap();
+    assert_eq!(
+        body["assets"]["image_a"]["data_base64"],
+        STANDARD.encode(&bytes)
+    );
+    assert_eq!(body["state"], "image_a");
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn short_local_image_is_sent_padded_and_saved_as_judged() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    let short = include_bytes!("../fixtures/clasify/short.jpg");
+    std::fs::write(workspace.workspace.join("short.jpg"), short).unwrap();
+    let runtime = runtime(&workspace, &server, &[]);
+    let out = clasify(&runtime, vec![row("short.jpg")]).await;
+    let asset = &out["results"][0]["data"]["assets"]["image_a"];
+    assert_eq!(
+        (
+            asset["format"].as_str(),
+            asset["width"].as_u64(),
+            asset["height"].as_u64()
+        ),
+        (Some("png"), Some(280), Some(280)),
+        "{out}"
+    );
+    let saved = std::fs::read(asset["path"].as_str().unwrap()).unwrap();
+    assert_eq!(asset["bytes"].as_u64(), Some(saved.len() as u64));
+    let sent = requests(&server).await;
+    let body: Value = serde_json::from_slice(&sent[0].body).unwrap();
+    assert_eq!(body["assets"]["image_a"]["format"], "png");
+    assert_eq!(
+        body["assets"]["image_a"]["data_base64"],
+        STANDARD.encode(&saved)
+    );
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn image_mutation_changes_the_snapshot_and_old_evidence_survives() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    let path = workspace.workspace.join("one.png");
+    std::fs::write(&path, png()).unwrap();
+    let runtime = runtime(&workspace, &server, &[]);
+    let first = clasify(&runtime, vec![row("one.png")]).await;
+    let repeated = clasify(&runtime, vec![row("one.png")]).await;
+    assert!(repeated["results"][0]["data"].get("replayed").is_none());
+    let old = &first["results"][0]["data"]["assets"]["image_a"];
+    let mut changed = png();
+    changed.push(0);
+    std::fs::write(&path, &changed).unwrap();
+    let newer = clasify(&runtime, vec![row("one.png")]).await;
+    assert_ne!(
+        newer["results"][0]["data"]["assets"]["image_a"]["sourceDigest"],
+        old["sourceDigest"]
+    );
+    assert_eq!(std::fs::read(old["path"].as_str().unwrap()).unwrap(), png());
+    assert_eq!(
+        requests(&server).await.len(),
+        3,
+        "every evaluation reaches the provider"
+    );
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn question_only_placeholders_and_multiple_assets_are_preserved() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    std::fs::write(workspace.workspace.join("one.png"), png()).unwrap();
+    let runtime = runtime(&workspace, &server, &[]);
+    let mut query = row("one.png");
+    query["content"] = json_fixture(r#"{"purpose": "screen two independent images"}"#);
+    query["assets"]["image_b"] = query["assets"]["image_a"].clone();
+    query["questions"]["visible"]["instructions"] =
+        json!("Does image_a show the same shape as image_b?");
+    let out = clasify(&runtime, vec![query]).await;
+    assert_eq!(
+        out["results"][0]["data"]["assets"]
+            .as_object()
+            .unwrap()
+            .len(),
+        2,
+        "{out}"
+    );
+    let sent = requests(&server).await;
+    let body: Value = serde_json::from_slice(&sent[0].body).unwrap();
+    assert_eq!(body["assets"].as_object().unwrap().len(), 2);
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn invalid_missing_oversized_and_private_images_never_reach_provider() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    std::fs::write(workspace.workspace.join("bad.png"), b"not an image").unwrap();
+    let mut large_dimensions = png();
+    large_dimensions[16..20].copy_from_slice(&9000u32.to_be_bytes());
+    std::fs::write(workspace.workspace.join("wide.png"), large_dimensions).unwrap();
+    let oversized = std::fs::File::create(workspace.workspace.join("large.png")).unwrap();
+    oversized.set_len(16 * 1024 * 1024 + 1).unwrap();
+    let runtime = runtime(&workspace, &server, &[]);
+    let mut unused = row("missing.png");
+    unused["assets"]["unused"] = unused["assets"]["image_a"].take();
+    unused["assets"].as_object_mut().unwrap().remove("image_a");
+    let mut url = row("unused");
+    url["assets"]["image_a"]["source"] =
+        json_fixture(r#"{"url": "https://127.0.0.1:9/image.png"}"#);
+    let out = clasify(
+        &runtime,
+        vec![
+            row("bad.png"),
+            row("wide.png"),
+            row("large.png"),
+            unused,
+            url,
+        ],
+    )
+    .await;
+    let errors: Vec<_> = out["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["data"]["errorCode"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        errors,
+        [
+            "invalidClassificationContext",
+            "classificationContextTooLarge",
+            "classificationContextTooLarge",
+            "invalidClassificationContext",
+            "securityValidationFailed"
+        ],
+        "{out}"
+    );
+    // The uncited asset names the field the caller wrote, and its only hint
+    // is the input fix: nothing was judged, so nothing failed.
+    let uncited = &out["results"][3]["data"];
+    assert_eq!(
+        uncited["error"],
+        "Image asset unused is not named in content or any question; nothing was judged.",
+        "{out}"
+    );
+    assert_eq!(
+        uncited["hints"],
+        json_fixture(r#"["Name each asset key in the question that judges it."]"#),
+        "{out}"
+    );
+    assert!(requests(&server).await.is_empty());
+    runtime.close().await;
+}
+
+/// A missing image fails as the missing path every local reader reports
+/// (`notFound`, with the reader's recovery), and one outside the
+/// allowed roots as the shared `outsideAllowedRoots`: never as a security
+/// validation failure that tells the caller to "read an allowed file".
+#[tokio::test]
+async fn a_missing_or_outside_local_image_fails_with_the_shared_path_code() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    let runtime = runtime(&workspace, &server, &[]);
+    let outside = tempfile::tempdir().unwrap();
+    let file = outside.path().join("private.png");
+    std::fs::write(&file, png()).unwrap();
+    let out = clasify(
+        &runtime,
+        vec![row("missing.png"), row(file.to_str().unwrap())],
+    )
+    .await;
+    let missing = &out["results"][0]["data"];
+    assert_eq!(missing["errorCode"], "notFound", "{out}");
+    assert!(
+        missing["next"].is_object() || missing["related"].is_array(),
+        "a missing image carries the reader's recovery: {missing}"
+    );
+    assert!(
+        !missing
+            .to_string()
+            .contains("Read an allowed regular image file"),
+        "{missing}"
+    );
+    assert_eq!(
+        out["results"][1]["data"]["errorCode"], "outsideAllowedRoots",
+        "{out}"
+    );
+    assert!(requests(&server).await.is_empty());
+    runtime.close().await;
+}
+
+/// The questions of an image judged as a source or resource: one says "the
+/// image", as questions about an image do.
+fn image_questions() -> Value {
+    json!({"visible":{"type":"noul","instructions":"The image shows visible content."},
+        "bounds":{"type":"box","instructions":"The object."}})
+}
+
+/// A PNG named as a text `source` is judged as an image in the same call:
+/// its bytes go as the one asset the state names, and a question that says
+/// "the image" does not name that asset, which would bill the image again.
+#[tokio::test]
+async fn an_image_source_is_judged_as_an_image_in_one_call() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    let bytes = png();
+    std::fs::write(workspace.workspace.join("one.png"), &bytes).unwrap();
+    let runtime = runtime(&workspace, &server, &[]);
+    let out = clasify(
+        &runtime,
+        vec![json!({"operation":"evaluate",
+            "source":{"tool":"localFetch","query":{"path":"one.png"}},
+            "questions":image_questions()})],
+    )
+    .await;
+    let result = &out["results"][0]["data"];
+    assert_eq!(result["answers"]["visible"]["noul"], 0.9, "{out}");
+    assert_eq!(result["answers"]["bounds"]["box"]["left"], 0.2, "{out}");
+    assert!(!out.to_string().contains(&STANDARD.encode(&bytes)));
+    let sent = requests(&server).await;
+    assert_eq!(sent.len(), 1, "{out}");
+    assert_eq!(
+        sent[0].headers.get("typesafe-danger-zone-images").unwrap(),
+        "true"
+    );
+    let body: Value = serde_json::from_slice(&sent[0].body).unwrap();
+    let assets = body["assets"].as_object().expect("the image as an asset");
+    assert_eq!(assets.len(), 1, "{body}");
+    let (key, asset) = assets.iter().next().unwrap();
+    assert_eq!(asset["data_base64"], STANDARD.encode(&bytes));
+    assert_eq!(body["state"], json!(key));
+    assert!(
+        !body["questions"].to_string().contains(key.as_str()),
+        "a question names the image key: {}",
+        body["questions"]
+    );
+    runtime.close().await;
+}
+
+/// One `resources` list holds text and images: each is judged alone, the
+/// image with its bytes and the text without any.
+#[tokio::test]
+async fn resources_judge_text_and_images_each_alone() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    std::fs::write(workspace.workspace.join("one.png"), png()).unwrap();
+    std::fs::write(
+        workspace.workspace.join("notes.md"),
+        "The service restarts.\n",
+    )
+    .unwrap();
+    let runtime = runtime(&workspace, &server, &[]);
+    let out = clasify(
+        &runtime,
+        vec![json!({"operation":"evaluate",
+            "resources":{
+                "shot":{"tool":"localFetch","query":{"path":"one.png"}},
+                "notes":{"tool":"localFetch","query":{"path":"notes.md"}}},
+            "questions":{"visible":{"type":"noul","instructions":"Shows visible content."}}})],
+    )
+    .await;
+    let resources = &out["results"][0]["data"]["resources"];
+    for key in ["shot", "notes"] {
+        assert_eq!(resources[key]["answers"]["visible"]["noul"], 0.9, "{out}");
+    }
+    let bodies = requests(&server)
+        .await
+        .iter()
+        .map(|request| serde_json::from_slice::<Value>(&request.body).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(bodies.len(), 2, "{out}");
+    assert_eq!(
+        bodies
+            .iter()
+            .filter(|body| body.get("assets").is_some())
+            .count(),
+        1,
+        "only the image is sent as an image"
+    );
+    runtime.close().await;
+}
+
+/// A box question over a text source is refused before any request: a box
+/// locates a region of an image.
+#[tokio::test]
+async fn a_box_question_over_text_sends_nothing() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    std::fs::write(
+        workspace.workspace.join("notes.md"),
+        "The service restarts.\n",
+    )
+    .unwrap();
+    let runtime = runtime(&workspace, &server, &[]);
+    let out = clasify(
+        &runtime,
+        vec![json!({"operation":"evaluate",
+            "source":{"tool":"localFetch","query":{"path":"notes.md"}},
+            "questions":image_questions()})],
+    )
+    .await;
+    assert_eq!(
+        out["results"][0]["data"]["errorCode"], "invalidClassificationContext",
+        "{out}"
+    );
+    assert!(requests(&server).await.is_empty(), "{out}");
+    runtime.close().await;
+}
+
+/// A binary source that is no PNG or JPEG keeps its reader's refusal, and
+/// nothing is sent.
+#[tokio::test]
+async fn a_binary_source_that_is_no_image_keeps_its_readers_refusal() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    std::fs::write(
+        workspace.workspace.join("blob.bin"),
+        b"\x00\x01\x02binary\x00",
+    )
+    .unwrap();
+    let runtime = runtime(&workspace, &server, &[]);
+    let out = clasify(
+        &runtime,
+        vec![json!({"operation":"evaluate",
+            "source":{"tool":"localFetch","query":{"path":"blob.bin"}},
+            "questions":{"visible":{"type":"noul","instructions":"Shows visible content."}}})],
+    )
+    .await;
+    assert_eq!(
+        out["results"][0]["data"]["errorCode"], "binaryFileUnsupported",
+        "{out}"
+    );
+    assert!(requests(&server).await.is_empty(), "{out}");
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn egress_preview_of_a_binary_source_returns_its_selector_without_sending_pixels() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    let bytes = png();
+    std::fs::write(workspace.workspace.join("private.png"), &bytes).unwrap();
+    let runtime = runtime(&workspace, &server, &[]);
+    let source = json!({"tool":"localFetch","query":{"path":"private.png"}});
+    let out = clasify(
+        &runtime,
+        vec![
+            json!({"operation":"evaluate","preview":true,"source":source,
+        "questions":{"bounds":{"type":"box","instructions":"Where is the center?"}}}),
+        ],
+    )
+    .await;
+    let preview = &out["results"][0]["data"]["preview"];
+    assert_eq!(preview["selection"]["source"], source, "{out}");
+    assert!(preview["selection"].get("captured").is_none());
+    assert!(!out.to_string().contains(&STANDARD.encode(&bytes)));
+    assert!(requests(&server).await.is_empty());
+    runtime.close().await;
+}

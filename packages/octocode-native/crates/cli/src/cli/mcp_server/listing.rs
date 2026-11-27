@@ -1,0 +1,101 @@
+//! What the MCP server advertises: the tool definitions and the server
+//! instructions, composed from the embedded presentation (`octocode-config`
+//! emits it from the same core Zod contract) and the runtime catalog.
+//!
+//! The presentation carries each tool's `mcp` definition at rest and its
+//! context-selection variant (`selection`). This module only chooses among
+//! them with runtime truth: which tools are available, whether selection is
+//! on and which language servers resolve.
+use super::super::schema::{instructions, with_lsp_servers};
+use serde_json::Value;
+
+/// The `tools/list` entries (JSON, in catalog order) and `initialize`
+/// instructions.
+pub(super) struct Listing {
+    pub tools: Vec<Value>,
+    pub instructions: String,
+}
+
+/// The tool names the catalog marks available, in catalog order.
+fn available(catalog: &Value) -> Vec<&str> {
+    catalog["tools"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|tool| tool["available"] == true)
+        .filter_map(|tool| tool["name"].as_str())
+        .collect()
+}
+
+/// One tool's `tools/list` entry from its presentation `mcp` definition.
+fn entry(
+    name: &str,
+    mcp: &Value,
+    listed: &[&str],
+    lsp_servers: Option<&[&str]>,
+    materialize_listed: bool,
+) -> Value {
+    let mut description = super::super::schema::without_unlisted_clauses(
+        &mcp["description"],
+        &mcp["gatedClauses"],
+        |needs| listed.contains(&needs),
+    );
+    let mut input_schema = mcp["inputSchema"].clone();
+    if octocode_runtime_base::id::ToolId::from_name(name)
+        .is_some_and(octocode_runtime_base::id::ToolId::lists_lsp_servers)
+        && let (Some(text), Some(servers)) = (description.as_str(), lsp_servers)
+    {
+        description = Value::String(with_lsp_servers(text, servers));
+    }
+    if !materialize_listed && name == "ghStructure" {
+        super::super::schema::strip_materialize_mode(&mut description);
+        super::super::schema::strip_materialize_mode(&mut input_schema);
+    }
+    let mut entry = serde_json::Map::new();
+    entry.insert("name".into(), name.into());
+    entry.insert("title".into(), mcp["title"].clone());
+    entry.insert("description".into(), description);
+    entry.insert("inputSchema".into(), input_schema);
+    if let Some(annotations) = mcp.get("annotations") {
+        entry.insert("annotations".into(), annotations.clone());
+    }
+    Value::Object(entry)
+}
+
+/// The listing for this runtime's catalog.
+pub(super) fn build(presentation: &Value, catalog: &Value) -> Result<Listing, String> {
+    let names = available(catalog);
+    if names.is_empty() {
+        return Err("No native tools are available".into());
+    }
+    let has_local = names
+        .iter()
+        .any(|name| matches!(*name, "localSearch" | "localFetch"));
+    // Materialize needs local tools to read what it downloads and persistent
+    // storage to write it; a catalog that states no storage keeps it.
+    let materialize_listed = has_local && super::super::schema::storage_is_persistent(catalog);
+    let lsp_servers = catalog["lspServers"]
+        .as_array()
+        .map(|servers| servers.iter().filter_map(Value::as_str).collect::<Vec<_>>());
+    let mut tools = Vec::new();
+    for name in &names {
+        let mcp = super::super::schema::tool_entry(presentation, name)
+            .map(|tool| &tool["mcp"])
+            .filter(|mcp| mcp.is_object())
+            .ok_or_else(|| format!("Native catalog tool has no contract: {name}"))?;
+        tools.push(entry(
+            name,
+            mcp,
+            &names,
+            lsp_servers.as_deref(),
+            materialize_listed,
+        ));
+    }
+    Ok(Listing {
+        tools,
+        instructions: instructions(presentation, |name| names.contains(&name)),
+    })
+}
+
+#[cfg(test)]
+mod tests;

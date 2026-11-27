@@ -1,0 +1,552 @@
+//! The part of one search page a response window holds: its rows are read in
+//! rank order until the window is full, so a page that shows a few rows reads
+//! a few files. The rest of the page is the next part: the same page's
+//! continuation lists it from the same code-search answer ([`super::listed`]).
+use super::code_output::{LinePlan, Resolution, shape_files};
+use super::cut::{Cut, Unlisted};
+use super::leads::unlisted_read;
+use super::lines::{FileHits, Window};
+use super::{CODE_ROW_ID, GhSearchCodeQuery, Withholds};
+use octocode_engine::json_size::utf16_units;
+use octocode_github::{GitHubProvider, ProviderError, RequestContext};
+use octocode_runtime_base::id::ToolId;
+use octocode_runtime_base::security::scan::ContentScan;
+use octocode_tools_shared::gh_shared::{field_names, pick_rows};
+use serde_json::{Map, Value, json};
+
+/// The chars a page's rows may fill: the row's share of the response page
+/// less what the page states besides its rows, shown whole (`whole`) or as a
+/// part that also carries the continuation to the rest of the page (`part`).
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Room {
+    pub(super) whole: usize,
+    pub(super) part: usize,
+}
+
+/// The [`Room`] `window` leaves once `skeleton(continues)`, the chars the
+/// page states besides its rows, is taken. `None` (every row of the page,
+/// read at once) without a window.
+pub(super) fn budget(window: Option<usize>, skeleton: impl Fn(bool) -> usize) -> Option<Room> {
+    window.map(|window| Room {
+        whole: window.saturating_sub(skeleton(false)),
+        part: window.saturating_sub(skeleton(true)),
+    })
+}
+
+/// How many rows a batch may read for each row already shown. A larger
+/// factor reads a page in fewer round trips (each costs a provider round
+/// trip of latency) and may read more files a small window does not show
+/// (each costs one core-quota request, and the next part shows it unread).
+const READ_AHEAD: usize = 2;
+
+/// Read the files of the leading rows of `items` that `room` holds, in rank
+/// order, and return how many rows the page shows (at least one) and the
+/// run of hits each lists ([`Shown`]): every row when all of them fit
+/// `room.whole`, else the rows that fit `room.part`. A row fits at its
+/// smallest cut ([`Runs`]), so a file with many hit lines pushes no row to a
+/// later part while every row's smallest run fits; [`share`] then lists
+/// each row as fully as the room allows.
+///
+/// Each batch holds as many rows as the room left holds at the largest row
+/// measured so far, and no more than [`READ_AHEAD`] times the rows already
+/// shown (the first, one more than that: a page shows at least one row). So
+/// batches grow 3, 6, 18, …, the reads of a batch go out together, and a
+/// batch read past the window costs at most [`READ_AHEAD`] times the rows
+/// shown: a part reads at most `READ_AHEAD + 1` times the rows it shows, in
+/// about `log3` round trips of the rows it reads.
+/// A row read past the window is not shown: the next part shows it. A row's
+/// size is what it adds to the published page; the first row's counts only
+/// until a second is measured, since it alone adds the page's identity. Past the part's cut, reading goes on only while the rest of
+/// the page, at the smallest row measured, may still fit whole.
+pub(super) async fn read(
+    plan: &mut LinePlan,
+    items: &[Value],
+    query: &GhSearchCodeQuery,
+    withholds: Withholds<'_>,
+    room: Option<Room>,
+    provider: &GitHubProvider,
+    context: &RequestContext,
+    security: &(impl ContentScan + Sync),
+) -> Result<Shown, ProviderError> {
+    let total = items.len();
+    // A symlink's target is judged as a row's own path is.
+    let read_withholds = withholds;
+    let Some(room) = room else {
+        plan.read(provider, 0..total, context, security, &read_withholds)
+            .await?;
+        return Ok(Shown {
+            rows: total,
+            cuts: Vec::new(),
+        });
+    };
+    let window = plan.window();
+    // `cut`: the rows a part shows, set once a row does not fit `room.part`;
+    // reading then goes on only while the whole page may still fit. Rows
+    // fit at their smallest cut ([`Runs`]); [`share`] then lists each as
+    // fully as the room left allows.
+    let (mut shown, mut used, mut cut) = (0, Used::default(), None);
+    let mut read_sizes = ReadSizes::default();
+    let mut measured: Vec<(Measured, Runs)> = Vec::new();
+    let (mut largest, mut smallest) = (0_usize, 0_usize);
+    while shown < total {
+        let left = |limit: usize| limit.saturating_sub(used.fitted());
+        let ahead = shown.saturating_mul(READ_AHEAD);
+        let take = match cut {
+            _ if shown == 0 => READ_AHEAD + 1,
+            None => read_sizes.fitting(shown, ahead.min(total - shown), largest, left(room.part)),
+            Some(_) if !read_sizes.fits(shown, total - shown, smallest, left(room.whole)) => 0,
+            Some(_) => {
+                read_sizes.fitting(shown, ahead.min(total - shown), largest, left(room.whole))
+            }
+        };
+        if take == 0 {
+            if cut.is_none() {
+                cut = Some(shown);
+                continue;
+            }
+            break;
+        }
+        let end = shown.saturating_add(take).min(total);
+        plan.read(provider, shown..end, context, security, &read_withholds)
+            .await?;
+        let resolution = plan.resolution(shown..end);
+        for (row, hit) in items[shown..end].iter().zip(resolution.hits) {
+            let runs = Runs::of(row, &hit, query, window);
+            let measured_row = row_chars(
+                row,
+                hit,
+                resolution.reference.clone(),
+                query,
+                withholds,
+                &mut read_sizes,
+            );
+            let before = used.fitted();
+            let next = used.clone().with(measured_row.clone(), runs.floor());
+            let added = next
+                .fitted()
+                .saturating_sub(before)
+                .saturating_sub(measured_row.read_chars);
+            (largest, smallest) = if shown <= 1 {
+                (added, added)
+            } else {
+                (largest.max(added), smallest.min(added))
+            };
+            if shown > 0 && next.fitted() > room.whole {
+                return Ok(share(&measured, cut.unwrap_or(shown), room, total));
+            }
+            if shown > 0 && cut.is_none() && next.fitted() > room.part {
+                cut = Some(shown);
+            }
+            used = next;
+            measured.push((measured_row, runs));
+            shown += 1;
+        }
+    }
+    let rows = if shown == total {
+        total
+    } else {
+        cut.unwrap_or(shown).max(1)
+    };
+    Ok(share(&measured, rows, room, total))
+}
+
+/// The rows a page shows, and the run each lists ([`share`]).
+pub(super) struct Shown {
+    pub(super) rows: usize,
+    /// Per shown row, its cut; `None` (or past the end): listed whole.
+    pub(super) cuts: Vec<Option<Cut>>,
+}
+
+/// The first `rows` of the `measured` rows, each listed as fully as the
+/// room allows: the room of a whole page when they are all `total` rows,
+/// else of a part. No row is cut while every row fits whole; else each
+/// row is listed up to one level of chars (a row that fits under it whole,
+/// a larger row cut to the most hits that fit it), the highest level whose
+/// rows fit the room, so the largest rows are cut and every row keeps its
+/// share. A row cut below its smallest run keeps that run.
+fn share(measured: &[(Measured, Runs)], rows: usize, room: Room, total: usize) -> Shown {
+    // Only the shown rows share the room; a row measured past them is the
+    // next part's, listed there.
+    let measured = &measured[..rows.min(measured.len())];
+    let limit = if rows == total { room.whole } else { room.part };
+    let chars = measured
+        .iter()
+        .fold(Used::default(), |used, (row, _)| used.with(row.clone(), 0))
+        .chars();
+    let whole = || Shown {
+        rows,
+        cuts: Vec::new(),
+    };
+    if chars <= limit {
+        return whole();
+    }
+    // A page with a cut row also says it is partial.
+    let limit = limit.saturating_sub(cut_page_chars());
+    let at = |level: usize| {
+        let saved = measured
+            .iter()
+            .map(|(row, runs)| runs.pick(row.full, level).0)
+            .sum::<usize>();
+        chars.saturating_sub(saved)
+    };
+    let (mut low, mut high) = (
+        0,
+        measured.iter().map(|(row, _)| row.full).max().unwrap_or(0),
+    );
+    while low < high {
+        let mid = low + (high - low).div_ceil(2);
+        if at(mid) <= limit {
+            low = mid;
+        } else {
+            high = mid - 1;
+        }
+    }
+    let cuts = measured
+        .iter()
+        .map(|(row, runs)| runs.pick(row.full, low).1)
+        .collect::<Vec<_>>();
+    if cuts.iter().all(Option::is_none) {
+        return whole();
+    }
+    Shown { rows, cuts }
+}
+
+/// What a page with a cut row states besides its rows: that it is partial
+/// for the hit lines it leaves to reads (`hitLinesNotListed`), the most
+/// [`super::page_facts::disclose_completeness`] adds for them.
+fn cut_page_chars() -> usize {
+    let mut page = json!({});
+    octocode_runtime_base::response::paging::mark_partial(
+        &mut page,
+        octocode_runtime_base::response::paging::PartialReason::HitLinesNotListed,
+        &[],
+    );
+    utf16_units(&page).unwrap_or(0)
+}
+
+/// What listing a measured row cut to `count` of its hits saves, for each
+/// count it can be cut to: the chars its unlisted lines take, less what the
+/// cut adds (its `matchCount` and its `readHits` read, measured at the
+/// widest line ranges a read of its file can name). Only a cut that saves
+/// chars is kept: a row whose read costs more than its unlisted lines is
+/// listed whole.
+struct Runs {
+    /// `(chars saved, cut)`, by the hits listed, ascending.
+    cuts: Vec<(usize, Cut)>,
+}
+
+impl Runs {
+    fn of(
+        row: &Value,
+        (sha, hits): &(String, FileHits),
+        query: &GhSearchCodeQuery,
+        window: Window,
+    ) -> Self {
+        let none = Self { cuts: Vec::new() };
+        let FileHits::Lines {
+            lines,
+            matched,
+            best,
+            total,
+            line_count,
+            declared,
+            ..
+        } = hits
+        else {
+            return none;
+        };
+        let listed = query.fields.is_empty()
+            || query
+                .fields
+                .iter()
+                .any(|field| field.to_string() == "matches");
+        let Some(row) = row.as_object().filter(|_| listed && matched.len() > 1) else {
+            return none;
+        };
+        let count = u32::try_from(*line_count).unwrap_or(u32::MAX);
+        if unlisted_read(query, row, sha, &Unlisted::widest(count)).is_none() {
+            return none;
+        }
+        let added = *READ_CURSOR_CHARS
+            + READ_KEY_CHARS
+            + READ_ENTRY_CHARS
+            + MATCH_COUNT_CHARS
+            + total.to_string().len();
+        // Each listed entry, and each hit's number when `matchedLines` lists them.
+        let entries = prefix(lines.iter().map(|line| utf16_units(line).unwrap_or(0) + 1));
+        let numbered_hits = lines.len() > matched.len();
+        let hit_numbers = prefix(matched.iter().map(|hit| {
+            if numbered_hits {
+                hit.to_string().len() + 1
+            } else {
+                0
+            }
+        }));
+        // What a run keeps of the row's `declarations` ([`Cut::apply`]):
+        // each entry one of its hits states, once. One several hits state (a
+        // section) leaves with the last of them, so every run is priced by
+        // the distinct entries its own hits state.
+        let mut entry_ids = std::collections::HashMap::<(u32, u32), usize>::new();
+        let mut entry_chars = Vec::new();
+        let stated = matched
+            .iter()
+            .map(|hit| {
+                let at = declared.binary_search_by_key(hit, |entry| entry.hit).ok()?;
+                let own = &declared[at];
+                Some(
+                    *entry_ids
+                        .entry((own.line, own.end_line))
+                        .or_insert_with(|| {
+                            entry_chars.push(declaration_chars(own));
+                            entry_chars.len() - 1
+                        }),
+                )
+            })
+            .collect::<Vec<_>>();
+        let all_declarations = entry_chars.iter().sum::<usize>();
+        // The run that last counted each entry: a run counts an entry once.
+        let mut counted = vec![0_usize; entry_chars.len()];
+        let (all_entries, all_hits) = (entries[lines.len()], hit_numbers[matched.len()]);
+        let cuts = (1..matched.len())
+            .filter_map(|listed| {
+                let cut = Cut::around(matched, *best, listed);
+                let range = cut.listed(lines, matched, window, count);
+                let kept_declarations = stated[cut.start..cut.end]
+                    .iter()
+                    .flatten()
+                    .filter(|&&entry| std::mem::replace(&mut counted[entry], listed) != listed)
+                    .map(|&entry| entry_chars[entry])
+                    .sum::<usize>();
+                let kept = (entries[range.end] - entries[range.start])
+                    + (hit_numbers[cut.end] - hit_numbers[cut.start])
+                    + kept_declarations;
+                let saved = (all_entries + all_hits + all_declarations)
+                    .saturating_sub(kept)
+                    .checked_sub(added)?;
+                (saved > 0).then_some((saved, cut))
+            })
+            .collect();
+        Self { cuts }
+    }
+
+    /// The most a cut saves: what the row takes at its smallest run.
+    fn floor(&self) -> usize {
+        self.cuts.iter().map(|&(saved, _)| saved).max().unwrap_or(0)
+    }
+
+    /// The chars saved and the cut of a row of `full` chars listed up to
+    /// `level`: whole when it fits, else its largest run that fits, else its
+    /// smallest.
+    fn pick(&self, full: usize, level: usize) -> (usize, Option<Cut>) {
+        if full <= level || self.cuts.is_empty() {
+            return (0, None);
+        }
+        self.cuts
+            .iter()
+            .rev()
+            .find(|&&(saved, _)| full.saturating_sub(saved) <= level)
+            .or_else(|| self.cuts.iter().max_by_key(|&&(saved, _)| saved))
+            .map_or((0, None), |&(saved, cut)| (saved, Some(cut)))
+    }
+}
+
+/// The chars one declaration takes in its row's `declarations`, with its
+/// comma: the line-first outline string the response stage states it as
+/// ([`octocode_runtime_base::response::symbol_outline::outline_lines`], the
+/// function this prices through). Never more than the row measured for it
+/// ([`row_chars`] counts the object or the string), so a cut never saves
+/// less than this states.
+fn declaration_chars(declared: &super::lines::Declared) -> usize {
+    let rows = super::code_output::declared_rows(std::slice::from_ref(declared));
+    octocode_runtime_base::response::symbol_outline::outline_lines(&rows)
+        .first()
+        .map_or(0, |line| utf16_units(line).unwrap_or(0) + 1)
+}
+
+/// `"matchCount":` and the comma before it: what a cut row adds besides its
+/// count's digits.
+const MATCH_COUNT_CHARS: usize = r#","matchCount":"#.len();
+
+/// What a `readHits` read adds besides its call and key: the colon after
+/// the key, the comma before it, and the page's `next` object it may open.
+const READ_ENTRY_CHARS: usize = r#","next":{:}"#.len();
+
+/// Every executable source or hit read is published as a handle of this
+/// length, regardless of the path, revision or ranges stored under it.
+static READ_CURSOR_CHARS: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| {
+    let call = octocode_runtime_base::response::result::Continuation::cursor(
+        ToolId::GhGetFileContent.as_str(),
+        octocode_runtime_base::response::cursor::issued::placeholder(),
+    );
+    // The pager measures the kind before the public envelope removes it.
+    utf16_units(&call).unwrap_or(0)
+});
+
+#[derive(Clone, Copy, Default)]
+struct ReadSizes {
+    hits: usize,
+}
+
+impl ReadSizes {
+    /// The numbered `readHits` cursor entries of one row, including the
+    /// enclosing `next` object only when the page adds its first read.
+    fn add(&mut self, hits: usize) -> usize {
+        let mut first = self.hits == 0;
+        let mut chars = 0;
+        for index in self.hits..self.hits + hits {
+            let key = octocode_runtime_base::id::numbered("readHits", index);
+            chars +=
+                key.len() + 3 + *READ_CURSOR_CHARS + if first { r#","next":{}"#.len() } else { 1 };
+            first = false;
+        }
+        self.hits += hits;
+        chars
+    }
+
+    /// Rows still to show pay for their reads when every row shown so far
+    /// offered one: the estimate the page's room is planned with.
+    fn fits(self, shown: usize, count: usize, row_chars: usize, room: usize) -> bool {
+        let mut next = self;
+        let guidance = if shown > 0 && self.hits == shown {
+            next.add(count)
+        } else {
+            0
+        };
+        count.saturating_mul(row_chars).saturating_add(guidance) <= room
+    }
+
+    fn fitting(self, shown: usize, ahead: usize, row_chars: usize, room: usize) -> usize {
+        let upper = ahead.min(room / row_chars.max(1));
+        (1..=upper)
+            .rev()
+            .find(|&count| self.fits(shown, count, row_chars, room))
+            .unwrap_or(0)
+    }
+}
+
+/// The longest key a page's reads take: `readHits`, `readHits2`, … one per
+/// row, and a page holds at most the contract's `limit` maximum of rows.
+const READ_KEY_CHARS: usize = r#""readHits"#.len()
+    + octocode_runtime_base::contracts::query_limits::gh_search_code::LIMIT_MAXIMUM.ilog10()
+        as usize
+    + 1
+    + 1;
+
+/// Running sums of `costs`, from 0: `sums[i]` is the cost of the first `i`.
+fn prefix(costs: impl Iterator<Item = usize>) -> Vec<usize> {
+    std::iter::once(0)
+        .chain(costs.scan(0_usize, |sum, cost| {
+            *sum += cost;
+            Some(*sum)
+        }))
+        .collect()
+}
+
+/// The chars one shaped row takes: `full` as the row states its own
+/// identity, `moved` once the page states it, and the page-level fields a
+/// page of this row alone would state
+/// ([`octocode_runtime_base::response::hoist::apply_on`]).
+#[derive(Clone)]
+struct Measured {
+    full: usize,
+    moved: usize,
+    read_chars: usize,
+    stated: Map<String, Value>,
+}
+
+/// The chars the rows shown so far take as the response stage publishes
+/// them: while every row would state the same page identity, the page states
+/// it once and each row takes its `moved` size; else each keeps its own. It
+/// never counts less than the published rows take, so a part never overflows
+/// its window.
+#[derive(Clone, Default)]
+struct Used {
+    full: usize,
+    moved: usize,
+    /// What the rows' smallest cuts save ([`Runs::floor`]).
+    saved: usize,
+    /// The first row's page-level fields and the chars they take on the page.
+    stated: Option<(Map<String, Value>, usize)>,
+    shared: bool,
+}
+
+impl Used {
+    fn with(self, row: Measured, saved: usize) -> Self {
+        let (stated, shared) = match self.stated {
+            None => {
+                let once = if row.stated.is_empty() {
+                    0
+                } else {
+                    // `{…}` less its braces, plus the comma that joins it.
+                    utf16_units(&Value::Object(row.stated.clone()))
+                        .unwrap_or(0)
+                        .saturating_sub(1)
+                };
+                (Some((row.stated, once)), true)
+            }
+            Some((first, once)) => {
+                let shared = self.shared && row.stated == first;
+                (Some((first, once)), shared)
+            }
+        };
+        Self {
+            full: self.full + row.full,
+            moved: self.moved + row.moved,
+            saved: self.saved + saved,
+            stated,
+            shared,
+        }
+    }
+
+    fn chars(&self) -> usize {
+        match &self.stated {
+            Some((_, once)) if self.shared => self.moved + once,
+            _ => self.full,
+        }
+    }
+
+    /// The chars the rows take, each at its smallest cut, with what a page
+    /// of cut rows states besides them ([`cut_page_chars`]).
+    fn fitted(&self) -> usize {
+        match self.saved {
+            0 => self.chars(),
+            saved => self.chars().saturating_sub(saved) + cut_page_chars(),
+        }
+    }
+}
+
+/// The response chars `row` takes once shaped with `hit` as the page shapes
+/// it: the row as its `fields` pick lists it and the read lead an
+/// unresolved row adds.
+fn row_chars(
+    row: &Value,
+    hit: (String, super::lines::FileHits),
+    reference: Option<String>,
+    query: &GhSearchCodeQuery,
+    withholds: Withholds<'_>,
+    read_sizes: &mut ReadSizes,
+) -> Measured {
+    let mut rows = vec![row.clone()];
+    let resolution = Resolution {
+        sha: None,
+        reference,
+        hits: vec![hit],
+        unlisted: Vec::new(),
+    };
+    let reads = shape_files(&mut rows, query, withholds, Some(resolution));
+    let mut page = json!({ "files": rows });
+    pick_rows(&mut page, "files", CODE_ROW_ID, &field_names(&query.fields));
+    let leads = read_sizes.add(reads.hits.len());
+    let full = utf16_units(&page["files"][0]).unwrap_or(0) + 1 + leads;
+    let mut data = Map::new();
+    data.insert("files".into(), page["files"].take());
+    octocode_runtime_base::response::hoist::apply_on(ToolId::GhSearchCode, &mut data);
+    let moved = utf16_units(&data["files"][0]).unwrap_or(0) + 1 + leads;
+    data.remove("files");
+    Measured {
+        full,
+        moved,
+        read_chars: leads,
+        stated: data,
+    }
+}

@@ -1,0 +1,65 @@
+{
+  "name": "@octocodeai/octocode-agents-communication",
+  "version": "0.2.0",
+  "license": "MIT",
+  "description": "MCP server and /cli operations for durable cross-vendor agent coordination.",
+  "type": "module",
+  "bin": "./bin/octocode-agents-communication.mjs",
+  "devDependencies": {
+    "@octocodeai/config": "workspace:*",
+    "@types/node": "^24.19.2",
+    "esbuild": "^0.28.2",
+    "json-schema-to-typescript": "16.0.0",
+    "octocode-mcp-cli": "workspace:*",
+    "typescript": "^6.0.3",
+    "zod": "^4.6.7"
+  },
+  "scripts": {
+    "build": "node src/build.ts",
+    "clean": "rm -rf dist/ out/",
+    "types": "node src/emit-catalog.ts && node src/emit-types.ts",
+    "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
+    "lint:own": "node src/emit-catalog.ts --check && node src/emit-types.ts --check",
+    "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
+    "lint": "yarn lint:own && yarn lint:oxlint",
+    "test": "node --test --test-concurrency=8 tests/*.test.ts",
+    "verify:own": "yarn lint:own && yarn typecheck && yarn test",
+    "verify": "yarn verify:own && yarn lint:oxlint",
+    "prepack": "yarn build"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "docs",
+    "assets",
+    "OPERATING.md",
+    "README.md",
+    "ARCHITECTURE.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": "^24.15.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bgauryy/octocode.git",
+    "directory": "packages/octocode-agents-communication"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/mcp.d.ts",
+      "default": "./dist/mcp.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "default": "./dist/cli.js"
+    },
+    "./hosts/*": {
+      "types": "./dist/hosts/*.d.ts",
+      "default": "./dist/hosts/*.js"
+    }
+  }
+}

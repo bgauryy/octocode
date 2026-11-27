@@ -1,0 +1,58 @@
+# Choose a browser tool
+
+Use `run` for page interactions. For specialized captures, add `check` to your MCP preset or use the typed CLI. [Capture recipes](cdp-checks.md) · [Tool availability](../README.md#tools-and-presets)
+
+## Debug
+
+- **page health**: measure trio + `helper` `measure-query` (`cdp-checks.md`).
+- **network**: `network-measure-check`; custom scripts log URL, method, status, type, initiator, timing, never auth headers or cookies. Bodies: HAR section of `cdp-checks.md`.
+- **console**: emit exceptions with source URL:line. **performance**: `MEASURE_URL=<url>`; clear cache for cold loads.
+- **memory / coverage**: heap samples around one suspect action; coverage starts before navigation and stops at a stable state.
+
+## Inspect
+
+For many ambiguous saved records or images, load `clasify-screen`: exact fields and local text search first, then optional semantic scouting by reference. Give `clasify` a search as its `source` with `predicates` to find useful passages; ask typed questions over resources for positive-only resource decisions. Preserve unknown scope and verify deciding evidence.
+
+- **security**: TLS, mixed content, CSP/security headers, cookie flags by name.
+- **websocket**: URL, frame counts, redacted samples (not in HAR).
+- **workers / service-worker**: `Target.getTargets` lists the whole browser; drop `chrome-extension://` and foreign origins.
+- **intercept**: every paused request must continue, fail, or fulfill, or the page hangs.
+- **screenshot**: `page-screenshot` (`cdp-checks.md`). **a11y / supply-chain**: report missing names and focus risks; list third-party origins, integrity, source maps.
+
+## Storage and consent
+
+`storage-measure-check` → `helper` `{name: "measure-query", args: ["--view","cookies"]}` (or `keys`, `findings`). Names, counts, and flags only unless values are approved. Consent: report banner selectors; click accept/reject only when asked.
+
+## Automate
+
+- `page-snapshot` → `DOM_REF=eN` on `dom-operations-check`; prefer refs over guessed CSS. Input is trusted by default; `fill` replaces text, `type` sends keystrokes (key handlers, autocomplete), `press DOM_KEY=Enter` submits. Read `[VERIFY]`: `MISMATCH` or `NO_VISIBLE_EFFECT` means the step did not land. After a hover/click that opens UI, act on the printed `[NEW] [eN]` refs without re-snapshotting. Icon-only or visual layouts: `SHOT_ANNOTATE=1` screenshot maps boxes to refs.
+- A known multi-step sequence fits one `run(cdp)`.
+- One meaningful mutation per step; confirm with a targeted check, not a new full snapshot. Listeners miss past events, so re-read current state.
+- **WebMCP**: every fresh `open` launch enables it on Chrome 150+; a reused browser keeps its own flags. Before DOM clicks, run `webmcp-tools` with `WEBMCP_ACTION=list`, then `invoke` a suitable tool with `WEBMCP_TOOL` and `WEBMCP_INPUT`. `WEBMCP_NO_TOOLS` is common; fall back to DOM. A fresh launch reports `WebMCP` in `enableFeaturesConfigured`; an unflagged reused browser reports `WEBMCP_NO_TOOLS` because its pages cannot register tools, so run `cleanup` or use another port. Mutating tools need the same authorization as DOM actions.
+- For an `octocode-scraping` corpus, CDP validates its graph actions and returns URLs/data to that corpus.
+
+## Auth
+
+- **login / user-auth**: visible Chrome (`open --url <url>`); the user signs in. Never automate passwords or MFA unless approved. Confirm success from a deterministic post-login URL or cookie name.
+- **real profile** (`--profile`): warn that CDP can read cookies, tokens, and storage. Google Chrome 136+ refuses it (`launch-stealth.md`); Chromium and Chrome for Testing work.
+- **cookie bridge**, preferred source order: same visible port (no transfer) → `--from-storage-state <jar>` → `--from-port <cdp>` → `--from-profile` (browser fully quit, approved; not Google Chrome 136+; `--chromePath` picks the browser). Values are never printed. The transfer keeps domain/host-only scope, path, expiry, flags and partition keys, reads the target back, and exits nonzero with `COOKIE_REJECTED` / `COOKIE_NOT_STORED` names when a cookie did not land. `--urls` keeps cookies that domain-match those hosts. Exports use the Playwright storage-state shape (mode 0600).
+
+```bash
+octocode-chrome-devtools /raw cookies --i-understand-secrets --confirm-domains app.example.com --from-port 9333 --to-port 9222 --urls "https://app.example.com"
+octocode-chrome-devtools /raw cookies --i-understand-secrets --confirm-domains app.example.com --from-port 9333 --export-storage-state .octocode/octocode-chrome-devtools/tmp/auth.json --dry-run
+```
+
+Typed MCP and `/cli` input for the same transfers (`acknowledgeSecrets: true` is required; `confirmDomains` needs at least one domain for `from.port` and `from.profile`; there is no `args` field):
+
+```json
+{"from":{"port":9333},"to":{"port":9222},"confirmDomains":["app.example.com"],"urls":["https://app.example.com"],"acknowledgeSecrets":true}
+{"from":{"port":9333},"confirmDomains":["app.example.com"],"exportStorageState":".octocode/octocode-chrome-devtools/tmp/auth.json","dryRun":true,"acknowledgeSecrets":true}
+{"from":{"storageState":".octocode/octocode-chrome-devtools/tmp/auth.json"},"to":{"port":9222},"acknowledgeSecrets":true}
+```
+Attachment requires a Chrome instance already exposing a remote-debugging endpoint. An ordinary Chrome session must be relaunched with remote debugging before attachment. After injecting, run the smallest check on `--to-port` with `--keep-tab`.
+
+## Environment
+
+- **emulate**: launch flags for window/proxy, then CDP Emulation (viewport, DPR, UA, locale, timezone, geolocation, network) before navigation. **inject**: `Page.addScriptToEvaluateOnNewDocument`, local code only. **monitor**: bounded duration, emit deltas.
+
+Next: run the chosen check (`cdp-checks.md`) or write a script (`script-patterns.md`).

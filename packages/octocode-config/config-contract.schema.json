@@ -1,0 +1,435 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://octocode.ai/schemas/config-contract.schema.json",
+  "title": "Octocode declarative config contract",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "config": {
+      "type": "object",
+      "properties": {
+        "fileName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runtimeSurfaces": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*$"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "fileName",
+        "runtimeSurfaces"
+      ],
+      "additionalProperties": false
+    },
+    "environment": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9_]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "dotenv": {
+            "type": "string",
+            "enum": [
+              "all",
+              "home",
+              "never"
+            ]
+          },
+          "tokenPriority": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "credential": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "key",
+              "string",
+              "url",
+              "path"
+            ]
+          },
+          "displayDefault": {
+            "type": "string"
+          },
+          "group": {
+            "type": "string",
+            "minLength": 1
+          },
+          "docsUrl": {
+            "type": "string",
+            "format": "uri"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "sections": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^(|[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)*)$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "typeName": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Za-z0-9]*$"
+          },
+          "fields": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^[a-z$][A-Za-z0-9]*$"
+            },
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "boolean"
+                    },
+                    "default": {
+                      "type": "boolean"
+                    },
+                    "description": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "notes": {
+                      "type": "string"
+                    },
+                    "env": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Z0-9_]*$"
+                        },
+                        "dotenv": {
+                          "type": "string",
+                          "enum": [
+                            "all",
+                            "home",
+                            "never"
+                          ]
+                        },
+                        "normalize": {
+                          "type": "string",
+                          "enum": [
+                            "trim",
+                            "lower"
+                          ]
+                        },
+                        "workspaceNarrowsTo": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "displayDefault": {
+                      "type": "string"
+                    },
+                    "group": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "docsUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "default",
+                    "description"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "string",
+                        "url",
+                        "path"
+                      ]
+                    },
+                    "default": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "credential": {
+                      "type": "boolean"
+                    },
+                    "description": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "notes": {
+                      "type": "string"
+                    },
+                    "env": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Z0-9_]*$"
+                        },
+                        "dotenv": {
+                          "type": "string",
+                          "enum": [
+                            "all",
+                            "home",
+                            "never"
+                          ]
+                        },
+                        "normalize": {
+                          "type": "string",
+                          "enum": [
+                            "trim",
+                            "lower"
+                          ]
+                        },
+                        "workspaceNarrowsTo": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "displayDefault": {
+                      "type": "string"
+                    },
+                    "group": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "docsUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "default",
+                    "description"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "stringArray"
+                    },
+                    "default": {
+                      "anyOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "itemFormat": {
+                      "type": "string",
+                      "const": "path"
+                    },
+                    "description": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "notes": {
+                      "type": "string"
+                    },
+                    "env": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Z0-9_]*$"
+                        },
+                        "dotenv": {
+                          "type": "string",
+                          "enum": [
+                            "all",
+                            "home",
+                            "never"
+                          ]
+                        },
+                        "normalize": {
+                          "type": "string",
+                          "enum": [
+                            "trim",
+                            "lower"
+                          ]
+                        },
+                        "workspaceNarrowsTo": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "displayDefault": {
+                      "type": "string"
+                    },
+                    "group": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "docsUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "default",
+                    "description"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "const": "enum"
+                    },
+                    "values": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "uniqueItems": true
+                    },
+                    "typeName": {
+                      "type": "string",
+                      "pattern": "^[A-Z][A-Za-z0-9]*$"
+                    },
+                    "description": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "notes": {
+                      "type": "string"
+                    },
+                    "env": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Z0-9_]*$"
+                        },
+                        "dotenv": {
+                          "type": "string",
+                          "enum": [
+                            "all",
+                            "home",
+                            "never"
+                          ]
+                        },
+                        "normalize": {
+                          "type": "string",
+                          "enum": [
+                            "trim",
+                            "lower"
+                          ]
+                        },
+                        "workspaceNarrowsTo": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "displayDefault": {
+                      "type": "string"
+                    },
+                    "group": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "docsUrl": {
+                      "type": "string",
+                      "format": "uri"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "values",
+                    "description"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          }
+        },
+        "required": [
+          "title",
+          "fields"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "$schema",
+    "config",
+    "environment",
+    "sections"
+  ],
+  "additionalProperties": false
+}

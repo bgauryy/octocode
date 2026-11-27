@@ -1,0 +1,363 @@
+#!/usr/bin/env node
+import {
+  createReadStream,
+  readFileSync,
+  openSync,
+  readSync,
+  writeSync,
+  closeSync,
+  writeFileSync,
+  statSync,
+  existsSync,
+  mkdirSync,
+  renameSync,
+  rmSync,
+} from 'node:fs';
+import { createInterface } from 'node:readline';
+import { arrayRanges } from './json-array-stream.mjs';
+import { createHash, randomUUID } from 'node:crypto';
+import { resolve, join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromeOutputLimits } from './chrome-contract.mjs';
+import { validateFlags } from './cli-flags.mjs';
+import { errorMessage } from './error-message.mjs';
+import { packageTmpDir } from './engine-io.mjs';
+import {
+  matches,
+  parse,
+  parseSelect,
+  parseWhere,
+  pointer,
+  toPointer,
+  validatePredicates,
+  validateProjection,
+  type Predicate,
+} from './evidence-predicates.mjs';
+
+/** The saved index manifest (index.json) of one query identity. */
+type EvidenceIndex = {
+  file: string;
+  sha256: string;
+  format: string;
+  pointer: string;
+  filters: Predicate[];
+  select: unknown;
+  scanned: number;
+  matched: number;
+  offsetsSha256: string;
+  rowsBytes: number;
+};
+
+const args = process.argv.slice(2);
+// Read only after validateFlags, which rejects a value flag given without its value.
+function get(flag: string): string | undefined;
+function get(flag: string, fallback: string): string;
+function get(flag: string, fallback?: string) {
+  return args.includes(flag) ? args[args.indexOf(flag) + 1] : fallback;
+}
+const digest = (value: string | Buffer) =>
+  createHash('sha256').update(value).digest('hex');
+async function sourceDigest(file: string) {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(file)) hash.update(chunk);
+  return hash.digest('hex');
+}
+if (args.includes('--help') || args.includes('-h')) {
+  console.log(
+    'Usage: evidence-query.mjs --file <JSON|JSONL> [--format json|jsonl] [--pointer /rows] [--where <conditions>] [--select <paths>] [--cursor 0] [--limit 50] [--sha256 <digest>]\nFilters before pagination; builds a reusable lossless offset index. Paths are JSON pointers (/response/status) or dotted (response.status). --where takes conditions joined by &&: path=value, path!=value, path>=n, path<=n, path~text, path (exists), !path (missing); example: response.status=0 && request.url~login. It also takes JSON predicates: [{path:"/status",op:"eq|ne|contains|gte|lte|exists",value:...}] (exists: value optional, default true). --select takes comma-separated paths or a JSON array, an opt-in projection keyed by pointer. Oversized rows have executable full-value continuations.'
+  );
+  process.exit(0);
+}
+let temporary: string | null | undefined;
+try {
+  validateFlags(args, [
+    '--file',
+    '--format',
+    '--pointer',
+    '--where',
+    '--select',
+    '--cursor',
+    '--limit',
+    '--sha256',
+  ]);
+  const fileArg = get('--file');
+  if (!fileArg) throw new Error('--file is required');
+  const file = resolve(fileArg),
+    format = get('--format', 'json'),
+    path = toPointer(get('--pointer', ''));
+  const cursor = Number(get('--cursor', '0')),
+    limit = Number(get('--limit', String(chromeOutputLimits.continuationRows)));
+  if (
+    !['json', 'jsonl'].includes(format) ||
+    !Number.isSafeInteger(cursor) ||
+    cursor < 0 ||
+    !Number.isSafeInteger(limit) ||
+    limit < 1 ||
+    limit > 300
+  )
+    throw new Error('Invalid format, cursor or limit');
+  if (format === 'jsonl' && path)
+    throw new Error('JSONL rows are the root; omit --pointer');
+  const filters = parseWhere(get('--where', '[]')),
+    selectArg = get('--select'),
+    select: unknown = selectArg ? parseSelect(selectArg) : null;
+  validatePredicates(filters);
+  const projection = validateProjection(select);
+  const sha256 = await sourceDigest(file);
+  if (get('--sha256') && get('--sha256') !== sha256)
+    throw new Error('Capture changed; restart the query');
+  const identity = digest(
+    JSON.stringify({ version: 7, file, sha256, format, path, filters, select })
+  );
+  const indexDir = join(packageTmpDir(), 'evidence-index', identity),
+    manifestFile = join(indexDir, 'index.json');
+  let index: EvidenceIndex,
+    reused = existsSync(manifestFile);
+  if (reused) index = JSON.parse(readFileSync(manifestFile, 'utf8'));
+  else {
+    mkdirSync(dirname(indexDir), { recursive: true, mode: 0o700 });
+    const staging = `${indexDir}-${randomUUID()}`;
+    temporary = staging;
+    mkdirSync(staging, { mode: 0o700 });
+    const out = openSync(join(staging, 'rows.jsonl'), 'wx', 0o600),
+      offsets = openSync(join(staging, 'offsets.bin'), 'wx', 0o600);
+    let at = 0,
+      scanned = 0,
+      matched = 0;
+    const add = (row: unknown, sourcePointer: string) => {
+      const sourceIndex = scanned++;
+      if (!matches(row, filters)) return;
+      const value = projection
+        ? Object.fromEntries(projection.map(p => [p, pointer(row, p) ?? null]))
+        : row;
+      const record = { sourceIndex, sourcePointer, value },
+        encoded = Buffer.from(`${JSON.stringify(record)}\n`);
+      let done = 0;
+      while (done < encoded.length)
+        done += writeSync(out, encoded, done, encoded.length - done);
+      const entry = Buffer.alloc(64);
+      entry.writeDoubleLE(at, 0);
+      entry.writeDoubleLE(encoded.length, 8);
+      entry.writeDoubleLE(sourceIndex, 16);
+      entry.writeDoubleLE(
+        format === 'jsonl' ? Number(sourcePointer.slice(5)) : sourceIndex,
+        24
+      );
+      Buffer.from(digest(encoded), 'hex').copy(entry, 32);
+      for (let done = 0; done < entry.length;)
+        done += writeSync(offsets, entry, done, entry.length - done);
+      matched++;
+      at += encoded.length;
+    };
+    try {
+      if (format === 'jsonl') {
+        let line = 0;
+        const lines = createInterface({
+          input: createReadStream(file),
+          crlfDelay: Infinity,
+        });
+        for await (const text of lines) {
+          line++;
+          if (text.trim()) add(parse(text), `line:${line}`);
+        }
+      } else {
+        const input = openSync(file, 'r');
+        try {
+          for await (const range of arrayRanges(file, path)) {
+            const raw = Buffer.alloc(range.length);
+            let done = 0;
+            while (done < raw.length) {
+              const n = readSync(
+                input,
+                raw,
+                done,
+                raw.length - done,
+                range.offset + done
+              );
+              if (!n) throw new Error('Incomplete source row');
+              done += n;
+            }
+            add(parse(raw.toString('utf8')), `${path}/${range.index}`);
+          }
+        } finally {
+          closeSync(input);
+        }
+      }
+    } finally {
+      closeSync(out);
+      closeSync(offsets);
+    }
+    if ((await sourceDigest(file)) !== sha256)
+      throw new Error('Capture changed while indexing');
+    index = {
+      file,
+      sha256,
+      format,
+      pointer: path,
+      filters,
+      select,
+      scanned,
+      matched,
+      offsetsSha256: await sourceDigest(join(staging, 'offsets.bin')),
+      rowsBytes: at,
+    };
+    writeFileSync(join(staging, 'index.json'), JSON.stringify(index), {
+      mode: 0o600,
+    });
+    try {
+      renameSync(staging, indexDir);
+      temporary = null;
+    } catch (error) {
+      if (!existsSync(manifestFile)) throw error;
+      rmSync(staging, { recursive: true, force: true });
+      temporary = null;
+      index = JSON.parse(readFileSync(manifestFile, 'utf8'));
+      reused = true;
+    }
+  }
+  if (cursor > index.matched) throw new Error('Cursor exceeds matched rows');
+  const rowsFile = join(indexDir, 'rows.jsonl');
+  // The trusted offset table pins each row digest. Verify selected rows, not the
+  // entire copied evidence on every page; source and offsets remain digest-pinned.
+  if (statSync(rowsFile).size !== index.rowsBytes)
+    throw new Error('Evidence index changed; rebuild it');
+  const offsetsFile = join(indexDir, 'offsets.bin');
+  if ((await sourceDigest(offsetsFile)) !== index.offsetsSha256)
+    throw new Error('Evidence offset index changed; rebuild it');
+  const fd = openSync(rowsFile, 'r'),
+    offsets = openSync(offsetsFile, 'r'),
+    rows: unknown[] = [];
+  let nextCursor = cursor,
+    bytes = 0;
+  try {
+    while (nextCursor < index.matched && rows.length < limit) {
+      const encodedEntry = Buffer.alloc(64);
+      if (readSync(offsets, encodedEntry, 0, 64, nextCursor * 64) !== 64)
+        throw new Error('Incomplete offset index');
+      const sourceIndex = encodedEntry.readDoubleLE(16),
+        sourceLine = encodedEntry.readDoubleLE(24);
+      const entry = {
+        offset: encodedEntry.readDoubleLE(0),
+        length: encodedEntry.readDoubleLE(8),
+        sourceIndex,
+        sourcePointer:
+          format === 'jsonl' ? `line:${sourceLine}` : `${path}/${sourceIndex}`,
+        sha256: encodedEntry.subarray(32).toString('hex'),
+      };
+      let record: unknown;
+      if (entry.length > 16000) {
+        const oversized = join(indexDir, `row-${nextCursor}.json`);
+        if (!existsSync(oversized)) {
+          const destination = openSync(oversized, 'wx', 0o600),
+            buffer = Buffer.alloc(Math.min(entry.length, 1024 * 1024));
+          try {
+            for (let at = 0; at < entry.length;) {
+              const n = readSync(
+                fd,
+                buffer,
+                0,
+                Math.min(buffer.length, entry.length - at),
+                entry.offset + at
+              );
+              if (!n) throw new Error('Incomplete evidence index');
+              let written = 0;
+              while (written < n)
+                written += writeSync(destination, buffer, written, n - written);
+              at += n;
+            }
+          } finally {
+            closeSync(destination);
+          }
+        }
+        if ((await sourceDigest(oversized)) !== entry.sha256)
+          throw new Error('Oversized evidence row changed; rebuild the index');
+        record = {
+          sourceIndex: entry.sourceIndex,
+          sourcePointer: entry.sourcePointer,
+          oversized: true,
+          sourceBytes: entry.length,
+          next: {
+            continue: {
+              command: process.execPath,
+              args: [
+                join(
+                  dirname(fileURLToPath(import.meta.url)),
+                  'artifact-query.mjs'
+                ),
+                '--file',
+                oversized,
+                '--format',
+                'json',
+                '--sha256',
+                entry.sha256,
+              ],
+            },
+          },
+        };
+      } else {
+        const raw = Buffer.alloc(entry.length);
+        let done = 0;
+        while (done < raw.length) {
+          const n = readSync(
+            fd,
+            raw,
+            done,
+            raw.length - done,
+            entry.offset + done
+          );
+          if (!n) throw new Error('Incomplete evidence index');
+          done += n;
+        }
+        if (digest(raw) !== entry.sha256)
+          throw new Error('Evidence index row changed; rebuild it');
+        record = parse(raw.toString('utf8'));
+      }
+      const size = Buffer.byteLength(JSON.stringify(record));
+      if (rows.length && bytes + size > 18000) break;
+      rows.push(record);
+      bytes += size;
+      nextCursor++;
+    }
+  } finally {
+    closeSync(fd);
+    closeSync(offsets);
+  }
+  const nextArgs = [
+    fileURLToPath(import.meta.url),
+    '--file',
+    file,
+    '--format',
+    format,
+    '--cursor',
+    String(nextCursor),
+    '--limit',
+    String(limit),
+    '--sha256',
+    sha256,
+    ...(path ? ['--pointer', path] : []),
+    '--where',
+    JSON.stringify(filters),
+    ...(select ? ['--select', JSON.stringify(select)] : []),
+  ];
+  console.log(
+    JSON.stringify({
+      file,
+      sha256,
+      index: manifestFile,
+      indexReused: reused,
+      scanned: index.scanned,
+      matched: index.matched,
+      cursor,
+      returned: rows.length,
+      rows,
+      ...(nextCursor < index.matched
+        ? { next: { continue: { command: process.execPath, args: nextArgs } } }
+        : {}),
+    })
+  );
+} catch (error) {
+  console.error(`[EVIDENCE_QUERY] ${errorMessage(error)}`);
+  process.exitCode = 1;
+} finally {
+  if (temporary) rmSync(temporary, { recursive: true, force: true });
+}

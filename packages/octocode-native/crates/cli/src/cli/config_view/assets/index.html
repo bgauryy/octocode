@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Octocode configuration</title>
+<link rel="icon" href="/logo.png">
+<link rel="stylesheet" href="/style.css">
+<script type="module" src="/app.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="bar">
+    <img src="/logo.png" alt="" width="30" height="30">
+    <h1>Octocode configuration</h1>
+    <label class="search"><span class="sr-only">Search keys and settings</span><input id="search" type="search" placeholder="Search keys and settings" autocomplete="off" spellcheck="false"></label>
+    <fieldset class="segmented" id="scope" aria-label="Save to">
+      <em>Save to</em>
+      <label title="Applies to every project"><input type="radio" name="scope" value="home" checked><span>Home</span></label>
+      <label title="Applies to this project only"><input type="radio" name="scope" value="workspace"><span>Workspace</span></label>
+    </fieldset>
+    <button id="close" type="button" >End session</button>
+  </div>
+</header>
+<main>
+  <p id="summary"></p>
+  <section id="warnings" aria-label="Configuration warnings"></section>
+  <div id="content"><p class="empty">Opening your configuration…</p></div>
+  <footer id="storage"></footer>
+</main>
+<div id="message" role="status" aria-live="polite"></div>
+</body>
+</html>

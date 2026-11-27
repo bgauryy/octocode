@@ -1,0 +1,280 @@
+[workspace]
+members = ["crates/engine", "crates/github", "crates/io", "crates/contract-base", "crates/contract-types", "crates/runtime-base", "crates/tools-shared", "crates/tool-graph", "crates/tool-lsp", "crates/tool-github", "crates/tool-local", "crates/tool-ast", "crates/tool-packages", "crates/tool-clasify", "crates/test-support", "crates/runtime", "crates/cli"]
+default-members = ["crates/cli"]
+# libFuzzer targets: their own workspace and lockfile (fuzz/Cargo.toml).
+exclude = ["fuzz"]
+resolver = "3"
+
+# Shared metadata keeps internal crates on the native npm release version.
+[workspace.package]
+version = "20.2.0"
+edition = "2024"
+# MSRV: the pinned toolchain (rust-toolchain.toml). Dependencies such as oxc
+# need it, so no lower floor is claimed; CI builds and tests on this version.
+rust-version = "1.99"
+license = "MIT"
+# Every crate is internal: the npm packages ship the binaries.
+publish = false
+repository = "https://github.com/bgauryy/octocode.git"
+
+# ── Shared dependency versions ────────────────────────────────────────────────
+# Dependencies shared across crates, or that are security-critical, are
+# centralized. Crate-local single-consumer deps stay in their own manifest — a
+# single-use version has no second place to drift to.
+#
+# `optional` is a per-crate concern and cannot live here. Per-crate
+# `features = [...]` are additive on top of the baseline declared here (see
+# tokio / windows-sys).
+[workspace.dependencies]
+lru = "0.19.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+memchr = "2"
+regex = "1"
+url = "2"
+sha2 = "0.11"
+# Git object ids (SHA-1): a GraphQL blob text is kept only when it hashes to its oid.
+sha1 = "0.11"
+hex = "0.4"
+tokio = { version = "1" }
+libc = "0.2"
+windows-sys = { version = "0.61" }
+# http2 is intentionally omitted: it links the `h2` stack (HPACK tables, ~0.2 MB)
+# and no code path relies on HTTP/2 semantics — GitHub's REST/raw endpoints all
+# serve over HTTP/1.1. Re-add "http2" if a future endpoint requires h2.
+# No `query` either: no request calls `RequestBuilder::query`, so `serde_urlencoded`
+# stays out of the graph.
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "gzip", "json", "stream", "system-proxy"] }
+tokio-util = { version = "0.7", default-features = false }
+futures-util = "0.3"
+bytes = "1"
+base64 = "0.23"
+getrandom = "0.4"
+secrecy = "0.10"
+flate2 = "1"
+toml = { version = "1", features = ["preserve_order"] }
+ignore = "0.4"
+globset = "0.4"
+tempfile = "3"
+wiremock = "0.6"
+
+# ── Shared lint policy ────────────────────────────────────────────────────────
+# The common floor every crate inherits (`[lints] workspace = true`). The
+# engine adds its library-only stdout/stderr ban as an attribute in
+# `crates/engine/src/lib.rs` (Cargo cannot merge a crate's own `[lints]` with
+# the workspace table). Thresholds and test exemptions live in clippy.toml.
+# The rustc lints below are warn-by-default; `deny` also fails a local
+# `cargo build`, not only CI's `-D warnings`.
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(octocode_clippy_ratchet)"] }
+dead_code = "deny"
+unused_imports = "deny"
+unused_variables = "deny"
+unused_mut = "deny"
+# A public item never exposes a more private type: fail the ordinary build,
+# not only the Clippy gate.
+private_interfaces = "deny"
+private_bounds = "deny"
+# A `pub` item no other crate can reach is `pub(crate)`: the crate split widened 1,002
+# items so the move would compile, and this keeps the widening from staying or returning.
+unreachable_pub = "warn"
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+# Correctness / safety
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+# Every `unsafe` block states why it is sound in a `// SAFETY:` comment.
+undocumented_unsafe_blocks = "deny"
+# Suppressions are `#[expect(..., reason = "...")]`: an `expect` that stops
+# firing warns, so stale suppressions surface instead of lingering.
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+# Structure and API shape. No fixed argument or line counts: `too_many_arguments`
+# (in `all`) is allowed, and `too_many_lines` (pedantic) is not enabled.
+too_many_arguments = "allow"
+manual_let_else = "warn"
+unused_self = "warn"
+option_option = "warn"
+large_stack_arrays = "warn"
+# Modules are `name.rs` + `name/`, never `name/mod.rs`.
+mod_module_files = "warn"
+# Style: `Self` inside impls, `copied()` over `cloned()` for `Copy` items,
+# method paths over forwarding closures, `;` after unit expressions.
+use_self = "warn"
+cloned_instead_of_copied = "warn"
+redundant_closure_for_method_calls = "warn"
+semicolon_if_nothing_returned = "warn"
+
+[profile.release]
+# Thin LTO recovers nearly all of fat LTO's cross-crate optimization at a
+# fraction of the link time — the dominant cost when this profile is built
+# once per release target across seven platforms. Benchmark before/after with the
+# engine's criterion suites (structural/search/minify) and confirm binary size
+# holds; revert to `true` if a hot path regresses beyond ~2%.
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+
+# ── Selective codegen-units (build-speed lever, ruff pattern) ─────────────────
+# `codegen-units = 1` (above) maximizes runtime perf but SERIALIZES a crate's
+# codegen — measured as ~107s of the ~154s release critical path for the runtime
+# crate alone. The runtime is orchestration/IO, not a hot CPU loop, so it pays
+# no meaningful perf cost from parallel codegen; bump it to 16. The engine holds
+# the perf-critical algorithms (structural search / minify / LSP) and stays at
+# the global `codegen-units = 1`.
+[profile.release.package.octocode-native]
+codegen-units = 16
+# The layers below the tools, split out of octocode-native: the same reasoning.
+[profile.release.package.octocode-runtime-base]
+codegen-units = 16
+# The tool crates split out of octocode-native: the same reasoning.
+[profile.release.package.octocode-tools-shared]
+codegen-units = 16
+[profile.release.package.octocode-tool-graph]
+codegen-units = 16
+[profile.release.package.octocode-tool-lsp]
+codegen-units = 16
+[profile.release.package.octocode-tool-github]
+codegen-units = 16
+[profile.release.package.octocode-tool-local]
+codegen-units = 16
+[profile.release.package.octocode-tool-ast]
+codegen-units = 16
+[profile.release.package.octocode-tool-packages]
+codegen-units = 16
+[profile.release.package.octocode-tool-clasify]
+codegen-units = 16
+
+# NOTE (measured 2026-09-22): the engine is the release long pole at the global
+# cu=1 (~146s, compiled up to 3×), but it must STAY at cu=1. Benchmarked cu=1 vs
+# cu=8 and cu=16 on the criterion suites: both cut the engine compile to ~28s but
+# regressed CSS minify (`minify_content_view_css`) ~17-22% and search ~2% —
+# beyond the ~2% gate. The minify hot paths lose cross-function inlining when the
+# crate is split into more codegen units. Do NOT add a per-package
+# codegen-units override for octocode-engine; the parallel-codegen build win is
+# not free here.
+
+# ── Profiling / benchmarking build ────────────────────────────────────────────
+# Inherits the optimized release profile but keeps full debuginfo and drops LTO,
+# so criterion runs and perf/flamegraph traces stay usable without paying the
+# release link cost. Precedent: ruff `[profile.profiling]`, uv, oxc
+# `[profile.release-with-debug]`. Build with `--profile profiling`.
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = false
+lto = false
+
+# ── Faster inner-loop debug builds (ruff / uv / biome pattern) ────────────────
+# Emit only line tables: keeps file:line in panics/backtraces but drops the bulk
+# of DWARF. `split-debuginfo = "unpacked"` is already Cargo's macOS default (no
+# `dsymutil` per link); setting it makes Linux split debuginfo the same way. Cross-validated against ruff/uv/biome dev profiles — ~20-40% faster debug
+# rebuilds; full DWARF is only needed when stepping in a debugger (use
+# `--profile profiling` for that). Dependencies below get no debuginfo at all.
+[profile.dev]
+debug = "line-tables-only"
+split-debuginfo = "unpacked"
+# Not incremental: since rustc 1.88 an incremental build adds a random per-run segment
+# to every `.rcgu.o` name, and `split-debuginfo = "unpacked"` keeps the objects after
+# linking, so each rebuild left a full new set (rust-lang/rust#161824). On 2026-11-13,
+# 731k of 737k `target/debug/deps` entries were such objects (307 GiB), next to 167 GB of
+# session caches. Non-incremental names are stable, so a rebuild overwrites them.
+incremental = false
+
+[profile.dev.package."*"]
+debug = false
+
+# The runtime and the tool crates split out of it build without line tables:
+# dev lib -24% CPU, lib-test -16% (A/B on the runtime before the split, 2026-11-17).
+# Panic messages keep file:line; backtrace frames in these crates lose it.
+[profile.dev.package.octocode-native]
+debug = false
+[profile.dev.package.octocode-tools-shared]
+debug = false
+[profile.dev.package.octocode-tool-graph]
+debug = false
+[profile.dev.package.octocode-tool-lsp]
+debug = false
+[profile.dev.package.octocode-tool-github]
+debug = false
+[profile.dev.package.octocode-tool-local]
+debug = false
+[profile.dev.package.octocode-tool-ast]
+debug = false
+[profile.dev.package.octocode-tool-packages]
+debug = false
+[profile.dev.package.octocode-tool-clasify]
+debug = false
+
+# Every CLI process builds the secret sanitizer's literal prescan (regex-syntax
+# parse + aho-corasick) and compiles its no-literal fallback patterns on first
+# output. Unoptimized, that one-time init cost ~50 ms per debug tool call
+# (measured 2026-10-02; ~17 ms at opt-level 3). regex-automata is the matching engine
+# the scanner runs over every byte: unoptimized, a localSearch first call on a 7 MB line
+# took 5.4-5.7 s against 0.52 s in a release-like build (measured 2026-11-06).
+[profile.dev.package."regex-syntax"]
+opt-level = 3
+[profile.dev.package."aho-corasick"]
+opt-level = 3
+[profile.dev.package."regex"]
+opt-level = 3
+[profile.dev.package."regex-automata"]
+opt-level = 3
+# memchr's `memmem` searches run in memchr's own code, which regex, aho-corasick and our
+# byte scans (secret prescan needles, line splits) call into. Unoptimized, a pass over
+# 32 MB took 25-70 ms; at opt-level 3 about 1 ms (measured 2026-11-17).
+[profile.dev.package."memchr"]
+opt-level = 3
+
+# Edited graph builds inflate cached extraction records and the previous snapshot's
+# evidence dictionary. Keep the DEFLATE codec optimized in the local development binary.
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+
+# Contract validation, row shaping and every tool result move `serde_json::Value`
+# trees (clone, drop, hash-map lookups), and large-source reads hash megabytes
+# per page. Unoptimised, those loops set the tail of `cargo nextest` (the union
+# differential test, streamed large-source paging); opt-level 3 here took the
+# union differential test from ~110 to ~70 CPU-seconds.
+[profile.dev.package."serde_json"]
+opt-level = 3
+[profile.dev.package."sha2"]
+opt-level = 3
+
+# ── Heavy dep clusters: optimise for dev-loop runtime without slowing own-crate rebuilds ──
+# Own code stays at opt-level=0 for fast incremental recompile; only dependency
+# code is bumped. This mirrors the regex-automata pattern already applied above.
+# tree-sitter-cpp / -cuda / -c-sharp / -scala (~104 MB of generated parser.c) are
+# left at opt-level 0 on purpose: `cc` follows the profile level, so -O3 on them costs
+# minutes of cold dev/test build while tests only parse tiny fixtures.
+
+[profile.dev.package."tree-sitter"]
+opt-level = 3
+[profile.dev.package."tree-sitter-asm"]
+opt-level = 3
+[profile.dev.package."tree-sitter-javascript"]
+opt-level = 3
+[profile.dev.package."tree-sitter-typescript"]
+opt-level = 3
+[profile.dev.package."tree-sitter-rust"]
+opt-level = 3
+[profile.dev.package."tree-sitter-python"]
+opt-level = 3
+[profile.dev.package."tree-sitter-go"]
+opt-level = 3
+[profile.dev.package."tree-sitter-java"]
+opt-level = 3
+[profile.dev.package."tree-sitter-c"]
+opt-level = 3
+[profile.dev.package."oxc_parser"]
+opt-level = 2
+[profile.dev.package."oxc_semantic"]
+opt-level = 2

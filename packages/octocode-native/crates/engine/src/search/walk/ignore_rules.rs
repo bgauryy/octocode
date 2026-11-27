@@ -1,0 +1,410 @@
+//! Ignore-rule resolution for one path: the files that hold the rules, the
+//! precedence the walker applies, and the rule that decided an entry.
+
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, PoisonError, RwLock};
+
+use ignore::Match;
+
+mod git_dir;
+mod level;
+
+pub use git_dir::{checkout_git_dir, common_git_dir};
+#[cfg(test)]
+pub(crate) use level::LEVELS_STATED;
+use level::{Level, git_exclude_file};
+
+use super::global_ignore::{GlobalIgnore, PerRepository};
+pub use level::{ListedRules, UnreadableRule};
+
+/// The ignore rule that keeps a path out of a walk.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IgnoreReason {
+    /// The topmost entry on the way to the path that the rule leaves out (a
+    /// walk never enters an ignored directory).
+    pub entry: PathBuf,
+    /// The ignore file the rule is in, spelled under the walk root's own
+    /// path; `None` for a rule with no file.
+    pub source: Option<PathBuf>,
+    /// The rule's 1-based line in `source`, when it can be found.
+    pub line: Option<usize>,
+    /// The rule as written.
+    pub pattern: String,
+}
+
+/// The ignore files a directory may hold: `.gitignore`, which applies inside
+/// a repository only, and `.ignore`, which applies with or without one.
+pub const IGNORE_FILES: [&str; 2] = [".gitignore", ".ignore"];
+
+/// The rules that decide the entries of one walked directory
+/// ([`IgnoreRules::enter`]): a walk keeps it for the directory, so an entry
+/// costs no cache lookup.
+pub struct DirRules(Arc<Chain>);
+
+impl DirRules {
+    /// The rule files of this directory itself that exist but could not be
+    /// read ([`IgnoreRules::unreadable_rule_files`] for every directory met).
+    pub fn unreadable(&self) -> &[UnreadableRule] {
+        self.0
+            .levels
+            .first()
+            .map_or(&[], |level| level.unreadable.as_slice())
+    }
+}
+
+/// The files outside a walk of `root` whose contents decide its ignore rules
+/// ([`walk_builder`](super::walk_builder), [`IgnoreRules`]): the [`IGNORE_FILES`] of each
+/// directory above `root`, the `info/exclude` of a repository whose `.git`
+/// sits at or above `root` (through a worktree's `gitdir:` pointer and
+/// `commondir`), the global excludes file, and the git config files that may
+/// name it. A listed path may not exist: creating it changes the rules too.
+/// Ignore files at or below `root` are walked entries, and a repository
+/// nested below it keeps its exclude file in its own `.git`, which a walk
+/// meets; a caller stamps those from its walk.
+pub fn external_ignore_inputs(root: &Path) -> Vec<PathBuf> {
+    external_ignore_inputs_with(root, GlobalIgnore::NONE)
+}
+
+/// [`external_ignore_inputs`] under the global ignore rules of a call.
+pub fn external_ignore_inputs_with(root: &Path, global: GlobalIgnore) -> Vec<PathBuf> {
+    let real = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let mut inputs = Vec::new();
+    for dir in real.ancestors().skip(1) {
+        inputs.extend(IGNORE_FILES.map(|name| dir.join(name)));
+    }
+    inputs.extend(real.ancestors().filter_map(git_exclude_file));
+    inputs.extend(global.inputs());
+    let mut seen = HashSet::new();
+    inputs.retain(|path| seen.insert(path.clone()));
+    inputs
+}
+
+/// [`walk_builder`](super::walk_builder)'s ignore rules for one path below a walk root: whether
+/// the walk leaves the entry out, and which rule decides it. Directory rules
+/// load lazily and are cached for the life of the value.
+pub struct IgnoreRules {
+    root: PathBuf,
+    /// `root` with symlinks resolved: the directories above it are read along
+    /// its real path, as the walker reads them.
+    real_root: Option<PathBuf>,
+    /// The directories above the root, nearest first.
+    outer: Vec<Level>,
+    /// Some directory above the root holds `.git`.
+    outer_git: bool,
+    global: PerRepository,
+    /// The rules in force in each directory at or below the root, by path.
+    inner: RwLock<HashMap<PathBuf, Arc<Chain>>>,
+}
+
+/// The rules of one directory at or below the root and of each directory
+/// between it and the root, nearest first: what decides its entries.
+struct Chain {
+    levels: Vec<Arc<Level>>,
+    /// A directory on the chain or above the root holds `.git`: git rules
+    /// apply.
+    any_git: bool,
+    /// The global rules for its entries (those of the repository it is in),
+    /// when git rules apply and the global file holds any.
+    global: Option<Arc<ignore::gitignore::Gitignore>>,
+}
+
+impl IgnoreRules {
+    pub fn new(root: &Path) -> Self {
+        Self::with_global(root, GlobalIgnore::NONE)
+    }
+
+    /// The rules of a walk of `root` under the global ignore rules of a call.
+    pub fn with_global(root: &Path, global: GlobalIgnore) -> Self {
+        let real_root = std::fs::canonicalize(root).ok();
+        let outer: Vec<Level> = real_root
+            .iter()
+            .flat_map(|real| real.ancestors().skip(1))
+            .map(Level::load)
+            .collect();
+        let global = PerRepository::new(global);
+        Self {
+            root: root.to_path_buf(),
+            real_root,
+            outer_git: outer.iter().any(|level| level.has_git),
+            outer,
+            global,
+            inner: RwLock::default(),
+        }
+    }
+
+    /// The rule chain of `dir` (the root or a directory below it), built
+    /// once per directory: a parallel walk reads it for every entry, so the
+    /// cache is read-locked on the hot path.
+    fn chain(&self, dir: &Path) -> Arc<Chain> {
+        if let Some(chain) = self
+            .inner
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(dir)
+        {
+            return Arc::clone(chain);
+        }
+        self.chained(dir, Level::load(dir))
+    }
+
+    /// The chain of `dir` with `level` its own rules, kept for the walk.
+    fn chained(&self, dir: &Path, level: Level) -> Arc<Chain> {
+        let mut levels = vec![Arc::new(level)];
+        if let Some(parent) = dir
+            .parent()
+            .filter(|parent| dir != self.root && parent.starts_with(&self.root))
+        {
+            levels.extend(self.chain(parent).levels.iter().cloned());
+        }
+        let any_git = self.outer_git || levels.iter().any(|level| level.has_git);
+        let global = any_git.then(|| self.global.for_entries_of(dir)).flatten();
+        Arc::clone(
+            self.inner
+                .write()
+                .unwrap_or_else(PoisonError::into_inner)
+                .entry(dir.to_path_buf())
+                .or_insert_with(|| {
+                    Arc::new(Chain {
+                        levels,
+                        any_git,
+                        global,
+                    })
+                }),
+        )
+    }
+
+    /// The rules of `dir` (the root or a directory below it) that a walk is
+    /// entering. `listed`: what its listing shows of the rule files, which
+    /// spares looking for them; `None` when the listing is not complete.
+    pub fn enter(&self, dir: &Path, listed: Option<ListedRules>) -> DirRules {
+        let known = self
+            .inner
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(dir)
+            .cloned();
+        DirRules(known.unwrap_or_else(|| match listed {
+            Some(listed) => self.chained(dir, Level::listed(dir, listed)),
+            None => self.chain(dir),
+        }))
+    }
+
+    /// The rule files this value has met that exist but could not be read
+    /// (sorted, once each): their rules did not apply, so entries they would
+    /// leave out were walked. Rule files load lazily, so ask after the walk.
+    pub fn unreadable_rule_files(&self) -> Vec<UnreadableRule> {
+        let inner = self.inner.read().unwrap_or_else(PoisonError::into_inner);
+        let mut files: Vec<UnreadableRule> = self
+            .outer
+            .iter()
+            .chain(
+                inner
+                    .values()
+                    .filter_map(|chain| chain.levels.first().map(|level| &**level)),
+            )
+            .flat_map(|level| level.unreadable.iter().cloned())
+            .collect();
+        files.sort_by(|a, b| a.path.cmp(&b.path));
+        files.dedup();
+        files
+    }
+
+    /// Whether the root lies in a git work tree (it or a directory above it
+    /// holds `.git`): only there do `.gitignore` rules apply.
+    pub(crate) fn in_repository(&self) -> bool {
+        self.chain(&self.root).any_git
+    }
+
+    /// Whether a walk under the rules leaves out the entry `path` itself
+    /// (its directories above are taken as walked). The root is never left
+    /// out, and neither is a path outside it.
+    pub fn is_ignored(&self, path: &Path, is_dir: bool) -> bool {
+        self.decide_entry(path, is_dir).is_ignore()
+    }
+
+    /// [`Self::is_ignored`] of an entry of the directory `rules` were
+    /// entered for.
+    pub(crate) fn is_ignored_in(&self, rules: &DirRules, path: &Path, is_dir: bool) -> bool {
+        self.decide_in(rules, path, is_dir).is_ignore()
+    }
+
+    /// [`Self::decide_entry`] of an entry of the directory `rules` were
+    /// entered for: the walker's verdict with no cache lookup, and with no
+    /// side effect, so a caller may ask before it walks the entry.
+    pub(crate) fn decide_in(&self, rules: &DirRules, path: &Path, is_dir: bool) -> Match<()> {
+        self.decide_under(&rules.0, path, is_dir, |_| ())
+    }
+
+    /// The walker's ignore verdict on the entry `path` itself (its
+    /// directories above taken as walked): left out, re-included by a `!`
+    /// rule (which also keeps a dot entry), or no rule.
+    pub(crate) fn decide_entry(&self, path: &Path, is_dir: bool) -> Match<()> {
+        self.decide(path, is_dir, |_| ())
+    }
+
+    /// The rule that keeps `path` out of a walk: the rule for the topmost
+    /// entry on the way to it that a walk leaves out (a walk never enters an
+    /// ignored directory). `None` when a walk reaches it.
+    pub fn why(&self, path: &Path, is_dir: bool) -> Option<IgnoreReason> {
+        let relative = path.strip_prefix(&self.root).ok()?;
+        let parts = relative.components().count();
+        let mut prefix = self.root.clone();
+        for (index, part) in relative.components().enumerate() {
+            prefix.push(part);
+            let prefix_is_dir = index + 1 < parts || is_dir;
+            let decided = self.decide(&prefix, prefix_is_dir, |glob| {
+                (
+                    glob.from().map(Path::to_path_buf),
+                    glob.original().to_owned(),
+                )
+            });
+            if let Match::Ignore((source, pattern)) = decided {
+                return Some(IgnoreReason {
+                    entry: prefix,
+                    line: source.as_deref().and_then(|file| rule_line(file, &pattern)),
+                    source: source.map(|file| self.lexical(&file)),
+                    pattern,
+                });
+            }
+        }
+        None
+    }
+
+    /// `file` spelled under the root's own path: an ignore file above the
+    /// root is read along the root's real path (`/private/var/…` for a root
+    /// under `/var/…`), and named along the root's.
+    fn lexical(&self, file: &Path) -> PathBuf {
+        if file.starts_with(&self.root) {
+            return file.to_path_buf();
+        }
+        let Some(real) = &self.real_root else {
+            return file.to_path_buf();
+        };
+        real.ancestors()
+            .zip(self.root.ancestors())
+            .find_map(|(real, lexical)| Some(lexical.join(file.strip_prefix(real).ok()?)))
+            .unwrap_or_else(|| file.to_path_buf())
+    }
+
+    /// The deciding rule for one entry, with the walker's precedence: the
+    /// nearest `.ignore` rule, else the nearest `.gitignore` rule up to the
+    /// repository root, else the repository's exclude file, else the global
+    /// gitignore. Git rules apply only inside a repository.
+    fn decide<T>(
+        &self,
+        path: &Path,
+        is_dir: bool,
+        rule: impl Fn(&ignore::gitignore::Glob) -> T,
+    ) -> Match<T> {
+        let Ok(relative) = path.strip_prefix(&self.root) else {
+            return Match::None;
+        };
+        if relative.as_os_str().is_empty() {
+            return Match::None;
+        }
+        let Some(chain) = path
+            .parent()
+            .filter(|dir| dir.starts_with(&self.root))
+            .map(|dir| self.chain(dir))
+        else {
+            return Match::None;
+        };
+        self.decide_under(&chain, path, is_dir, rule)
+    }
+
+    /// [`Self::decide`] of an entry below the root, its directory's rules in
+    /// hand.
+    fn decide_under<T>(
+        &self,
+        chain: &Chain,
+        path: &Path,
+        is_dir: bool,
+        rule: impl Fn(&ignore::gitignore::Glob) -> T,
+    ) -> Match<T> {
+        let any_git = chain.any_git;
+        let mut verdicts = Verdicts::NONE;
+        let mut saw_git = false;
+        for level in &chain.levels {
+            verdicts.consult(level, path, is_dir, any_git && !saw_git);
+            saw_git |= level.has_git;
+        }
+        // The rules above the root match the path along the root's real
+        // path; it is spelled only when a rule there is still consulted.
+        let mut outer_path = None;
+        for level in &self.outer {
+            let git = any_git && !saw_git;
+            let consulted = !level.dot_ignore.is_empty()
+                || (git && !(level.gitignore.is_empty() && level.exclude.is_empty()));
+            if consulted
+                && let Some(matched) = outer_path
+                    .get_or_insert_with(|| {
+                        let relative = path.strip_prefix(&self.root).ok()?;
+                        self.real_root.as_ref().map(|real| real.join(relative))
+                    })
+                    .as_deref()
+            {
+                verdicts.consult(level, matched, is_dir, git);
+            }
+            saw_git |= level.has_git;
+        }
+        let Verdicts {
+            dot_ignore,
+            gitignore,
+            exclude,
+        } = verdicts;
+        let decided = dot_ignore
+            .map(&rule)
+            .or(gitignore.map(&rule))
+            .or(exclude.map(&rule));
+        if !decided.is_none() {
+            return decided;
+        }
+        // The global rules are matched per repository, and only where git
+        // rules apply: the chain holds them for its directory.
+        chain.global.as_ref().map_or(Match::None, |global| {
+            global.matched(path, is_dir).map(&rule)
+        })
+    }
+}
+
+/// The nearest rule of each kind met so far on the way up from an entry.
+struct Verdicts<'a> {
+    dot_ignore: Match<&'a ignore::gitignore::Glob>,
+    gitignore: Match<&'a ignore::gitignore::Glob>,
+    exclude: Match<&'a ignore::gitignore::Glob>,
+}
+
+impl<'a> Verdicts<'a> {
+    const NONE: Self = Self {
+        dot_ignore: Match::None,
+        gitignore: Match::None,
+        exclude: Match::None,
+    };
+
+    /// Consult `level`'s rules for `path` where no nearer rule decided;
+    /// its git rules only when `git` (inside a repository, up to its root).
+    fn consult(&mut self, level: &'a Level, path: &Path, is_dir: bool, git: bool) {
+        if self.dot_ignore.is_none() {
+            self.dot_ignore = level.dot_ignore.matched(path, is_dir);
+        }
+        if git {
+            if self.gitignore.is_none() {
+                self.gitignore = level.gitignore.matched(path, is_dir);
+            }
+            if self.exclude.is_none() {
+                self.exclude = level.exclude.matched(path, is_dir);
+            }
+        }
+    }
+}
+
+/// The last line of `file` that spells `pattern` (later rules win).
+fn rule_line(file: &Path, pattern: &str) -> Option<usize> {
+    let text = std::fs::read_to_string(file).ok()?;
+    text.lines()
+        .enumerate()
+        .filter(|(_, line)| line.trim_end() == pattern)
+        .last()
+        .map(|(index, _)| index + 1)
+}

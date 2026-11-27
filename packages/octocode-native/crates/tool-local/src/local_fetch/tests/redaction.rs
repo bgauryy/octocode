@@ -1,0 +1,321 @@
+//! Redacted secrets: anchors, counts, and the security limit.
+
+use super::*;
+use octocode_test_support::json_fixture;
+
+#[test]
+fn redacted_chunk_and_range_reads_keep_their_source_anchor() {
+    let t = Fixture::new();
+    let p = t.0.join("a.txt");
+    fs::write(&p, numbered(30).replace("l12\n", "l12 SECRET\n")).expect("fixture");
+    let paths = Paths(t.0.clone());
+    let mut chunk = q(&p);
+    local_fetch_query::set_line_span(&mut chunk, 11, 15).expect("range");
+    let mut range = q(&p);
+    local_fetch_query::set_line_span(&mut range, 11, 13).expect("range");
+    for (req, expected) in [(chunk, (11, 15)), (range, (11, 13))] {
+        let r = fetch(&req, &paths);
+        assert!(
+            r.content
+                .as_deref()
+                .is_some_and(|c| c.contains("[REDACTED]")),
+            "{r:?}"
+        );
+        assert_eq!(
+            r.source_line_ranges,
+            vec![LineRange {
+                start: expected.0,
+                end: expected.1
+            }]
+        );
+        assert!(
+            r.warnings
+                .iter()
+                .any(|w| w == octocode_runtime_base::security::REDACTED_MARK),
+            "{:?}",
+            r.warnings
+        );
+    }
+}
+
+/// matchString runs on redacted text, so a match inside a redacted value is
+/// not selected; the row states no count of the lines it could not see.
+#[test]
+fn a_partial_match_states_no_count_of_redacted_lines() {
+    let t = Fixture::new();
+    let p = t.0.join("a.txt");
+    fs::write(&p, "CRE one\nvalue SECRET\nlast\n").expect("fixture");
+    let paths = Paths(t.0.clone());
+    let mut req = q(&p);
+    amend(&mut req, json_fixture(r#"{"matchString": ["CRE"]}"#));
+    amend(
+        &mut req,
+        json_fixture(r#"{"contextLines": {"before": 0, "after": 0}}"#),
+    );
+    let r = fetch(&req, &paths);
+    assert_eq!(r.content.as_deref(), Some("CRE one\n"));
+    assert!(
+        r.warnings.is_empty(),
+        "no notice of the lines matchString cannot see: {:?}",
+        r.warnings
+    );
+}
+
+/// A redacted line the result shows as context is not "outside" it, and
+/// the count, the same on every page, is stated by the first page only.
+#[test]
+fn redacted_lines_outside_the_result_are_never_counted() {
+    let t = Fixture::new();
+    let p = t.0.join("a.txt");
+    let mut source = String::from("CRE one\nvalue SECRET\n");
+    source.push_str(&"filler\n".repeat(10));
+    source.push_str("other SECRET\n");
+    source.push_str(&"filler\n".repeat(3));
+    source.push_str("CRE two\n");
+    fs::write(&p, &source).expect("fixture");
+    let paths = Paths(t.0.clone());
+    let outside = |result: &LocalFetchResult| {
+        result
+            .warnings
+            .iter()
+            .filter(|w| w.contains("outside this result"))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let mut req = q(&p);
+    amend(&mut req, json_fixture(r#"{"matchString": ["CRE"]}"#));
+    // Line 2 is context of the first hit; line 13 lies outside the result.
+    amend(
+        &mut req,
+        json_fixture(r#"{"contextLines": {"before": 1, "after": 1}}"#),
+    );
+    let first = fetch(&req, &paths);
+    assert_eq!(
+        outside(&first),
+        Vec::<String>::new(),
+        "{:?}",
+        first.warnings
+    );
+    // Both redacted lines shown as context: nothing lies outside.
+    amend(
+        &mut req,
+        json_fixture(r#"{"contextLines": {"before": 4, "after": 4}}"#),
+    );
+    assert_eq!(outside(&fetch(&req, &paths)), Vec::<String>::new());
+    // A later page of the same read does not repeat the count.
+    amend(
+        &mut req,
+        json_fixture(r#"{"contextLines": {"before": 1, "after": 1}}"#),
+    );
+    let page = execute_local_fetch(&req, &paths, &Safe, &NeverCancel, Some(26), false);
+    assert_eq!(outside(&page).len(), 0, "{:?}", page.warnings);
+    let next = page
+        .next
+        .and_then(|next| next.continue_window)
+        .expect("a second page")
+        .query;
+    let second = fetch(&next, &paths);
+    assert_eq!(
+        outside(&second),
+        Vec::<String>::new(),
+        "{:?}",
+        second.warnings
+    );
+}
+
+#[test]
+fn ranges_matches_redaction_and_binary() {
+    let t = Fixture::new();
+    let p = t.0.join("a.txt");
+    fs::write(&p, "zero\nneedle SECRET\nlast\n").expect("test fixture operation should succeed");
+    let paths = Paths(t.0.clone());
+    let mut req = q(&p);
+    amend(&mut req, json_fixture(r#"{"matchString": ["needle"]}"#));
+    amend(
+        &mut req,
+        json_fixture(r#"{"contextLines": {"before": 0, "after": 0}}"#),
+    );
+    let r = fetch(&req, &paths);
+    let expected_hash = hex::encode(sha2::Sha256::digest(b"zero\nneedle SECRET\nlast\n"));
+    assert_eq!(r.source_sha256.as_deref(), Some(expected_hash.as_str()));
+    assert_eq!(r.content.as_deref(), Some("needle [REDACTED]\n"));
+    assert_eq!(r.match_ranges, vec![LineRange { start: 2, end: 2 }]);
+    assert_eq!(
+        r.source_line_ranges,
+        vec![LineRange { start: 2, end: 2 }],
+        "line-preserving redaction keeps the source anchor"
+    );
+    assert!(
+        r.warnings
+            .iter()
+            .any(|w| w == octocode_runtime_base::security::REDACTED_MARK),
+        "{:?}",
+        r.warnings
+    );
+    let bin = t.0.join("b.bin");
+    fs::write(&bin, [0, 1, 2]).expect("test fixture operation should succeed");
+    assert_eq!(
+        fetch(&q(&bin), &paths).error_code,
+        Some(ErrorCode::BinaryFileUnsupported)
+    );
+}
+
+/// Only placeholders this read introduced count: literal `[REDACTED…]` text
+/// in the source is verbatim, even in a file with real redactions.
+#[test]
+fn literal_placeholder_text_is_not_counted_as_a_redaction() {
+    let t = Fixture::new();
+    let p = t.0.join("a.rs");
+    let mut source = String::from("let shown = \"[REDACTED-literal]\";\n");
+    source.push_str(&"let filler = 1;\n".repeat(2_000));
+    source.push_str("let key = \"SECRET\";\n");
+    fs::write(&p, &source).expect("fixture");
+    let paths = Paths(t.0.clone());
+    let redacted = |warnings: &[String]| {
+        warnings
+            .iter()
+            .find(|warning| warning.as_str() == octocode_runtime_base::security::REDACTED_MARK)
+            .cloned()
+    };
+    let head = fetch(
+        &qj(
+            &p,
+            json_fixture(r#"{"ranges": [{"startLine": 1, "endLine": 3}]}"#),
+        ),
+        &paths,
+    );
+    assert_eq!(redacted(&head.warnings), None, "{:?}", head.warnings);
+    let both = fetch(
+        &qj(
+            &p,
+            json_fixture(
+                r#"{
+                    "ranges": [
+                        {"startLine": 1, "endLine": 1},
+                        {"startLine": 2002, "endLine": 2002}
+                    ]
+                }"#,
+            ),
+        ),
+        &paths,
+    );
+    let warning = redacted(&both.warnings).expect("the real redaction is named");
+    assert_eq!(warning, octocode_runtime_base::security::REDACTED_MARK);
+    // A match read redacts the whole source first: its literal line is no
+    // unmatchable redacted line, the real one is.
+    let matched = fetch(
+        &qj(
+            &p,
+            json_fixture(
+                r#"{
+                    "matchString": ["shown"],
+                    "contextLines": {"before": 0, "after": 0}
+                }"#,
+            ),
+        ),
+        &paths,
+    );
+    assert_eq!(redacted(&matched.warnings), None, "{:?}", matched.warnings);
+    assert!(
+        !matched
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("redacted line")),
+        "{:?}",
+        matched.warnings
+    );
+}
+
+#[test]
+fn security_limit_is_terminal_but_offers_a_bounded_line_read() {
+    struct Limited;
+    impl ContentScan for Limited {
+        fn sanitize(
+            &self,
+            _: &str,
+            _: &Path,
+        ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
+            Err((ErrorCode::ContentSecurityLimit, "limited".into()))
+        }
+    }
+    let t = Fixture::new();
+    let p = t.0.join("large.txt");
+    fs::write(&p, "one\ntwo\n").expect("security fixture should be written");
+    let result = execute_local_fetch(
+        &q(&p),
+        &Paths(t.0.clone()),
+        &Limited,
+        &NeverCancel,
+        None,
+        false,
+    );
+    assert_eq!(result.error_code, Some(ErrorCode::ContentSecurityLimit));
+    assert_eq!(result.terminal_limit, Some(true));
+    assert!(
+        result
+            .next
+            .and_then(|next| next.read_bounded_lines)
+            .is_some()
+    );
+}
+
+/// A truly blank line of the source beside a redacted one blanks nothing.
+#[test]
+fn a_blank_source_line_beside_a_redaction_is_no_blanked_line() {
+    let t = Fixture::new();
+    let p = t.0.join("a.txt");
+    fs::write(&p, "one\n\nvalue SECRET\nlast\n").expect("fixture");
+    let paths = Paths(t.0.clone());
+    let read = fetch(
+        &qj(
+            &p,
+            json_fixture(r#"{"ranges": [{"startLine": 2, "endLine": 2}]}"#),
+        ),
+        &paths,
+    );
+    assert_eq!(read.content.as_deref(), Some("\n"));
+    assert!(
+        !read
+            .warnings
+            .iter()
+            .any(|w| w == octocode_runtime_base::security::REDACTED_MARK),
+        "{:?}",
+        read.warnings
+    );
+}
+
+/// A pattern matches the source's own text, never the spelling of a
+/// placeholder a redaction wrote: `REDACTED` or a regex selecting its
+/// brackets finds only the source's own word, on every engine.
+#[test]
+fn match_strings_never_match_the_placeholders_a_redaction_wrote() {
+    let t = Fixture::new();
+    let p = t.0.join("a.txt");
+    fs::write(&p, "key SECRET here\nplain REDACTED word\nlast ]\n").expect("fixture");
+    let paths = Paths(t.0.clone());
+    for (fields, expected) in [
+        (r#"{"matchString": ["REDACTED"]}"#, "plain REDACTED word\n"),
+        (
+            r#"{"matchString": ["redacted"], "caseMode": "insensitive"}"#,
+            "plain REDACTED word\n",
+        ),
+        (
+            r#"{"matchString": ["\\]"], "regexEngine": "rust"}"#,
+            "last ]\n",
+        ),
+        (r#"{"matchString": ["\\[RED"], "regexEngine": "pcre2"}"#, ""),
+        (
+            r#"{"matchString": ["key .* here"], "regexEngine": "rust"}"#,
+            "key [REDACTED] here\n",
+        ),
+    ] {
+        let mut req = q(&p);
+        amend(&mut req, json_fixture(fields));
+        let r = fetch(&req, &paths);
+        assert_eq!(
+            r.content.as_deref().unwrap_or(""),
+            expected,
+            "{fields}: {r:?}"
+        );
+    }
+}

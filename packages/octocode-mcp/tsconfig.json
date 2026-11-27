@@ -1,29 +1,20 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "resolveJsonModule": true,
-    "outDir": "./dist",
-    "strict": true,
+    "preserveSymlinks": true,
+    "noEmit": true,
+    "rootDir": "..",
     "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "noImplicitAny": true,
+    "allowJs": true,
+    "checkJs": false,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
-    "types": ["vitest/globals", "node"],
-    "baseUrl": "."
+    "types": ["vitest/globals", "node"]
   },
-  "include": ["src/**/*", "tests/**/*", "src/types/**/*.d.ts"],
-  "exclude": ["node_modules"],
-  "ts-node": {
-    "esm": true
-  }
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["node_modules"]
 }

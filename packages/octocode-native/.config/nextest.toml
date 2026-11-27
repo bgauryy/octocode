@@ -1,0 +1,36 @@
+# cargo-nextest config. `yarn test:rust` runs most Rust tests under libtest, one process per
+# test binary, and only the tests that start real child processes under nextest, one process
+# per test (`PROCESS_TESTS` in scripts/rust-tests.cjs, which says why).
+# Reference: https://nexte.st/docs/configuration/reference/
+
+[profile.default]
+# Mark a test slow after 60s and kill it after 3 minutes, so a hung test fails
+# instead of stalling the run.
+slow-timeout = { period = "60s", terminate-after = 3 }
+
+# CI (`NEXTEST_PROFILE=ci`): run every test and print each failure again at the end.
+[profile.ci]
+fail-fast = false
+failure-output = "immediate-final"
+
+# Slowest tests first. Nextest starts tests in binary and name order, so a slow test
+# late in the alphabet would run alone at the end while the other cores idle. Priority
+# only orders the start; no test changes. The names are tails of the tests the nextest
+# run holds that took 10 s or more in a debug build; a renamed test falls back to plain
+# order.
+[[profile.default.overrides]]
+filter = 'test(/next_page_alone_reads_every_location_of_a_window|runtime_one_walk::channels::|large_indexes_clone_whole_repositories_and_sparse_trees_without_exposing_symlinks|a_pool_over_its_memory_budget_is_disclosed_and_one_within_it_is_not/)'
+priority = 100
+
+# Tests that start real child processes (node fake language servers, git, the daemon, the
+# MCP server) share one group, so a burst of them cannot push every other test into a timing
+# failure on a loaded machine. Each takes two threads: they start multi-thread runtimes.
+# Eight threads let four run at once: the process run took 81 s at four, 170-230 s at two
+# (2026-11-18, three runs green).
+[test-groups.process-heavy]
+max-threads = 8
+
+[[profile.default.overrides]]
+filter = 'test(/lsp_search::process_tests|loading_server|gh_clone/) | test(/^warm_server::/) | test(/^mcp_server::/)'
+test-group = "process-heavy"
+threads-required = 2

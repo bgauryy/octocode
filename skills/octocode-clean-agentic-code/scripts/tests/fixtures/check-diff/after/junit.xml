@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="pytest" tests="5" failures="3">
+    <testcase classname="tests.test_api" name="test_list" time="0.01">
+      <failure message="expected 2 items, got 1"/>
+    </testcase>
+    <testcase classname="tests.test_api" name="test_flaky_network" time="0.02">
+      <failure message="timeout"/>
+    </testcase>
+    <testcase classname="tests.test_api" name="test_create" time="0.01">
+      <skipped message="skipped by the change"/>
+    </testcase>
+    <testcase classname="tests.test_db" name="test_migrate" time="0.03"/>
+    <testcase classname="tests.test_db" name="test_rollback" time="0.01">
+      <failure message="new test fails"/>
+    </testcase>
+  </testsuite>
+</testsuites>

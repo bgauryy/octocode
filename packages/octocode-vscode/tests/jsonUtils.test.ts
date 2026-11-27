@@ -40,26 +40,30 @@ describe('readJsonFile', () => {
     );
   });
 
-  it('returns null for missing files', async () => {
+  it('returns undefined for missing files', async () => {
     const dirPath = await makeTempDir();
     const filePath = path.join(dirPath, 'missing.json');
 
-    await expect(readJsonFile(filePath)).resolves.toBeNull();
+    await expect(readJsonFile(filePath)).resolves.toBeUndefined();
   });
 
-  it('returns null for empty files', async () => {
+  it('rejects empty files', async () => {
     const dirPath = await makeTempDir();
     const filePath = path.join(dirPath, 'empty.json');
     await fsPromises.writeFile(filePath, '   ', 'utf8');
 
-    await expect(readJsonFile(filePath)).resolves.toBeNull();
+    await expect(readJsonFile(filePath)).rejects.toThrow(
+      'Cannot read configuration'
+    );
   });
 
-  it('returns null for invalid JSON', async () => {
+  it('rejects invalid JSON', async () => {
     const dirPath = await makeTempDir();
     const filePath = path.join(dirPath, 'broken.json');
     await fsPromises.writeFile(filePath, '{ broken', 'utf8');
 
-    await expect(readJsonFile(filePath)).resolves.toBeNull();
+    await expect(readJsonFile(filePath)).rejects.toThrow(
+      'Cannot read configuration'
+    );
   });
 });

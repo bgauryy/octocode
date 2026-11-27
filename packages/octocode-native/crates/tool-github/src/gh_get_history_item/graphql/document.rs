@@ -1,0 +1,179 @@
+//! The GraphQL documents of the pull-request fast path: the first-page
+//! read and each connection's continuation.
+use super::GraphqlWants;
+
+/// One paged PR connection: its response key, the field (with its alias)
+/// it selects, its page-size variable, the node fields, and where the PR
+/// counts its items (`total`, a pointer into the PR), when it does.
+pub(super) struct Connection {
+    pub(super) key: &'static str,
+    pub(super) field: &'static str,
+    pub(super) variable: &'static str,
+    pub(super) nodes: &'static str,
+    /// A connection with a count beside it is read by REST past its first
+    /// GraphQL page: REST sizes every batch from the count and reads them
+    /// in one concurrent wave, where the cursor walks one spaced GraphQL
+    /// request at a time.
+    pub(super) total: Option<&'static str>,
+}
+
+pub(super) const FILES: Connection = Connection {
+    key: "files",
+    field: "files",
+    variable: "files",
+    nodes: "path additions deletions changeType",
+    total: Some("/changedFiles"),
+};
+pub(super) const DISCUSSION: Connection = Connection {
+    key: "commentsConn",
+    field: "commentsConn: comments",
+    variable: "discussion",
+    nodes: "databaseId author{ login __typename } body createdAt updatedAt url",
+    total: Some("/comments/totalCount"),
+};
+pub(super) const REVIEWS: Connection = Connection {
+    key: "reviews",
+    field: "reviews",
+    variable: "reviews",
+    nodes: "databaseId author{ login __typename } state body submittedAt commit{ oid }",
+    total: None,
+};
+pub(super) const COMMITS: Connection = Connection {
+    key: "commits",
+    field: "commits",
+    variable: "commits",
+    nodes: "commit{ oid message messageHeadline authoredDate committedDate author{ name user{ login } } }",
+    total: None,
+};
+
+/// Nodes per connection page: GitHub's maximum, the size of one REST batch.
+pub(super) const CONNECTION_PAGE: u32 = 100;
+
+impl Connection {
+    /// The connection's selection; `after` binds `$after` (a continuation).
+    pub(super) fn selection(&self, after: bool) -> String {
+        self.selection_as(after, "")
+    }
+
+    /// [`Self::selection`] with its page-size variable named `${variable}{suffix}`.
+    fn selection_as(&self, after: bool, suffix: &str) -> String {
+        let after = if after { ",after:$after" } else { "" };
+        format!(
+            "{}(first:${}{suffix}{after}){{ pageInfo{{ hasNextPage endCursor }} nodes{{ {} }} }}",
+            self.field, self.variable, self.nodes
+        )
+    }
+
+    /// The document that reads this connection's next page.
+    pub(super) fn continuation_document(&self) -> String {
+        format!(
+            "query($owner:String!,$repo:String!,$number:Int!,${}:Int!,$after:String!){{ repository(owner:$owner,name:$repo){{ pullRequest(number:$number){{ {} }} }} }}",
+            self.variable,
+            self.selection(true)
+        )
+    }
+}
+
+/// Who wrote an entry and its text: what a summary counts bot entries by.
+const AUTHORED: &str = "nodes{ author{ login __typename } body }";
+
+/// A summary read's selection: the whole comment count (conversation,
+/// inline review comments and review bodies, the count GitHub's search
+/// sorts by) and, for each discussion section, the authors and bodies of
+/// its first page (GitHub's largest), from which the summary counts what
+/// bots wrote ([`super::bot_entries`]). One request, as the count alone was.
+pub(super) fn summary_selection() -> String {
+    format!(
+        "totalCommentsCount comments(first:{CONNECTION_PAGE}){{ totalCount {AUTHORED} }} reviews(first:{CONNECTION_PAGE}){{ totalCount {AUTHORED} }} reviewThreads(first:{CONNECTION_PAGE}){{ totalCount nodes{{ comments(first:{CONNECTION_PAGE}){{ totalCount {AUTHORED} }} }} }}"
+    )
+}
+
+/// A summary read's document ([`summary_selection`]).
+pub(super) fn summary_document() -> String {
+    format!(
+        "query($owner:String!,$repo:String!,$number:Int!){{ repository(owner:$owner,name:$repo){{ pullRequest(number:$number){{ {} }} }} }}",
+        summary_selection()
+    )
+}
+
+/// The pull-request document for the collections GraphQL serves, and the
+/// page size variable each collection binds. The body is selected only when
+/// the read shows it (`body`); a row without it leaves `body` unknown, not
+/// empty.
+pub(super) fn pull_request_document(wants: &GraphqlWants) -> (String, Vec<(&'static str, u32)>) {
+    let (selection, variables) = pull_request_selection(wants, "");
+    let mut header = String::from("query($owner:String!,$repo:String!,$number:Int!");
+    for (variable, _) in &variables {
+        header.push_str(&format!(",${variable}:Int!"));
+    }
+    header.push(')');
+    let document = format!(
+        "{header}{{ repository(owner:$owner,name:$repo){{ pullRequest(number:$number){{ {selection} }} }} }}"
+    );
+    (document, variables)
+}
+
+/// One document reading several pull requests' first pages: row `i` is
+/// aliased `r{i}` and binds its variables with the suffix `i`
+/// (`$owner{i}`, `$number{i}`, `$files{i}`, ...), so each alias's answer is
+/// what that row's own [`pull_request_document`] answers under `repository`.
+/// A row with no `wants` reads a summary's selection alone
+/// ([`summary_document`]).
+pub(super) fn pull_requests_document(rows: &[Option<GraphqlWants>]) -> String {
+    let mut header = String::from("query(");
+    let mut body = Vec::new();
+    for (at, wants) in rows.iter().enumerate() {
+        let (selection, variables) = match wants {
+            Some(wants) => pull_request_selection(wants, &at.to_string()),
+            None => (summary_selection(), Vec::new()),
+        };
+        if at > 0 {
+            header.push(',');
+        }
+        header.push_str(&format!(
+            "$owner{at}:String!,$repo{at}:String!,$number{at}:Int!"
+        ));
+        for (variable, _) in &variables {
+            header.push_str(&format!(",${variable}{at}:Int!"));
+        }
+        body.push(format!(
+            "r{at}: repository(owner:$owner{at},name:$repo{at}){{ pullRequest(number:$number{at}){{ {selection} }} }}"
+        ));
+    }
+    header.push(')');
+    format!("{header}{{ {} }}", body.join(" "))
+}
+
+/// The pull request's selections, with each collection's page-size variable
+/// named `${variable}{suffix}`, and the page size each binds.
+fn pull_request_selection(
+    wants: &GraphqlWants,
+    suffix: &str,
+) -> (String, Vec<(&'static str, u32)>) {
+    let mut selections: Vec<String> = [
+        "number title url state isDraft author { login }",
+        "baseRefName baseRefOid headRefName headRefOid createdAt updatedAt closedAt mergedAt mergedBy { login } mergeCommit { oid }",
+        "comments { totalCount } changedFiles additions deletions",
+        // Totals only: an alias keeps the count apart from a paged
+        // `commits(first:)` selection of the same connection.
+        "commitsCount: commits { totalCount } reviewThreads { totalCount }",
+    ]
+    .map(str::to_owned)
+    .into();
+    if wants.body {
+        selections.push("body".to_owned());
+    }
+    let mut variables = Vec::new();
+    for (wanted, connection) in [
+        (wants.files, &FILES),
+        (wants.discussion, &DISCUSSION),
+        (wants.reviews, &REVIEWS),
+        (wants.commits, &COMMITS),
+    ] {
+        if wanted {
+            selections.push(connection.selection_as(false, suffix));
+            variables.push((connection.variable, CONNECTION_PAGE));
+        }
+    }
+    (selections.join(" "), variables)
+}

@@ -1,0 +1,228 @@
+import { readTargetSnapshot } from './snapshot-resource.mjs';
+import { scriptLiteral } from './script-literal.mjs';
+import { writeFileSync } from 'fs';
+import { isAbsolute, join, relative, resolve } from 'path';
+import type { CheckSession } from '../cdp-runner-session.mjs';
+
+// Screenshot of the attached tab: viewport (default), full page, or one element.
+// Env:
+//   SHOT_FULL=1          full scrollable page (tiles of at most 8000 CSS px)
+//   SHOT_SELECTOR=<css>  clip to the first matching element (scrolled into view)
+//   SHOT_FORMAT          jpeg (default, smaller) | png
+//   SHOT_QUALITY         jpeg quality 30-95 (default 70)
+//   SHOT_SCALE           0.25-1 (default 1); 0.5 quarters the pixels for cheap visual checks
+//   SHOT_ANNOTATE=1      draw the latest page-snapshot refs (eN boxes) on the image; removed after capture
+//                        SHOT_ANNOTATE=e20-e80 limits it to a ref range (dense pages)
+
+/** A tile path as the manifest records it: relative to the workspace (the cwd) when inside it. */
+export const manifestPath = (file: string) => {
+  const path = relative(process.cwd(), file);
+  return path.startsWith('..') || isAbsolute(path) ? file : path;
+};
+/** The absolute file of a manifest tile path (relative ones are the workspace's). */
+export const tileFile = (file: string) => resolve(process.cwd(), file);
+
+type Env = Record<string, string | undefined>;
+const MAX_HEIGHT = 8000;
+
+/** The recipe's settings from SHOT_* variables: the process env standalone, the validated options in a plan. */
+function readConfig(env: Env) {
+  const spec = env.SHOT_ANNOTATE ?? '';
+  const range = /^e(\d+)-e?(\d+)$/.exec(spec)?.slice(1).map(Number);
+  return {
+    full: env.SHOT_FULL === '1',
+    selector: env.SHOT_SELECTOR || '',
+    format: env.SHOT_FORMAT === 'png' ? 'png' : 'jpeg',
+    quality: Math.max(
+      30,
+      Math.min(95, Number.parseInt(env.SHOT_QUALITY ?? '70', 10) || 70)
+    ),
+    scale: Math.max(
+      0.25,
+      Math.min(1, Number.parseFloat(env.SHOT_SCALE ?? '1') || 1)
+    ),
+    annotate: spec === '1' || range !== undefined,
+    rangeLo: range?.[0] ?? 1,
+    rangeHi: range?.[1] ?? Infinity,
+  };
+}
+type Config = ReturnType<typeof readConfig>;
+const MAX_LABELS = 250;
+
+// Box every snapshot ref that is on screen (page coordinates, so full-page shots work too).
+async function annotate(cdp: CheckSession, config: Config) {
+  const { full, selector, rangeLo, rangeHi } = config;
+  let refs;
+  try {
+    const snapshot = readTargetSnapshot(cdp);
+    if (!snapshot) throw new Error('No snapshot for this target');
+    refs = snapshot.data.refs ?? {};
+  } catch {
+    console.log(
+      '[FINDING] SHOT_NO_SNAPSHOT run page-snapshot.mjs first; SHOT_ANNOTATE draws its refs'
+    );
+    return 0;
+  }
+  const { cssVisualViewport: v, cssContentSize: c } = await cdp.send(
+    'Page.getLayoutMetrics'
+  );
+  const whole = full || selector; // element shots may lie outside the current viewport
+  const bottom = whole
+    ? Math.min(c.height, MAX_HEIGHT)
+    : v.pageY + v.clientHeight;
+  const top = whole ? 0 : v.pageY;
+  const boxes = [];
+  for (const [ref, entry] of Object.entries(
+    refs as Record<string, { backendDOMNodeId: number }>
+  )) {
+    if (boxes.length >= MAX_LABELS) break;
+    const n = Number(ref.slice(1));
+    if (n < rangeLo || n > rangeHi) continue;
+    const q = (
+      await cdp
+        .send('DOM.getContentQuads', { backendNodeId: entry.backendDOMNodeId })
+        .catch(() => null)
+    )?.quads?.[0];
+    if (!q) continue;
+    const xs = [q[0], q[2], q[4], q[6]].map(x => x + v.pageX);
+    const ys = [q[1], q[3], q[5], q[7]].map(y => y + v.pageY);
+    const box = {
+      ref,
+      x: Math.min(...xs),
+      y: Math.min(...ys),
+      w: Math.max(...xs) - Math.min(...xs),
+      h: Math.max(...ys) - Math.min(...ys),
+    };
+    if (box.w < 2 || box.h < 2 || box.y + box.h < top || box.y > bottom)
+      continue;
+    boxes.push(box);
+  }
+  await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const host = document.createElement('div');
+      host.id = '__octo_marks';
+      host.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;z-index:2147483647;pointer-events:none';
+      for (const b of ${JSON.stringify(boxes)}) {
+        const d = document.createElement('div');
+        d.style.cssText = 'position:absolute;box-sizing:border-box;border:1px solid #e3008c;left:' + b.x + 'px;top:' + b.y + 'px;width:' + b.w + 'px;height:' + b.h + 'px';
+        const t = document.createElement('span');
+        t.textContent = b.ref;
+        t.style.cssText = 'position:absolute;left:-1px;top:-1px;transform:translateX(-100%);background:rgba(227,0,140,.85);color:#fff;font:bold 9px/11px monospace;padding:0 1px;white-space:nowrap';
+        d.appendChild(t);
+        host.appendChild(d);
+      }
+      document.documentElement.appendChild(host);
+    })()`,
+  });
+  return boxes.length;
+}
+
+export async function run(cdp: CheckSession, env: Env = process.env) {
+  const config = readConfig(env);
+  const { full, selector, format, quality, scale, annotate: marks } = config;
+  await cdp.send('Page.enable');
+  const evaluate = async (expression: string) =>
+    (await cdp.send('Runtime.evaluate', { expression, returnByValue: true }))
+      .result?.value;
+  for (
+    let i = 0;
+    i < 20 && (await evaluate('document.readyState')) !== 'complete';
+    i++
+  )
+    await new Promise(r => setTimeout(r, 250));
+
+  let clip;
+  if (selector) {
+    const box =
+      await evaluate(`(() => { const el = document.querySelector(${scriptLiteral(selector)}); if (!el) return null;
+      el.scrollIntoView({ block: 'center' }); const r = el.getBoundingClientRect();
+      return { x: r.x + scrollX, y: r.y + scrollY, width: r.width, height: r.height }; })()`);
+    if (!box || !box.width || !box.height) {
+      console.log(
+        `[FINDING] SHOT_SELECTOR_MISSING ${selector} not found or zero-size`
+      );
+      process.exitCode = 1;
+      return;
+    }
+    clip = { ...box, scale: scale };
+  } else if (full) {
+    const { cssContentSize, cssLayoutViewport } = await cdp.send(
+      'Page.getLayoutMetrics'
+    );
+    const width = Math.ceil(
+      Math.max(cssLayoutViewport?.clientWidth || 0, cssContentSize.width)
+    );
+    const height = Math.ceil(cssContentSize.height);
+    clip = { x: 0, y: 0, width, height, scale: scale };
+  } else if (scale < 1) {
+    const { cssVisualViewport: v } = await cdp.send('Page.getLayoutMetrics');
+    clip = {
+      x: v.pageX,
+      y: v.pageY,
+      width: v.clientWidth,
+      height: v.clientHeight,
+      scale: scale,
+    };
+  }
+
+  const labels = marks ? await annotate(cdp, config) : 0;
+  const tiles = [],
+    total =
+      clip && (full || selector) ? Math.ceil(clip.height / MAX_HEIGHT) : 1;
+  const stem = `screenshot${selector ? '-element' : full ? '-full' : ''}`;
+  let bytes = 0;
+  try {
+    for (let index = 0; index < total; index++) {
+      const tile =
+        clip && total > 1
+          ? {
+              ...clip,
+              y: clip.y + index * MAX_HEIGHT,
+              height: Math.min(MAX_HEIGHT, clip.height - index * MAX_HEIGHT),
+            }
+          : clip;
+      const { data } = await cdp.send('Page.captureScreenshot', {
+        format: format,
+        ...(format === 'jpeg' ? { quality: quality } : {}),
+        ...(tile ? { clip: tile, captureBeyondViewport: true } : {}),
+      });
+      const buf = Buffer.from(data, 'base64');
+      bytes += buf.length;
+      const file = join(
+        cdp.outputDir,
+        `${stem}${index ? `-${index + 1}` : ''}.${format === 'png' ? 'png' : 'jpg'}`
+      );
+      writeFileSync(file, buf, { mode: 0o600 });
+      tiles.push({
+        index: index + 1,
+        file,
+        clip: tile || null,
+        bytes: buf.length,
+      });
+      if (total > 1)
+        console.log(`[PROGRESS] SCREENSHOT tile=${index + 1}/${total}`);
+    }
+  } finally {
+    if (marks)
+      await cdp
+        .send('Runtime.evaluate', {
+          expression: "document.getElementById('__octo_marks')?.remove()",
+        })
+        .catch(() => {});
+    const manifest = {
+      mode: selector ? 'element' : full ? 'full' : 'viewport',
+      scope: clip || null,
+      complete: tiles.length === total,
+      expectedTiles: total,
+      captureMode: 'sequential',
+      pageMayChangeBetweenTiles: total > 1,
+      tiles: tiles.map(tile => ({ ...tile, file: manifestPath(tile.file) })),
+    };
+    cdp.saveArtifact('screenshot-manifest.json', manifest);
+  }
+  const title = await evaluate('document.title');
+  console.log(
+    `[METRIC] SCREENSHOT bytes=${bytes} tiles=${tiles.length} mode=${selector ? 'element' : full ? 'full' : 'viewport'}${clip ? ` size=${Math.round(clip.width * clip.scale)}x${Math.round(clip.height * clip.scale)}` : ''} title="${String(title ?? '').slice(0, 80)}"${marks ? ` labels=${labels}` : ''}`
+  );
+  console.log(`[SCREENSHOT] ${tiles[0].file}`);
+}

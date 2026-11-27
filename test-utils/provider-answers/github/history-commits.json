@@ -1,0 +1,335 @@
+{
+ "case": "github/history-commits",
+ "tool": "ghSearchHistory",
+ "query": {
+  "operation": "commit",
+  "owner": "octocat",
+  "repo": "Hello-World",
+  "limit": 3
+ },
+ "recordedAt": "2026-11-05",
+ "unread": [
+  "[*].author.avatar_url",
+  "[*].author.events_url",
+  "[*].author.followers_url",
+  "[*].author.following_url",
+  "[*].author.gists_url",
+  "[*].author.html_url",
+  "[*].author.id",
+  "[*].author.node_id",
+  "[*].author.organizations_url",
+  "[*].author.received_events_url",
+  "[*].author.repos_url",
+  "[*].author.starred_url",
+  "[*].author.subscriptions_url",
+  "[*].author.type",
+  "[*].author.url",
+  "[*].author.user_view_type",
+  "[*].comments_url",
+  "[*].commit.author.email",
+  "[*].commit.author.name",
+  "[*].commit.committer.email",
+  "[*].commit.committer.name",
+  "[*].commit.tree",
+  "[*].commit.url",
+  "[*].commit.verification",
+  "[*].committer.avatar_url",
+  "[*].committer.events_url",
+  "[*].committer.followers_url",
+  "[*].committer.following_url",
+  "[*].committer.gists_url",
+  "[*].committer.html_url",
+  "[*].committer.id",
+  "[*].committer.node_id",
+  "[*].committer.organizations_url",
+  "[*].committer.received_events_url",
+  "[*].committer.repos_url",
+  "[*].committer.starred_url",
+  "[*].committer.subscriptions_url",
+  "[*].committer.type",
+  "[*].committer.url",
+  "[*].committer.user_view_type",
+  "[*].html_url",
+  "[*].node_id",
+  "[*].parents[*].html_url",
+  "[*].parents[*].url",
+  "[*].url"
+ ],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.github.com/repos/octocat/Hello-World/commits?page=1&per_page=3",
+    "accept": "application/vnd.github+json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "cache-control",
+     "private, max-age=60, s-maxage=60"
+    ],
+    [
+     "content-type",
+     "application/json; charset=utf-8"
+    ],
+    [
+     "etag",
+     "\"a1b3654f07e3823d21198db1e1f9191840f4cdb45c0963e1dbc55fcfc8a3ef11\""
+    ],
+    [
+     "link",
+     "<https://api.github.com/repositories/1296269/commits?page=2&per_page=3>; rel=\"next\", <https://api.github.com/repositories/1296269/commits?page=1&per_page=3>; rel=\"last\""
+    ]
+   ],
+   "next": "https://api.github.com/repositories/1296269/commits?page=2&per_page=3",
+   "digest": "sha256:f9177718b1a47b59848666f0c9f3c679a09e57e6173870ae80a53b8efb07e7ec",
+   "body": [
+    {
+     "sha": "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d",
+     "node_id": "MDY6Q29tbWl0MTI5NjI2OTo3ZmQxYTYwYjAxZjkxYjMxNGY1OTk1NWE0ZTRkNGU4MGQ4ZWRmMTFk",
+     "commit": {
+      "author": {
+       "name": "The Octocat",
+       "email": "person@example.test",
+       "date": "2012-03-06T23:06:50Z"
+      },
+      "committer": {
+       "name": "The Octocat",
+       "email": "person@example.test",
+       "date": "2012-03-06T23:06:50Z"
+      },
+      "message": "Merge pull request #6 from Spaceghost/patch-1\n\nNew line at end of file.",
+      "tree": {
+       "sha": "b4eecafa9be2f2006ce1b709d6857b07069b4608",
+       "url": "https://api.github.com/repos/octocat/Hello-World/git/trees/b4eecafa9be2f2006ce1b709d6857b07069b4608"
+      },
+      "url": "https://api.github.com/repos/octocat/Hello-World/git/commits/7fd1a60b01f91b314f59955a4e4d4e80d8edf11d",
+      "comment_count": 138,
+      "verification": {
+       "verified": false,
+       "reason": "unsigned",
+       "signature": null,
+       "payload": null,
+       "verified_at": null
+      }
+     },
+     "url": "https://api.github.com/repos/octocat/Hello-World/commits/7fd1a60b01f91b314f59955a4e4d4e80d8edf11d",
+     "html_url": "https://github.com/octocat/Hello-World/commit/7fd1a60b01f91b314f59955a4e4d4e80d8edf11d",
+     "comments_url": "https://api.github.com/repos/octocat/Hello-World/commits/7fd1a60b01f91b314f59955a4e4d4e80d8edf11d/comments",
+     "author": {
+      "login": "monalisa",
+      "id": 583231,
+      "node_id": "MDQ6VXNlcjU4MzIzMQ==",
+      "avatar_url": "https://avatars.githubusercontent.com/u/583231?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/octocat",
+      "html_url": "https://github.com/octocat",
+      "followers_url": "https://api.github.com/users/octocat/followers",
+      "following_url": "https://api.github.com/users/octocat/following{/other_user}",
+      "gists_url": "https://api.github.com/users/octocat/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/octocat/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/octocat/subscriptions",
+      "organizations_url": "https://api.github.com/users/octocat/orgs",
+      "repos_url": "https://api.github.com/users/octocat/repos",
+      "events_url": "https://api.github.com/users/octocat/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/octocat/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+     },
+     "committer": {
+      "login": "monalisa",
+      "id": 583231,
+      "node_id": "MDQ6VXNlcjU4MzIzMQ==",
+      "avatar_url": "https://avatars.githubusercontent.com/u/583231?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/octocat",
+      "html_url": "https://github.com/octocat",
+      "followers_url": "https://api.github.com/users/octocat/followers",
+      "following_url": "https://api.github.com/users/octocat/following{/other_user}",
+      "gists_url": "https://api.github.com/users/octocat/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/octocat/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/octocat/subscriptions",
+      "organizations_url": "https://api.github.com/users/octocat/orgs",
+      "repos_url": "https://api.github.com/users/octocat/repos",
+      "events_url": "https://api.github.com/users/octocat/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/octocat/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+     },
+     "parents": [
+      {
+       "sha": "553c2077f0edc3d5dc5d17262f6aa498e69d6f8e",
+       "url": "https://api.github.com/repos/octocat/Hello-World/commits/553c2077f0edc3d5dc5d17262f6aa498e69d6f8e",
+       "html_url": "https://github.com/octocat/Hello-World/commit/553c2077f0edc3d5dc5d17262f6aa498e69d6f8e"
+      },
+      {
+       "sha": "762941318ee16e59dabbacb1b4049eec22f0d303",
+       "url": "https://api.github.com/repos/octocat/Hello-World/commits/762941318ee16e59dabbacb1b4049eec22f0d303",
+       "html_url": "https://github.com/octocat/Hello-World/commit/762941318ee16e59dabbacb1b4049eec22f0d303"
+      }
+     ]
+    },
+    {
+     "sha": "762941318ee16e59dabbacb1b4049eec22f0d303",
+     "node_id": "MDY6Q29tbWl0MTI5NjI2OTo3NjI5NDEzMThlZTE2ZTU5ZGFiYmFjYjFiNDA0OWVlYzIyZjBkMzAz",
+     "commit": {
+      "author": {
+       "name": "Johnneylee Jack Rollins",
+       "email": "person@example.test",
+       "date": "2011-09-14T04:42:41Z"
+      },
+      "committer": {
+       "name": "Johnneylee Jack Rollins",
+       "email": "person@example.test",
+       "date": "2011-09-14T04:42:41Z"
+      },
+      "message": "New line at end of file. --Signed off by Spaceghost",
+      "tree": {
+       "sha": "b4eecafa9be2f2006ce1b709d6857b07069b4608",
+       "url": "https://api.github.com/repos/octocat/Hello-World/git/trees/b4eecafa9be2f2006ce1b709d6857b07069b4608"
+      },
+      "url": "https://api.github.com/repos/octocat/Hello-World/git/commits/762941318ee16e59dabbacb1b4049eec22f0d303",
+      "comment_count": 178,
+      "verification": {
+       "verified": false,
+       "reason": "unsigned",
+       "signature": null,
+       "payload": null,
+       "verified_at": null
+      }
+     },
+     "url": "https://api.github.com/repos/octocat/Hello-World/commits/762941318ee16e59dabbacb1b4049eec22f0d303",
+     "html_url": "https://github.com/octocat/Hello-World/commit/762941318ee16e59dabbacb1b4049eec22f0d303",
+     "comments_url": "https://api.github.com/repos/octocat/Hello-World/commits/762941318ee16e59dabbacb1b4049eec22f0d303/comments",
+     "author": {
+      "login": "Spaceghost",
+      "id": 251370,
+      "node_id": "MDQ6VXNlcjI1MTM3MA==",
+      "avatar_url": "https://avatars.githubusercontent.com/u/251370?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/Spaceghost",
+      "html_url": "https://github.com/Spaceghost",
+      "followers_url": "https://api.github.com/users/Spaceghost/followers",
+      "following_url": "https://api.github.com/users/Spaceghost/following{/other_user}",
+      "gists_url": "https://api.github.com/users/Spaceghost/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/Spaceghost/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/Spaceghost/subscriptions",
+      "organizations_url": "https://api.github.com/users/Spaceghost/orgs",
+      "repos_url": "https://api.github.com/users/Spaceghost/repos",
+      "events_url": "https://api.github.com/users/Spaceghost/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/Spaceghost/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+     },
+     "committer": {
+      "login": "Spaceghost",
+      "id": 251370,
+      "node_id": "MDQ6VXNlcjI1MTM3MA==",
+      "avatar_url": "https://avatars.githubusercontent.com/u/251370?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/Spaceghost",
+      "html_url": "https://github.com/Spaceghost",
+      "followers_url": "https://api.github.com/users/Spaceghost/followers",
+      "following_url": "https://api.github.com/users/Spaceghost/following{/other_user}",
+      "gists_url": "https://api.github.com/users/Spaceghost/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/Spaceghost/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/Spaceghost/subscriptions",
+      "organizations_url": "https://api.github.com/users/Spaceghost/orgs",
+      "repos_url": "https://api.github.com/users/Spaceghost/repos",
+      "events_url": "https://api.github.com/users/Spaceghost/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/Spaceghost/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+     },
+     "parents": [
+      {
+       "sha": "553c2077f0edc3d5dc5d17262f6aa498e69d6f8e",
+       "url": "https://api.github.com/repos/octocat/Hello-World/commits/553c2077f0edc3d5dc5d17262f6aa498e69d6f8e",
+       "html_url": "https://github.com/octocat/Hello-World/commit/553c2077f0edc3d5dc5d17262f6aa498e69d6f8e"
+      }
+     ]
+    },
+    {
+     "sha": "553c2077f0edc3d5dc5d17262f6aa498e69d6f8e",
+     "node_id": "MDY6Q29tbWl0MTI5NjI2OTo1NTNjMjA3N2YwZWRjM2Q1ZGM1ZDE3MjYyZjZhYTQ5OGU2OWQ2Zjhl",
+     "commit": {
+      "author": {
+       "name": "cameronmcefee",
+       "email": "person@example.test",
+       "date": "2011-01-26T19:06:08Z"
+      },
+      "committer": {
+       "name": "cameronmcefee",
+       "email": "person@example.test",
+       "date": "2011-01-26T19:06:08Z"
+      },
+      "message": "first commit",
+      "tree": {
+       "sha": "fcf4a9bba6857422971d67147517eb5edfdbf48d",
+       "url": "https://api.github.com/repos/octocat/Hello-World/git/trees/fcf4a9bba6857422971d67147517eb5edfdbf48d"
+      },
+      "url": "https://api.github.com/repos/octocat/Hello-World/git/commits/553c2077f0edc3d5dc5d17262f6aa498e69d6f8e",
+      "comment_count": 74,
+      "verification": {
+       "verified": false,
+       "reason": "unsigned",
+       "signature": null,
+       "payload": null,
+       "verified_at": null
+      }
+     },
+     "url": "https://api.github.com/repos/octocat/Hello-World/commits/553c2077f0edc3d5dc5d17262f6aa498e69d6f8e",
+     "html_url": "https://github.com/octocat/Hello-World/commit/553c2077f0edc3d5dc5d17262f6aa498e69d6f8e",
+     "comments_url": "https://api.github.com/repos/octocat/Hello-World/commits/553c2077f0edc3d5dc5d17262f6aa498e69d6f8e/comments",
+     "author": {
+      "login": "Cameron423698",
+      "id": 94719050,
+      "node_id": "U_kgDOBaVMSg",
+      "avatar_url": "https://avatars.githubusercontent.com/u/94719050?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/Cameron423698",
+      "html_url": "https://github.com/Cameron423698",
+      "followers_url": "https://api.github.com/users/Cameron423698/followers",
+      "following_url": "https://api.github.com/users/Cameron423698/following{/other_user}",
+      "gists_url": "https://api.github.com/users/Cameron423698/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/Cameron423698/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/Cameron423698/subscriptions",
+      "organizations_url": "https://api.github.com/users/Cameron423698/orgs",
+      "repos_url": "https://api.github.com/users/Cameron423698/repos",
+      "events_url": "https://api.github.com/users/Cameron423698/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/Cameron423698/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+     },
+     "committer": {
+      "login": "Cameron423698",
+      "id": 94719050,
+      "node_id": "U_kgDOBaVMSg",
+      "avatar_url": "https://avatars.githubusercontent.com/u/94719050?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/Cameron423698",
+      "html_url": "https://github.com/Cameron423698",
+      "followers_url": "https://api.github.com/users/Cameron423698/followers",
+      "following_url": "https://api.github.com/users/Cameron423698/following{/other_user}",
+      "gists_url": "https://api.github.com/users/Cameron423698/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/Cameron423698/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/Cameron423698/subscriptions",
+      "organizations_url": "https://api.github.com/users/Cameron423698/orgs",
+      "repos_url": "https://api.github.com/users/Cameron423698/repos",
+      "events_url": "https://api.github.com/users/Cameron423698/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/Cameron423698/received_events",
+      "type": "User",
+      "user_view_type": "public",
+      "site_admin": false
+     },
+     "parents": []
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,43 @@
+{
+  "name": "@octocodeai/claude-plugin",
+  "version": "0.1.0",
+  "description": "Octocode code research tools and public skills for Claude Code",
+  "type": "module",
+  "license": "MIT",
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "homepage": "https://octocode.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bgauryy/octocode.git",
+    "directory": "packages/octocode-claude-plugin"
+  },
+  "bugs": "https://github.com/bgauryy/octocode/issues",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    ".claude-plugin/plugin.json",
+    ".mcp.json",
+    "skills/",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "clean": "rm -rf .claude-plugin .mcp.json skills LICENSE",
+    "lint:own": "prettier --check package.json tsconfig.json src scripts tests README.md ARCHITECTURE.md",
+    "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
+    "lint": "yarn lint:own && yarn lint:oxlint",
+    "format": "prettier --write package.json tsconfig.json src scripts tests README.md ARCHITECTURE.md",
+    "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
+    "test": "node ../../scripts/test-tmp.mjs node --test tests/package.test.ts",
+    "verify:own": "yarn build && yarn lint:own && yarn typecheck && yarn test",
+    "verify": "yarn verify:own && yarn lint:oxlint",
+    "prepack": "yarn build && yarn typecheck && yarn test",
+    "validate": "claude plugin validate . --strict && claude plugin validate ../../.claude-plugin/marketplace.json --strict"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "prettier": "^3.9.10"
+  }
+}

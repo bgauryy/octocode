@@ -1,0 +1,462 @@
+use octocode_engine::graph::FileGraphNode;
+use std::collections::{BTreeMap, BTreeSet};
+
+#[derive(Clone, Debug)]
+pub(crate) struct Declaration {
+    pub test_identity: Option<octocode_engine::graph::GraphTestIdentity>,
+    /// Stable occurrence id from the facts (file + name + position + kind).
+    pub id: String,
+    pub source_range: Option<octocode_engine::text::analysis::ObservedSpan>,
+    pub selection_byte_range: Option<octocode_engine::text::analysis::ObservedSpan>,
+    pub parse_assessment: octocode_engine::graph::GraphParseAssessment,
+    pub name: String,
+    pub kind: String,
+    pub line: u32,
+    /// Last line of the declaration body, in `line`'s numbering.
+    pub end_line: u32,
+    pub exported: bool,
+    /// Public names when they differ from `name`; empty means `[name]`.
+    pub exported_as: Vec<String>,
+    /// Id of the containing declaration (class for a method).
+    pub parent: Option<String>,
+    /// The type a method is declared on outside its body (a Go receiver,
+    /// a C++ out-of-line definition's written scope).
+    pub owner: Option<String>,
+    /// A C/C++ function declared without its body.
+    pub prototype: bool,
+    /// A Rust function's declared return type and the type `?` yields from
+    /// it (see `GraphFactDeclaration::return_type`).
+    pub return_type: Option<String>,
+    pub try_type: Option<String>,
+    /// A tuple return type's element types, and whether an `async fn` yields
+    /// these types from its future (see `GraphFactDeclaration`).
+    pub return_elements: Vec<Option<String>>,
+    pub asynchronous: bool,
+    /// A data member of a function type (see
+    /// `GraphFactDeclaration::function_typed`).
+    pub function_typed: bool,
+    /// The parameter list and return type as written
+    /// (`GraphFactDeclaration::params`, `returns`).
+    pub params: Option<String>,
+    pub returns: Option<String>,
+}
+
+impl Declaration {
+    /// Names this declaration is importable under from its module.
+    pub(super) fn public_names(&self) -> &[String] {
+        if self.exported_as.is_empty() {
+            std::slice::from_ref(&self.name)
+        } else {
+            &self.exported_as
+        }
+    }
+}
+#[derive(Clone, Debug)]
+pub(crate) struct Import {
+    pub id: String,
+    pub imported_name: String,
+    /// Binding name inside the importing file (`import { a as b }` → `b`).
+    pub local_name: Option<String>,
+    pub specifier: String,
+    pub line: u32,
+    pub target: Option<String>,
+    /// Unlinked because it names a third-party/standard package, not because
+    /// an internal path failed to resolve.
+    pub external: bool,
+    /// Declaration id of the declaration whose body holds a Scala import;
+    /// `None` at file level.
+    pub scope_id: Option<String>,
+    /// A Rust `use` written inside an inline module (`mod tests { use ..; }`):
+    /// it binds names in that module, not at the file's top level.
+    pub inline: bool,
+    /// The edge kind the import links as (`static-import`, `type-import`,
+    /// `rust-use`, ...), which an import of a package keeps on its witness.
+    pub kind: &'static str,
+}
+/// A load of a third-party package by a form that is not an import binding:
+/// `import('pkg')`, `require('pkg')`, `export … from 'pkg'`.
+#[derive(Clone, Debug)]
+pub(crate) struct PackageLoad {
+    pub specifier: String,
+    pub line: u32,
+    /// The edge kind of the load (`dynamic-import`, `commonjs-require`,
+    /// `named-reexport`, ...).
+    pub kind: &'static str,
+}
+/// A `require` binding the engine proved (`const x = require('./m')`): it
+/// links calls like an import, and the variable that holds it is never a
+/// call target of its own.
+#[derive(Clone, Debug)]
+pub(crate) struct CommonJsBinding {
+    /// `imported_name` is the property bound, else `module.exports`.
+    pub import: Import,
+    /// The variable declaration's occurrence id, when the outline lists it.
+    pub declaration_id: Option<String>,
+    /// The extent a function- or block-scope binding holds over; `None`:
+    /// the whole file.
+    pub scope: Option<octocode_engine::text::analysis::ObservedSpan>,
+}
+#[derive(Clone, Debug)]
+pub(crate) struct Reexport {
+    pub local_name: String,
+    pub imported_name: String,
+    pub target: Option<String>,
+    /// The export statement's line.
+    pub line: u32,
+}
+#[derive(Clone, Debug)]
+pub(crate) struct Call {
+    pub id: String,
+    pub binding: octocode_engine::graph::GraphCallBinding,
+    pub source_range: Option<octocode_engine::text::analysis::ObservedSpan>,
+    pub parse_assessment: octocode_engine::graph::GraphParseAssessment,
+    /// Declaration id of the caller; `None` for module-level code.
+    pub caller_id: Option<String>,
+    pub callee: String,
+    pub line: u32,
+    /// Engine call kind (`call`, `new`, `renders` for JSX, `decorates`, …).
+    pub kind: String,
+    /// Syntactic receiver type of a member call (`Store` for `s.save()`),
+    /// from the engine fact; `None` when the parser could not read it.
+    pub receiver_type: Option<String>,
+    /// The callee's head is a term bound in scope that no declaration or
+    /// type stands for (see `GraphFactCall::term_binding`).
+    pub term_binding: bool,
+    /// The declaration a bare callee binds (see
+    /// `GraphFactCall::bound_declaration`).
+    pub bound_declaration: Option<String>,
+    /// The receiver is a Scala self alias declared by the enclosing template
+    /// of this name (see `GraphFactCall::self_template`).
+    pub self_template: Option<String>,
+    /// Rust expression macros whose arguments hold the call, outermost first
+    /// (`ready`, `std::task::ready`); empty for plain code.
+    pub macros: Vec<String>,
+    /// The call whose value an untyped Rust receiver is (see
+    /// `GraphFactCall::receiver_call`).
+    pub receiver_call: Option<octocode_engine::graph::GraphReceiverCall>,
+    /// The declared type a TS receiver reaches across files (see
+    /// `GraphFactCall::receiver_declared`).
+    pub receiver_declared: Option<octocode_engine::graph::GraphDeclaredType>,
+}
+/// A declaration's base type (`class A extends Base`, `impl Display for A`),
+/// as written at the declaration site.
+#[derive(Clone, Debug)]
+pub(crate) struct Heritage {
+    /// Declaration id of the derived type.
+    pub decl_id: String,
+    /// `extends` or `implements`.
+    pub relation: String,
+    /// Base type name as written (`Base`, `ns.Base`, `std::fmt::Display`).
+    pub target: String,
+    pub line: u32,
+}
+/// A file's argument scan, counted before linking drops what nothing links.
+#[derive(Clone, Copy, Debug, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ArgumentCounts {
+    pub sites: u64,
+    pub groups: u64,
+    pub slots: u64,
+    pub direct_references: u64,
+    pub non_reference_values: u64,
+    pub unsupported_slots: u64,
+    pub unsupported_groups: u64,
+}
+
+impl ArgumentCounts {
+    pub(crate) fn add(&mut self, other: Self) {
+        self.sites += other.sites;
+        self.groups += other.groups;
+        self.slots += other.slots;
+        self.direct_references += other.direct_references;
+        self.non_reference_values += other.non_reference_values;
+        self.unsupported_slots += other.unsupported_slots;
+        self.unsupported_groups += other.unsupported_groups;
+    }
+}
+
+/// An item of a module that a Rust path names, with the line of the path.
+/// With `reexport_only` (a call, which is a `calls` edge already) the path adds
+/// a `uses` edge only when it passes a re-export.
+#[derive(Clone, Debug)]
+pub(crate) struct RustPathUse {
+    pub module: String,
+    pub item: String,
+    pub line: u32,
+    pub reexport_only: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct FileFacts {
+    pub source: super::graph::capture::CapturedSource,
+    /// Every file relationship observation before topology deduplication.
+    pub file_edges: Vec<(String, String, u32)>,
+    pub declarations: Vec<Declaration>,
+    pub imports: Vec<Import>,
+    /// Proven CommonJS bindings; their loads are file edges already.
+    pub commonjs: Vec<CommonJsBinding>,
+    /// Loads of a third-party package that bind no import of their own (a
+    /// dynamic `import()`, a `require` call, a re-export): with
+    /// [`Self::imports`], every package the file loads.
+    pub package_loads: Vec<PackageLoad>,
+    pub reexports: Vec<Reexport>,
+    /// Line of each linked re-export statement (named or `*`), by target.
+    pub reexport_lines: Vec<(String, u32)>,
+    pub calls: Vec<Call>,
+    /// Rust module paths of calls and value paths (`m::f` of `m::f()`) whose
+    /// first segment nothing this file binds names, with their lines: a
+    /// `use super::*` may bind it from the parent module (see the graph's
+    /// `inherit_parent_globs`).
+    pub rust_unbound_paths: Vec<(String, Option<String>, u32)>,
+    /// Rust qualified paths and calls (`.map(m::f)`, `m::T::new()`, a path in
+    /// a `macro_rules!` body) that resolved to another file.
+    pub rust_path_uses: Vec<RustPathUse>,
+    /// The sites projection reads: only reference and unsupported slots and
+    /// unsupported groups ([`Self::argument_counts`] has the whole scan).
+    pub argument_sites: Vec<octocode_engine::graph::GraphFactArgumentSite>,
+    pub argument_counts: ArgumentCounts,
+    pub argument_scan_complete: bool,
+    /// Base-type relations of this file's declarations.
+    pub heritage: Vec<Heritage>,
+    /// Value-reference count per declaration id (declaration names, export
+    /// clauses and call targets excluded). A missing id was not counted.
+    pub reference_counts: BTreeMap<String, u32>,
+    pub language: String,
+    /// Source content digest (`octocode_engine::digest::sha256`).
+    pub digest: String,
+    pub source_digest: String,
+    /// Size and change times of the bytes `digest` hashed, when settled.
+    pub stamp: Option<octocode_engine::stamp::SourceStamp>,
+    /// What the scanned source says about the file (roles, entry markers).
+    pub marks: super::classify::SourceMarks,
+    /// 1-based `[start, end]` spans of code compiled only under test (Rust
+    /// `#[cfg(test)]` items): their edges and declarations are test code.
+    pub test_lines: Vec<[u32; 2]>,
+    /// A Go file's package clause. A `_test.go` file whose clause is its
+    /// directory's package is that package; one in `<pkg>_test` is not.
+    pub go_package: Option<String>,
+    /// The declared types of the file's TS classes, interfaces and type
+    /// aliases, by declaration id.
+    pub declared_types: Vec<octocode_engine::graph::GraphFactDeclaredType>,
+    /// The file's CommonJS exports hold only on some runs (see
+    /// `GraphFactsDocument::conditional_exports`).
+    pub conditional_exports: bool,
+}
+
+impl FileFacts {
+    /// Drops the growth slack of the lists linking pushed to: every scanned
+    /// file's facts stay in memory until the snapshot is projected.
+    pub(crate) fn shrink_to_fit(&mut self) {
+        self.file_edges.shrink_to_fit();
+        self.declarations.shrink_to_fit();
+        self.imports.shrink_to_fit();
+        self.commonjs.shrink_to_fit();
+        self.package_loads.shrink_to_fit();
+        self.reexports.shrink_to_fit();
+        self.reexport_lines.shrink_to_fit();
+        self.calls.shrink_to_fit();
+        self.rust_unbound_paths.shrink_to_fit();
+        self.rust_path_uses.shrink_to_fit();
+        self.heritage.shrink_to_fit();
+    }
+
+    /// Keeps what publication still reads once the tables are projected: the
+    /// source proof and the argument counts.
+    pub(crate) fn release_projected(&mut self) {
+        *self = Self {
+            digest: std::mem::take(&mut self.digest),
+            stamp: self.stamp,
+            argument_counts: self.argument_counts,
+            argument_scan_complete: self.argument_scan_complete,
+            ..Self::default()
+        };
+    }
+
+    /// Whether `line` lies in code compiled only under test.
+    pub(crate) fn test_scoped(&self, line: u32) -> bool {
+        self.test_lines
+            .iter()
+            .any(|[start, end]| (*start..=*end).contains(&line))
+    }
+}
+
+/// What a build diagnostic reports. Variants are in the order of their
+/// codes, so diagnostics sort as their stored text does.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub(crate) enum DiagnosticCode {
+    /// The file is indexed from decoded text (Latin-1 or lossy), as
+    /// localSearch reads it; the message is the shared decoding sentence.
+    Decoded,
+    /// The one default prune left out this directory.
+    DefaultExcluded,
+    /// An import of project code climbs above the snapshot root: a scope
+    /// gap, not a broken import (its target may exist, unscanned). It
+    /// counts as an unresolved internal import, as [`Self::UnresolvedInternal`]
+    /// does; what the code means is graphQuery's `diagnostics` text.
+    OutsideRoot,
+    ParseRecovery,
+    /// oxc could not parse a JS/TS file; the tree-sitter lane read it.
+    ParserFallback,
+    PathPolicyWithheld,
+    ScanSkip,
+    /// A bare import names a scanned file by path, but nothing links it.
+    UnlinkedPathImport,
+    UnresolvedInternal,
+    UnsupportedLinking,
+}
+
+impl DiagnosticCode {
+    /// The code a snapshot stores and graphQuery `diagnostics` returns.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Decoded => "decoded",
+            Self::DefaultExcluded => "default-excluded",
+            Self::OutsideRoot => "outside-root",
+            Self::ParseRecovery => "parse-recovery",
+            Self::ParserFallback => "parser-fallback",
+            Self::PathPolicyWithheld => "path-policy-withheld",
+            Self::ScanSkip => "scan-skip",
+            Self::UnlinkedPathImport => "unlinked-path-import",
+            Self::UnresolvedInternal => "unresolved-internal",
+            Self::UnsupportedLinking => "unsupported-linking",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub(crate) struct Diagnostic {
+    pub file: String,
+    pub line: Option<u32>,
+    pub code: DiagnosticCode,
+    pub message: String,
+    /// The scanned file the diagnostic is about, when that is not `file`
+    /// (the file an unlinked path import names).
+    pub target: Option<String>,
+    /// The edge kind the import would have linked as (`type-import`,
+    /// `dynamic-import`, ...), for an `outside-root` or
+    /// `unresolved-internal` diagnostic of an import; `None` otherwise.
+    pub import_kind: Option<&'static str>,
+}
+
+impl Diagnostic {
+    pub(crate) fn new(
+        file: impl Into<String>,
+        line: Option<u32>,
+        code: DiagnosticCode,
+        message: String,
+    ) -> Self {
+        Self {
+            file: file.into(),
+            line,
+            code,
+            message,
+            target: None,
+            import_kind: None,
+        }
+    }
+}
+
+/// How one import statement linked: the index of its tally in
+/// [`BuiltGraph::imports`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ImportOutcome {
+    Resolved,
+    External,
+    UnresolvedInternal,
+    Unsupported,
+    /// A relative JSON/style/asset specifier: no graph edge, no linking gap.
+    NonCode,
+    /// A relative path to a file that exists on disk under the snapshot
+    /// root but that the scan does not hold (ignored or pruned build output,
+    /// an asset no grammar parses): no graph edge, no linking gap.
+    Unscanned,
+}
+
+/// The linked graph of one scan: per-file facts and the file graph. The
+/// build's intermediate model, never stored or queried itself: ingest
+/// projects it into the persisted [`super::store::tables`].
+#[derive(Clone, Debug, Default)]
+pub(crate) struct BuiltGraph {
+    pub construction: BuildProgress,
+    pub resolution_inputs: BTreeMap<String, String>,
+    pub parsed_files: usize,
+    pub reused_files: usize,
+    pub root: std::path::PathBuf,
+    /// A file-selected snapshot keeps directory-relative evidence keys.
+    pub file_scope: Option<std::path::PathBuf>,
+    pub facts: BTreeMap<String, FileFacts>,
+    pub nodes: BTreeMap<String, FileGraphNode>,
+    pub files_skipped: u32,
+    /// Directories the walk could not list for want of permission, relative
+    /// to the root: the gaps a skipped count alone leaves unnamed.
+    pub unreadable_dirs: Vec<String>,
+    /// What a read replaced of each file it hides a value of, by position
+    /// (`graph::scan::HiddenSpans`).
+    pub hidden_spans: BTreeMap<String, Vec<[u32; 4]>>,
+    /// `(file, producer)` of each file read by a lane other than its owner's.
+    pub parser_fallback: Vec<(String, String)>,
+    /// Markup files holding a script no graph node represents, by extension.
+    pub markup_not_linked: BTreeMap<String, u32>,
+    /// The bounds linking refuses past.
+    pub limits: super::limits::Limits,
+    /// Snapshot rows the build certainly projects: the scan's nodes and
+    /// `contains` edges, plus each distinct file edge `add_edge` links.
+    pub tally: super::limits::Tally,
+    pub languages: Vec<(String, u32, String)>,
+    /// Import tallies indexed by [`ImportOutcome`].
+    pub imports: [u32; 6],
+    /// Statements already tallied in `imports` for the file named by
+    /// `counted_file`, so a statement that binds several names counts once.
+    pub(super) counted_file: String,
+    pub(super) counted: BTreeSet<(usize, u32, String)>,
+    pub diagnostics: Vec<Diagnostic>,
+    pub namespace_targets: BTreeSet<String>,
+    /// Set when extraction paused at its call's budget; then nothing else is.
+    pub paused: Option<ExtractionPause>,
+}
+
+/// A checkpointed build whose extraction paused at its call's budget:
+/// nothing was linked; the next call of the same input resumes it.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct ExtractionPause {
+    pub committed_files: usize,
+    pub remaining_files: usize,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct BuildProgress {
+    /// The extraction job this build may complete after publication.
+    pub(super) checkpoint_generation: Option<String>,
+    pub resumed_files: usize,
+    pub checkpointed_files: usize,
+    pub spilled_bytes: u64,
+    pub memory_only_files: usize,
+    /// Files past a checkpoint budget or one artifact's bound, linked
+    /// without a checkpoint: an interrupted build parses them again.
+    pub uncheckpointed_files: usize,
+    pub max_spill_bytes: u64,
+    pub max_memory_only_bytes: u64,
+}
+
+impl BuiltGraph {
+    /// Tallies one import statement under `outcome`.
+    /// The unit is the statement, like the diagnostics: a statement binding
+    /// three names adds one, and one with several outcomes adds one per
+    /// outcome. Files are visited one at a time.
+    pub(super) fn count_import(
+        &mut self,
+        outcome: ImportOutcome,
+        file: &str,
+        line: u32,
+        spec: &str,
+    ) {
+        let outcome = outcome as usize;
+        if self.counted_file != file {
+            self.counted_file = file.to_owned();
+            self.counted.clear();
+        }
+        if self.counted.insert((outcome, line, spec.to_owned())) {
+            self.imports[outcome] += 1;
+        }
+    }
+}

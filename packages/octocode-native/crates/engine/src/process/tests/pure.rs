@@ -1,0 +1,278 @@
+//! Platform-independent tests of the tree walk and the Linux `/proc`
+//! readers, run against synthetic tables and a synthetic `/proc` directory so
+//! the Linux-only parsing is exercised on every host; and of the macOS
+//! memory record, on macOS.
+
+use super::super::proc_table::{
+    ProcStat, parse_proc_stat, parse_proc_stat_cpu_ticks, parse_proc_status_memory,
+    read_proc_cpu_ticks, read_proc_memory,
+};
+use super::*;
+use std::path::PathBuf;
+
+/// A synthetic `/proc` root (`.0`), removed with its temporary
+/// directory on drop.
+struct FakeProc(
+    PathBuf,
+    #[expect(dead_code, reason = "held to remove the directory on drop")] tempfile::TempDir,
+);
+
+impl FakeProc {
+    fn new(name: &str) -> Self {
+        let dir = tempfile::Builder::new()
+            .prefix(&format!("octocode-fake-proc-{name}-"))
+            .tempdir()
+            .expect("fake proc dir");
+        Self(dir.path().to_path_buf(), dir)
+    }
+
+    /// A process whose `stat` is `pid (comm) S ppid …` with start time
+    /// `start_of(pid)`, and whose `status` reports `resident_kib` in RAM and
+    /// none swapped out.
+    fn process(&self, pid: u32, comm: &str, ppid: u32, resident_kib: u64) -> &Self {
+        let dir = self.0.join(pid.to_string());
+        std::fs::create_dir_all(&dir).expect("pid dir");
+        std::fs::write(dir.join("stat"), stat_line(pid, comm, ppid, start_of(pid))).expect("stat");
+        std::fs::write(
+            dir.join("status"),
+            format!("Name:\t{comm}\nVmRSS:\t{resident_kib} kB\nVmSwap:\t0 kB\n"),
+        )
+        .expect("status");
+        self
+    }
+
+    fn descendants(&self, root: u32) -> Vec<u32> {
+        let walked = walk_descendants(root, children_from_table(read_proc_table(&self.0)));
+        for process in &walked {
+            assert_eq!(
+                process.start,
+                start_of(process.pid),
+                "start read with the parent"
+            );
+        }
+        pids_sorted(walked)
+    }
+}
+
+/// A full `/proc/<pid>/stat` line: `starttime` is field 22.
+fn stat_line(pid: u32, comm: &str, ppid: u32, start: u64) -> String {
+    format!(
+        "{pid} ({comm}) S {ppid} {pid} {pid} 0 -1 4194560 100 0 0 0 0 0 0 0 20 0 1 0 {start} 1000 50\n"
+    )
+}
+
+fn start_of(pid: u32) -> u64 {
+    u64::from(pid) * 10 + 7
+}
+
+/// A `(pid, ppid)` table whose start times are [`start_of`].
+fn table(links: &[(u32, u32)]) -> Vec<ProcStat> {
+    links
+        .iter()
+        .map(|&(pid, ppid)| ProcStat {
+            pid,
+            ppid,
+            start: start_of(pid),
+        })
+        .collect()
+}
+
+fn pids_sorted(found: Vec<Process>) -> Vec<u32> {
+    let mut pids: Vec<u32> = found.into_iter().map(|process| process.pid).collect();
+    pids.sort_unstable();
+    pids
+}
+
+#[test]
+fn stat_cpu_ticks_sum_own_and_reaped_children_time() {
+    // utime 10, stime 5, cutime 3, cstime 2 are fields 14-17.
+    let line = "42 (node) S 7 42 42 0 -1 4194560 100 0 0 0 10 5 3 2 20 0 4 0 1";
+    assert_eq!(parse_proc_stat_cpu_ticks(line), Some(20));
+    // `comm` with spaces and parentheses must not shift the fields.
+    let hostile = "42 (a) S 9 (b)) S 7 42 42 0 -1 4194560 100 0 0 0 10 5 3 2 20";
+    assert_eq!(parse_proc_stat_cpu_ticks(hostile), Some(20));
+    // Truncated lines yield nothing rather than a partial sum.
+    assert_eq!(
+        parse_proc_stat_cpu_ticks("42 (node) S 7 42 42 0 -1 0 1 0 0 0 10 5"),
+        None
+    );
+    assert_eq!(parse_proc_stat_cpu_ticks("42 (node"), None);
+}
+
+#[test]
+fn proc_cpu_ticks_are_read_per_pid() {
+    let proc = FakeProc::new("cpu");
+    let dir = proc.0.join("42");
+    std::fs::create_dir_all(&dir).expect("pid dir");
+    std::fs::write(
+        dir.join("stat"),
+        "42 (srv) S 1 42 42 0 -1 4194560 100 0 0 0 7 1 0 0 20 0 1 0 5\n",
+    )
+    .expect("stat");
+    assert_eq!(read_proc_cpu_ticks(&proc.0, 42), Some(8));
+    assert_eq!(read_proc_cpu_ticks(&proc.0, 43), None, "unknown pid");
+}
+
+#[test]
+fn stat_parsing_survives_hostile_comm_fields() {
+    let expected = Some(ProcStat {
+        pid: 42,
+        ppid: 7,
+        start: 9_001,
+    });
+    for comm in ["node", "my server", "a) S 99 (b)", "(x) 1 2", ""] {
+        // `comm` holding spaces, `)`, `(`, and digits must not shift the fields.
+        assert_eq!(
+            parse_proc_stat(&stat_line(42, comm, 7, 9_001)),
+            expected,
+            "{comm}"
+        );
+    }
+    // Truncated or malformed lines yield nothing rather than a bogus ppid or
+    // start time.
+    let full = stat_line(42, "node", 7, 9_001);
+    let without_start = full.split(" 9001 ").next().expect("head");
+    assert_eq!(parse_proc_stat(without_start), None);
+    assert_eq!(parse_proc_stat("42 (node) S"), None);
+    assert_eq!(parse_proc_stat("42 (node"), None);
+    assert_eq!(parse_proc_stat(&full.replacen("42", "x", 1)), None);
+    assert_eq!(parse_proc_stat(&full.replacen(" 7 ", " -1 ", 1)), None);
+    assert_eq!(parse_proc_stat(""), None);
+}
+
+/// Under memory pressure the kernel swaps out (to zram or zswap too) the
+/// pages a process holds but does not touch, and they leave its resident
+/// size. They are still the process's memory: a server that grew past its cap
+/// between two samples reads at what it holds, never at what is still in RAM.
+#[test]
+fn status_memory_counts_pages_swapped_out() {
+    let status = "Name:\tnode\nState:\tS (sleeping)\nVmPeak:\t 1048576 kB\n\
+                  VmRSS:\t   38912 kB\nRssAnon:\t   20480 kB\nVmSwap:\t  386048 kB\n";
+    assert_eq!(parse_proc_status_memory(status), (38_912 + 386_048) * 1024);
+}
+
+#[test]
+fn status_memory_reads_kib_and_skips_what_it_cannot_parse() {
+    assert_eq!(parse_proc_status_memory("VmRSS:\t25 kB\n"), 25 * 1024);
+    // A zombie or a kernel thread lists no `Vm` line.
+    assert_eq!(
+        parse_proc_status_memory("Name:\tz\nState:\tZ (zombie)\n"),
+        0
+    );
+    assert_eq!(
+        parse_proc_status_memory("VmRSS:\tlots\nVmSwap:\t3 kB\n"),
+        3 * 1024
+    );
+    assert_eq!(
+        parse_proc_status_memory("VmRSS:\t18446744073709551615 kB\n"),
+        u64::MAX
+    );
+    assert_eq!(parse_proc_status_memory(""), 0);
+}
+
+/// macOS compresses (and then swaps out) the pages a process holds but does
+/// not touch: its resident size falls toward zero within seconds while its
+/// physical footprint keeps every page. A server holding 401 MiB, read
+/// after that happened (as measured on a loaded host): it holds 401 MiB.
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_memory_counts_compressed_and_swapped_out_pages() {
+    use super::super::metrics::memory_in_use;
+    let mib = 1024 * 1024;
+    // SAFETY: `rusage_info_v2` is plain data; zero is a valid value.
+    let mut record: libc::rusage_info_v2 = unsafe { std::mem::zeroed() };
+    record.ri_resident_size = 0;
+    record.ri_phys_footprint = 401 * mib;
+    assert_eq!(memory_in_use(&record), Some(401 * mib));
+    // An exited process the parent has not reaped yet holds nothing.
+    record.ri_proc_exit_abstime = 1;
+    assert_eq!(memory_in_use(&record), None);
+}
+
+#[test]
+fn synthetic_proc_tree_finds_setsid_style_descendants_with_hostile_names() {
+    let proc = FakeProc::new("tree");
+    proc.process(1, "init", 0, 10)
+        .process(100, "language server", 1, 10)
+        .process(101, "node) S 1 (evil", 100, 10)
+        .process(102, "rust-analyzer-proc-macro-srv", 101, 10)
+        .process(200, "unrelated", 1, 10)
+        .process(201, "unrelated child", 200, 10);
+    // Non-pid entries in /proc are ignored.
+    std::fs::create_dir_all(proc.0.join("self")).expect("self");
+    std::fs::write(proc.0.join("uptime"), "1.0 2.0").expect("uptime");
+    assert_eq!(proc.descendants(100), vec![101, 102]);
+    assert_eq!(proc.descendants(102), Vec::<u32>::new());
+    assert_eq!(proc.descendants(999), Vec::<u32>::new());
+}
+
+#[test]
+fn synthetic_proc_tree_skips_vanished_zombie_and_mismatched_entries() {
+    let proc = FakeProc::new("vanished");
+    proc.process(10, "leader", 1, 5)
+        .process(11, "zombie", 10, 0)
+        .process(12, "child", 10, 5);
+    // A pid directory whose process exited mid-scan (no `stat`).
+    std::fs::create_dir_all(proc.0.join("13")).expect("vanished dir");
+    // A `stat` naming another pid (recycled/garbage) is not trusted.
+    let bogus = proc.0.join("14");
+    std::fs::create_dir_all(&bogus).expect("bogus dir");
+    std::fs::write(bogus.join("stat"), stat_line(99, "x", 10, 1)).expect("stat");
+    // A zombie's `status` lists no `Vm` line.
+    std::fs::write(
+        proc.0.join("11/status"),
+        "Name:\tzombie\nState:\tZ (zombie)\n",
+    )
+    .expect("zombie status");
+    assert_eq!(proc.descendants(10), vec![11, 12]);
+    assert_eq!(read_proc_memory(&proc.0, 11), Some(0), "zombie");
+    assert_eq!(read_proc_memory(&proc.0, 12), Some(5 * 1024));
+    assert_eq!(read_proc_memory(&proc.0, 13), None, "vanished");
+    assert_eq!(read_proc_table(&proc.0.join("missing")), Vec::new());
+}
+
+#[test]
+fn walk_terminates_on_cycles_self_parents_and_duplicates() {
+    // 1 → 2 → 3 → 1 cycle, 4 parented to itself, 2 listed twice.
+    let links = table(&[(2, 1), (3, 2), (1, 3), (4, 4), (5, 4), (2, 1)]);
+    let found = walk_descendants(1, children_from_table(links.clone()));
+    assert_eq!(
+        pids_sorted(found),
+        vec![2, 3],
+        "root is never reported, cycle ends"
+    );
+    let from_self = walk_descendants(4, children_from_table(links));
+    assert_eq!(pids_sorted(from_self), vec![5]);
+    // A lookup that reports a node as its own child still terminates.
+    let found = walk_descendants(7, |pid| {
+        [pid, pid + 1]
+            .into_iter()
+            .filter(|&p| p < 10)
+            .map(|pid| Process { pid, start: 0 })
+            .collect()
+    });
+    assert_eq!(pids_sorted(found), vec![8, 9]);
+}
+
+#[test]
+fn walk_handles_deep_trees_and_stops_at_the_process_bound() {
+    // A 3 000-deep chain: iterative, so no stack overflow.
+    let chain: Vec<(u32, u32)> = (1..=3_000).map(|pid| (pid + 1, pid)).collect();
+    assert_eq!(
+        walk_descendants(1, children_from_table(table(&chain))).len(),
+        3_000
+    );
+    // A fan-out beyond the bound is truncated at exactly the bound.
+    let fan: Vec<(u32, u32)> = (2..=10_000).map(|pid| (pid, 1)).collect();
+    assert_eq!(
+        walk_descendants(1, children_from_table(table(&fan))).len(),
+        MAX_TREE_PROCESSES
+    );
+    // Breadth-first order: every child before any grandchild.
+    let tree = table(&[(2, 1), (3, 1), (4, 2), (5, 3)]);
+    let order: Vec<u32> = walk_descendants(1, children_from_table(tree))
+        .into_iter()
+        .map(|process| process.pid)
+        .collect();
+    assert_eq!(&order[..2], &[2, 3]);
+}

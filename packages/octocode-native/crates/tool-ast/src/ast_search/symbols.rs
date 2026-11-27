@@ -1,0 +1,277 @@
+use octocode_contract_types::{AstSearchQuerySymbols, ErrorCode};
+use octocode_runtime_base::response::result::ToolError;
+use octocode_runtime_base::{execution::cancel::CancellationCheck, policy::path::PathPolicy};
+use serde_json::Value;
+use std::sync::Arc;
+
+mod continuation;
+mod directory;
+mod empty_outline;
+mod left_out;
+mod names;
+mod outline;
+mod page;
+mod rows;
+mod select;
+
+use super::judged_rows::NamePlaces;
+use continuation::Continuation;
+#[cfg(test)]
+pub(super) use directory::WALKS;
+#[cfg(test)]
+pub(super) use directory::outline_directory;
+use directory::{outline_walked, walk_directory};
+use empty_outline::note_skipped;
+use outline::outline_file;
+#[cfg(test)]
+pub(super) use outline::{Outline, PARSED_FILES};
+pub(super) use page::render_page;
+#[cfg(test)]
+pub(super) use select::SymbolSet;
+use select::select;
+
+/// Engine-unit views over the generated `symbols` query.
+pub(crate) mod ast_search_query_symbols {
+    use super::names::{NameEntry, NameFilter};
+    use octocode_contract_types::AstSearchQuerySymbols;
+    use octocode_engine::num::saturating_u32;
+    use std::collections::BTreeMap;
+    pub(crate) fn language(query: &AstSearchQuerySymbols) -> Option<String> {
+        query.parser.as_ref().map(ToString::to_string)
+    }
+    pub(crate) fn language_globs(
+        query: &AstSearchQuerySymbols,
+    ) -> Option<BTreeMap<String, Vec<String>>> {
+        query
+            .parser_globs
+            .as_ref()
+            .map(octocode_tools_shared::ast_rule::parser_globs)
+    }
+    pub(crate) fn kinds(query: &AstSearchQuerySymbols) -> Option<Vec<String>> {
+        (!query.symbol_kinds.is_empty())
+            .then(|| query.symbol_kinds.iter().map(ToString::to_string).collect())
+    }
+    pub(crate) fn exclude(query: &AstSearchQuerySymbols) -> Option<Vec<String>> {
+        octocode_tools_shared::variant_field::non_empty(&query.exclude)
+    }
+    /// The globs a directory outline keeps files by, relative to `path`.
+    pub(crate) fn include(query: &AstSearchQuerySymbols) -> Vec<String> {
+        query.include.iter().map(ToString::to_string).collect()
+    }
+    /// Leading files (walk order) an earlier window outlined.
+    pub(crate) fn scan_offset(query: &AstSearchQuerySymbols) -> u32 {
+        query
+            .scan_offset
+            .map_or(0, |offset| saturating_u32(offset.get()))
+    }
+    pub(crate) fn page(query: &AstSearchQuerySymbols) -> u32 {
+        saturating_u32(query.page.get())
+    }
+    pub(crate) fn snapshot(query: &AstSearchQuerySymbols) -> Option<&str> {
+        query.snapshot.as_deref().map(String::as_str)
+    }
+    /// The `name` filter: a string is a one-entry list. Each entry that
+    /// equals some declaration name matches only equal names; otherwise it
+    /// matches as a substring. All-lowercase text ignores case.
+    pub(super) fn name_filter(query: &AstSearchQuerySymbols) -> Option<NameFilter> {
+        let filter = query.symbol_filter.as_ref()?;
+        Some(NameFilter {
+            entries: filter
+                .terms
+                .iter()
+                .map(|term| NameEntry::new(term.to_string(), filter.case_mode, filter.mode))
+                .collect(),
+            mode: filter.mode,
+        })
+    }
+}
+
+/// The path the row outlines: the one it names, else the workspace root.
+pub(super) fn walk_path(q: &AstSearchQuerySymbols) -> &str {
+    q.path
+        .as_ref()
+        .map_or(super::source::WALK_ROOT, |path| path.as_str())
+}
+
+/// One page of a symbols query, and where each of its rows was named
+/// ([`NamePlaces`]).
+pub(crate) fn execute_symbols(
+    q: &AstSearchQuerySymbols,
+    paths: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+    response_window: Option<usize>,
+) -> Result<(Value, NamePlaces), ToolError> {
+    execute_symbols_proven(q, paths, cancel, response_window, &|| false)
+        .map(|(page, places, _)| (page, places))
+}
+
+/// [`execute_symbols`], with, when `proven` asks for it once the page is
+/// built, what proves the page current to a request asking for the same page while it is built
+/// ([`continuation::Continuation::proof`]): a directory outline's whole
+/// scan, outside a `testCode` scope. A file's page, a scan the time budget
+/// cut and a filtering scope have none.
+pub(crate) fn execute_symbols_proven(
+    q: &AstSearchQuerySymbols,
+    paths: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+    response_window: Option<usize>,
+    proven: &dyn Fn() -> bool,
+) -> Result<(Value, NamePlaces, Option<octocode_engine::stamp::Proof>), ToolError> {
+    run_symbols(q, paths, cancel, response_window, proven).map(|(page, places, proof)| {
+        (
+            octocode_runtime_base::response::result::finished(page),
+            places,
+            proof,
+        )
+    })
+}
+
+fn run_symbols(
+    q: &AstSearchQuerySymbols,
+    paths: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+    response_window: Option<usize>,
+    proven: &dyn Fn() -> bool,
+) -> Result<(Value, NamePlaces, Option<octocode_engine::stamp::Proof>), ToolError> {
+    cancel.check().map_err(ToolError::cancelled)?;
+    if let Some(unknown) = q
+        .symbol_kinds
+        .iter()
+        .find(|kind| !octocode_engine::signatures::DECLARATION_KINDS.contains(&kind.as_str()))
+    {
+        return Err(ToolError::new(
+            ErrorCode::InvalidInput,
+            format!(
+                "Unknown declaration kind \"{unknown}\". Use one of: {}.",
+                octocode_engine::signatures::DECLARATION_KINDS.join(", ")
+            ),
+        ));
+    }
+    let path = walk_path(q);
+    let p = paths.validate(path).map_err(super::errors::policy_error)?;
+    let meta =
+        std::fs::metadata(&p.canonical).map_err(|error| super::errors::io_error(path, error))?;
+    check_language_scope(q, &p.canonical, meta.is_file())?;
+    if meta.is_file() {
+        return file_page(q, paths, &p.canonical, response_window, cancel)
+            .map(|(page, places)| (page, places, None));
+    }
+    let row_paths = super::RowPaths::new(paths, &p.canonical, false);
+    let scoped = octocode_tools_shared::test_code::Scoped::of(q.test_code, paths);
+    let started = octocode_engine::stamp::settle_clock();
+    let mut walk = walk_directory(q, &p.canonical, (paths, scoped.as_ref()), cancel)?;
+    let walked = walk.skipped.clone();
+    let dirs = std::mem::take(&mut walk.dirs);
+    let continuation = Continuation::of(q, paths, &p.canonical, &walk, started);
+    // A window past the first: the files before it are the ones the windows
+    // before it outlined, or its `scanOffset` counts other files.
+    let before = continuation.listed_before(q);
+    if ast_search_query_symbols::page(q) <= 1
+        && before.is_some()
+        && ast_search_query_symbols::snapshot(q).is_some_and(|pin| Some(pin) != before.as_deref())
+    {
+        return Ok((
+            octocode_runtime_base::response::result::stale_snapshot(
+                octocode_runtime_base::response::result::restart_query(
+                    octocode_runtime_base::id::ToolId::AstSearch,
+                    &octocode_runtime_base::response::result::query_row(q, &[]),
+                ),
+            ),
+            NamePlaces::default(),
+            None,
+        ));
+    }
+    let stored = continuation.stored(q);
+    let stop = || cancel.check().is_err();
+    let set = match &stored {
+        Some(set) => Arc::clone(set),
+        None => continuation.first_or_outline(q, &stop, || {
+            let outline = outline_walked(q, &p.canonical, (walk, scoped.as_ref()), cancel)?;
+            let mut set = select(q, &p.canonical, outline, row_paths, cancel)?;
+            continuation.bind(&mut set, before.as_deref());
+            Ok::<_, ToolError>(Arc::new(set))
+        })?,
+    };
+    let (mut page, places) = render_page(q, &set, row_paths, response_window, cancel)?;
+    if stored.is_none() && page["calls"]["nextPage"].is_object() {
+        continuation.remember(q, &set);
+    }
+    note_skipped(q, &walked, &mut page);
+    note_directory_parser(q, &mut page);
+    let proof = (!set.truncated
+        && octocode_tools_shared::test_code::Keep::of(q.test_code).is_none()
+        && proven())
+    .then(|| continuation.proof(paths, &dirs))
+    .flatten();
+    Ok((page, places, proof))
+}
+
+/// One page of a single file's outline; the first page that has more stores
+/// the set the later ones page.
+fn file_page(
+    q: &AstSearchQuerySymbols,
+    paths: &PathPolicy,
+    file: &std::path::Path,
+    response_window: Option<usize>,
+    cancel: &dyn CancellationCheck,
+) -> Result<(Value, NamePlaces), ToolError> {
+    let row_paths = super::RowPaths::new(paths, file, true);
+    let scoped = octocode_tools_shared::test_code::Scoped::of(q.test_code, paths);
+    let started = octocode_engine::stamp::settle_clock();
+    let continuation = Continuation::of_file(q, paths, file, started);
+    let stored = continuation.stored(q);
+    let set = match &stored {
+        Some(set) => Arc::clone(set),
+        None => {
+            let display_path = row_paths.delivered(&file.to_string_lossy());
+            let outline = match outline_file(q, (file, &display_path), scoped.as_ref(), cancel)? {
+                Ok(outline) => outline,
+                Err(terminal) => return Ok((terminal, NamePlaces::default())),
+            };
+            Arc::new(select(q, file, outline, row_paths, cancel)?)
+        }
+    };
+    let (page, places) = render_page(q, &set, row_paths, response_window, cancel)?;
+    if stored.is_none() && page["calls"]["nextPage"].is_object() {
+        continuation.remember(q, &set);
+    }
+    Ok((page, places))
+}
+
+/// A directory reads each file by `parserGlobs`, else its extension:
+/// `parser`, one file's grammar, does not apply, and the page says so.
+fn note_directory_parser(q: &AstSearchQuerySymbols, page: &mut serde_json::Value) {
+    if let Some(parser) = ast_search_query_symbols::language(q) {
+        octocode_runtime_base::response::paging::push_notice(
+            page,
+            format!(
+                "parser \"{parser}\" applies to one file and was not applied: a directory reads each file by parserGlobs, else its extension."
+            ),
+        );
+    }
+}
+
+/// `parser` names one file's grammar; `parserGlobs` maps a directory's, and
+/// a directory with `parser` still reads each file by its extension
+/// ([`note_directory_parser`]).
+fn check_language_scope(
+    q: &AstSearchQuerySymbols,
+    canonical: &std::path::Path,
+    is_file: bool,
+) -> Result<(), ToolError> {
+    if is_file && ast_search_query_symbols::language_globs(q).is_some() {
+        return Err(ToolError::new(
+            ErrorCode::LanguageDirectoryRequired,
+            "parserGlobs is for directory symbols. Use parser for a single file.",
+        ));
+    }
+    if is_file {
+        return super::language::validate_file_language(
+            canonical,
+            ast_search_query_symbols::language(q).as_deref(),
+            octocode_engine::text::analysis::AnalysisOperation::Declarations,
+        );
+    }
+    // A directory reads each file by `parserGlobs`, else its extension.
+    Ok(())
+}

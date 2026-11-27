@@ -1,0 +1,407 @@
+use crate::lsp::types::LspLanguageServerConfig;
+use serde_json::{Value, json};
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
+
+/// rust-analyzer settings that limit the repository code it runs: no build
+/// scripts (`build.rs`), no proc-macro expansion, and no `cargo check` on save.
+/// They don't stop it entirely: the `cargo` calls it still makes honor
+/// `.cargo/config.toml`, so a repository's `rustc-wrapper` runs. Cache priming stays on (rust-analyzer's default): it indexes the
+/// workspace in-process on every core as soon as the project loads, so a
+/// prewarmed server answers its first workspace-wide request warm instead
+/// of building that index lazily, on one request, when the call arrives
+/// (measured on the octocode-native workspace: a 5-query references batch
+/// after a 30 s idle took 22.5 s with priming off, 4.4 s with it on).
+/// `cargo.targetDir: true` uses a rust-analyzer subdirectory of the existing
+/// target directory, separating its artifacts from normal builds.
+pub fn rust_analyzer_headless_options() -> Value {
+    json!({
+        "cargo": {
+            "buildScripts": { "enable": false },
+            "targetDir": true,
+            // An empty value overrides a repository's `.cargo/config.toml`
+            // `rustc-wrapper`, which `cargo metadata` runs even with build
+            // scripts off ([`allow_build_wrappers`] lifts it with them).
+            "extraEnv": { "RUSTC_WRAPPER": "", "RUSTC_WORKSPACE_WRAPPER": "" }
+        },
+        "procMacro": { "enable": false },
+        "checkOnSave": false,
+        // The client snapshots source changes before semantic requests. A
+        // server-side filesystem watcher can otherwise answer from its old
+        // index while the tool reads snippets from the newly written files.
+        "files": { "watcher": "client" },
+        // rust-analyzer searches types only by default and falls back to
+        // every symbol only when no type matches: a `workspaceSymbol` of a
+        // function name (`flush`, `new`) would return the one struct that
+        // fuzzy-matches it and none of the functions.
+        "workspace": { "symbol": { "search": { "kind": "all_symbols" } } }
+    })
+}
+
+/// clangd flags that keep it read-only and quiet: no background index unless a
+/// mirrored database keeps it out of the repository (`clangd_database`), no
+/// clang-tidy, errors-only logging, and precompiled preambles in memory rather
+/// than temp files. Without an index, requests that need other files open them
+/// first (`lsp_search::importers::index_window`) and say the answer is partial.
+pub(crate) const CLANGD_HEADLESS_ARGS: &[&str] = &[
+    "--background-index=false",
+    "--clang-tidy=false",
+    "--log=error",
+    "--pch-storage=memory",
+];
+
+/// What clangd resolves a file's compile command from, relative to the file's
+/// directory and each ancestor: a compilation database, its `build/` variant,
+/// a flags file, and the `.clangd` project config.
+pub(crate) const CLANGD_PROJECT_CONFIG_FILES: &[&str] = &[
+    "compile_commands.json",
+    "build/compile_commands.json",
+    "compile_flags.txt",
+    ".clangd",
+];
+
+/// The files a server reads once per project and never again for a document
+/// it already holds, so a pooled server must be replaced when one changes
+/// (see `lsp::project_config`). Empty for a server that re-reads its own
+/// configuration.
+pub(crate) fn project_config_files(command: &str) -> &'static [&'static str] {
+    match server_stem(command).as_deref() {
+        Some("clangd") => CLANGD_PROJECT_CONFIG_FILES,
+        _ => &[],
+    }
+}
+
+/// clangd `initializationOptions.fallbackFlags` for CUDA: the flags of the
+/// command clangd invents (`clang <file>`) for a file with no compile
+/// command, where they replace that command's missing language and target.
+///
+/// - `-xcuda`: clang takes `.cuh` for a CUDA *header* and plans no compile
+///   job for it, so clangd reports `invalid AST` for every request.
+/// - `--cuda-host-only`: without it the driver plans host and device jobs
+///   and needs a GPU architecture and `libdevice` to plan the device one.
+///   Host-only is one job on any machine, with or without a CUDA SDK; with
+///   one installed clang still finds it and force-includes its headers.
+///
+/// They are used only when no compile command applies: a compilation
+/// database or `compile_flags.txt` entry overrides them completely.
+pub(crate) const CLANGD_CUDA_FALLBACK_FLAGS: &[&str] = &["-xcuda", "--cuda-host-only"];
+
+/// clangd `initializationOptions` by language.
+fn clangd_default_options(language_id: Option<&str>) -> Option<Value> {
+    (language_id == Some("cuda")).then(|| json!({ "fallbackFlags": CLANGD_CUDA_FALLBACK_FLAGS }))
+}
+
+/// jdtls flags: its importers read this JVM property, not the settings below,
+/// when they decide where `.project`, `.classpath` and `.settings/` go.
+pub(crate) const JDTLS_HEADLESS_ARGS: &[&str] =
+    &["--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=false"];
+
+/// jdtls settings (sent as `initializationOptions.settings`): no automatic
+/// workspace build, and Eclipse metadata (`.project`, `.classpath`,
+/// `.settings/`) kept in the `-data` directory, not the project root;
+/// methods listed by `workspace/symbol`, which returns types only otherwise.
+pub(crate) fn jdtls_headless_options() -> Value {
+    json!({
+        "settings": {
+            "java": {
+                "autobuild": { "enabled": false },
+                "import": { "generatesMetadataFilesAtProjectRoot": false },
+                "symbols": { "includeSourceMethodDeclarations": true }
+            }
+        }
+    })
+}
+
+/// Metals `initializationOptions`: no HTTP server (no listening port) and no
+/// status-bar traffic.
+pub(crate) fn metals_headless_options() -> Value {
+    json!({
+        "isHttpEnabled": false,
+        "statusBarProvider": "off"
+    })
+}
+
+/// typescript-language-server `initializationOptions` for a headless,
+/// read-only run: no network typings acquisition, one tsserver process (no
+/// separate syntax server), no package.json auto-import scan, and a V8 heap
+/// bound 512 MiB under the memory `cap_mb` so the GC works before the
+/// watchdog fires (no bound when the cap is disabled).
+pub(crate) fn typescript_headless_options(cap_mb: Option<u32>) -> Value {
+    let mut options = json!({
+        "disableAutomaticTypingAcquisition": true,
+        "tsserver": { "useSyntaxServer": "never" },
+        "preferences": { "includePackageJsonAutoImports": "off" }
+    });
+    if let Some(cap) = cap_mb {
+        options["maxTsServerMemory"] = json!(cap.saturating_sub(512).max(1024));
+    }
+    options
+}
+
+/// tsgo `workspace/configuration` settings for a headless, read-only run: no
+/// `npm install` of typings for an inferred project. tsgo reads this only from
+/// a configuration section, under its own spelling.
+fn tsgo_headless_options() -> Value {
+    json!({ "js/ts": { "disableAutomaticTypeAcquisition": true } })
+}
+
+/// The per-workspace jdtls data directory, outside the repository:
+/// `<octocode home>/lsp-workspaces/jdtls/<sha256(workspace root)[..16]>`.
+pub(crate) fn jdtls_data_dir(octocode_home: &Path, workspace_root: &str) -> PathBuf {
+    let digest = crate::digest::sha256(workspace_root.as_bytes());
+    octocode_home
+        .join("lsp-workspaces")
+        .join("jdtls")
+        .join(&digest[..16])
+}
+
+/// Whether the server answers overlapping requests in parallel, so a caller
+/// with many independent requests may pipeline them. tsgo does; tsserver
+/// (behind typescript-language-server) works through them one at a time,
+/// where queueing only spends each request's timeout waiting.
+pub(crate) fn serves_requests_concurrently(config: &LspLanguageServerConfig) -> bool {
+    server_stem(&config.command).as_deref() == Some("tsgo")
+}
+
+/// Most `workspace/symbol` results the server returns for one query, for a
+/// server that drops the rest without saying so:
+/// - tsgo answers `min(n, 256)` (typescript-go `internal/ls/symbols.go`);
+/// - gopls answers at most `maxSymbols` = 100
+///   (`gopls/internal/golang/workspace_symbol.go`);
+/// - rust-analyzer answers `workspace.symbol.search.limit`, 128 by default;
+/// - clangd answers `--limit-results`, 100 by default, 0 for no limit.
+///
+/// `None` for a server with no such limit, or one configured without it.
+pub(crate) fn workspace_symbol_limit(config: &LspLanguageServerConfig) -> Option<usize> {
+    match server_stem(&config.command).as_deref()? {
+        "tsgo" => Some(TSGO_WORKSPACE_SYMBOL_LIMIT),
+        "gopls" => Some(GOPLS_WORKSPACE_SYMBOL_LIMIT),
+        "rust-analyzer" => Some(
+            config
+                .initialization_options
+                .as_ref()
+                .and_then(|options| options.pointer("/workspace/symbol/search/limit"))
+                .and_then(Value::as_u64)
+                .and_then(|limit| usize::try_from(limit).ok())
+                .unwrap_or(RUST_ANALYZER_WORKSPACE_SYMBOL_LIMIT),
+        ),
+        "clangd" => Some(clangd_result_limit(
+            config.args.as_deref().unwrap_or_default(),
+        ))
+        .filter(|limit| *limit > 0),
+        _ => None,
+    }
+}
+
+/// What to do about a capped `workspace/symbol` answer: narrow the query, and
+/// for tsgo also route `.ts` to `typescript-language-server`, which an
+/// `lsp-servers.json` entry always wins ([`workspace_symbol_limit`]).
+pub(crate) fn workspace_symbol_cap_advice(config: &LspLanguageServerConfig) -> &'static str {
+    if server_stem(&config.command).as_deref() == Some("tsgo") {
+        "narrow symbolFuzzy, or route .ts to typescript-language-server in lsp-servers.json"
+    } else {
+        "narrow symbolFuzzy"
+    }
+}
+
+const TSGO_WORKSPACE_SYMBOL_LIMIT: usize = 256;
+const GOPLS_WORKSPACE_SYMBOL_LIMIT: usize = 100;
+const RUST_ANALYZER_WORKSPACE_SYMBOL_LIMIT: usize = 128;
+const CLANGD_RESULT_LIMIT: usize = 100;
+
+/// clangd's `--limit-results` among `args`: LLVM's command line takes one or two
+/// dashes, and the value after `=` or as the next argument; the last one wins,
+/// as in clangd.
+fn clangd_result_limit(args: &[String]) -> usize {
+    let mut limit = CLANGD_RESULT_LIMIT;
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        let value = match arg
+            .strip_prefix("--")
+            .or_else(|| arg.strip_prefix('-'))
+            .and_then(|flag| flag.strip_prefix("limit-results"))
+        {
+            Some("") => args.next().map(String::as_str),
+            Some(rest) => rest.strip_prefix('='),
+            None => None,
+        };
+        if let Some(parsed) = value.and_then(|value| value.parse().ok()) {
+            limit = parsed;
+        }
+    }
+    limit
+}
+
+/// Apply per-server safe defaults to a resolved launch configuration, on
+/// every launch path (discovery, runtime). rust-analyzer runs no
+/// repository code (build scripts, proc-macros, `cargo check`); clangd writes
+/// no index into the repository; jdtls keeps its workspace data outside it
+/// and does not auto-build; Metals opens no HTTP port. Defaults sit
+/// *underneath* the configuration: an `initializationOptions` key the user
+/// set wins, and a flag the user already passed (by name, before any `=`) is
+/// not added again. A non-object user value is left
+/// untouched. Idempotent. Without `octocode_home` (a launch outside
+/// discovery) jdtls gets no `-data` directory.
+pub(crate) fn apply_server_default_options(
+    config: &mut LspLanguageServerConfig,
+    octocode_home: Option<&Path>,
+    index_home: Option<&Path>,
+) {
+    match server_stem(&config.command).as_deref() {
+        Some("rust-analyzer") => apply_rust_analyzer_defaults(config),
+        Some("clangd") => {
+            if let Some(home) = index_home {
+                crate::lsp::clangd_database::mirror_database(config, home);
+            }
+            add_default_args(config, CLANGD_HEADLESS_ARGS);
+            if let Some(options) = clangd_default_options(config.language_id.as_deref()) {
+                merge_default_options(config, options);
+            }
+        }
+        Some("jdtls") => {
+            let has_data = config
+                .args
+                .as_deref()
+                .is_some_and(|args| args.iter().any(|arg| arg == "-data"));
+            if !has_data && let Some(home) = octocode_home {
+                let dir = jdtls_data_dir(home, &config.workspace_root);
+                let args = config.args.get_or_insert_with(Vec::new);
+                args.push("-data".to_owned());
+                args.push(dir.to_string_lossy().into_owned());
+            }
+            // `--jvm-arg` repeats, so a user's own is no reason to drop this one.
+            let args = config.args.get_or_insert_with(Vec::new);
+            for default in JDTLS_HEADLESS_ARGS {
+                if !args.iter().any(|arg| arg == default) {
+                    args.push((*default).to_owned());
+                }
+            }
+            merge_default_options(config, jdtls_headless_options());
+        }
+        Some("tsgo") => {
+            let cap = crate::lsp::spawn_limits::effective_memory_cap_mb(config.max_memory_mb);
+            if let Some(cap) = cap {
+                config
+                    .env
+                    .get_or_insert_with(Default::default)
+                    .entry("GOMEMLIMIT".to_owned())
+                    .or_insert_with(|| format!("{}MiB", cap.saturating_sub(512).max(1024)));
+            }
+            merge_default_options(config, tsgo_headless_options());
+        }
+        Some("metals") => merge_default_options(config, metals_headless_options()),
+        Some("typescript-language-server") => {
+            let cap = crate::lsp::spawn_limits::effective_memory_cap_mb(config.max_memory_mb);
+            merge_default_options(config, typescript_headless_options(cap));
+        }
+        _ if runs_typescript_language_server(config) => {
+            let cap = crate::lsp::spawn_limits::effective_memory_cap_mb(config.max_memory_mb);
+            merge_default_options(config, typescript_headless_options(cap));
+        }
+        _ => {}
+    }
+}
+
+/// The server runs `typescript-language-server`'s CLI under `node`.
+fn runs_typescript_language_server(config: &LspLanguageServerConfig) -> bool {
+    config.args.iter().flatten().any(|arg| {
+        Path::new(arg).file_name().and_then(OsStr::to_str) == Some("cli.mjs")
+            && arg.contains("typescript-language-server")
+    })
+}
+
+/// Lower-cased file stem of a server command (`/usr/bin/clangd-18` →
+/// `clangd`: a trailing `-<version>` is dropped), with `.exe`/`.cmd`/`.bat`
+/// removed.
+fn server_stem(command: &str) -> Option<String> {
+    let name = Path::new(command)
+        .file_name()?
+        .to_str()?
+        .to_ascii_lowercase();
+    let stem = [".exe", ".cmd", ".bat"]
+        .iter()
+        .find_map(|suffix| name.strip_suffix(suffix))
+        .unwrap_or(&name);
+    let base = match stem.rsplit_once('-') {
+        Some((base, version))
+            if !version.is_empty() && version.chars().all(|c| c.is_ascii_digit() || c == '.') =>
+        {
+            base
+        }
+        _ => stem,
+    };
+    Some(base.to_owned())
+}
+
+/// Append each default flag whose name (the part before `=`) the args do
+/// not already set.
+fn add_default_args(config: &mut LspLanguageServerConfig, defaults: &[&str]) {
+    let args = config.args.get_or_insert_with(Vec::new);
+    let flag_name = |arg: &str| arg.split_once('=').map_or(arg, |(name, _)| name).to_owned();
+    for default in defaults {
+        let name = flag_name(default);
+        if !args.iter().any(|arg| flag_name(arg) == name) {
+            args.push((*default).to_owned());
+        }
+    }
+}
+
+pub(super) fn merge_default_options(config: &mut LspLanguageServerConfig, defaults: Value) {
+    config.initialization_options = Some(match config.initialization_options.take() {
+        None | Some(Value::Null) => defaults,
+        Some(user @ Value::Object(_)) => merge_under(defaults, user),
+        Some(other) => other,
+    });
+}
+
+pub(super) fn apply_rust_analyzer_defaults(config: &mut LspLanguageServerConfig) {
+    merge_default_options(config, rust_analyzer_headless_options());
+    if let Some(options) = config.initialization_options.as_mut() {
+        allow_build_wrappers(options);
+    }
+}
+
+/// With build scripts on, repository code runs anyway, and the user's own
+/// wrapper (sccache) with it: drop the empty wrapper values
+/// [`rust_analyzer_headless_options`] set. A value the user set stays.
+pub fn allow_build_wrappers(options: &mut Value) {
+    if options.pointer("/cargo/buildScripts/enable") != Some(&Value::Bool(true)) {
+        return;
+    }
+    if let Some(env) = options
+        .pointer_mut("/cargo/extraEnv")
+        .and_then(Value::as_object_mut)
+    {
+        env.retain(|name, value| {
+            !(value == "" && matches!(name.as_str(), "RUSTC_WRAPPER" | "RUSTC_WORKSPACE_WRAPPER"))
+        });
+    }
+}
+
+/// Whether the routed rust-analyzer options consent to a SCIP index: build
+/// scripts and proc macros both on. rust-analyzer then runs repository code
+/// (`build.rs`, proc-macro crates) to index, so the user, not Octocode's
+/// headless defaults, must have chosen both.
+pub fn scip_consent(options: &Value) -> bool {
+    ["/cargo/buildScripts/enable", "/procMacro/enable"]
+        .iter()
+        .all(|pointer| options.pointer(pointer) == Some(&Value::Bool(true)))
+}
+
+/// Deep-merge `overlay` onto `base`: objects merge key by key, and any other
+/// overlay value replaces the base value.
+fn merge_under(base: Value, overlay: Value) -> Value {
+    match (base, overlay) {
+        (Value::Object(mut base), Value::Object(overlay)) => {
+            for (key, value) in overlay {
+                let merged = match base.remove(&key) {
+                    Some(existing) => merge_under(existing, value),
+                    None => value,
+                };
+                base.insert(key, merged);
+            }
+            Value::Object(base)
+        }
+        (_, overlay) => overlay,
+    }
+}

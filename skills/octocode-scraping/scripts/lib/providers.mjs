@@ -1,5 +1,4 @@
-import { existsSync } from 'node:fs';
-import { CHROME_DEVTOOLS_DIR, cleanupCdp, fetchCdp, fetchDirect, fetchScrapingAnt } from './client.mjs';
+import { cleanupCdp, fetchCdp, fetchDirect, fetchScrapingAnt } from './client.mjs';
 
 export const PROVIDERS = {
   scrapingant: { name: 'scrapingant', fetch: fetchScrapingAnt, supportsModes: ['html', 'markdown', 'extended', 'extract'], requiresApiKey: true, apiKeyEnv: 'SCRAPING_ANT' },
@@ -15,17 +14,18 @@ export function resolveProvider(name) {
 
 /**
  * Auto-select a keyless route for html. Hosted is never auto-picked — pass
- * `--provider scrapingant` only after direct/CDP failed and the user approved spend.
- * Priority: cdp (octocode-chrome-devtools installed) → direct.
+ * `--provider scrapingant` only after direct/browser evidence is insufficient and the user approved spend.
+ * HTML starts with direct HTTP. A browser is an explicit escalation after the
+ * direct corpus proves that rendering, interaction, or live network evidence is
+ * needed; merely having the Chrome skill installed must not change this route.
  * Non-html modes (markdown / extended / extract) require scrapingant — throw early if unavailable.
  */
 export function autoSelectProvider(mode, env) {
   if (mode !== 'html') {
     if (!env.SCRAPING_ANT?.trim()) {
-      throw new Error(`--mode ${mode} requires scrapingant; set the SCRAPING_ANT env variable or pass --provider scrapingant explicitly`);
+      throw new Error(`--mode ${mode} requires scrapingant; save SCRAPING_ANT with: node scripts/keys.mjs set SCRAPING_ANT --stdin, or pass --provider scrapingant explicitly`);
     }
     return 'scrapingant';
   }
-  if (existsSync(CHROME_DEVTOOLS_DIR)) return 'cdp';
   return 'direct';
 }

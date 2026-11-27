@@ -1,0 +1,11 @@
+mod contract_bounds_tests;
+mod empty_walk;
+pub(crate) mod gh_clone_repo;
+mod hints_tests;
+mod leads;
+mod local_search;
+mod lsp_search;
+mod module_boundaries;
+mod source_capture;
+mod structure_search;
+mod withheld_disclosure_tests;

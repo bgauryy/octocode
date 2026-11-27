@@ -1,0 +1,252 @@
+use super::{OutputMode, stdout_is_terminal};
+use octocode_native::runtime::error::tool_error_result;
+use octocode_native::runtime::{ErrorClass, RuntimeError};
+use octocode_runtime_base::id::ToolId;
+use octocode_runtime_base::response::exit::ExitClass;
+use octocode_runtime_base::response::outcome::ToolOutcome;
+use octocode_runtime_base::response::wire::wire_json;
+use serde_json::Value;
+#[cfg(unix)]
+use serde_json::json;
+use std::io::{self, Write};
+
+/// A finished tool call as printed: the warm server sends it whole, so a
+/// call answers byte-for-byte alike in process and through the server.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct Printed {
+    /// The exit code of the call's [`ExitClass`].
+    pub(super) exit: u8,
+    /// What stdout gets: the serialized JSON (compact) or a view's lines,
+    /// without a trailing newline.
+    pub(super) body: String,
+    /// Whether `body` is the serialized JSON (printed indented on a
+    /// terminal) rather than a view's lines.
+    pub(super) json: bool,
+    /// A failed call's text when its body is the JSON envelope, for a person
+    /// watching stderr ([`OutputMode::tells_stderr`]).
+    pub(super) error_text: Option<String>,
+    /// Text-mode notes for stderr (counts, pages, leads) beside line output.
+    pub(super) notes: Option<String>,
+    /// The saved request a `{"cursor":…}` call continued, beside a JSON
+    /// body, which does not state it: `--all-pages` renders a walk that
+    /// starts at a cursor from it, as a text body is ([`ToolOutcome::continued`]).
+    pub(super) continued: Option<Value>,
+}
+
+impl Printed {
+    /// The one projection of a finished call, always on stdout: its JSON,
+    /// or its view when the result has one and JSON was not asked for; a
+    /// rejected call's error envelope as JSON, or as the text of a failed
+    /// row. `query` is the call's input: the line format reads whether it
+    /// asked for context lines, from the request a cursor continued when
+    /// the call was a continuation. `cwd` is the caller's directory (the
+    /// client's, under the warm server): a root equal to it needs no note.
+    pub(super) fn finish(
+        tool: &str,
+        result: Result<ToolOutcome, RuntimeError>,
+        json_out: bool,
+        query: &Value,
+        cwd: Option<&std::path::Path>,
+    ) -> Self {
+        match result {
+            Ok(outcome) => {
+                let structured = &outcome.structured_content;
+                let query = outcome.continued.as_ref().unwrap_or(query);
+                let mut printed = Self::reply(
+                    tool,
+                    structured,
+                    exit_code(outcome.exit_class()),
+                    json_out,
+                    query,
+                    cwd,
+                    || wire_json(structured),
+                );
+                if printed.json {
+                    printed.continued.clone_from(&outcome.continued);
+                }
+                printed
+            }
+            // A rejected call states its outcome on stdout as a failed row
+            // does: stdout alone tells it from an empty answer.
+            Err(error) => {
+                let projected = tool_error_result(tool, &error);
+                let (body, error_text) = if json_out {
+                    // The text beside the JSON is for a person's terminal:
+                    // a value in it prints as data, never as a control code.
+                    (
+                        wire_json(&projected.envelope),
+                        Some(super::lines::printable_text(&projected.text)),
+                    )
+                } else {
+                    (super::lines::rejected(&projected.envelope), None)
+                };
+                Self {
+                    exit: exit_code(error.exit_class()),
+                    body,
+                    json: json_out,
+                    error_text,
+                    notes: None,
+                    continued: None,
+                }
+            }
+        }
+    }
+
+    /// A tool's reply (`structured`, a result envelope) as printed: its view
+    /// when it has one and JSON was not asked for, else `compact`, its JSON.
+    /// Text prints each row's content, then the facts that decide "am I
+    /// done" ([`super::lines::render`]). `query` is the call as it ran.
+    pub(super) fn reply(
+        tool: &str,
+        structured: &Value,
+        exit: u8,
+        json_out: bool,
+        query: &Value,
+        cwd: Option<&std::path::Path>,
+        compact: impl FnOnce() -> String,
+    ) -> Self {
+        let view = ToolId::from_name(tool)
+            .filter(|_| !json_out)
+            .and_then(|id| super::lines::render(id, structured, query, cwd));
+        let (body, json, notes) = match view {
+            Some(text) => (
+                text.out,
+                false,
+                Some(text.notes).filter(|notes| !notes.is_empty()),
+            ),
+            None => (compact(), true, None),
+        };
+        Self {
+            exit,
+            body,
+            json,
+            error_text: None,
+            notes,
+            continued: None,
+        }
+    }
+
+    /// The warm server's reply line: `{exit, body, json[, errorText,
+    /// notes, continued]}`.
+    #[cfg(unix)]
+    pub(super) fn to_json(&self) -> Value {
+        let mut reply = json!({"exit": self.exit, "body": self.body, "json": self.json});
+        if let Some(text) = &self.error_text {
+            reply["errorText"] = json!(text);
+        }
+        if let Some(notes) = &self.notes {
+            reply["notes"] = json!(notes);
+        }
+        if let Some(continued) = &self.continued {
+            reply["continued"] = continued.clone();
+        }
+        reply
+    }
+
+    /// A reply line read back; `None` when it is not one.
+    #[cfg(unix)]
+    pub(super) fn from_json(mut reply: Value) -> Option<Self> {
+        Some(Self {
+            exit: u8::try_from(reply["exit"].as_u64()?).ok()?,
+            body: match reply["body"].take() {
+                Value::String(body) => body,
+                _ => return None,
+            },
+            json: reply["json"].as_bool()?,
+            error_text: match reply["errorText"].take() {
+                Value::String(text) => Some(text),
+                Value::Null => None,
+                _ => return None,
+            },
+            notes: match reply["notes"].take() {
+                Value::String(text) => Some(text),
+                Value::Null => None,
+                _ => return None,
+            },
+            continued: match reply["continued"].take() {
+                Value::Null => None,
+                continued => Some(continued),
+            },
+        })
+    }
+
+    /// Print the body in the call's output `mode`, and a JSON error's text
+    /// on stderr when [`OutputMode::tells_stderr`]; a failed write (other
+    /// than a closed pipe) is exit 5.
+    pub(super) fn print(&self, mode: OutputMode) -> u8 {
+        let printed = if self.json {
+            write_serialized_json(&self.body)
+        } else {
+            let printed = if self.body.is_empty() {
+                0
+            } else {
+                write_text(&self.body)
+            };
+            if let Some(notes) = &self.notes {
+                let _ = io::stdout().lock().flush();
+                eprintln!("{notes}");
+            }
+            printed
+        };
+        if let Some(text) = self.error_text.as_deref()
+            && mode.tells_stderr()
+        {
+            eprintln!("{text}");
+        }
+        if printed == 0 { self.exit } else { printed }
+    }
+}
+
+pub(super) fn exit_code(class: ExitClass) -> u8 {
+    match class {
+        ExitClass::Success => 0,
+        ExitClass::Empty => 1,
+        ExitClass::Failed(ErrorClass::CorrectInput) => 2,
+        ExitClass::Failed(ErrorClass::Refused) => 4,
+        ExitClass::Failed(ErrorClass::Unservable) => 5,
+        ExitClass::Failed(ErrorClass::Restart) => 6,
+        ExitClass::Failed(ErrorClass::Transient) => 7,
+    }
+}
+
+pub(in super::super) fn write_text(text: &str) -> u8 {
+    let text = text.strip_suffix('\n').unwrap_or(text);
+    match writeln!(io::stdout().lock(), "{text}") {
+        Ok(()) => 0,
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => 0,
+        Err(_) => 5,
+    }
+}
+
+/// Print JSON on stdout: the one writer of every JSON answer, indented for a
+/// terminal and one compact line on a pipe.
+pub(in super::super) fn write_json(value: &Value) -> u8 {
+    match json_text(value, stdout_is_terminal()) {
+        Ok(text) => write_text(&text),
+        Err(_) => 5,
+    }
+}
+
+/// Print JSON already serialized compactly (a tool call's body, which the
+/// warm server sends as text) as [`write_json`] does: unchanged on a pipe.
+pub(super) fn write_serialized_json(compact: &str) -> u8 {
+    if !stdout_is_terminal() {
+        return write_text(compact);
+    }
+    match serde_json::from_str::<Value>(compact) {
+        Ok(value) => write_json(&value),
+        Err(_) => write_text(compact),
+    }
+}
+
+/// `value` as printed on a `terminal` (indented) or a pipe (one line).
+pub(super) fn json_text(value: &Value, terminal: bool) -> serde_json::Result<String> {
+    if terminal {
+        serde_json::to_string_pretty(value)
+    } else {
+        serde_json::to_string(value)
+    }
+}
+
+#[cfg(test)]
+mod tests;

@@ -1,0 +1,266 @@
+//! Python-specific graph-fact collector for `import`/`from ... import`
+//! statements, preserving module paths and alias bindings. An import in a
+//! branch that `typing.TYPE_CHECKING` keeps from running is a `type` import,
+//! however the file spells the constant.
+
+use crate::signatures::node_kinds::kind_of;
+use tree_sitter::Node;
+
+use crate::signatures::nodes::node_text;
+
+use super::{GraphAccumulator, NodePositions, push_language_import};
+
+pub(super) fn collect_python_imports(
+    node: Node<'_>,
+    ancestors: &[Node<'_>],
+    content: &str,
+    li: &NodePositions,
+    acc: &mut GraphAccumulator,
+) {
+    let module = node
+        .child_by_field_name("module_name")
+        .and_then(|module| node_text(module, content));
+    let mut cursor = node.walk();
+    let names: Vec<_> = node.children_by_field_name("name", &mut cursor).collect();
+    let line = li.range(node).start.line + 1;
+    let kind = if acc.typing.keeps_from_running(node, ancestors, content) {
+        "type"
+    } else {
+        "value"
+    };
+    for item in &names {
+        let name_node = item.child_by_field_name("name").unwrap_or(*item);
+        let Some(name) = node_text(name_node, content) else {
+            continue;
+        };
+        let alias_node = item.child_by_field_name("alias");
+        let alias = alias_node.and_then(|alias| node_text(alias, content));
+        acc.typing.observe_import(module, name, alias);
+        let specifier = module.unwrap_or(name);
+        let binding = push_language_import(
+            acc,
+            specifier.to_owned(),
+            line,
+            kind,
+            Some(
+                alias
+                    .unwrap_or_else(|| {
+                        if module.is_some() {
+                            name
+                        } else {
+                            name.split('.').next().unwrap_or(name)
+                        }
+                    })
+                    .to_owned(),
+            ),
+            Some(if module.is_some() { name } else { "*" }.to_owned()),
+            if specifier.starts_with('.') {
+                "python-relative"
+            } else {
+                "python-absolute"
+            },
+        );
+        // Synthetic module imports ("*") have no imported-name token.
+        binding.imported_range = module.map(|_| li.range(name_node));
+        let local_node = alias_node.unwrap_or_else(|| {
+            if module.is_some() {
+                name_node
+            } else {
+                name_node.named_child(0).unwrap_or(name_node)
+            }
+        });
+        binding.local_range = Some(li.range(local_node));
+    }
+    if names.is_empty()
+        && let Some(module) = module
+    {
+        push_language_import(
+            acc,
+            module.to_owned(),
+            line,
+            kind,
+            Some("*".to_owned()),
+            Some("*".to_owned()),
+            if module.starts_with('.') {
+                "python-relative"
+            } else {
+                "python-absolute"
+            },
+        );
+    }
+}
+
+/// What `typing.TYPE_CHECKING` goes by in one file, as the walk has met it.
+#[derive(Default)]
+pub(super) struct TypingBindings {
+    /// Local names of the `typing` modules (`t` of `import typing as t`).
+    modules: std::collections::HashSet<String>,
+    /// Local names of the constant (`TC` of `... import TYPE_CHECKING as TC`,
+    /// `FLAG` of `FLAG = TYPE_CHECKING`).
+    constants: std::collections::HashSet<String>,
+}
+
+const CONSTANT: &str = "TYPE_CHECKING";
+
+/// One step of [`TypingBindings::value_at_run_time`]: read a node (`None`:
+/// a missing operand, which is unsettled), or combine the values its
+/// operands left on the value stack.
+enum Step<'tree> {
+    Read(Option<Node<'tree>>),
+    Not,
+    Join { settled: bool },
+}
+
+fn is_typing_module(name: &str) -> bool {
+    matches!(name, "typing" | "typing_extensions")
+}
+
+impl TypingBindings {
+    /// An imported `name` of `module`, bound as `alias` or under its own name.
+    fn observe_import(&mut self, module: Option<&str>, name: &str, alias: Option<&str>) {
+        let local = alias.unwrap_or(name);
+        match module {
+            None if is_typing_module(name) => {
+                self.modules.insert(local.to_owned());
+            }
+            Some(module) if is_typing_module(module) && name == CONSTANT => {
+                self.constants.insert(local.to_owned());
+            }
+            _ => {}
+        }
+    }
+
+    /// A module-level `name = value`: `name` follows the constant only while
+    /// the constant is what it holds.
+    pub(super) fn observe_assignment(
+        &mut self,
+        node: Node<'_>,
+        ancestors: &[Node<'_>],
+        content: &str,
+    ) {
+        let [module, statement] = ancestors else {
+            return;
+        };
+        if kind_of(module) != "module" || kind_of(statement) != "expression_statement" {
+            return;
+        }
+        let Some(name) = node
+            .child_by_field_name("left")
+            .filter(|left| kind_of(left) == "identifier")
+            .and_then(|left| node_text(left, content))
+        else {
+            return;
+        };
+        let holds_constant = node
+            .child_by_field_name("right")
+            .is_some_and(|value| self.value_at_run_time(value, content, false) == Some(false));
+        if holds_constant {
+            self.constants.insert(name.to_owned());
+        } else {
+            self.constants.remove(name);
+        }
+    }
+
+    /// What `condition` is when the program runs, where the file settles it:
+    /// `TYPE_CHECKING` is false, whatever it is called. `literals` also reads
+    /// `True` and `False`, which a condition can test but a variable holding
+    /// one may be rebound. Evaluated over an explicit stack: a value nested
+    /// `((…))`, `not not …` or `a or b or …` deeper than any thread stack
+    /// holds is read, not a process abort.
+    fn value_at_run_time(
+        &self,
+        condition: Node<'_>,
+        content: &str,
+        literals: bool,
+    ) -> Option<bool> {
+        let mut steps = vec![Step::Read(Some(condition))];
+        let mut values: Vec<Option<bool>> = Vec::new();
+        while let Some(step) = steps.pop() {
+            match step {
+                Step::Read(None) => values.push(None),
+                Step::Read(Some(node)) => match kind_of(node) {
+                    "parenthesized_expression" => steps.push(Step::Read(node.named_child(0))),
+                    "not_operator" => {
+                        steps.push(Step::Not);
+                        steps.push(Step::Read(node.child_by_field_name("argument")));
+                    }
+                    "boolean_operator" => {
+                        let settled = node
+                            .child_by_field_name("operator")
+                            .and_then(|operator| node_text(operator, content))
+                            == Some("or");
+                        steps.push(Step::Join { settled });
+                        steps.push(Step::Read(node.child_by_field_name("right")));
+                        steps.push(Step::Read(node.child_by_field_name("left")));
+                    }
+                    _ => values.push(self.leaf_value(node, content, literals)),
+                },
+                Step::Not => {
+                    let value = values.pop().flatten();
+                    values.push(value.map(std::ops::Not::not));
+                }
+                Step::Join { settled } => {
+                    let right = values.pop().flatten();
+                    let left = values.pop().flatten();
+                    values.push(if left == Some(settled) || right == Some(settled) {
+                        Some(settled)
+                    } else {
+                        left.filter(|_| right == left)
+                    });
+                }
+            }
+        }
+        values.pop().flatten()
+    }
+
+    /// [`Self::value_at_run_time`] of a node that holds no operand.
+    fn leaf_value(&self, condition: Node<'_>, content: &str, literals: bool) -> Option<bool> {
+        match kind_of(condition) {
+            "identifier" => {
+                let name = node_text(condition, content)?;
+                (name == CONSTANT || self.constants.contains(name)).then_some(false)
+            }
+            "attribute" => {
+                let object = condition.child_by_field_name("object")?;
+                let attribute = condition.child_by_field_name("attribute")?;
+                let module = (kind_of(object) == "identifier")
+                    .then(|| node_text(object, content))
+                    .flatten()?;
+                (node_text(attribute, content) == Some(CONSTANT)
+                    && (is_typing_module(module) || self.modules.contains(module)))
+                .then_some(false)
+            }
+            "true" => literals.then_some(true),
+            "false" => literals.then_some(false),
+            _ => None,
+        }
+    }
+
+    /// Whether the branch holding `node` cannot run: the body of a condition
+    /// that is false, or the `else` of one that is true. A function body is
+    /// its own run time, so the search ends there.
+    fn keeps_from_running(&self, node: Node<'_>, ancestors: &[Node<'_>], content: &str) -> bool {
+        let mut child = node;
+        for &parent in ancestors.iter().rev() {
+            match kind_of(parent) {
+                "if_statement" | "elif_clause" => {
+                    let value = parent
+                        .child_by_field_name("condition")
+                        .and_then(|condition| self.value_at_run_time(condition, content, true));
+                    let is_body = parent
+                        .child_by_field_name("consequence")
+                        .is_some_and(|body| body.id() == child.id());
+                    if (is_body && value == Some(false))
+                        || (kind_of(child) == "else_clause" && value == Some(true))
+                    {
+                        return true;
+                    }
+                }
+                "function_definition" => return false,
+                _ => {}
+            }
+            child = parent;
+        }
+        false
+    }
+}

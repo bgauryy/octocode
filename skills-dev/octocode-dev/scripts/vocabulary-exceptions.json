@@ -1,0 +1,14 @@
+{
+  "exceptions": [
+    { "file": "skills-dev/octocode-dev/docs/ADDING_CONFIG.md", "token": "output.compact", "reason": "Hypothetical key in the add-a-setting walkthrough." },
+    { "file": "packages/octocode-native/docs/ADDING_CLASIFY_VENDOR.md", "token": "classification.vendor", "reason": "Hypothetical key a new vendor would declare." },
+    { "file": "packages/octocode-native/docs/engine/CODE_GRAPH.md", "token": "graph.scan.panicked", "reason": "Skip-reason value (engine fact_scan/evaluate/outcome.rs PANICKED), not a field path." },
+    { "file": "skills/octocode-agentic/references/acp.md", "token": "data.command", "reason": "Field of the ACP JSON-RPC error's data, not an Octocode field." },
+    { "file": "skills/octocode-agentic/references/skill-activation.md", "token": "input.skill", "reason": "Input of the host's Skill tool call, not an Octocode field." },
+    { "file": "packages/octocode-graph/skills/octocode-graph/references/build-pipeline.md", "token": "files[].metrics", "reason": "Field of the graph-view data.json model." },
+    { "file": "packages/octocode-graph/skills/octocode-graph/references/modeling.md", "token": "meta.summary", "reason": "Field of the graph-view data.json model." },
+    { "file": "skills/octocode-scraping/references/corpus.md", "token": "next.page", "reason": "Continuation of the scraping corpus scripts (scripts/corpus-find.mjs), not of an Octocode tool." },
+    { "file": "skills/octocode-scraping/references/recovery.md", "token": "next.route", "reason": "Field of the scraping fetch script output (scripts/fetch.mjs)." },
+    { "file": "skills/octocode-scraping/SKILL.md", "token": "next.route", "reason": "Field of the scraping fetch script output (scripts/fetch.mjs)." }
+  ]
+}

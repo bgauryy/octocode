@@ -15,7 +15,7 @@ Octocode does not collect remote usage events from the CLI, MCP Server, or VS Co
 - **Authentication data you provide**: Tokens or credentials you configure are stored locally using the supported credential storage path for your platform.
 
 ### What We DO NOT Collect
-- **Source Code**: Your code stays on your machine. We never upload or "peek" at your local files.
+- **Source code**: Local research runs on your machine and returns the requested evidence to your CLI or agent client. If you use classification, the configured provider receives the selected evidence and questions. [Classification data flow](docs/SECURITY.md#classification-egress)
 - **Secrets & Env Vars**: We do not collect API keys, passwords, or environment variables.
 - **PII**: We do not collect names or emails through product usage reporting.
 
@@ -25,7 +25,7 @@ For users in the EEA and UK, local product state remains under your control unle
 
 ## 4. Data Retention
 
-Octocode does not retain remote usage records. Local runtime state remains on your machine until you remove it.
+Octocode does not retain remote usage records. Local credentials, configuration, caches and saved outputs have different lifetimes. [Storage and retention](docs/STORAGE_AND_LIMITS.md)
 
 ## 5. Consent and Data Disputes
 
@@ -50,7 +50,7 @@ Under global privacy laws, you have the right to:
 ## 7. AI Transparency (EU AI Act Compliance)
 Octocode functions as an AI-orchestration layer.
 * **Model Privacy:** We do not use your prompts or source code to train Octocode-owned models.
-* **Third-Party LLMs:** When you use external providers (e.g., OpenAI, Anthropic), your data is governed by their respective privacy policies. Octocode does not store the content of these external AI interactions.
+* **Third-Party LLMs:** When you use external providers (e.g., OpenAI, Anthropic), your data is governed by their respective privacy policies. Octocode can retain classification answers and captured evidence locally to support continuation and replay. [Storage controls](docs/STORAGE_AND_LIMITS.md#cache-storage-and-lifecycle)
 
 ## 8. Contact & Issues
 

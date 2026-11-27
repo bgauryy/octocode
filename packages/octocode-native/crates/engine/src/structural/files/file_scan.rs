@@ -1,0 +1,507 @@
+//! The per-file scan: gate, read and match one candidate file.
+
+use std::path::Path;
+
+use super::anchors::{AnchorFilter, Anchored};
+use super::{CompiledMatchers, unsupported_language};
+use crate::error::{Error, Result};
+use crate::search::walk::Stop;
+use crate::signatures::languages;
+use crate::structural::octo::Found;
+use crate::structural::types::{
+    FileMatches, StructuralDemand, StructuralDiagnostic, StructuralSearchDetailedFileResult,
+};
+use crate::text::Refusal;
+use crate::text::analysis::{AdmittedSource, MapBudget, MapLimits};
+
+/// How one candidate file counts toward the scan totals.
+#[derive(Clone, Copy)]
+pub(super) enum Tally {
+    None,
+    PreFilter,
+    Unsupported,
+    Unreadable,
+    Large,
+    CompileFailure,
+    Parsed(u32),
+}
+
+pub(super) type FileOutcome = Option<FileTally>;
+
+/// How the scan counts a file, and its result.
+type FileTally = (Tally, StructuralSearchDetailedFileResult);
+
+/// Shared, read-only state of the parallel per-file scan.
+pub(super) struct FileScan<'a> {
+    pub(super) admit: &'a super::Admit<'a>,
+    pub(super) stop: &'a Stop<'a>,
+    pub(super) select_extension: &'a (dyn Fn(&Path) -> String + Sync),
+    pub(super) anchors: Option<AnchorFilter>,
+    pub(super) matchers: CompiledMatchers,
+    pub(super) max_file_bytes: u64,
+    /// The parse budget ([`crate::structural::parse_budget`]), read when the
+    /// scan starts.
+    pub(super) parse_budget: usize,
+    pub(super) demand: StructuralDemand<'a>,
+    /// Which matches a scope keeps, by file and 1-based start line.
+    pub(super) keep_line: Option<&'a crate::structural::types::KeepLine<'a>>,
+    /// What each source is matched as ([`crate::structural::JudgeText`]).
+    pub(super) judge: Option<&'a crate::structural::TextJudge>,
+    /// The outcomes kept across scans of this query ([`super::kept`]);
+    /// `None` keeps nothing.
+    pub(super) kept: Option<super::kept::Kept>,
+    /// The trees of the sources the scans beside this one parse.
+    pub(super) trees: Option<&'a super::TreeShare>,
+}
+
+impl FileScan<'_> {
+    /// Gate, read, and match one candidate, with the stamp read before any of
+    /// that: a write after it moves the stamp past what the scan read. `None`
+    /// outcome when path policy denies it.
+    pub(super) fn file(
+        &self,
+        file_path: &Path,
+    ) -> Result<(Option<crate::stamp::SourceStamp>, FileOutcome)> {
+        if (self.stop)() {
+            return Err(Error::cancelled());
+        }
+        // The walk's verdict is older than this read: the entry may have been
+        // swapped for a link since, so it is judged again by what it is now.
+        let metadata = std::fs::symlink_metadata(file_path).ok();
+        let stamp = metadata.as_ref().and_then(crate::stamp::SourceStamp::of);
+        let kind = metadata.map(|metadata| metadata.file_type());
+        Ok((stamp, self.judged(file_path, (kind, stamp))?))
+    }
+
+    /// [`Self::file`] of a candidate that is `kind` now, stamped `stamp`
+    /// before anything was read: a file unchanged since a scan of the same
+    /// query kept its outcome ([`super::kept`]) is that outcome, unread.
+    fn judged(
+        &self,
+        file_path: &Path,
+        (kind, stamp): (Option<std::fs::FileType>, Option<crate::stamp::SourceStamp>),
+    ) -> Result<FileOutcome> {
+        if !(self.admit)(file_path, kind) {
+            return Ok(None);
+        }
+        let path_string = file_path.to_string_lossy().to_string();
+        let ext = (self.select_extension)(file_path);
+        // A parser that rejects the query decides the file whatever it holds:
+        // no read, so the anchor check cannot turn this into another outcome.
+        if let Some(failure) = self.compile_failure(&path_string, &ext) {
+            return Ok(Some(failure));
+        }
+        let kept = self.kept.as_ref().zip(stamp);
+        if let Some((kept, stamp)) = &kept
+            && let Some(outcome) = kept.get(&path_string, &ext, *stamp)
+        {
+            return Ok(Some(outcome));
+        }
+        let (tally, file) = self.read_and_match(file_path, path_string, &ext)?;
+        if let Some((kept, stamp)) = &kept {
+            kept.keep(&ext, *stamp, &tally, &file);
+        }
+        Ok(Some((tally, file)))
+    }
+
+    /// [`Self::judged`] of a file no kept outcome answers: its read, anchor
+    /// check, parse and match.
+    fn read_and_match(
+        &self,
+        file_path: &Path,
+        path_string: String,
+        ext: &str,
+    ) -> Result<FileTally> {
+        // One read serves both the anchor check and the parse.
+        let prefiltered = self
+            .anchors
+            .as_ref()
+            .map(|anchors| anchors.check(file_path, self.max_file_bytes));
+        if let Some(Anchored::Miss(source_sha256)) = &prefiltered {
+            let mut file = skipped_file(
+                path_string,
+                "skippedByPreFilter",
+                "preFilter",
+                StructuralDiagnostic::new(
+                    "structural.prefilter.skipped",
+                    "info",
+                    "scan",
+                    "File excluded by the text pre-filter (it lacks a literal every match needs), so AST parsing was skipped.",
+                )
+                .with_recovery("Remove the literal prefilter by using a rule with no safe anchor if every file must be parsed."),
+            );
+            file.source_sha256 = source_sha256.clone();
+            return Ok((Tally::PreFilter, file));
+        }
+
+        let Some(entry) = languages::find_entry(ext) else {
+            return Ok((
+                Tally::Unsupported,
+                skipped_file(
+                    path_string.clone(),
+                    "unsupported",
+                    "unsupportedExtension",
+                    unsupported_language(&path_string),
+                ),
+            ));
+        };
+
+        let bytes = match prefiltered {
+            None | Some(Anchored::Miss(_)) => read_source(file_path, self.max_file_bytes),
+            Some(Anchored::Hit(bytes)) => Ok(bytes),
+            Some(Anchored::Large(len)) => Err(SourceSkip::Large(len)),
+            Some(Anchored::Unread(skip)) => Err(skip),
+        };
+        let bytes = match bytes {
+            Ok(bytes) => bytes,
+            Err(skip) => {
+                return Ok(source_skipped(path_string, &skip, self.max_file_bytes));
+            }
+        };
+        // A parse's memory follows its tokens, not its bytes: a source whose
+        // estimate passes the memory budget is skipped like one past the byte
+        // limit, and every other is admitted by that estimate, so the files
+        // parsed at once never hold more than the budget.
+        let cost = crate::structural::parse_cost(&bytes);
+        let budget = self.parse_budget;
+        if cost > budget {
+            return Ok(source_skipped(
+                path_string,
+                &SourceSkip::Costly {
+                    len: bytes.len() as u64,
+                    cost,
+                    budget,
+                },
+                self.max_file_bytes,
+            ));
+        }
+        let Some(_admitted) = crate::memory::WHOLE_FILES.acquire(cost, &|| (self.stop)()) else {
+            return Err(Error::cancelled());
+        };
+        // Admission is bounded by the map limits and the scan's cancellation,
+        // not a clock of its own.
+        let mut budget = MapBudget::new(
+            MapLimits::default(),
+            crate::signatures::extractor::whole_file_deadline(),
+            self.stop,
+        );
+        let source = match AdmittedSource::from_bytes(&bytes, &path_string, &mut budget) {
+            Ok(source) => source,
+            Err(crate::text::analysis::SourceError::Refused(refusal)) => {
+                return Ok(source_skipped(
+                    path_string,
+                    &SourceSkip::Refused(refusal),
+                    self.max_file_bytes,
+                ));
+            }
+            Err(crate::text::analysis::SourceError::LimitExceeded(limit)) => {
+                return Ok(over_limit(path_string, limit));
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let (source, shown) = judged(source, self.judge, file_path);
+        let mut source_error = None;
+        let (tally, mut file) = self.match_source(
+            path_string,
+            ext,
+            entry.language_id,
+            &source,
+            &mut source_error,
+            budget,
+        );
+        if let Some(error) = source_error {
+            return Err(error.into());
+        }
+        if let (Some(shown), FileMatches::Held(matches)) = (&shown, &mut file.matches) {
+            crate::structural::restore_texts(matches, source.text(), shown);
+        }
+        file.source_sha256 = Some(crate::digest::sha256(&bytes));
+        Ok((tally, file))
+    }
+
+    /// The outcome of a file whose parser the query did not compile for.
+    fn compile_failure(&self, path: &str, ext: &str) -> Option<FileTally> {
+        let Err(error) = self.matchers.get(ext)? else {
+            return None;
+        };
+        if let Some(interruption) = error.interruption() {
+            let diagnostic = interruption.diagnostic(path);
+            return Some((
+                Tally::None,
+                skipped_file(path.to_owned(), "truncated", "queryCompile", diagnostic),
+            ));
+        }
+        Some((
+            Tally::CompileFailure,
+            skipped_file(
+                path.to_owned(),
+                "parserFailed",
+                "queryCompile",
+                error.diagnostic().with_path(path.to_owned()),
+            ),
+        ))
+    }
+
+    fn match_source(
+        &self,
+        path_string: String,
+        ext: &str,
+        language_id: Option<&str>,
+        admitted: &AdmittedSource<'_>,
+        source_error: &mut Option<crate::text::analysis::SourceError>,
+        budget: MapBudget<'_>,
+    ) -> (Tally, StructuralSearchDetailedFileResult) {
+        let content = admitted.text();
+        let Some(Ok(run)) = self.matchers.get(ext) else {
+            return (
+                Tally::CompileFailure,
+                skipped_file(
+                    path_string.clone(),
+                    "parserFailed",
+                    "queryCompile",
+                    StructuralDiagnostic::new(
+                        "structural.matcher.missing",
+                        "error",
+                        "match",
+                        "Structural matcher was unavailable after compilation.",
+                    )
+                    .with_path(path_string)
+                    .with_recovery(
+                        "Retry the search; this indicates an internal matcher lifecycle issue.",
+                    ),
+                ),
+            );
+        };
+
+        let mut found = Found::new(self.demand);
+        found.bind_source(crate::structural::SourceBinder::with_budget(
+            admitted, budget,
+        ));
+        let file = std::path::PathBuf::from(&path_string);
+        let parsed_as = file.clone();
+        if let Some(trees) = self.trees {
+            found.share_trees(trees, &parsed_as, self.stop);
+        }
+        let keep_here = self
+            .keep_line
+            .map(|keep| move |line: u32| keep(&file, line));
+        if let Some(keep) = &keep_here {
+            found.keep_lines(keep);
+        }
+        if let Err(error) = run(content, &mut found) {
+            let diagnostic = error.diagnostic(&path_string);
+            return (
+                Tally::None,
+                skipped_file(path_string, "truncated", "executionLimit", diagnostic),
+            );
+        }
+        if let Some(error) = found.source_error() {
+            // A file past one of its own limits is one skipped file; the
+            // scan goes on. Any other failure ends the scan.
+            if let crate::text::analysis::SourceError::LimitExceeded(limit) = error {
+                return over_limit(path_string, limit);
+            }
+            *source_error = Some(error.clone());
+            return (
+                Tally::None,
+                skipped_file(
+                    path_string,
+                    "truncated",
+                    "sourceLimit",
+                    StructuralDiagnostic::new(
+                        "structural.source.failed",
+                        "error",
+                        "source",
+                        error.to_string(),
+                    ),
+                ),
+            );
+        }
+        let recovered = found.recovered();
+        let recovered_bodies = found.recovered_bodies().to_vec();
+        let matches = found.into_file_matches();
+        // Matched text and positions count the decoded text of a legacy 8-bit file.
+        let diagnostics = admitted
+            .warning()
+            .map(|warning| StructuralDiagnostic::decoded(&path_string, warning))
+            .into_iter()
+            .collect();
+        (
+            Tally::Parsed(crate::num::saturating_u32(matches.len())),
+            StructuralSearchDetailedFileResult {
+                path: path_string,
+                source_sha256: None,
+                status: "ok".to_owned(),
+                language_id: language_id.map(str::to_owned),
+                skipped_reason: None,
+                matches,
+                recovered,
+                recovered_bodies,
+                diagnostics,
+            },
+        )
+    }
+}
+
+/// The skipped-file row of a file that passed the per-file limit `limit` of
+/// the source map ([`MapLimits`]), naming the file and the limit. The rest of
+/// the scan is unaffected.
+pub(super) fn over_limit(path: String, limit: &str) -> FileTally {
+    let message = format!(
+        "{path} {}: none of its matches are in this result.",
+        MapLimits::default().passed(limit)
+    );
+    let diagnostic =
+        StructuralDiagnostic::new("structural.source.failed", "warning", "source", message)
+            .with_path(path.clone())
+            .with_recovery("Search this file alone with a narrower scope.");
+    (
+        Tally::None,
+        skipped_file(path, "truncated", "sourceLimit", diagnostic),
+    )
+}
+
+/// The skipped-file row and tally for a source that failed its read gates.
+fn source_skipped(
+    path_string: String,
+    skip: &SourceSkip,
+    max_file_bytes: u64,
+) -> (Tally, StructuralSearchDetailedFileResult) {
+    let (tally, status, reason, diagnostic) = match skip {
+        SourceSkip::Metadata(err) => (
+            Tally::Unreadable,
+            "unreadable",
+            "metadata",
+            StructuralDiagnostic::new(
+                "structural.file.unreadable",
+                "warning",
+                "scan",
+                format!("Could not read file metadata: {err}."),
+            )
+            .with_recovery("Retry if the file still exists and permissions allow reading it."),
+        ),
+        SourceSkip::Large(len) => (
+            Tally::Large,
+            "truncated",
+            "maxFileBytes",
+            StructuralDiagnostic::new(
+                "structural.file.tooLarge",
+                "warning",
+                "scan",
+                format!(
+                    "File is {len} bytes, above the structural search limit of {max_file_bytes} bytes."
+                ),
+            ),
+        ),
+        SourceSkip::Costly { len, cost, budget } => (
+            Tally::Large,
+            "truncated",
+            "maxFileBytes",
+            StructuralDiagnostic::new(
+                "structural.file.tooLarge",
+                "warning",
+                "scan",
+                format!(
+                    "File is {len} bytes; parsing it is estimated to need {cost} bytes of memory, above the budget of {budget} bytes."
+                ),
+            ),
+        ),
+        SourceSkip::Unreadable(err) => (
+            Tally::Unreadable,
+            "unreadable",
+            "read",
+            StructuralDiagnostic::new(
+                "structural.file.unreadable",
+                "warning",
+                "scan",
+                format!("Could not read file content: {err}."),
+            ),
+        ),
+        SourceSkip::Refused(refusal) => (
+            Tally::Unreadable,
+            "unreadable",
+            "read",
+            StructuralDiagnostic::new(
+                "structural.file.unreadable",
+                "warning",
+                "scan",
+                format!("Could not read file content as text: {refusal}."),
+            )
+            .with_recovery("Use binary inspection or text search for non-UTF-8 content."),
+        ),
+    };
+    let diagnostic = diagnostic.with_path(path_string.clone());
+    (tally, skipped_file(path_string, status, reason, diagnostic))
+}
+
+/// `source`, the admitted text of the file at `path`, as `judge` has it
+/// matched ([`crate::structural::JudgeText`]): the text a read shows, with
+/// that shown text when the judge hid any of it, the text a match's texts
+/// are restated from ([`crate::structural::restore_texts`]).
+pub(super) fn judged<'a>(
+    source: AdmittedSource<'a>,
+    judge: Option<&crate::structural::TextJudge>,
+    path: &Path,
+) -> (AdmittedSource<'a>, Option<String>) {
+    let Some(judge) = judge else {
+        return (source, None);
+    };
+    let hidden = (judge.0)(path, source.text());
+    if hidden.is_empty() {
+        return (source, None);
+    }
+    let (matched, shown) = source.judged(&hidden);
+    (matched, Some(shown))
+}
+
+/// Why a candidate's source was not read.
+pub(super) enum SourceSkip {
+    Metadata(std::io::Error),
+    Large(u64),
+    /// Within the byte limit, but its parse is estimated to need more
+    /// memory than the budget ([`fn@crate::structural::parse_cost`]).
+    Costly {
+        len: u64,
+        cost: usize,
+        budget: usize,
+    },
+    Unreadable(std::io::Error),
+    /// The bytes are not admitted as text (`admit`).
+    Refused(Refusal),
+}
+
+/// A candidate's bytes through the one bounded reader: an oversized file is
+/// refused from its handle's size, never read whole. `admit` turns them
+/// into the text a parse sees.
+pub(super) fn read_source(
+    path: &Path,
+    max_file_bytes: u64,
+) -> std::result::Result<Vec<u8>, SourceSkip> {
+    match crate::text::read_regular(path, max_file_bytes) {
+        Ok(source) => Ok(source.bytes),
+        Err(crate::text::ReadError::TooLarge(len)) => Err(SourceSkip::Large(len)),
+        Err(crate::text::ReadError::Io(err)) => Err(SourceSkip::Unreadable(err)),
+        Err(crate::text::ReadError::NotRegular) => Err(SourceSkip::Metadata(
+            std::io::Error::other("not a regular file"),
+        )),
+    }
+}
+
+fn skipped_file(
+    path: String,
+    status: &str,
+    skipped_reason: &str,
+    diagnostic: StructuralDiagnostic,
+) -> StructuralSearchDetailedFileResult {
+    StructuralSearchDetailedFileResult {
+        path,
+        source_sha256: None,
+        status: status.to_owned(),
+        language_id: None,
+        skipped_reason: Some(skipped_reason.to_owned()),
+        matches: FileMatches::Held(Vec::new()),
+        recovered: false,
+        recovered_bodies: Vec::new(),
+        diagnostics: vec![diagnostic],
+    }
+}

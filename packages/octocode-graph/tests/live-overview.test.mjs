@@ -1,0 +1,34 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { buildView } from '../src/assets/live-overview.ts';
+
+test('a growing folder preserves all files, edge directions and weights through expansion', () => {
+  const paths = ['crates/cli/a.rs', 'crates/cli/b.rs', 'crates/core/lib.rs', 'README.md'];
+  const nodes = new Map(paths.map((id, i) => [id, { id, path: id, kind: 'file', group: id.split('/')[0], label: id.split('/').at(-1), inGraph: i !== 1 }]));
+  const edges = new Map([[0, 2, 3], [1, 2, 2], [2, 0, 1], [0, 1, 4]].map(([a, b, w], i) => [i, { key: String(i), source: paths[a], target: paths[b], w, kind: 'imports', confidence: 'high' }]));
+  const S = { nodes, edges, metrics: null };
+  const V = { pool: new Map(), links: new Map(), expanded: new Set() };
+  const draw = (reveal = null) => buildView(V, S, { overview: true, reveal, toggles: { imports: true, docs: true }, dims: 2, anchors: new Map() });
+  const first = draw();
+  const folder = first.nodes.find(n => n.label === 'crates/cli');
+  assert.ok(folder);
+  assert.equal(folder.parsed, 1);
+  assert.deepEqual(folder.members, paths.slice(0, 2));
+  assert.equal(first.shown.get(paths[3]), paths[3]);
+  assert.deepEqual(first.links.map(l => l.w), [5, 1]);
+  nodes.get(paths[1]).inGraph = true;
+  assert.equal(draw().nodes.find(n => n.id === folder.id), folder);
+  assert.equal(folder.parsed, 2);
+  const focused = draw(paths[0]);
+  assert.equal(focused.shown.get(paths[0]), paths[0]);
+  assert.equal(focused.shown.get(paths[1]), folder.id);
+  assert.deepEqual(focused.links.map(l => l.w), [3, 2, 1, 4]);
+  V.expanded.add(folder.id);
+  const open = draw();
+  assert.equal(open.shown.get(paths[0]), paths[0]);
+  assert.deepEqual(open.links.map(l => l.w), [3, 2, 1, 4]);
+  S.metrics = { communities: [{ id: 0, size: 2, label: 'Engine' }] };
+  for (const path of paths.slice(0, 2)) nodes.get(path).metrics = { community: 0, depth: 0 };
+  assert.equal(draw().shown.get(paths[0]), 'c:0');
+  assert.equal(S.edges.size, 4);
+});

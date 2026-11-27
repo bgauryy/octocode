@@ -1,0 +1,260 @@
+//! The MCP handler: `tools/list` answers the composed listing and
+//! `tools/call` runs the shared runtime. Validation, execution, response
+//! shaping and error projection are the runtime's; this adapter only
+//! carries requests in and results out.
+use super::listing::Listing;
+use super::resources;
+use super::warm::Warm;
+use crate::cli::ToolPackage;
+use octocode_contract_types::ErrorCode;
+use octocode_native::runtime::error::McpResult;
+use octocode_native::runtime::{Channel, RuntimeError, ToolRuntime};
+use octocode_runtime_base::security::scrub_error_text;
+use rmcp::ErrorData;
+use rmcp::ServerHandler;
+use rmcp::model::{
+    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, CustomRequest,
+    CustomResult, Implementation, JsonObject, ListResourceTemplatesResult, ListResourcesResult,
+    ListToolsResult, MetaObject, PaginatedRequestParams, ProtocolVersion,
+    ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, ResultType,
+    ServerCapabilities, ServerConfig, Tool,
+};
+use rmcp::service::{RequestContext, RoleServer};
+use serde_json::Value;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// The `_meta` key carrying the server's identity on 2026-07-28 responses.
+const SERVER_INFO_META_KEY: &str = "io.modelcontextprotocol/serverInfo";
+
+pub(super) struct Handler {
+    package: ToolPackage,
+    runtime: Arc<ToolRuntime>,
+    warm: Arc<Warm>,
+    tools: Vec<Tool>,
+    config: ServerConfig,
+    next_request: AtomicU64,
+}
+
+impl Handler {
+    pub(super) fn new(
+        runtime: Arc<ToolRuntime>,
+        warm: Arc<Warm>,
+        listing: Listing,
+        package: ToolPackage,
+    ) -> Result<Self, String> {
+        let instructions = listing.instructions;
+        let tools = listing
+            .tools
+            .into_iter()
+            .map(|tool| {
+                serde_json::from_value::<Tool>(tool)
+                    .map_err(|error| format!("Invalid tool definition: {error}"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        // Server identity is interface-owned: the contract carries tool
+        // guidance, not the server's name or title; the version carries the
+        // contract's fingerprint as build metadata.
+        // Tools never change while connected: advertise `listChanged: false`.
+        let mut capabilities = ServerCapabilities::builder()
+            .enable_tools()
+            .enable_resources()
+            .build();
+        if let Some(tools) = capabilities.tools.as_mut() {
+            tools.list_changed = Some(false);
+        }
+        let (name, title) = match package {
+            ToolPackage::Research => ("octocode-mcp", "Octocode MCP"),
+            ToolPackage::Graph => ("octocode-graph", "Octocode Graph"),
+        };
+        let config = ServerConfig::new(capabilities)
+            .with_server_info(
+                Implementation::new(name, crate::cli::build_version()).with_title(title),
+            )
+            .with_instructions(instructions);
+        Ok(Self {
+            package,
+            runtime,
+            warm,
+            tools,
+            config,
+            next_request: AtomicU64::new(1),
+        })
+    }
+
+    /// Run one call to completion: on the warm server when it runs there,
+    /// else in this process. A cancelled call is cancelled where it runs,
+    /// which unwinds its work. Its text is in the session's
+    /// `output.mcpResult` format wherever it ran ([`super::reply`]).
+    async fn run(
+        &self,
+        tool: &str,
+        input: Value,
+        cancelled: tokio_util::sync::CancellationToken,
+    ) -> Result<McpResult, RuntimeError> {
+        if let Some(served) = self.warm.call(tool, &input, &cancelled).await {
+            return served;
+        }
+        let request = format!("mcp-{}", self.next_request.fetch_add(1, Ordering::Relaxed));
+        let admission = self.runtime.admit_with(request.clone(), None);
+        let format = self.runtime.config().resolved.output.mcp_result;
+        let query = input.clone();
+        let result = match admission {
+            Ok(admission) => {
+                let execution =
+                    self.runtime
+                        .execute(admission, tool.to_owned(), input, Channel::Mcp);
+                tokio::pin!(execution);
+                tokio::select! {
+                    result = &mut execution => result,
+                    () = cancelled.cancelled() => {
+                        self.runtime.requests.cancel(&request);
+                        execution.await
+                    }
+                }
+            }
+            Err(error) => Err(error),
+        };
+        super::reply(tool, result, format, &query)
+    }
+}
+
+/// A cancelled request or a closing runtime is the only call that fails as
+/// a protocol error; its message is scrubbed like every other.
+fn protocol_error(tool: &str, error: &RuntimeError) -> ErrorData {
+    let message = if error.code == ErrorCode::Cancelled {
+        "Request cancelled".to_owned()
+    } else {
+        format!(
+            "Tool {tool} failed to execute: {}",
+            scrub_error_text(&error.message)
+        )
+    };
+    ErrorData::internal_error(message, None)
+}
+
+impl Handler {
+    /// The response `_meta` a 2026-07-28 request is owed: the server's
+    /// identity, which that era carries on every response instead of in an
+    /// `initialize` handshake.
+    fn response_meta(&self, context: &RequestContext<RoleServer>) -> Option<MetaObject> {
+        let current = context
+            .protocol_version()
+            .is_some_and(|version| version.as_str() >= ProtocolVersion::V_2026_07_28.as_str());
+        let info = serde_json::to_value(&self.config.server_info).ok()?;
+        current.then(|| {
+            MetaObject(JsonObject::from_iter([(
+                SERVER_INFO_META_KEY.to_owned(),
+                info,
+            )]))
+        })
+    }
+}
+
+impl ServerHandler for Handler {
+    fn get_info(&self) -> ServerConfig {
+        self.config.clone()
+    }
+
+    async fn list_tools(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<ListToolsResult, ErrorData> {
+        let mut result = ListToolsResult::with_all_items(self.tools.clone());
+        result.meta = self.response_meta(&context);
+        Ok(result)
+    }
+
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, ErrorData> {
+        let tools = self.tools.iter().map(|tool| tool.name.as_ref());
+        let mut result = ListResourcesResult::with_all_items(resources::list(tools));
+        result.meta = self.response_meta(&context);
+        Ok(result)
+    }
+
+    async fn list_resource_templates(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<ListResourceTemplatesResult, ErrorData> {
+        let tools = self.tools.iter().map(|tool| tool.name.as_ref());
+        let mut result = ListResourceTemplatesResult::with_all_items(resources::templates(tools));
+        result.meta = self.response_meta(&context);
+        Ok(result)
+    }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResponse, ErrorData> {
+        let Some(contents) = resources::read(&request.uri, |name| {
+            self.tools.iter().any(|tool| tool.name == name)
+        }) else {
+            return Err(ErrorData::resource_not_found(
+                format!("Resource {} not found", request.uri),
+                None,
+            ));
+        };
+        Ok(ReadResourceResult::new(vec![contents]).into())
+    }
+
+    /// rmcp hands over any request its types could not read, a known method
+    /// with params of the wrong shape among them: `tools/call` is no unknown
+    /// method, so its error says what to send.
+    async fn on_custom_request(
+        &self,
+        request: CustomRequest,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<CustomResult, ErrorData> {
+        if request.method == "tools/call" {
+            return Err(ErrorData::invalid_params(
+                "tools/call takes a tool name and an arguments object: send \"arguments\":{\"queries\":[...]}",
+                None,
+            ));
+        }
+        Err(ErrorData::new(
+            rmcp::model::ErrorCode::METHOD_NOT_FOUND,
+            request.method,
+            None,
+        ))
+    }
+
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResponse, ErrorData> {
+        // A name no tool bears is a protocol error. A tool the server knows
+        // but does not list (gated by a setting or a tool list) goes to the
+        // runtime's admission, which refuses it with an error naming the
+        // setting to change: "not found" would read as a connection fault.
+        if !self.package.owns(&request.name) {
+            return Err(ErrorData::invalid_params(
+                format!("Tool {} not found", request.name),
+                None,
+            ));
+        }
+        let meta = self.response_meta(&context);
+        let tool = request.name;
+        let input = request.arguments.map_or(Value::Null, Value::Object);
+        // A request that names a progress token is told its call's progress.
+        let token = context.meta.get_progress_token();
+        let McpResult { text, is_error } =
+            super::progress::relayed(token, &context.peer, self.run(&tool, input, context.ct))
+                .await
+                .map_err(|error| protocol_error(&tool, &error))?;
+        let mut result = CallToolResult::success(vec![ContentBlock::text(text)]);
+        result.is_error = Some(is_error);
+        // rmcp completes list results itself; a call result carries its type
+        // from here (it strips it again for a 2025-era peer).
+        result.result_type = Some(ResultType::COMPLETE);
+        result.meta = meta;
+        Ok(result.into())
+    }
+}

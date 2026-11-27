@@ -1,0 +1,426 @@
+//! Per-operation language-server requests and their row shaping, run after
+//! `execute` has admitted the query, acquired a leased client, synchronized
+//! the document, and resolved the anchor.
+
+use super::anchor::Position;
+use super::failure::{
+    ALIAS_RECOVERY_FAILED, IMPORTER_REQUEST_FAILED, LspFailure, RequestFailures,
+    mark_diagnostics_unpublished, no_answer, partial_with_related_rerun, quoted_paths, shown_paths,
+    text_search_lead,
+};
+use super::heritage;
+use super::importers::{self, Importers, WindowRequest};
+use super::locations::{
+    RECOVERED_ALIAS, items_payload, locations, public_hover, public_range, public_workspace_symbol,
+    salted_items_payload, salted_locations, snapshot_changed,
+};
+use super::recovery::{
+    AliasSearch, get_counted_locations, get_locations, get_spelled_locations, recover_aliases,
+    resolve_definition_chain, snippet_identity,
+};
+use super::render::uri_to_path;
+use super::render::{into_items, items};
+use super::scope::Scope;
+use super::source::{SourceCache, filter_authorized_items};
+use super::walk::{HierarchyRequest, ImporterRecovery, hierarchy};
+use super::{LspSearchQuery, Op};
+use super::{Readiness, cancellable};
+use crate::lsp_search::lsp_search_query;
+use octocode_engine::lsp::client::{LocationRequest, NativeLspClient, SnippetReadPolicy};
+use octocode_engine::lsp::config::{
+    directory_languages, directory_representative, representative_source_for,
+};
+use octocode_runtime_base::execution::cancel::CancellationCheck;
+use octocode_runtime_base::policy::path::PathPolicy;
+use serde_json::{Value, json};
+use std::collections::HashSet;
+
+mod diagnostics;
+mod empty_type;
+mod gaps;
+mod hierarchy;
+mod index_answer;
+mod lookups;
+mod reexport;
+mod references;
+use diagnostics::anchor_diagnostics;
+pub(super) use diagnostics::{dedupe_diagnostics, diagnostic_items};
+pub(super) use gaps::verify_answer_gaps;
+use lookups::*;
+
+/// Label for references found from a verified importer anchor.
+const RECOVERED_IMPORTER: &str = "recoveredImporter";
+
+pub(super) const PUSH_DIAGNOSTICS_WAIT_MS: u32 = 1_500;
+
+/// How long an empty anchored answer, or one whose document this request
+/// opened, waits for the file's diagnostics. Without a report the row says
+/// they are unavailable; it never reads as free of errors.
+const ANCHOR_DIAGNOSTICS_WAIT_MS: u32 = 1_000;
+
+/// `lsp.source` of rows read from source by the heritage scan, not from the
+/// language server.
+pub(super) const SCAN_SOURCE: &str = "native-graph-facts";
+
+/// Partial reason of a heritage-scan answer standing in for a server that
+/// did not answer.
+const SERVER_UNANSWERED: octocode_runtime_base::response::paging::PartialReason =
+    octocode_runtime_base::response::paging::PartialReason::ServerUnanswered;
+
+/// Partial reason of a heritage-scan answer missing the files it could not
+/// read.
+const HERITAGE_UNREAD: octocode_runtime_base::response::paging::PartialReason =
+    octocode_runtime_base::response::paging::PartialReason::HeritageUnread;
+
+/// Partial reason of a server answer beside which the heritage scan found
+/// declarations the server left out (listed, labelled, unverified).
+const SCAN_ONLY: octocode_runtime_base::response::paging::PartialReason =
+    octocode_runtime_base::response::paging::PartialReason::ScanOnlyImplementations;
+
+/// How `textDocument/implementation` was answered.
+enum Implemented {
+    /// The server's answer, with the heritage scan when it was kept beside it.
+    Server {
+        found: Vec<octocode_engine::lsp::types::LspCodeSnippet>,
+        scan: Option<heritage::HeritageScan>,
+    },
+    /// The heritage scan, with the note that labels it and the files it
+    /// could not read.
+    Scan {
+        found: Vec<octocode_engine::lsp::types::LspCodeSnippet>,
+        note: String,
+        unread: Vec<String>,
+    },
+}
+
+/// The anchor type has implementation candidates past this walk's window:
+/// the row is partial, and on its last result page `next.nextCandidatePage`
+/// walks the next window of candidates (each window checked exactly once).
+fn mark_more_candidates(row: &mut Value, query: &LspSearchQuery, digest: &str) {
+    octocode_runtime_base::response::paging::mark_partial(
+        row,
+        octocode_runtime_base::response::paging::PartialReason::HierarchyCandidateLimit,
+        &[],
+    );
+    if row.pointer("/pagination/hasMore").and_then(Value::as_bool) == Some(true) {
+        return;
+    }
+    let Ok(next_candidates) = lsp_search_query::edited(
+        query,
+        &json!({
+            "page": null,
+            "candidatePage": lsp_search_query::candidate_page(query).saturating_add(1),
+            "snapshot": digest,
+        }),
+    ) else {
+        return;
+    };
+    octocode_runtime_base::response::result::insert_next(
+        &mut row["next"],
+        octocode_contract_types::LspSearchChannel::NextCandidatePage,
+        octocode_runtime_base::response::result::Continuation::continued_query(next_candidates),
+    );
+}
+
+/// Flag a heritage-scan row incomplete: its note states what it is, and the
+/// retry asks the server again. Files the scan could not read are named,
+/// with a text search over them, so the gap can be followed.
+fn mark_scan_answer(
+    row: &mut Value,
+    query: &LspSearchQuery,
+    scope: &Scope,
+    paths: &PathPolicy,
+    note: String,
+    unread: &[String],
+) {
+    partial_with_related_rerun(row, query, SERVER_UNANSWERED, &[note]);
+    if unread.is_empty() || !row.is_object() {
+        return;
+    }
+    // The warning names each file as the rows do; the lead names it as its
+    // input runs.
+    octocode_runtime_base::response::paging::mark_partial(
+        row,
+        HERITAGE_UNREAD,
+        &[heritage::describe_unread(&quoted_paths(paths, unread))],
+    );
+    let unread = shown_paths(paths, unread);
+    if let Some(base) = lsp_search_query::symbol_name(query)
+        && let Some(lead) = text_search_lead(base, &scope.root, &scope.include, Some(&unread))
+    {
+        octocode_runtime_base::response::result::attach_related(row, lead.build());
+    }
+}
+
+/// The heritage scan's declarations outside the server's answer, with the
+/// base it matched: a scan row is in the answer when a server location in
+/// its file spans its line (servers locate an implementation at its name or
+/// over its whole declaration).
+pub(super) fn scan_only(
+    found: &[octocode_engine::lsp::types::LspCodeSnippet],
+    scan: heritage::HeritageScan,
+) -> (Vec<octocode_engine::lsp::types::LspCodeSnippet>, String) {
+    let file = |uri: &str| super::scope::canonical_uri(uri);
+    let answered = found
+        .iter()
+        .map(|snippet| {
+            (
+                file(&snippet.uri),
+                snippet.range.start.line,
+                snippet.range.end.line,
+            )
+        })
+        .collect::<Vec<_>>();
+    let extra = scan
+        .found
+        .into_iter()
+        .filter(|snippet| {
+            let (path, line) = (file(&snippet.uri), snippet.range.start.line);
+            !answered
+                .iter()
+                .any(|(file, start, end)| *file == path && (*start..=*end).contains(&line))
+        })
+        .collect();
+    (extra, scan.base)
+}
+
+/// A heritage-scan declaration as a row of the answer, labelled with the
+/// source that read it.
+pub(super) fn scan_row(snippet: &octocode_engine::lsp::types::LspCodeSnippet) -> Value {
+    let mut value = serde_json::to_value(snippet).unwrap_or(Value::Null);
+    value["source"] = json!(SCAN_SOURCE);
+    value
+}
+
+/// Flag an `implementation` row incomplete when `extra` scan declarations
+/// stand beside the answer. Each row's `source` and `partialReasons` state
+/// it; the reason's meaning lives in the contract.
+pub(super) fn flag_scan_only(
+    row: &mut Value,
+    extra: &[octocode_engine::lsp::types::LspCodeSnippet],
+) {
+    if !extra.is_empty() && row.get("errorCode").is_none() {
+        octocode_runtime_base::response::paging::mark_partial(row, SCAN_ONLY, &[]);
+    }
+}
+
+/// Everything one operation needs, borrowed from `execute`.
+pub(super) struct Operation<'a, 'p> {
+    pub(super) client: &'a NativeLspClient,
+    pub(super) query: &'a LspSearchQuery,
+    pub(super) sources: &'a mut SourceCache<'p>,
+    pub(super) snippet_policy: &'a SnippetReadPolicy,
+    pub(super) cancel: &'a dyn CancellationCheck,
+    /// Canonical file (or workspace-root directory) path of the request.
+    pub(super) path: &'a str,
+    /// Where lexical scans and leads search; records the answer's files.
+    pub(super) scope: &'a Scope,
+    /// A `workspaceRoot`-only request (no source file).
+    pub(super) root_only: bool,
+    /// Zero-based LSP anchor (0,0 for document-wide operations).
+    pub(super) line: u32,
+    pub(super) character: u32,
+    /// Language of the anchor file, for server-specific recovery.
+    pub(super) language_id: Option<&'a str>,
+    /// Characters a page of rows may spend (see `page_windows::page_budget`).
+    pub(super) budget: usize,
+    /// The request's content scanner: the one every other read of a source
+    /// goes through.
+    pub(super) security: &'a octocode_runtime_base::security::ContentSecurity,
+    /// This request opened the anchor document (its first synchronization),
+    /// so the server's first diagnostics report for it may still be coming.
+    pub(super) anchor_opened: bool,
+}
+
+impl<'a> Operation<'a, '_> {
+    /// The request's zero-based anchor.
+    fn position(&self) -> Position<'a> {
+        Position {
+            path: self.path,
+            line: self.line,
+            character: self.character,
+        }
+    }
+}
+
+/// Why a row is partial when a file outside the server's index went unanswered.
+const OUTSIDE_THE_INDEX: &str = "A file the compile database does not list spells this name and was not answered: the server read it with guessed flags, so that use is unproven.";
+
+impl Operation<'_, '_> {
+    /// Check the files the text scan found outside the answer for a code
+    /// use of the queried name, off the async workers, before a row counts
+    /// them (`textOnlyFiles`).
+    async fn check_code_uses(&self) -> Result<(), LspFailure> {
+        match lsp_search_query::symbol_name(self.query) {
+            Some(name) => self.scope.check_code_uses(name, self.cancel).await,
+            None => Ok(()),
+        }
+    }
+
+    /// The operation's row; an empty answer at a position the server could
+    /// not analyze is marked partial with that error (see
+    /// `failure::mark_anchor_line_errors`).
+    pub(super) async fn run(mut self) -> Result<Value, LspFailure> {
+        let unproven = self.prepare_index_answer().await?;
+        let opened_by_text = self.scope.opened_by_text();
+        let scope = self.scope;
+        let symbol = lsp_search_query::symbol_name(self.query);
+        let (client, path, line, cancel, query) =
+            (self.client, self.path, self.line, self.cancel, self.query);
+        let anchor_opened = self.anchor_opened;
+        let anchored = !matches!(
+            lsp_search_query::op(self.query),
+            Op::DocumentSymbols | Op::WorkspaceSymbol | Op::Diagnostic
+        );
+        let mut row = self.answer().await?;
+        if let (false, Some(name)) = (unproven.is_empty(), symbol) {
+            scope.check_code_uses(name, cancel).await?;
+            let missed = scope
+                .text_only_files(name)
+                .is_some_and(|files| files.iter().any(|file| unproven.contains(file.as_str())));
+            if missed {
+                octocode_runtime_base::response::paging::mark_partial(
+                    &mut row,
+                    octocode_runtime_base::response::paging::PartialReason::ServerUnanswered,
+                    &[OUTSIDE_THE_INDEX.to_owned()],
+                );
+            }
+        }
+        if opened_by_text {
+            let reason = if client.is_indexing() {
+                octocode_runtime_base::response::paging::PartialReason::LanguageServerIndexing
+            } else if octocode_engine::lsp::clangd_database::reads_compile_database(
+                client.config(),
+                std::path::Path::new(path)
+                    .parent()
+                    .unwrap_or(std::path::Path::new(path)),
+            ) {
+                octocode_runtime_base::response::paging::PartialReason::ServerUnanswered
+            } else {
+                octocode_runtime_base::response::paging::PartialReason::NoCompileDatabase
+            };
+            // Text chose the files, whatever they agree on: always partial,
+            // with the text search to compare (core says why, per reason).
+            octocode_runtime_base::response::paging::mark_partial(&mut row, reason, &[]);
+            // What that text check found, whichever configuration clangd read.
+            if let Some(name) = symbol.filter(|_| {
+                super::inferred_project::is_incoming(lsp_search_query::operation(query))
+                    && row.pointer("/coverage/textOnlyFiles").is_none()
+            }) {
+                scope.check_code_uses(name, cancel).await?;
+                if let Some(files) = scope.text_only_files(name) {
+                    super::failure::record_text_only(&mut row, scope, name, files.len());
+                }
+            }
+            if let Some(lead) = symbol.and_then(|name| {
+                super::failure::text_search_lead(name, &scope.root, &scope.include, None)
+            }) {
+                octocode_runtime_base::response::result::attach_related(&mut row, lead.build());
+            }
+        }
+        if anchored {
+            let empty = row.get("status").and_then(Value::as_str) == Some("empty");
+            let diagnostics =
+                anchor_diagnostics(client, path, cancel, (empty, anchor_opened)).await?;
+            // No report states `unavailable`: a row without its analysis
+            // context would read as one whose document has no errors.
+            super::analysis_context::annotate_diagnostics(
+                &mut row,
+                query,
+                diagnostics.as_ref(),
+                line + 1,
+            );
+        }
+        Ok(row)
+    }
+
+    async fn answer(self) -> Result<Value, LspFailure> {
+        let query = self.query;
+        match lsp_search_query::op(query) {
+            Op::Definition => self.definition().await,
+            Op::References => self.references().await,
+            Op::TypeDefinition => {
+                let (found, withheld) = get_counted_locations(
+                    self.client,
+                    self.snippet_policy,
+                    self.cancel,
+                    LocationRequest::TypeDefinition,
+                    (self.path, self.line, self.character),
+                )
+                .await?;
+                if found.is_empty() && !withheld.is_empty() {
+                    return Ok(super::locations::withheld(
+                        self.query,
+                        &withheld,
+                        self.sources.policy(),
+                    ));
+                }
+                let empty = if found.is_empty() {
+                    self.empty_type_resolution().await?
+                } else {
+                    Default::default()
+                };
+                let (resolved, found) = if empty.declaration.is_empty() {
+                    (empty.resolved, found)
+                } else {
+                    (None, empty.declaration)
+                };
+                let scope = self.scope;
+                let mut row = self
+                    .locations("typeDefinition", "typeDefinitionProvider", found)
+                    .await;
+                if let Some(resolved) = resolved {
+                    scope.note_anchor_resolved(resolved);
+                    empty_type::state(&mut row, resolved);
+                }
+                Ok(row)
+            }
+            Op::Implementation => self.implementation().await,
+            Op::Hover => self.hover().await,
+            Op::DocumentSymbols => {
+                // The document synced without the open wait (see
+                // `session::sync`); an empty outline of a file with text pays
+                // that owed wait and asks once more.
+                let source = self.sources.get(self.path).await;
+                let content = source.as_ref().map_or("", |source| source.content.as_str());
+                let (symbols, readiness) = cancellable(
+                    self.cancel,
+                    self.client
+                        .get_document_symbols_settled(self.path.to_owned(), content),
+                )
+                .await??;
+                Ok(outline_row(
+                    query,
+                    std::sync::Arc::unwrap_or_clone(symbols),
+                    self.language_id,
+                    source.as_ref().map(|source| source.content.as_str()),
+                    self.budget,
+                    readiness,
+                ))
+            }
+            Op::WorkspaceSymbol => self.workspace_symbol().await,
+            Op::Diagnostic => self.diagnostic().await,
+            Op::Callers | Op::Callees | Op::Supertypes | Op::Subtypes => self.hierarchy().await,
+        }
+    }
+}
+
+/// The `documentSymbols` row: the outline, with a TypeScript alias named
+/// from `content`, flagged partial when the wait the outline paid (`readiness`)
+/// timed out.
+fn outline_row(
+    query: &LspSearchQuery,
+    mut symbols: Value,
+    language_id: Option<&str>,
+    content: Option<&str>,
+    budget: usize,
+    readiness: Option<Readiness>,
+) -> Value {
+    super::render::name_type_aliases_in(&mut symbols, language_id, content);
+    let mut payload = items_payload(query, "documentSymbols", symbols, budget);
+    super::responses::flag_still_loading(&mut payload, query, readiness);
+    payload
+}
+
+#[cfg(test)]
+mod tests;

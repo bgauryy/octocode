@@ -1,0 +1,402 @@
+//! `$/progress` tracking and the readiness signal derived from it.
+
+use crate::lsp::clock::LspClock;
+use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex as StdMutex};
+use tokio::sync::{Mutex, watch};
+use tokio::time::{Duration, Instant};
+
+/// Cap on concurrently-active `$/progress` begin tokens. A conformant server has a
+/// handful of in-flight progress streams; beyond this a server is either buggy or
+/// hostile, so extra begins are ignored rather than growing the set without bound.
+const MAX_ACTIVE_PROGRESS_TOKENS: usize = 512;
+
+/// Synthetic token for rust-analyzer's non-quiescent server status. The
+/// `\0` prefix keeps it from colliding with any real `$/progress` token.
+const SERVER_STATUS_TOKEN: &str = "\0octocode/serverStatus";
+
+/// rust-analyzer's cache priming token: it indexes every crate in the
+/// background so later queries run warm, and answers need none of it.
+pub(crate) const CACHE_PRIMING_TOKEN: &str = "rustAnalyzer/cachePriming";
+
+/// How `wait_until_idle` concluded — a readiness signal the LSP tool uses to
+/// tell "server confirmed indexing is done" apart from "server never told us,
+/// we only waited a fixed window" apart from "server is still busy".
+///
+/// This distinction is what lets a *zero-results* semantic query be reported
+/// honestly: only `ProgressIdle` means the empty answer reflects the indexed
+/// project; the other two mean the emptiness might just be "not indexed yet".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Readiness {
+    /// Saw at least one `$/progress` cycle and drained it to idle — the server
+    /// announced indexing and we waited for it to finish.
+    ProgressIdle,
+    /// Never saw any `$/progress`; only the settle window elapsed. Normal for
+    /// servers that do not report indexing (e.g. typescript-language-server),
+    /// so completion cannot be confirmed — not an error.
+    SilentServer,
+    /// `$/progress` was still active when `timeout_ms` expired — the server is
+    /// (as far as we know) still indexing.
+    Timeout,
+}
+
+/// Wait this long for the very first `$/progress begin` after
+/// `initialized` is sent.
+///
+/// This window has to absorb two very different server behaviours:
+///   * Servers that announce indexing via `$/progress` — they emit a
+///     `begin` within this window and we then drain to completion.
+///   * Servers that index WITHOUT progress events — the only safe
+///     signal we have is elapsed time, so the window must be long
+///     enough that the server has plausibly finished its initial work
+///     before we let the first query through.
+///
+/// 100 ms was too aggressive: a server indexing silently would race the
+/// first query and return wrong/empty results. We use a conservative
+/// few-second window instead, always bounded by the caller's
+/// `timeout_ms` so `wait_for_ready` can never block longer than asked.
+pub(crate) const STARTUP_SETTLE_MS: u64 = 2_000;
+
+/// How far a language server says it works; rust-analyzer's `health` above `ok`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HealthLevel {
+    /// "Some results might be wrong", for example a missing dependency.
+    Warning,
+    /// "Most results will be incomplete or wrong", for example a project that
+    /// failed to load.
+    Error,
+}
+
+impl HealthLevel {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Warning => "warning",
+            Self::Error => "error",
+        }
+    }
+
+    /// `None` for `ok`. A level this client does not know is no claim of working,
+    /// so it reads as the milder failure.
+    fn parse(level: &str) -> Option<Self> {
+        match level {
+            "ok" => None,
+            "error" => Some(Self::Error),
+            _ => Some(Self::Warning),
+        }
+    }
+}
+
+/// A language server's own report that it is not fully working: its answers
+/// may be incomplete or wrong.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServerHealth {
+    pub level: HealthLevel,
+    pub message: Option<String>,
+    /// The project directory the report is about (one project of several
+    /// the server loaded failed to import); `None` for the whole server.
+    pub project: Option<String>,
+}
+
+/// Tracks in-flight `$/progress` tokens emitted by a language server.
+///
+/// After `initialized` is sent, servers like `rust-analyzer` begin asynchronous
+/// project indexing and announce it via `$/progress begin`/`end` notifications.
+/// `wait_until_idle` gates on all such tokens completing (or a deadline firing).
+///
+/// Two-phase wait:
+///   1. **Settle** ([`STARTUP_SETTLE_MS`]): wait for the first `begin` to arrive.
+///      Servers that don't use progress return immediately after this window.
+///   2. **Drain**: wait until every active token ends or the original deadline expires.
+pub(crate) struct ProgressTracker {
+    active: Mutex<HashSet<String>>,
+    /// What the server last said is wrong with it; `None` while it reports
+    /// `ok` or nothing.
+    health: StdMutex<Option<ServerHealth>>,
+    /// `true` once at least one `begin` notification has been received.
+    ever_active: AtomicBool,
+    /// Tokens that began, counted once per start of a token not already open.
+    begins: AtomicU64,
+    /// Begins of work an answer waits for: every begin but cache priming and
+    /// the status that only reports it ([`open_work`]'s rule), so a priming
+    /// restart after each cancellation is no new work.
+    work_begins: AtomicU64,
+    /// Work-done notices so far (`begin`, `report`, `end`, rust-analyzer's
+    /// status): a change between two reads means the server said something
+    /// about its work in between, which an open token alone does not.
+    reports: AtomicU64,
+    /// Messages of any kind the server has sent (notifications, requests,
+    /// responses): a change between two reads means it was alive and
+    /// talking in between, whatever it said.
+    messages: AtomicU64,
+    count_tx: watch::Sender<usize>,
+    count_rx: watch::Receiver<usize>,
+    /// The time the readiness waits run on.
+    clock: LspClock,
+}
+
+/// How many open tokens are work an answer waits for. Cache priming is not
+/// ([`CACHE_PRIMING_TOKEN`]), and while it is open the server's own
+/// `quiescent:false` status means that priming, so it is no work either; the
+/// status alone, or beside any other token, is.
+fn open_work(active: &HashSet<String>) -> usize {
+    let priming = active.contains(CACHE_PRIMING_TOKEN);
+    let work = active
+        .iter()
+        .filter(|token| token.as_str() != CACHE_PRIMING_TOKEN)
+        .count();
+    if priming && work == usize::from(active.contains(SERVER_STATUS_TOKEN)) {
+        0
+    } else {
+        work
+    }
+}
+
+impl ProgressTracker {
+    pub(crate) fn new(clock: LspClock) -> Arc<Self> {
+        let (count_tx, count_rx) = watch::channel(0usize);
+        Arc::new(Self {
+            active: Mutex::new(HashSet::new()),
+            health: StdMutex::new(None),
+            ever_active: AtomicBool::new(false),
+            begins: AtomicU64::new(0),
+            work_begins: AtomicU64::new(0),
+            reports: AtomicU64::new(0),
+            messages: AtomicU64::new(0),
+            count_tx,
+            count_rx,
+            clock,
+        })
+    }
+
+    pub(crate) async fn on_begin(&self, token: String) {
+        self.on_report();
+        let mut active = self.active.lock().await;
+        // Cap the active set so a server emitting an unbounded stream of distinct
+        // `begin` tokens (never matched by `end`) cannot grow memory or wedge
+        // `wait_until_idle` forever. Re-inserting an already-tracked token is fine;
+        // only genuinely new tokens beyond the cap are dropped.
+        if !active.contains(&token) && active.len() >= MAX_ACTIVE_PROGRESS_TOKENS {
+            return;
+        }
+        let work = token != CACHE_PRIMING_TOKEN
+            && !(token == SERVER_STATUS_TOKEN && active.contains(CACHE_PRIMING_TOKEN));
+        if active.insert(token) {
+            self.begins.fetch_add(1, Ordering::AcqRel);
+            if work {
+                self.work_begins.fetch_add(1, Ordering::AcqRel);
+            }
+        }
+        self.ever_active.store(true, Ordering::Release);
+        let _ = self.count_tx.send(open_work(&active));
+    }
+
+    pub(crate) async fn on_end(&self, token: &str) {
+        self.on_report();
+        let mut active = self.active.lock().await;
+        active.remove(token);
+        let _ = self.count_tx.send(open_work(&active));
+    }
+
+    /// One work-done notice from the server: a `report` on an open token, or
+    /// (through [`Self::on_begin`] and [`Self::on_end`]) a token's start or end.
+    pub(crate) fn on_report(&self) {
+        self.reports.fetch_add(1, Ordering::AcqRel);
+    }
+
+    /// How many work-done notices the server has sent so far; see
+    /// [`Self::on_report`].
+    pub(crate) fn reports(&self) -> u64 {
+        self.reports.load(Ordering::Acquire)
+    }
+
+    /// One message of any kind from the server; see [`Self::messages`].
+    pub(crate) fn on_message(&self) {
+        self.messages.fetch_add(1, Ordering::AcqRel);
+    }
+
+    /// How many messages the server has sent so far: a log line, a status,
+    /// diagnostics or another request's answer all say it is alive.
+    pub(crate) fn messages(&self) -> u64 {
+        self.messages.load(Ordering::Acquire)
+    }
+
+    /// How many tokens have begun so far: a change between two reads means
+    /// the server started work in between.
+    pub(crate) fn begins(&self) -> u64 {
+        self.begins.load(Ordering::Acquire)
+    }
+
+    /// How many begins of work an answer waits for so far ([`Self::work_begins`]
+    /// leaves out cache priming).
+    pub(crate) fn work_begins(&self) -> u64 {
+        self.work_begins.load(Ordering::Acquire)
+    }
+
+    /// The work-begin count and active work at one point between token
+    /// transitions. Reading them separately can pair a new begin with the
+    /// previous idle count.
+    pub(crate) async fn work_state(&self) -> (u64, bool) {
+        let active = self.active.lock().await;
+        (self.work_begins(), open_work(&active) > 0)
+    }
+
+    /// `true` while any progress token (or rust-analyzer's non-quiescent
+    /// status) is open: the server says it is working.
+    pub(crate) fn has_active(&self) -> bool {
+        *self.count_rx.borrow() > 0
+    }
+
+    /// rust-analyzer `experimental/serverStatus`: `quiescent:false` is treated
+    /// as one open progress token and `quiescent:true` as its end, so readiness
+    /// waits for rust-analyzer's own "done loading" signal as well as for
+    /// `$/progress`. Only rust-analyzer sends it, and only when the client
+    /// opted in with `experimental.serverStatusNotification`.
+    pub(crate) async fn on_server_status(&self, quiescent: bool) {
+        if quiescent {
+            self.on_end(SERVER_STATUS_TOKEN).await;
+        } else {
+            self.on_begin(SERVER_STATUS_TOKEN.to_owned()).await;
+        }
+    }
+
+    /// rust-analyzer `experimental/serverStatus`: the latest `health` replaces
+    /// the last, so a reloaded project clears an earlier failure.
+    pub(crate) fn on_server_health(&self, level: &str, message: Option<&str>) {
+        self.set_health(HealthLevel::parse(level).map(|level| ServerHealth {
+            level,
+            message: message.map(str::to_owned),
+            project: None,
+        }));
+    }
+
+    /// Replace what the server is known to lack; `None` once it works.
+    pub(crate) fn set_health(&self, report: Option<ServerHealth>) {
+        *self
+            .health
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = report;
+    }
+
+    /// What the server last said is wrong with it, while it says so.
+    pub(crate) fn health(&self) -> Option<ServerHealth> {
+        self.health
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Blocks until all in-flight tokens end **and** a quiescence window passes
+    /// with no new tokens starting, or until `timeout_ms` elapses.
+    ///
+    /// Servers like `rust-analyzer` emit several sequential `$/progress` waves
+    /// (e.g. crate loading -> workspace analysis -> cache priming).  Without
+    /// the quiescence window we would return after the *first* wave, before the
+    /// server is fully ready to answer queries.
+    /// `settle_ms` is the settle window (normally [`STARTUP_SETTLE_MS`]).
+    pub(crate) async fn wait_until_idle(&self, timeout_ms: u64, settle_ms: u64) -> Readiness {
+        /// After count reaches 0, wait this long for any follow-up wave before
+        /// declaring the server idle.  Sized to bridge the typical gap between
+        /// rust-analyzer progress waves (~10-100 ms in practice).
+        const QUIESCE_MS: u64 = 200;
+
+        let deadline = self.clock.deadline_after(Duration::from_millis(timeout_ms));
+
+        let mut rx = self.count_rx.clone();
+
+        // Phase 1 -- settle: wait briefly for the first $/progress begin.
+        if *rx.borrow() == 0 && !self.ever_active.load(Ordering::Acquire) {
+            let settle = Duration::from_millis(settle_ms.min(timeout_ms));
+            let became_active = self
+                .clock
+                .timeout(settle, rx.wait_for(|c| *c > 0))
+                .await
+                .is_ok();
+            if !became_active {
+                // Server does not use progress -- we only waited the settle
+                // window, so we cannot confirm indexing actually finished.
+                return Readiness::SilentServer;
+            }
+        }
+
+        self.drain_until_quiet(&mut rx, deadline, QUIESCE_MS).await
+    }
+
+    /// Snapshot the progress stream so a later [`Self::wait_until_idle_after`]
+    /// observes every `begin`/`end` that arrives from this point on — even one
+    /// that starts and finishes before the waiter is polled.
+    pub(crate) fn subscribe(&self) -> watch::Receiver<usize> {
+        let mut rx = self.count_rx.clone();
+        rx.borrow_and_update();
+        rx
+    }
+
+    /// Like [`Self::wait_until_idle`] but scoped to progress that starts AFTER
+    /// `rx` was taken via [`Self::subscribe`], with a caller-chosen settle.
+    ///
+    /// Servers such as `typescript-language-server` announce nothing on
+    /// `initialized` and only start loading a project once a document is
+    /// opened (`$/progress begin` ~100 ms after `didOpen`). Waiting here after
+    /// the first `didOpen` keeps queries from racing that load. The settle is
+    /// short because the triggering event is known; servers that never report
+    /// progress pay only `settle_ms`.
+    pub(crate) async fn wait_until_idle_after(
+        &self,
+        mut rx: watch::Receiver<usize>,
+        settle_ms: u64,
+        timeout_ms: u64,
+    ) -> Readiness {
+        const QUIESCE_MS: u64 = 200;
+        let deadline = self.clock.deadline_after(Duration::from_millis(timeout_ms));
+        if *rx.borrow() == 0 {
+            let settle = Duration::from_millis(settle_ms.min(timeout_ms));
+            // Any update since `subscribe` counts: a begin/end pair that already
+            // completed still bumps the channel version.
+            if self.clock.timeout(settle, rx.changed()).await.is_err() {
+                return Readiness::SilentServer;
+            }
+        }
+        self.drain_until_quiet(&mut rx, deadline, QUIESCE_MS).await
+    }
+
+    /// Drain + quiesce loop: repeat until a full `quiesce_ms` window passes
+    /// with no active tokens and no new ones starting, or `deadline` expires.
+    async fn drain_until_quiet(
+        &self,
+        rx: &mut watch::Receiver<usize>,
+        deadline: Instant,
+        quiesce_ms: u64,
+    ) -> Readiness {
+        loop {
+            // Wait for count to reach zero.
+            let remaining = deadline.saturating_duration_since(self.clock.now());
+            if self
+                .clock
+                .timeout(remaining, rx.wait_for(|c| *c == 0))
+                .await
+                .is_err()
+            {
+                return Readiness::Timeout; // Deadline expired while tokens active.
+            }
+
+            // Quiesce: wait briefly to see if a new wave starts.
+            let remaining = deadline.saturating_duration_since(self.clock.now());
+            let full_quiescence = Duration::from_millis(quiesce_ms);
+            let quiesce = full_quiescence.min(remaining);
+            // Any update breaks quiescence, including a short begin/end wave
+            // whose active count was coalesced back to zero before we woke.
+            let new_wave = self.clock.timeout(quiesce, rx.changed()).await.is_ok();
+            if !new_wave {
+                return if remaining >= full_quiescence {
+                    Readiness::ProgressIdle
+                } else {
+                    Readiness::Timeout
+                };
+            }
+            // A new wave started; loop back and drain it too.
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

@@ -1,0 +1,22 @@
+{
+  "description": "Oxlint with type-aware rules (tsgolint, tracks TypeScript 7) and the Oxfmt formatter",
+  "scripts": {
+    "lint": "oxlint --type-aware --deny-warnings",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check"
+  },
+  "devDependencies": [
+    "oxlint",
+    "oxlint-tsgolint",
+    "oxfmt"
+  ],
+  "notes": "Oxfmt is pre-1.0: pin its exact version and review formatter diffs on upgrade.",
+  "alternatives": {
+    ".oxlintrc.json": [
+      "oxlint.config.ts"
+    ],
+    ".oxfmtrc.json": [
+      ".oxfmtrc.jsonc"
+    ]
+  }
+}

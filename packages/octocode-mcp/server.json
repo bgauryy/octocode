@@ -5,15 +5,15 @@
   "description": "AI code research platform. Search, analyze, and extract insights from any GitHub repository.",
   "status": "active",
   "repository": {
-    "url": "https://github.com/bgauryy/octocode-mcp",
+    "url": "https://github.com/bgauryy/octocode",
     "source": "github"
   },
-  "version": "16.2.0",
+  "version": "20.2.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "octocode-mcp",
-      "version": "16.2.0",
+      "version": "20.2.0",
       "transport": {
         "type": "stdio"
       },
@@ -23,6 +23,12 @@
           "description": "GitHub Personal Access Token. Optional - authenticate via GitHub CLI (gh auth login) for automatic token management, or set this token manually for CI/CD environments.",
           "isRequired": false,
           "isSecret": true
+        },
+        {
+          "name": "OCTOCODE_ENABLE_LOCAL",
+          "description": "Set to true to list the local tools (localSearch, localFetch, structureSearch, astSearch, lspSearch). Off by default: the server then lists the GitHub and package tools only.",
+          "isRequired": false,
+          "isSecret": false
         }
       ]
     }

@@ -1,0 +1,325 @@
+//! The `Command` enum: one sub-command per native tool plus system commands.
+//!
+//! Every tool accepts one canonical JSON envelope. `schema` is the discovery command.
+use clap::{ArgMatches, Args, FromArgMatches, Subcommand};
+use octocode_runtime_base::id::ToolId;
+
+/// One JSON envelope, supplied directly or through a file.
+#[derive(Args, Debug)]
+pub(super) struct ToolArgs {
+    /// A canonical JSON envelope: {"queries":[…]} or {"cursor":"…"}.
+    #[arg(value_name = "JSON", num_args = 0..=1, conflicts_with = "input")]
+    pub args: Vec<String>,
+    /// Read the JSON query from a file, or from stdin with `-`.
+    #[arg(long, value_name = "FILE|-")]
+    pub input: Option<std::path::PathBuf>,
+    /// Follow every page: send each reply's top-level `next` until none is left, then print one reply with the pages joined (rows of one index in order, `rowPart` pieces as one row). Row `next.*` calls stay listed; a failed page ends the walk, reported with its error and `next`.
+    #[arg(long)]
+    pub all_pages: bool,
+    /// `clasify --content -`: stdin is the one query row's `content`
+    /// ([`content_from_stdin`]); only that command defines the flag.
+    #[arg(skip)]
+    pub content_stdin: bool,
+}
+
+/// Largest JSON query read from `--input` (a file or stdin), and largest query
+/// once `--content -` puts stdin into it.
+pub(super) const MAX_QUERY_BYTES: u64 = 8 * 1024 * 1024;
+
+/// The flag that fills a clasify row's `content` from stdin. It takes only
+/// `-`: it is where the field's value comes from, not a second name for it,
+/// so the row's other fields stay in the JSON.
+const CONTENT_FLAG: &str = "content";
+
+/// `--content -` on the one tool whose row takes literal text: clasify.
+fn content_from_stdin(tool: &str, command: clap::Command) -> clap::Command {
+    if tool != ToolId::Clasify.as_str() {
+        return command;
+    }
+    command.arg(
+        clap::Arg::new(CONTENT_FLAG)
+            .long(CONTENT_FLAG)
+            .value_name("-")
+            .value_parser(["-"])
+            .help("Read the one query row's `content` from stdin as UTF-8 text; the JSON comes from the argument or --input FILE"),
+    )
+}
+
+impl ToolArgs {
+    /// Resolve the JSON query text from `--input FILE|-` or the positional
+    /// argument. `Ok(None)` means no query was supplied.
+    pub(super) fn query_text(&self) -> Result<Option<String>, String> {
+        let Some(path) = &self.input else {
+            return Ok(self.json_arg().map(str::to_owned));
+        };
+        let (source, read) = if path.as_os_str() == "-" {
+            (
+                "the query from stdin".to_owned(),
+                octocode_io::read::read_limited(std::io::stdin(), MAX_QUERY_BYTES),
+            )
+        } else {
+            (
+                format!("--input {}", path.display()),
+                std::fs::File::open(path)
+                    .and_then(|file| octocode_io::read::read_limited(file, MAX_QUERY_BYTES)),
+            )
+        };
+        let bytes = read
+            .map_err(|error| format!("Cannot read {source}: {error}"))?
+            .ok_or_else(|| format!("The JSON query exceeds {} MiB.", MAX_QUERY_BYTES >> 20))?;
+        // Editors on Windows save UTF-8 with a byte-order mark; JSON never
+        // starts with one.
+        let text = &bytes[octocode_engine::text::bom_len(&bytes)..];
+        String::from_utf8(text.to_vec())
+            .map(Some)
+            .map_err(|error| format!("Cannot read {source}: {error}"))
+    }
+}
+
+impl ToolArgs {
+    /// The positional JSON query: one argument that starts with `{`.
+    pub(super) fn json_arg(&self) -> Option<&str> {
+        match self.args.as_slice() {
+            [only] => Some(only),
+            _ => None,
+        }
+    }
+}
+
+/// One tool sub-command. The tool list and each command's `about` come from
+/// the embedded tool contract, so the CLI never spells the tool set itself.
+#[derive(Debug)]
+pub(super) struct ToolCommand {
+    pub name: &'static str,
+    pub args: ToolArgs,
+}
+
+/// `(name, about)` for every tool in the embedded contract: when to use it,
+/// since a CLI agent chooses from this list and never reads the MCP
+/// instructions. Both come from generated constants, so building the argument
+/// parser never parses the multi-megabyte contract.
+fn contract_tools() -> impl Iterator<Item = (&'static str, String)> {
+    ToolId::ALL.into_iter().map(|tool| {
+        let about = octocode_runtime_base::contracts::cli_tool_trigger(tool.as_str())
+            .unwrap_or_else(|| tool.title());
+        (tool.as_str(), about.to_owned())
+    })
+}
+
+fn contract_tool_name(name: &str) -> Option<&'static str> {
+    ToolId::from_name(name).map(ToolId::as_str)
+}
+
+impl FromArgMatches for ToolCommand {
+    fn from_arg_matches(matches: &ArgMatches) -> Result<Self, clap::Error> {
+        Self::from_arg_matches_mut(&mut matches.clone())
+    }
+
+    fn from_arg_matches_mut(matches: &mut ArgMatches) -> Result<Self, clap::Error> {
+        let Some((name, sub_matches)) = matches.remove_subcommand() else {
+            return Err(clap::Error::raw(
+                clap::error::ErrorKind::MissingSubcommand,
+                "a tool name is required",
+            ));
+        };
+        let Some(name) = contract_tool_name(&name) else {
+            return Err(clap::Error::raw(
+                clap::error::ErrorKind::InvalidSubcommand,
+                format!("unrecognized subcommand '{name}'"),
+            ));
+        };
+        let mut args = ToolArgs::from_arg_matches(&sub_matches)?;
+        args.content_stdin = sub_matches
+            .try_get_one::<String>(CONTENT_FLAG)
+            .ok()
+            .flatten()
+            .is_some();
+        Ok(Self { name, args })
+    }
+
+    fn update_from_arg_matches(&mut self, matches: &ArgMatches) -> Result<(), clap::Error> {
+        *self = Self::from_arg_matches(matches)?;
+        Ok(())
+    }
+}
+
+impl Subcommand for ToolCommand {
+    fn augment_subcommands(command: clap::Command) -> clap::Command {
+        contract_tools().fold(command, |command, (name, about)| {
+            command.subcommand(content_from_stdin(
+                name,
+                ToolArgs::augment_args(clap::Command::new(name)).about(about),
+            ))
+        })
+    }
+
+    fn augment_subcommands_for_update(command: clap::Command) -> clap::Command {
+        contract_tools().fold(command, |command, (name, about)| {
+            command.subcommand(content_from_stdin(
+                name,
+                ToolArgs::augment_args_for_update(clap::Command::new(name)).about(about),
+            ))
+        })
+    }
+
+    fn has_subcommand(name: &str) -> bool {
+        contract_tool_name(name).is_some()
+    }
+}
+
+#[derive(Subcommand)]
+pub(super) enum AuthCommand {
+    /// Show whether GitHub accepts the active token, and its source (never the token).
+    Status,
+    /// Authenticate with GitHub using device flow, or refresh a stored token.
+    Login {
+        /// GitHub API hostname (override for GitHub Enterprise device login).
+        #[arg(long)]
+        hostname: Option<String>,
+        /// Re-authenticate and replace stored credentials only after a successful login.
+        #[arg(long)]
+        force: bool,
+        /// Refresh the stored token using its refresh token instead of a new device flow.
+        #[arg(long)]
+        refresh: bool,
+    },
+    /// Remove stored GitHub credentials from Octocode home and the OS store.
+    Logout,
+}
+
+#[derive(Subcommand)]
+pub(super) enum Command {
+    // ── Tools: one command per contract tool, named exactly like the tool ────
+    #[command(flatten)]
+    Tool(ToolCommand),
+
+    // ── System commands ──────────────────────────────────────────────────────
+    /// List tools or a tool's query fields; --view full lists every tool's fields, --view output a tool's output meanings.
+    #[command(long_about = SCHEMA_HELP)]
+    Schema {
+        /// Tool name, e.g. `localSearch`. Omit to list every enabled tool.
+        tool: Option<String>,
+        /// View: query (default for a tool), variants or output; full for the catalog; flow for the tool-flow guide.
+        #[arg(long, value_parser = ["query", "variants", "output", "full", "flow"])]
+        view: Option<String>,
+        /// Narrow the query view to one branch by a const field, e.g. `operation=symbols`.
+        #[arg(long, value_name = "FIELD=VALUE", requires = "tool")]
+        select: Option<String>,
+    },
+    /// Open the settings page on an interactive terminal; otherwise show configuration files and loaded keys. Subcommands list, get and set values.
+    #[command(args_conflicts_with_subcommands = true, disable_help_subcommand = true)]
+    Config {
+        #[command(subcommand)]
+        command: Option<ConfigCommand>,
+        /// Private JSON management transport used by the local config view.
+        #[arg(long, hide = true)]
+        manage: bool,
+    },
+    /// Remove tool caches for this home and this workspace; stop MCP servers first.
+    #[command(disable_help_subcommand = true)]
+    Cache {
+        #[command(subcommand)]
+        command: CacheCommand,
+    },
+    /// GitHub authentication: `status`, `login`, or `logout`.
+    #[command(disable_help_subcommand = true)]
+    Auth {
+        #[command(subcommand)]
+        command: AuthCommand,
+    },
+    /// Install, remove, or check bundled Octocode skills (`octocode skill --help`).
+    #[command(disable_help_subcommand = true)]
+    Skill {
+        #[command(subcommand)]
+        command: super::skill::SkillCommand,
+    },
+    /// Add the Octocode MCP server to an agent client's configuration.
+    Install(super::mcp_install::InstallArgs),
+    /// Run the MCP server over stdio, as an agent client launches it.
+    Mcp,
+    /// Manage auto-downloadable language servers (`list`, `install`, `uninstall`, `clean`, `status`).
+    #[command(name = "lsp-server", disable_help_subcommand = true)]
+    LspServer {
+        #[command(subcommand)]
+        command: super::lsp_provision::LspServerCommand,
+    },
+
+    // ── Hidden commands (not part of the agent surface) ──────────────────────
+    /// Serve warm read-only tool calls for one workspace over a private socket.
+    #[command(hide = true)]
+    Serve {
+        /// Socket path.
+        #[arg(long)]
+        socket: std::path::PathBuf,
+    },
+}
+
+const SCHEMA_HELP: &str =
+    "Discover tools and query fields: a tool's query view is the whole row it takes.
+
+  octocode schema                         enabled tools and purposes
+  octocode schema <tool>                  compact query schema
+  octocode schema <tool> --select operation=symbols
+                                          one operation's query schema
+  octocode schema <tool> --select operation=match,view=content
+                                          one form of that operation
+  octocode schema <tool> --view variants  required fields and examples
+  octocode schema <tool> --view output    what output fields and reasons mean
+  octocode schema --view full             fields, instructions and grammars
+  octocode schema --view flow             which tool, how little to ask for, recovery
+
+JSON: indented on a terminal, one line on a pipe.";
+
+/// How long an unused config view stays open.
+pub(super) const VIEW_IDLE_SECONDS: u64 = 900;
+
+#[derive(Subcommand, Debug)]
+pub(super) enum ConfigCommand {
+    /// Open the local settings, API keys, and agent configuration view.
+    View {
+        /// Print the local session URL without opening a browser.
+        #[arg(long)]
+        no_open: bool,
+        /// Close the local server after this many seconds without an authenticated request.
+        #[arg(long, default_value_t = VIEW_IDLE_SECONDS, value_parser = clap::value_parser!(u64).range(30..=3600))]
+        idle_timeout: u64,
+    },
+    /// Print the Octocode home directory (holds the global .env, .octocoderc, skills, and caches).
+    Home,
+    /// List every setting with its effective value, source and default; secrets are never printed.
+    List,
+    /// Print a key's effective value, from the environment, either .env, either .octocoderc or its default; exit 1 when nothing sets it and it has no default value.
+    Get {
+        /// Environment key or setting path, e.g. `OCTOCODE_TYPESAFE_KEY` or `classification.api`.
+        key: String,
+    },
+    /// Set a key in the global .env: `set KEY VALUE`, or `set KEY --stdin` to keep secrets out of shell history.
+    Set {
+        /// Environment key or setting path, e.g. `OCTOCODE_TYPESAFE_KEY` or `classification.api`.
+        key: String,
+        /// Value to store; omit with `--stdin`.
+        value: Option<String>,
+        /// Read the value from stdin.
+        #[arg(long, conflicts_with = "value")]
+        stdin: bool,
+    },
+    /// Remove every assignment of a key from the global .env, or a dotted key no setting declares from each .octocoderc that holds it.
+    Unset {
+        /// Environment key or setting path to remove, e.g. `OCTOCODE_BETA`.
+        key: String,
+    },
+    /// Exit 0 when a key is set in the environment, a .env file or an .octocoderc, 1 when unset; never prints the value.
+    Check {
+        /// Environment key or setting path, e.g. `GITHUB_TOKEN`.
+        key: String,
+    },
+}
+
+#[cfg(test)]
+mod tests;
+
+#[derive(Subcommand, Debug)]
+pub(super) enum CacheCommand {
+    /// Drain warm CLI servers, clear caches, and preserve clone and graph outputs.
+    Clear,
+}

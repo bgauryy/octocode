@@ -1,0 +1,12 @@
+{
+  "description": "Go: golangci-lint v2 config and CI with gofmt, vet, lint, race tests and build",
+  "scripts": {},
+  "notes": "Install golangci-lint v2 from its release binaries (https://golangci-lint.run/docs/welcome/install/), not go install.",
+  "alternatives": {
+    ".golangci.yml": [
+      ".golangci.yaml",
+      ".golangci.toml",
+      ".golangci.json"
+    ]
+  }
+}

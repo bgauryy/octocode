@@ -1,19 +1,41 @@
-# Providers
+Load when the route or `--provider` is unclear, or before a broad crawl or hosted call.
 
-Load when choosing `--provider`, checking routes, or adding a vendor. Why: fetch may vary; corpus stays vendor-agnostic.
+# Routes and providers
 
-## Contract
-`fetch({ url, pageId, config, apiKey })` → `FetchResponse` (`scripts/schemas/provider.schema.json`). Corpus/analyzers must not branch on vendor names.
+## Scope
 
-| Provider | Modes | Key | Best for |
-|---|---|---|---|
-| `direct` | html | no | Static / cheapest proof |
-| `cdp` | html | no | Local JS render (sibling chrome-devtools) |
-| `scrapingant` | html, markdown, extended, extract | `SCRAPING_ANT` | Hosted anti-bot / markdown / extract — **explicit only** |
+- Ask only for a missing choice that changes the work. Vague request: SKILL.md defaults, no auth; return the session path and next search targets.
+- Map a site with the SKILL.md crawl flags, `--max-pages` set to the authorized page budget, then read its [graph](site-graph.md#site-graph).
+- Pick the cheapest route in the table below that can prove the claim: one route per need.
 
-Omit `--provider` on html → `cdp` if chrome skill present, else `direct`. Hosted never auto. Check: `provider-check.mjs`.
+## Route
 
-## Add a vendor
-Add `fetchX` in `scripts/lib/client.mjs` → register in `PROVIDERS` (`scripts/lib/providers.mjs`). Setup: `docs/PROVIDERS.md`, `docs/ADDING_A_VENDOR.md`.
+| Need | Route | Key |
+|---|---|---|
+| Public static page | `direct`, `--mode html` | no |
+| Local JS render, no clicks | `cdp`, `--mode html` | no |
+| Auth, clicks, network, screenshots | `octocode-chrome-devtools` capture, bridged into the corpus ([browser-scraping](browser-scraping.md)) | no |
+| Hosted anti-bot, `markdown`, `extended`, `extract` | `scrapingant`, explicit choice | `SCRAPING_ANT` |
 
-Next: for the decision tree load `references/route-selection.md`; for hosted mechanics after approval load `references/scrapingant.md`.
+- Default `direct`; installing chrome-devtools or setting `SCRAPING_ANT` never auto-selects a provider. Only a non-html `--mode` implies `scrapingant` (fails early without the key).
+
+## ScrapingAnt
+
+- No `scrapingant` call until the user approves hosted spend; pass that budget as `--max-credits <n>` on every hosted run. A request's cost is known only after it returns, so the run fetches the next page only while spent credits plus the largest request so far stay within `<n>`, and a reply without a cost header stops it. `creditCap` reports the spend and every unfetched URL.
+- `provider-usage.mjs --check` reports only `"key":"set"` (exit 1 `missingKey` when unset), offline; without `--check` it reads `/v2/usage` (sanitized plan and credits). Modes map to `/v2/general` (html), `/v2/markdown`, `/v2/extended`, `/v2/extract`.
+
+```bash
+node <skill-folder>/scripts/provider-usage.mjs --check
+node <skill-folder>/scripts/fetch.mjs --url https://example.com --provider scrapingant --mode html --max-credits 10
+node <skill-folder>/scripts/fetch.mjs --url https://example.com --provider scrapingant --mode extract --extract-properties "title, content" --max-credits 50
+node <skill-folder>/scripts/provider-usage.mjs
+```
+
+- These scripts read `SCRAPING_ANT` with `getKey` from the bundled [keys.mjs](../scripts/keys.mjs): the process environment, then the home `.env`, then the workspace `.octocode/.env`. Check it with `node <skill-folder>/scripts/keys.mjs get SCRAPING_ANT`; save it with `node <skill-folder>/scripts/keys.mjs set SCRAPING_ANT --stdin`.
+- Options: `fetch.mjs --help`; hosted: `--browser --wait-for`, `--proxy-type`, `--proxy-country`, `--block-resource`.
+- Hosted `403`/`423`: stop ([recovery](recovery.md)).
+
+## Key setup (humans)
+
+- Key: [ScrapingAnt dashboard](https://app.scrapingant.com/); API: [docs.scrapingant.com](https://docs.scrapingant.com/).
+- Store and pass `SCRAPING_ANT` using [shared configuration handling](configuration.md); the commands above show this provider's consumers.

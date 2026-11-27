@@ -1,0 +1,404 @@
+//! Fresh replacement, sparse scopes, refs and preservation of local changes.
+use super::bench::Bench;
+use super::*;
+
+#[test]
+fn fresh_replacements_preserve_sparse_refs_and_keep_tokens_out_of_argv() {
+    let fixture = Fixture::new();
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let derived = "https://github.com/fixture-owner/fixture-repo.git";
+    let runner = RewriteRunner::new(derived, &fixture.bare_url);
+    let config = GitConfig::persistent(&home);
+    let credential = ResolvedCredential::new("fixture-token", CredentialSource::Override);
+    let context = setup(
+        &runner,
+        &config,
+        &endpoint,
+        &policy,
+        &NeverCancel,
+        Some(&credential),
+    );
+
+    let fresh = clone_pinned(&fixture, &query(), &context).expect("fresh clone");
+    assert_eq!(fresh.location.commit_sha, fixture.first_commit);
+    assert_eq!(
+        fs::read_to_string(Path::new(&fresh.location.path).join("README.md")).expect("read clone"),
+        "fixture\n"
+    );
+    assert!(fresh.bytes > 0);
+    let replaced = clone_pinned(&fixture, &query(), &context).expect("replacement clone");
+    assert!(
+        !Path::new(&replaced.location.path)
+            .join(".octocode-clone-meta.json")
+            .exists()
+    );
+    assert_eq!(replaced.location.path, fresh.location.path);
+    // Editing the existing working tree must not replace the user's bytes.
+    let readme = Path::new(&replaced.location.path).join("README.md");
+    fs::write(&readme, "tampered\n").expect("tamper existing checkout");
+    let error = clone_pinned(&fixture, &query(), &context).expect_err("preserve dirty checkout");
+    assert_eq!(error.code, ErrorCode::CheckoutDirty);
+    assert_eq!(
+        fs::read_to_string(&readme).expect("read preserved checkout"),
+        "tampered\n"
+    );
+    fs::write(&readme, "fixture\n").expect("restore owned fixture");
+    // `run` pins every row to a ref first: without one there is nothing to
+    // check out.
+    let unpinned = clone_pinned(
+        &fixture,
+        &GhCloneRepoQuery {
+            ref_: None,
+            ..query()
+        },
+        &context,
+    )
+    .expect_err("an unpinned row");
+    assert_eq!(unpinned.code, ErrorCode::InvalidInput);
+
+    let second = fixture.push_second();
+    let refreshed =
+        clone_pinned(&fixture, &GhCloneRepoQuery { ..query() }, &context).expect("refresh");
+    assert_eq!(refreshed.location.commit_sha, second);
+    assert_eq!(
+        fs::read_to_string(Path::new(&refreshed.location.path).join("README.md"))
+            .expect("read refreshed clone"),
+        "fixture two\n"
+    );
+
+    let sparse = clone_pinned(
+        &fixture,
+        &GhCloneRepoQuery {
+            paths: one("src"),
+            ..query()
+        },
+        &context,
+    )
+    .expect("sparse clone");
+    assert!(
+        Path::new(&sparse.location.path)
+            .join("src/lib.rs")
+            .is_file()
+    );
+    assert!(
+        !Path::new(&sparse.location.path)
+            .join("other/skip.txt")
+            .exists()
+    );
+
+    for branch in ["v1".to_owned(), fixture.first_commit.clone()] {
+        let pinned = clone_pinned(
+            &fixture,
+            &GhCloneRepoQuery {
+                ref_: Some(reference(&branch)),
+                ..query()
+            },
+            &context,
+        )
+        .expect("pinned clone");
+        assert_eq!(pinned.location.commit_sha, fixture.first_commit);
+    }
+    let pinned_sparse = clone_pinned(
+        &fixture,
+        &GhCloneRepoQuery {
+            ref_: Some(reference(&fixture.first_commit)),
+            paths: one("src"),
+            ..query()
+        },
+        &context,
+    )
+    .expect("pinned sparse clone");
+    assert_eq!(pinned_sparse.location.commit_sha, fixture.first_commit);
+    assert!(
+        Path::new(&pinned_sparse.location.path)
+            .join("src/lib.rs")
+            .is_file()
+    );
+    assert!(
+        !Path::new(&pinned_sparse.location.path)
+            .join("other/skip.txt")
+            .exists()
+    );
+
+    let seen = runner
+        .seen
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    test_support::checks::assert_absent(&serde_json::json!(*seen), "fixture-token");
+    assert!(seen.iter().any(|value| value.contains("[REDACTED]")));
+}
+
+#[test]
+fn dirty_checkout_preserves_tracked_untracked_ignored_and_user_metadata_names() {
+    let fixture = Fixture::shared();
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = fixture_runner(&fixture);
+    let config = GitConfig::persistent(&home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+    let fresh = clone_pinned(&fixture, &query(), &context).expect("fresh clone");
+    let checkout = Path::new(&fresh.location.path);
+    for (name, ignored) in [
+        ("README.md", false),
+        ("untracked.txt", false),
+        ("ignored.txt", true),
+        (".octocode-user-notes", false),
+        ("nested/.octocode-clone-meta.json", false),
+        ("notes\n中.txt", false),
+    ] {
+        let file = checkout.join(name);
+        fs::create_dir_all(file.parent().expect("file parent")).expect("marker parent");
+        if ignored {
+            // A worktree's exclude file is its store's: git names it.
+            let exclude = git_output(
+                checkout,
+                &[
+                    "rev-parse",
+                    "--path-format=absolute",
+                    "--git-path",
+                    "info/exclude",
+                ],
+            );
+            fs::write(exclude.trim(), "ignored.txt\n").expect("ignore fixture file");
+        }
+        fs::write(&file, "user evidence\n").expect("edit owned fixture");
+        let error = clone_pinned(&fixture, &query(), &context).expect_err("preserve user file");
+        assert_eq!(error.code, ErrorCode::CheckoutDirty, "{name}");
+        // The message says the checkout was preserved; the hint says only
+        // how to recover, never that cloning discards nothing.
+        assert!(error.message.contains("preserved"), "{error:?}");
+        assert_eq!(
+            error.hints,
+            [crate::gh_clone_repo::checkout::DIRTY_CHECKOUT_HINT]
+        );
+        assert!(
+            error.hints.iter().all(|hint| !hint.contains("discard")),
+            "{error:?}"
+        );
+        assert_eq!(fs::read_to_string(&file).unwrap(), "user evidence\n");
+        assert_eq!(
+            git_output(checkout, &["rev-parse", "HEAD"]).trim(),
+            fixture.first_commit
+        );
+        if name == "README.md" {
+            fs::write(&file, "fixture\n").expect("restore owned tracked file");
+        } else {
+            fs::remove_file(&file).expect("remove owned marker");
+        }
+    }
+}
+
+#[test]
+fn uppercase_commit_refs_replace_the_same_destination() {
+    let fixture = Fixture::shared();
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = fixture_runner(&fixture);
+    let config = GitConfig::persistent(&home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+    let lower = clone_pinned(
+        &fixture,
+        &GhCloneRepoQuery {
+            ref_: Some(reference(&fixture.first_commit)),
+            ..query()
+        },
+        &context,
+    )
+    .expect("lowercase sha clone");
+    let upper = clone_pinned(
+        &fixture,
+        &GhCloneRepoQuery {
+            ref_: Some(reference(&fixture.first_commit.to_ascii_uppercase())),
+            ..query()
+        },
+        &context,
+    )
+    .expect("uppercase sha clone");
+    assert_eq!(upper.location.path, lower.location.path);
+}
+
+#[test]
+fn local_commits_and_refs_are_preserved_before_replacement() {
+    for kind in ["tag", "custom-ref", "commit", "branch", "stash"] {
+        let bench = Bench::at(api_github_endpoint());
+        let context = bench.context();
+        let first = clone_pinned(&bench.fixture, &query(), &context).unwrap();
+        let path = Path::new(&first.location.path);
+        assert!(
+            git_output(
+                path,
+                &["for-each-ref", "refs/heads", "refs/tags", "refs/stash"]
+            )
+            .is_empty()
+        );
+        match kind {
+            "tag" => git(path, &["tag", "local-work"]),
+            "custom-ref" => git(path, &["update-ref", "refs/notes/local-work", "HEAD"]),
+            "commit" => {
+                fs::write(path.join("README.md"), "local committed evidence\n").unwrap();
+                git(path, &["add", "README.md"]);
+                git(
+                    path,
+                    &[
+                        "-c",
+                        "user.name=Fixture",
+                        "-c",
+                        "user.email=fixture@example.test",
+                        "commit",
+                        "-m",
+                        "local evidence",
+                    ],
+                );
+            }
+            "branch" => git(path, &["branch", "local-work"]),
+            "stash" => {
+                fs::write(path.join("README.md"), "stashed evidence\n").unwrap();
+                git(
+                    path,
+                    &[
+                        "-c",
+                        "user.name=Fixture",
+                        "-c",
+                        "user.email=fixture@example.test",
+                        "stash",
+                        "push",
+                        "-m",
+                        "local evidence",
+                    ],
+                );
+            }
+            _ => unreachable!(),
+        }
+        let head = git_output(path, &["rev-parse", "HEAD"]);
+        let refs = git_output(path, &["for-each-ref"]);
+        let error = clone_pinned(&bench.fixture, &query(), &context)
+            .expect_err("local Git work must survive");
+        assert_eq!(error.code, ErrorCode::CheckoutDirty, "{kind}");
+        assert_eq!(git_output(path, &["rev-parse", "HEAD"]), head, "{kind}");
+        assert_eq!(git_output(path, &["for-each-ref"]), refs, "{kind}");
+    }
+}
+
+/// A checkout the user puts at the destination while the stage is fetched
+/// (the destination lock only serializes Octocode) is never replaced.
+#[test]
+fn checkout_appearing_at_the_destination_while_fetching_is_preserved() {
+    struct LateCheckoutRunner {
+        inner: RewriteRunner,
+        /// Where the user's checkout is parked, and where it reappears.
+        parked: Mutex<Option<(PathBuf, PathBuf)>>,
+    }
+    impl GitRunner for LateCheckoutRunner {
+        fn run(
+            &self,
+            request: &GitRunRequest<'_>,
+            control: &GitRunControl<'_>,
+        ) -> Result<GitOutput, GitError> {
+            let output = self.inner.run(request, control)?;
+            if request.label == "check out requested commit"
+                && request
+                    .args
+                    .iter()
+                    .any(|argument| argument.to_string_lossy().contains("clone-tmp"))
+                && let Some((parked, destination)) = self.parked.lock().expect("parked").take()
+            {
+                fs::rename(&parked, &destination).expect("restore user checkout");
+                fs::write(destination.join("during-fetch.txt"), "user evidence\n")
+                    .expect("write late marker");
+            }
+            Ok(output)
+        }
+        fn run_nul_records(
+            &self,
+            request: &GitRunRequest<'_>,
+            control: &GitRunControl<'_>,
+            record: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+        ) -> Result<GitOutput, GitError> {
+            self.inner.run_nul_records(request, control, record)
+        }
+
+        fn run_stream(
+            &self,
+            request: &GitRunRequest<'_>,
+            control: &GitRunControl<'_>,
+            sink: &mut (dyn FnMut(&[u8]) -> Result<(), GitError> + Send),
+        ) -> Result<GitOutput, GitError> {
+            self.inner.run_stream(request, control, sink)
+        }
+    }
+    let fixture = Fixture::shared();
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = LateCheckoutRunner {
+        inner: fixture_runner(&fixture),
+        parked: Mutex::new(None),
+    };
+    let config = GitConfig::persistent(&home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+    let first = clone_pinned(&fixture, &query(), &context).expect("first clone");
+    let checkout = PathBuf::from(first.location.path);
+
+    // The destination vanishes, so the next call fetches a stage, and the
+    // user's checkout reappears there before it is published.
+    let parked = checkout.with_extension("parked");
+    fs::rename(&checkout, &parked).expect("park checkout");
+    *runner.parked.lock().expect("parked") = Some((parked, checkout.clone()));
+    let error = clone_pinned(&fixture, &query(), &context).expect_err("preserve late checkout");
+    assert_eq!(error.code, ErrorCode::CheckoutDirty);
+    assert_eq!(
+        fs::read_to_string(checkout.join("during-fetch.txt")).expect("late marker"),
+        "user evidence\n"
+    );
+}
+
+/// A checkout an earlier release made: a standalone repository (its own
+/// `.git` directory, no refs) at `path`.
+fn standalone_checkout(fixture: &Fixture, path: &Path, commit: &str) {
+    fs::create_dir_all(path).expect("checkout dir");
+    git(path, &["init", "--quiet"]);
+    git(path, &["remote", "add", "origin", &fixture.bare_url]);
+    git(path, &["fetch", "--quiet", "--no-tags", "origin", commit]);
+    git(path, &["checkout", "--quiet", "--detach", "FETCH_HEAD"]);
+}
+
+/// Nothing is adopted: a clean standalone checkout is replaced by a linked
+/// worktree of the shared store, and one with local files is preserved.
+#[test]
+fn a_standalone_checkout_is_replaced_when_clean_and_kept_when_dirty() {
+    let fixture = Fixture::shared();
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = fixture_runner(&fixture);
+    let config = GitConfig::persistent(&home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+    let made = clone_pinned(&fixture, &query(), &context).expect("clone");
+    let path = PathBuf::from(&made.location.path);
+
+    fs::remove_dir_all(&path).expect("remove");
+    standalone_checkout(&fixture, &path, &fixture.first_commit);
+    assert!(path.join(".git").is_dir());
+    let replaced = clone_pinned(&fixture, &query(), &context).expect("clean standalone");
+    assert!(!replaced.location.reused, "{replaced:?}");
+    assert!(path.join(".git").is_file(), "replaced by a linked worktree");
+    assert_eq!(replaced.location.commit_sha, fixture.first_commit);
+
+    fs::remove_dir_all(&path).expect("remove");
+    standalone_checkout(&fixture, &path, &fixture.first_commit);
+    fs::write(path.join("mine.txt"), "local\n").expect("local file");
+    let error = clone_pinned(&fixture, &query(), &context).expect_err("dirty standalone");
+    assert_eq!(error.code, ErrorCode::CheckoutDirty);
+    assert!(
+        path.join(".git").is_dir(),
+        "the dirty checkout is untouched"
+    );
+    assert_eq!(
+        fs::read_to_string(path.join("mine.txt")).expect("kept"),
+        "local\n"
+    );
+}

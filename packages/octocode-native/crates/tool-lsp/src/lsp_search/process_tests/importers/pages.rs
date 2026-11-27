@@ -1,0 +1,300 @@
+//! Importer pages reach every reference and caller exactly once.
+
+use super::*;
+
+/// References past the importer cap: walking `next.nextPage` then
+/// `next.nextImporterWindow` reaches every importer file in exactly one window,
+/// lists every row once (a recovered row in another window's file waits for
+/// that window), and only importer page 1 lists the anchor's own answer.
+/// A changed candidate list stales both a window's entry and its later
+/// location pages, and the restart walks from the first window again.
+#[test]
+fn importer_pages_reach_every_reference_exactly_once() {
+    if !require_node() {
+        return;
+    }
+    let (_dir, root, execution) = importer_fixture();
+    tokio::runtime::Runtime::new().expect("rt").block_on(async {
+        let pool = fake_server_pool();
+        let start = serde_json::json!({
+            "operation": "references", "path": root.join("a.ts").to_string_lossy(),
+            "symbolName": "target", "line": 1, "workspaceRoot": root.to_string_lossy()
+        });
+        let (pages, continuations) =
+            walk_pages(&pool, &root, &execution, start.clone(), Some(2000)).await;
+        let windows = pages
+            .iter()
+            .map(|page| page.importer_page)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(windows.into_iter().collect::<Vec<_>>(), vec![1, 2, 3]);
+        let mut seen = std::collections::BTreeMap::new();
+        for page in &pages {
+            for row in reference_rows(&page.row) {
+                if row.0 == "a.ts" {
+                    assert_eq!(
+                        page.importer_page, 1,
+                        "only importer page 1 lists the anchor"
+                    );
+                }
+                if let Some(earlier) = seen.insert(row.clone(), page.importer_page) {
+                    panic!(
+                        "{row:?} listed twice (windows {earlier} and {})",
+                        page.importer_page
+                    );
+                }
+            }
+        }
+        let mut expected = vec![("a.ts".to_owned(), 1, 17)];
+        for index in 0..IMPORTERS {
+            let name = format!("f{index:03}.ts");
+            expected.push((name.clone(), 1, 10));
+            expected.push((name, 2, 1));
+        }
+        expected.sort();
+        assert_eq!(
+            seen.keys().cloned().collect::<Vec<_>>(),
+            expected,
+            "no gaps"
+        );
+        // Each importer file is listed by its own window: f000-f023 in 1,
+        // f024-f047 in 2, f048-f059 in 3.
+        for ((name, _, _), window) in &seen {
+            if let Some(index) = name
+                .strip_prefix('f')
+                .and_then(|rest| rest.strip_suffix(".ts"))
+                .and_then(|index| index.parse::<usize>().ok())
+            {
+                assert_eq!(*window as usize, index / 24 + 1, "{name}");
+            }
+        }
+        // Only the last window's last page is complete; earlier windows are
+        // partial, never a terminal limit.
+        for page in &pages {
+            assert!(page.row.get("terminalLimit").is_none(), "{}", page.row);
+        }
+        // Leads from every page queue the next window early: the walk's
+        // last call is not the last window's last page, so find that page.
+        let last = &pages
+            .iter()
+            .rfind(|page| {
+                page.importer_page == 3
+                    && page.row.pointer("/pagination/hasMore") != Some(&true.into())
+            })
+            .expect("the last window's last page")
+            .row;
+        assert!(last.get("isPartial").is_none(), "{last}");
+        let first = &pages[0].row;
+        assert_eq!(first["isPartial"], true, "{first}");
+        assert!(
+            first["partialReasons"]
+                .as_array()
+                .is_some_and(|reasons| reasons.contains(&"importerScanCapped".into())),
+            "{first}"
+        );
+
+        // A new candidate stales the second window's entry and its later
+        // location page alike; the restart has no importer cursor.
+        let entry = continuations
+            .iter()
+            .find(|(name, _)| name == "nextImporterWindow")
+            .map(|(_, row)| row.clone())
+            .expect("a window entry");
+        let inside = continuations
+            .iter()
+            .find(|(name, row)| name == "locationPage" && row["importerPage"] == 2)
+            .map(|(_, row)| row.clone())
+            .expect("a later location page of window 2");
+        write_importer(&root, "f000a.ts");
+        let paths = octocode_runtime_base::test_support::workspace_policy(&root);
+        for stale in [entry, inside] {
+            let query = serde_json::from_value(stale).expect("query");
+            let row = crate::lsp_search::execute(
+                query,
+                &octocode_runtime_base::execution::cancel::NeverCancel,
+                &pool,
+                &paths,
+                &execution,
+                None,
+                crate::lsp_search::test_answers(),
+            )
+            .await
+            .expect("stale page");
+            assert_eq!(row["errorCode"], "staleSnapshot", "{row}");
+            let restart = &octocode_runtime_base::test_support::checks::related_call(
+                &row,
+                "lspSearch",
+                |_| true,
+            )["input"]["queries"][0];
+            for cursor in octocode_runtime_base::contracts::state_fields(
+                octocode_runtime_base::id::ToolId::LspSearch,
+            ) {
+                assert!(restart.get(cursor).is_none(), "{cursor}: {restart}");
+            }
+        }
+        // The restart walks the changed list once more: 61 importers.
+        let (pages, _) = walk_pages(&pool, &root, &execution, start, None).await;
+        let rows = pages
+            .iter()
+            .flat_map(|page| reference_rows(&page.row))
+            .collect::<Vec<_>>();
+        let unique = rows.iter().collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(rows.len(), unique.len(), "no duplicates after restart");
+        assert_eq!(rows.len(), 1 + 2 * (IMPORTERS + 1));
+    });
+}
+
+/// Callers past the importer cap: each importer file's reference-derived
+/// caller is listed once, by its own window, and later windows leave out
+/// the anchor's walk.
+#[test]
+fn importer_pages_reach_every_caller_exactly_once() {
+    if !require_node() {
+        return;
+    }
+    let (_dir, root, execution) = importer_fixture();
+    tokio::runtime::Runtime::new().expect("rt").block_on(async {
+        let pool = fake_server_pool();
+        let start = serde_json::json!({
+            "operation": "callers", "path": root.join("a.ts").to_string_lossy(),
+            "symbolName": "target", "line": 1, "workspaceRoot": root.to_string_lossy()
+        });
+        let (pages, _) = walk_pages(&pool, &root, &execution, start, None).await;
+        let mut callers = Vec::new();
+        for page in &pages {
+            for file in page
+                .row
+                .pointer("/files")
+                .and_then(serde_json::Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let name = Path::new(file["path"].as_str().expect("path"))
+                    .file_name()
+                    .expect("file name")
+                    .to_string_lossy()
+                    .into_owned();
+                for _ in file["matches"].as_array().expect("matches") {
+                    callers.push((name.clone(), page.importer_page));
+                }
+            }
+        }
+        callers.sort();
+        let expected = (0..IMPORTERS)
+            .map(|index| (format!("f{index:03}.ts"), (index / 24 + 1) as u64))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            callers, expected,
+            "every importer's caller once, in its window"
+        );
+    });
+}
+
+/// `next.nextPage` alone is the documented walk: it reads every location of one
+/// window, each once, and `pagination.next` is gone. Where it ends, the row says
+/// the scan is partial and offers the next window under its own name.
+#[test]
+fn next_page_alone_reads_every_location_of_a_window() {
+    if !require_node() {
+        return;
+    }
+    let (_dir, root, execution) = importer_fixture();
+    tokio::runtime::Runtime::new().expect("rt").block_on(async {
+        let pool = fake_server_pool();
+        let start = serde_json::json!({
+            "operation": "references", "path": root.join("a.ts").to_string_lossy(),
+            "symbolName": "target", "line": 1, "workspaceRoot": root.to_string_lossy()
+        });
+        let (pages, _) = walk_pages(&pool, &root, &execution, start.clone(), Some(2000)).await;
+        let mut window_one = pages
+            .iter()
+            .filter(|page| page.importer_page == 1)
+            .flat_map(|page| reference_rows(&page.row))
+            .collect::<Vec<_>>();
+        window_one.sort();
+
+        let paths = octocode_runtime_base::test_support::workspace_policy(&root);
+        let (mut query, mut read, mut calls) = (start, Vec::new(), 0);
+        let last = loop {
+            let row = crate::lsp_search::execute(
+                serde_json::from_value(query).expect("query"),
+                &octocode_runtime_base::execution::cancel::NeverCancel,
+                &pool,
+                &paths,
+                &execution,
+                Some(2000),
+                crate::lsp_search::test_answers(),
+            )
+            .await
+            .expect("page");
+            calls += 1;
+            assert!(row.pointer("/pagination/next").is_none(), "{row}");
+            read.extend(reference_rows(&row));
+            let Some(next) = next_row(&row, "nextPage") else {
+                break row;
+            };
+            assert_eq!(row["pagination"]["hasMore"], true, "{row}");
+            query = next;
+        };
+        assert!(calls > 1, "the window spans location pages");
+        read.sort();
+        assert_eq!(read, window_one, "every location of the window, each once");
+        assert_eq!(last["pagination"]["hasMore"], false, "{last}");
+        assert_eq!(last["isPartial"], true, "{last}");
+        assert_eq!(last["coverage"]["importerScan"], "capped", "{last}");
+        assert!(next_row(&last, "nextImporterWindow").is_some(), "{last}");
+    });
+}
+
+/// Every location page of a window with windows left leads to the next
+/// window, and every one of those leads is the same continuation: a reader
+/// that follows the lead from each page enters each window exactly once.
+#[test]
+fn every_page_of_a_window_offers_one_lead_to_the_next_window() {
+    if !require_node() {
+        return;
+    }
+    let (_dir, root, execution) = importer_fixture();
+    tokio::runtime::Runtime::new().expect("rt").block_on(async {
+        let pool = fake_server_pool();
+        let start = serde_json::json!({
+            "operation": "references", "path": root.join("a.ts").to_string_lossy(),
+            "symbolName": "target", "line": 1, "workspaceRoot": root.to_string_lossy()
+        });
+        let (pages, continuations) = walk_pages(&pool, &root, &execution, start, Some(2000)).await;
+        for window in 1..=3 {
+            let rows = pages
+                .iter()
+                .filter(|page| page.importer_page == window)
+                .map(|page| &page.row)
+                .collect::<Vec<_>>();
+            assert!(rows.len() > 1, "window {window} spans location pages");
+            let leads = rows
+                .iter()
+                .map(|row| next_row(row, "nextImporterWindow"))
+                .collect::<Vec<_>>();
+            if window == 3 {
+                assert!(
+                    leads.iter().all(Option::is_none),
+                    "the last window leads nowhere"
+                );
+                continue;
+            }
+            assert!(
+                leads.iter().all(Option::is_some),
+                "every page of window {window} leads on"
+            );
+            // Equal queries (key order aside) publish as one cursor.
+            assert!(
+                leads.iter().all(|lead| lead == &leads[0]),
+                "one continuation per window: {leads:?}"
+            );
+        }
+        let mut entries = Vec::new();
+        for (name, call) in &continuations {
+            if name == "nextImporterWindow" && !entries.contains(&call) {
+                entries.push(call);
+            }
+        }
+        assert_eq!(entries.len(), 2, "each later window is entered once");
+    });
+}

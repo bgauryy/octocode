@@ -1,0 +1,78 @@
+[package]
+name = "octocode-tools-shared"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Octocode tool layers every tool family shares: walks, selection, judgment, source reading and capture, GitHub query helpers, leads"
+autobins = false
+autotests = false
+autoexamples = false
+autobenches = false
+
+[lib]
+# Unit tests stay in src (private access); nextest and libtest run no doctests,
+# and `cargo shear --check-test-targets` flags one.
+doctest = false
+
+[features]
+# Fixtures for dependent crates' tests. Enabled by their dev-dependencies and by
+# octocode-native's `dev-unify`, never by release builds.
+test-support = ["octocode-runtime-base/test-support", "dep:wiremock"]
+
+[dependencies]
+wiremock = { workspace = true, optional = true }
+octocode-io = { path = "../io" }
+octocode-contract-types = { path = "../contract-types" }
+octocode-runtime-base = { path = "../runtime-base" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+memchr = { workspace = true }
+# URL captures decode the charset a page declares.
+encoding_rs = "0.8"
+regex = { workspace = true }
+url = { workspace = true }
+base64 = { workspace = true }
+getrandom = { workspace = true }
+reqwest = { workspace = true }
+bytes = { workspace = true }
+futures-util = { workspace = true }
+secrecy = { workspace = true }
+hex = { workspace = true }
+# `.gitignore` matching for graphBuild scans (already in the tree via the engine).
+ignore = { workspace = true }
+# PR changed-file `include` globs (already in the tree via `ignore`).
+globset = { workspace = true }
+# artifactSearch reads `.cargo_vcs_info.json` from a `.crate` archive (already in the lockfile via the CLI).
+flate2 = { workspace = true }
+# clasify URL sources: the browser-grade HTML parser (MIT OR Apache-2.0) behind section-addressable text.
+html5ever = "0.40"
+imagesize = { version = "0.15", default-features = false, features = ["png", "jpeg"] }
+# clasify pads images below the provider minimum onto a transparent PNG canvas
+# (crc32fast is already in the lockfile via flate2).
+crc32fast = "1"
+zune-jpeg = "0.5"
+zune-png = "0.5"
+octocode-engine = { path = "../engine" }
+octocode-github = { path = "../github" }
+tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros", "sync", "time", "signal", "process", "io-util"] }
+
+[dev-dependencies]
+sha2 = { workspace = true }
+octocode-engine = { path = "../engine", features = ["test-hooks"] }
+tempfile = { workspace = true }
+wiremock = { workspace = true }
+octocode-runtime-base = { path = "../runtime-base", features = ["test-support"] }
+octocode-test-support = { path = "../test-support" }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }
+
+[lints]
+workspace = true

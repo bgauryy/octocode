@@ -1,0 +1,56 @@
+[package]
+name = "octocode-tool-packages"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Octocode package tools: artifactSearch, securityCheck"
+autobins = false
+autotests = false
+autoexamples = false
+autobenches = false
+
+[lib]
+# Unit tests stay in src (private access); nextest and libtest run no doctests,
+# and `cargo shear --check-test-targets` flags one.
+doctest = false
+
+[features]
+# Fixtures for dependent crates' tests. Enabled by their dev-dependencies and by
+# octocode-native's `dev-unify`, never by release builds.
+test-support = ["octocode-runtime-base/test-support", "octocode-tools-shared/test-support"]
+
+[dependencies]
+octocode-io = { path = "../io" }
+octocode-contract-types = { path = "../contract-types" }
+octocode-runtime-base = { path = "../runtime-base" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+regex = { workspace = true }
+url = { workspace = true }
+base64 = { workspace = true }
+reqwest = { workspace = true }
+futures-util = { workspace = true }
+secrecy = { workspace = true }
+hex = { workspace = true }
+# artifactSearch `version` ranges (already in the lockfile via the toolchain crates).
+semver = "1"
+# artifactSearch reads `.cargo_vcs_info.json` from a `.crate` archive (already in the lockfile via the CLI).
+flate2 = { workspace = true }
+octocode-engine = { path = "../engine" }
+octocode-github = { path = "../github" }
+tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros", "sync", "time", "signal", "process", "io-util"] }
+octocode-tools-shared = { path = "../tools-shared" }
+
+[dev-dependencies]
+sha2 = { workspace = true }
+octocode-engine = { path = "../engine", features = ["test-hooks"] }
+wiremock = { workspace = true }
+octocode-runtime-base = { path = "../runtime-base", features = ["test-support"] }
+octocode-tools-shared = { path = "../tools-shared", features = ["test-support"] }
+octocode-test-support = { path = "../test-support" }
+
+[lints]
+workspace = true

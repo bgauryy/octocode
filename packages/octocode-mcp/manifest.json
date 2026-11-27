@@ -2,7 +2,7 @@
   "dxt_version": "0.1",
   "name": "octocode-mcp",
   "display_name": "Octocode MCP Extension",
-  "version": "16.2.0",
+  "version": "20.2.0",
   "description": "Code research MCP server for GitHub, npm, local files, and LSP semantics",
   "long_description": "MCP server with code research tools across GitHub, npm, local files, and LSP semantics. Agents orient, search, read exact evidence, and prove findings with typed continuations and sanitized output.",
   "author": {
@@ -12,11 +12,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/bgauryy/octocode-mcp"
+    "url": "https://github.com/bgauryy/octocode"
   },
   "homepage": "https://octocode.ai",
-  "documentation": "https://github.com/bgauryy/octocode-mcp#readme",
-  "support": "https://github.com/bgauryy/octocode-mcp/issues",
+  "documentation": "https://github.com/bgauryy/octocode#readme",
+  "support": "https://github.com/bgauryy/octocode/issues",
   "icon": "assets/logo.png",
   "server": {
     "type": "node",
@@ -27,66 +27,71 @@
         "${__dirname}/dist/index.js"
       ],
       "env": {
-        "NODE_ENV": "production"
+        "NODE_ENV": "production",
+        "GITHUB_TOKEN": "${user_config.github_token}"
       }
     }
   },
   "tools": [
     {
-      "name": "mcp_octocode_ghSearchCode",
-      "description": "Search code across GitHub repositories"
+      "name": "clasify",
+      "description": "Clasify (conditional: requires OCTOCODE_TYPESAFE_KEY)"
     },
     {
-      "name": "mcp_octocode_ghGetFileContent",
-      "description": "Fetch file content from GitHub repositories"
+      "name": "ghSearchRepo",
+      "description": "GitHub Repository Search"
     },
     {
-      "name": "mcp_octocode_ghSearchRepos",
-      "description": "Search GitHub repositories"
+      "name": "ghSearchCode",
+      "description": "GitHub Code Search"
     },
     {
-      "name": "mcp_octocode_ghSearchPullRequests",
-      "description": "Search pull requests, or read one PR: files, patches, comments, reviews, commits"
+      "name": "ghStructure",
+      "description": "GitHub Structure"
     },
     {
-      "name": "mcp_octocode_ghSearchIssues",
-      "description": "Search issues, or read one issue: body and comments"
+      "name": "ghGetFileContent",
+      "description": "GitHub File Content Fetch"
     },
     {
-      "name": "mcp_octocode_ghSearchCommits",
-      "description": "Walk a repository commit history for a path or range"
+      "name": "ghSearchHistory",
+      "description": "GitHub History Search"
     },
     {
-      "name": "mcp_octocode_ghViewRepoStructure",
-      "description": "View GitHub repository structure"
+      "name": "ghGetHistoryItem",
+      "description": "GitHub History Item"
     },
     {
-      "name": "mcp_octocode_ghCloneRepo",
-      "description": "Clone a GitHub repository or subtree for local analysis"
+      "name": "artifactSearch",
+      "description": "Package Search"
     },
     {
-      "name": "mcp_octocode_npmSearch",
-      "description": "Search npm packages and source repositories"
+      "name": "ghCloneRepo",
+      "description": "GitHub Clone (conditional: requires OCTOCODE_ENABLE_LOCAL and OCTOCODE_ENABLE_CLONE)"
     },
     {
-      "name": "mcp_octocode_localSearchCode",
-      "description": "Search local code with ripgrep or structural AST patterns"
+      "name": "localSearch",
+      "description": "Local Search (conditional: requires OCTOCODE_ENABLE_LOCAL)"
     },
     {
-      "name": "mcp_octocode_localViewStructure",
-      "description": "View local directory structure"
+      "name": "structureSearch",
+      "description": "Structure Search (conditional: requires OCTOCODE_ENABLE_LOCAL)"
     },
     {
-      "name": "mcp_octocode_localFindFiles",
-      "description": "Find local files by name, path, metadata, and glob filters"
+      "name": "astSearch",
+      "description": "AST Search (conditional: requires OCTOCODE_ENABLE_LOCAL)"
     },
     {
-      "name": "mcp_octocode_localGetFileContent",
-      "description": "Read local file content with minification and exact slices"
+      "name": "localFetch",
+      "description": "Local Fetch Content (conditional: requires OCTOCODE_ENABLE_LOCAL)"
     },
     {
-      "name": "mcp_octocode_lspGetSemantics",
-      "description": "Run LSP semantic navigation over local files"
+      "name": "lspSearch",
+      "description": "LSP Search (conditional: requires OCTOCODE_ENABLE_LOCAL)"
+    },
+    {
+      "name": "securityCheck",
+      "description": "Security Check (conditional: requires OCTOCODE_ENABLE_SECURITY)"
     }
   ],
   "keywords": [
@@ -110,7 +115,7 @@
       "linux"
     ],
     "runtimes": {
-      "node": ">=20.0.0"
+      "node": ">=22.0.0"
     }
   },
   "user_config": {
@@ -119,13 +124,6 @@
       "title": "GitHub Token",
       "description": "Personal access token for GitHub API (optional, increases rate limits)",
       "sensitive": true,
-      "required": false
-    },
-    "npm_registry": {
-      "type": "string",
-      "title": "NPM Registry",
-      "description": "NPM registry URL",
-      "default": "https://registry.npmjs.org",
       "required": false
     }
   }

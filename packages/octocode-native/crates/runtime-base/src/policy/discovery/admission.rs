@@ -1,0 +1,406 @@
+use std::path::Path;
+
+use super::{Withheld, generated_file_pattern};
+
+/// What a [`WalkAdmission`] left out: the one skip ledger of a local walk.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WalkSkips {
+    pub withheld: Withheld,
+    /// Default-pruned directories, each by its path under the walk root.
+    pub pruned: std::collections::BTreeSet<String>,
+    /// Default-excluded files (`*.min.js`, `.DS_Store`), each by its path
+    /// under the walk root.
+    pub generated: std::collections::BTreeSet<String>,
+    /// Dot entries left out without `includeHidden`, each by its path under
+    /// the walk root, a directory's with a trailing `/` (its contents were
+    /// never walked). One the path policy withholds is not here: no flag
+    /// reaches it.
+    pub hidden: std::collections::BTreeSet<String>,
+    /// Some dot entry would also be default-excluded (`.github/`, `.cache/`,
+    /// `.DS_Store`): reaching it lifts both.
+    pub hidden_excluded: bool,
+    /// Entries an ignore rule left out without `includeIgnored`, each by its
+    /// path under the walk root, a directory's with a trailing `/` (its
+    /// contents were never walked). One the path policy withholds is not
+    /// here: no flag reaches it.
+    pub ignored: std::collections::BTreeSet<String>,
+    /// Some ignored entry would also be default-excluded (an ignored
+    /// `node_modules/`) or is a dot entry: reaching it lifts those too.
+    pub ignored_excluded: bool,
+    pub ignored_hidden: bool,
+    /// Octocode's own store directories ([`crate::policy::prune::is_octocode_artifact`]),
+    /// each by its path under the walk root: skipped whatever the flags.
+    pub artifacts: std::collections::BTreeSet<String>,
+}
+
+impl WalkSkips {
+    /// The skipped paths counted per cause (`2 ignored, 1 hidden`).
+    pub fn counts(&self) -> String {
+        [
+            (self.ignored.len(), "ignored"),
+            (self.hidden.len(), "hidden"),
+            (self.pruned.len() + self.generated.len(), "default-excluded"),
+            (self.artifacts.len(), "octocode-artifact"),
+        ]
+        .into_iter()
+        .filter(|(count, _)| *count > 0)
+        .map(|(count, cause)| format!("{count} {cause}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+    }
+}
+
+/// What one local walk skips by default, as its request spells it.
+#[derive(Clone, Copy, Debug)]
+pub struct WalkRules<'r> {
+    /// `defaultExcludes`: the default prune (and generated files) apply.
+    pub defaults: bool,
+    /// The include globs as authored: a glob that names a pruned
+    /// directory lifts its prune, and only skipped entries one of them could
+    /// reach are recorded.
+    pub include: &'r [String],
+    /// Generated files (`*.min.js`, `*.map`, `.DS_Store`, archives) are
+    /// default-excluded with the directories. Off only for an inventory
+    /// listing (`structureSearch`), which lists what exists.
+    pub generated: bool,
+    /// The engine walk prunes the default directories itself (its
+    /// `default_exclude_dir` is [`crate::policy::prune::walk_names`] of these same
+    /// rules) and reports what it pruned: [`WalkAdmission::admit`] then
+    /// leaves directories to it.
+    pub engine_prunes: bool,
+}
+
+/// The one admission of a local walk (`localSearch`, `structureSearch`,
+/// `astSearch` symbols and match): the cached path-policy decision
+/// ([`DiscoveryWalk`]), links never followed, the rooted default prune with
+/// include lifting ([`crate::policy::prune::rooted_under`]), the generated-file excludes,
+/// and one skip ledger ([`WalkSkips`]) of what it left out. A tool supplies
+/// only its own relevance: which denied entries are worth disclosing.
+///
+/// [`DiscoveryWalk`]: crate::policy::path::DiscoveryWalk
+pub struct WalkAdmission<'a> {
+    discovery: crate::policy::path::DiscoveryWalk<'a>,
+    /// The walked root: a file named as the root is always walked.
+    root: std::path::PathBuf,
+    /// The default prune; `None` with `defaultExcludes:false`.
+    prune: Option<octocode_engine::search::walk::RootedPrune>,
+    /// Generated files are default-excluded ([`WalkRules::generated`]).
+    generated: bool,
+    /// The include globs as authored: one that spells a file out exactly
+    /// (no wildcard) asks for it, so the generated-file default lifts for it.
+    include: Vec<String>,
+    /// [`WalkRules::engine_prunes`].
+    engine_prunes: bool,
+    /// The entries that could hold a path the include globs match: only
+    /// those are recorded as skipped.
+    scope: octocode_engine::search::glob::IncludeScope,
+    skipped: std::sync::Mutex<WalkSkips>,
+}
+
+/// Whether a walked entry is a link (by its listing type when the walk has
+/// it): no local walk follows one.
+fn is_link(path: &Path, file_type: Option<std::fs::FileType>) -> bool {
+    file_type.map_or_else(|| path.is_symlink(), |kind| kind.is_symlink())
+}
+
+impl<'a> WalkAdmission<'a> {
+    /// The admission of a walk of `root` under `discovery` by `rules`.
+    pub fn new(
+        discovery: crate::policy::path::DiscoveryWalk<'a>,
+        root: &Path,
+        rules: WalkRules<'_>,
+    ) -> Self {
+        Self {
+            prune: crate::policy::prune::rooted_under(
+                root,
+                rules.defaults,
+                rules.include,
+                discovery.global_ignore(),
+            ),
+            generated: rules.defaults && rules.generated,
+            include: rules.include.to_vec(),
+            engine_prunes: rules.engine_prunes,
+            scope: octocode_engine::search::glob::IncludeScope::new(root, rules.include),
+            discovery,
+            root: root.to_path_buf(),
+            skipped: std::sync::Mutex::new(WalkSkips::default()),
+        }
+    }
+
+    /// Whether the path policy admits `path` ([`DiscoveryWalk::permits_entry`]).
+    ///
+    /// [`DiscoveryWalk::permits_entry`]: crate::policy::path::DiscoveryWalk::permits_entry
+    pub fn permits(&self, path: &Path, file_type: Option<std::fs::FileType>) -> bool {
+        self.discovery.permits_entry(path, file_type)
+    }
+
+    /// Whether the default excludes leave out `path`: a pruned directory or
+    /// a generated file below the root (the root itself is walked).
+    pub fn excludes(&self, path: &Path, is_dir: bool) -> bool {
+        if path == self.root {
+            return false;
+        }
+        if is_dir {
+            self.prune
+                .as_ref()
+                .is_some_and(|prune| prune.prunes(path, true))
+        } else {
+            self.generated
+                && path
+                    .file_name()
+                    .is_some_and(|name| generated_file_pattern(&name.to_string_lossy()).is_some())
+                && !self.include_names(path)
+        }
+    }
+
+    /// Whether an include glob spells `path` out exactly: a name without a
+    /// slash is any file of that name (as a gitignore pattern), a path is
+    /// that path under the root. A wildcard glob that merely reaches the
+    /// file is not a request for it.
+    fn include_names(&self, path: &Path) -> bool {
+        let relative = self.shown(path);
+        self.include.iter().any(|glob| {
+            let glob = glob.strip_prefix("./").unwrap_or(glob);
+            let glob = glob.strip_prefix('/').unwrap_or(glob);
+            !glob.is_empty()
+                && !glob.contains(['*', '?', '[', '{', '\\', '!'])
+                && if glob.contains('/') {
+                    glob == relative
+                } else {
+                    relative.rsplit('/').next() == Some(glob)
+                }
+        })
+    }
+
+    /// [`Self::excludes`], recording a left-out entry the include globs
+    /// could reach.
+    pub(crate) fn exclude(&self, path: &Path, is_dir: bool) -> bool {
+        if !self.excludes(path, is_dir) {
+            return false;
+        }
+        if self.in_scope(path, is_dir) {
+            let shown = self.shown(path);
+            self.note(|skips| {
+                if is_dir {
+                    skips.pruned.insert(shown);
+                } else {
+                    skips.generated.insert(shown);
+                }
+            });
+        }
+        true
+    }
+
+    /// Count one entry the path policy withheld, or a link the walk did
+    /// not follow ([`Withheld::record`]).
+    pub(crate) fn withhold(&self, path: &Path) {
+        // An entry the default prune leaves out anyway costs the walk nothing
+        // the policy took: the repository's own `.git` directory, or the
+        // `.git` file a linked worktree (every ghCloneRepo checkout) or a
+        // submodule keeps. Counting it as withheld would mark every scan of a
+        // checkout root as unproven. With `defaultExcludes:false` the prune is
+        // off, so the policy is then the cause and it is counted.
+        let pruned_anyway = path != self.root
+            && self
+                .prune
+                .as_ref()
+                .is_some_and(|prune| prune.prunes(path, path.is_dir()));
+        if !pruned_anyway {
+            self.note(|skips| skips.withheld.record(path));
+        }
+    }
+
+    /// The verdict on one walked entry: a link is never followed and a
+    /// denied entry never walked (each recorded when `relevant` says it
+    /// could have mattered: a directory, or a file the tool reads), a
+    /// default-excluded one is recorded and left out; anything else is
+    /// walked.
+    pub fn admit(
+        &self,
+        path: &Path,
+        file_type: Option<std::fs::FileType>,
+        relevant: impl FnOnce(bool) -> bool,
+    ) -> bool {
+        let is_dir = || file_type.map_or_else(|| path.is_dir(), |kind| kind.is_dir());
+        if is_link(path, file_type) || !self.permits(path, file_type) {
+            let is_dir = path.is_dir();
+            if relevant(is_dir) {
+                self.withhold(path);
+            }
+            return false;
+        }
+        let is_dir = is_dir();
+        if crate::policy::prune::is_octocode_artifact(&self.root, path, is_dir) {
+            if self.in_scope(path, is_dir) {
+                let shown = self.shown(path);
+                self.note(|skips| {
+                    skips.artifacts.insert(shown);
+                });
+            }
+            return false;
+        }
+        (is_dir && self.engine_prunes) || !self.exclude(path, is_dir)
+    }
+
+    /// What the walk left out so far.
+    pub fn skipped(&self) -> WalkSkips {
+        self.skipped
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    fn note(&self, record: impl FnOnce(&mut WalkSkips)) {
+        record(
+            &mut self
+                .skipped
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+    }
+
+    /// An entry a walk rule (hidden, ignored) left out, as the skips record
+    /// it: its path under the root (a directory's with a trailing `/`) and
+    /// whether the default excludes would leave it out too. One the path
+    /// policy withholds is `None` and recorded as withheld here, as
+    /// [`Self::admit`] records it when no walk rule skips it first: the
+    /// policy is the cause no flag lifts, so it is counted once, by reason,
+    /// and never named among the entries `includeIgnored` or `includeHidden`
+    /// would reach but could not read.
+    fn skipped_entry(&self, path: &Path, is_dir: bool) -> Option<(String, bool)> {
+        if !self.permits(path, None) {
+            self.withhold(path);
+            return None;
+        }
+        if !self.in_scope(path, is_dir) {
+            return None;
+        }
+        let excluded = self.excludes(path, is_dir);
+        let mut shown = self.shown(path);
+        if is_dir {
+            shown.push('/');
+        }
+        Some((shown, excluded))
+    }
+
+    /// Record a dot entry a walk left out without `includeHidden`.
+    pub fn record_hidden(&self, path: &Path, is_dir: bool) {
+        if let Some((shown, excluded)) = self.skipped_entry(path, is_dir) {
+            self.note(|skips| {
+                skips.hidden.insert(shown);
+                skips.hidden_excluded |= excluded;
+            });
+        }
+    }
+
+    /// Record an entry an ignore rule left out without `includeIgnored`.
+    pub fn record_ignored(&self, path: &Path, is_dir: bool) {
+        if let Some((shown, excluded)) = self.skipped_entry(path, is_dir) {
+            let hidden = path
+                .file_name()
+                .is_some_and(|name| name.as_encoded_bytes().first() == Some(&b'.'));
+            self.note(|skips| {
+                skips.ignored.insert(shown);
+                skips.ignored_excluded |= excluded;
+                skips.ignored_hidden |= hidden;
+            });
+        }
+    }
+
+    /// Record what an engine walk's own rules left out of `root`'s walk, each
+    /// entry root-relative (a directory's with a trailing `/`; every `pruned`
+    /// entry is a directory): its ignored and dot entries, and the
+    /// directories its default prune skipped ([`WalkRules::engine_prunes`]).
+    /// A file counts only when `relevant` says the walk would have read it.
+    pub fn record_left_out(
+        &self,
+        (ignored, hidden, pruned): (&[String], &[String], &[String]),
+        relevant: impl Fn(&Path) -> bool,
+    ) {
+        let entry = |relative: &String| {
+            let is_dir = relative.ends_with('/');
+            let path = self.root.join(relative.trim_end_matches('/'));
+            (is_dir || relevant(&path)).then_some((path, is_dir))
+        };
+        for (path, is_dir) in ignored.iter().filter_map(entry) {
+            self.record_ignored(&path, is_dir);
+        }
+        for (path, is_dir) in hidden.iter().filter_map(entry) {
+            self.record_hidden(&path, is_dir);
+        }
+        for relative in pruned {
+            let path = self.root.join(relative.trim_end_matches('/'));
+            if self.permits(&path, None) && self.in_scope(&path, true) {
+                let shown = self.shown(&path);
+                self.note(|skips| {
+                    skips.pruned.insert(shown);
+                });
+            }
+        }
+    }
+
+    /// Whether a skipped `path` could hold a path the include globs match.
+    fn in_scope(&self, path: &Path, is_dir: bool) -> bool {
+        self.scope
+            .reaches(path, path.strip_prefix(&self.root).unwrap_or(path), is_dir)
+    }
+
+    /// `path` under the walk root, with `/` separators.
+    fn shown(&self, path: &Path) -> String {
+        octocode_engine::text::slash_path(path.strip_prefix(&self.root).unwrap_or(path))
+    }
+}
+
+impl WalkAdmission<'static> {
+    /// A text search's admission of `root` under `policy` (generated files
+    /// default-excluded with the directories when `defaults`), shared by the
+    /// walk's threads.
+    pub fn search(
+        policy: crate::policy::path::PathPolicy,
+        root: std::path::PathBuf,
+        defaults: bool,
+        include: &[String],
+    ) -> Self {
+        Self::new(
+            crate::policy::path::DiscoveryWalk::owned(policy),
+            &root,
+            WalkRules {
+                defaults,
+                include,
+                generated: true,
+                engine_prunes: false,
+            },
+        )
+    }
+}
+
+/// A text search walk's path filter: every entry is admitted by
+/// [`WalkAdmission::admit`] (every denied entry and unfollowed link
+/// recorded), and the dot and ignored entries the walk's own rules left out
+/// are recorded too.
+impl octocode_engine::search::text_search::TextSearchPathFilter for WalkAdmission<'static> {
+    fn allows(&self, path: &Path, _is_dir: bool) -> bool {
+        self.allows_entry(
+            path,
+            std::fs::symlink_metadata(path)
+                .ok()
+                .map(|meta| meta.file_type()),
+        )
+    }
+
+    fn allows_entry(&self, path: &Path, file_type: Option<std::fs::FileType>) -> bool {
+        self.admit(path, file_type, |_| true)
+    }
+
+    fn skipped_hidden(&self, path: &Path, is_dir: bool) {
+        self.record_hidden(path, is_dir);
+    }
+
+    fn skipped_ignored(&self, path: &Path, is_dir: bool) {
+        self.record_ignored(path, is_dir);
+    }
+
+    fn skipped_symlink(&self, path: &Path) {
+        self.withhold(path);
+    }
+}

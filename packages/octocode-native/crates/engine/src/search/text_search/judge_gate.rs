@@ -1,0 +1,241 @@
+//! When a file's own bytes prove that the text its judge serves holds no
+//! match, so the judge need not run ([`crate::types::SourceJudge`]).
+//!
+//! A judge serves a file's text with some runs of its bytes replaced by text
+//! it writes ([`crate::types::SourceJudge::writes`]). A match in the served
+//! text that takes none of that written text is the source's own bytes at
+//! their place, so the source holds it too. Every match begins with one of the
+//! pattern's prefix literals ([`regex_syntax::hir::literal`]); when none of
+//! them can take written text, a source without any of them serves a text
+//! without a match. A pattern whose matches are exactly its literals, with no
+//! assertion about what is around them, needs no prefix scan: the search of
+//! the source's own bytes finding no line is the proof.
+use crate::types::{CaseRule, PatternSyntax, SearchOutput, TextSearchOptions};
+use regex_syntax::hir::literal::{ExtractKind, Extractor};
+use std::io::Read as _;
+
+/// How a search decides, per file, that its judge need not run.
+pub(super) enum JudgeGate {
+    /// Every file is judged: the search has no judge, or a match could take
+    /// text the judge writes, or a file without a match is shown.
+    Always,
+    /// A file the search of whose own bytes found no line is not judged when
+    /// `exact` holds (and the search read it to its end), or when its bytes
+    /// before the first NUL hold none of `prefixes`.
+    Gated {
+        /// Every match is one of the literals, whatever is around it.
+        exact: bool,
+        /// The prefix literals, compared as the search compares case.
+        prefixes: regex::bytes::Regex,
+        /// Bytes a prefix match may take: the scan's overlap between reads.
+        reach: usize,
+    },
+}
+
+/// Bytes each read of the prefix scan takes.
+const SCAN_BYTES: usize = 64 * 1024;
+
+impl JudgeGate {
+    /// The gate of a search of `opts`, whose pattern the Rust engine reads
+    /// as `spelled`.
+    pub(super) fn of(opts: &TextSearchOptions, spelled: &str) -> Self {
+        Self::gated(opts, spelled).unwrap_or(Self::Always)
+    }
+
+    fn gated(opts: &TextSearchOptions, spelled: &str) -> Option<Self> {
+        let judge = opts.judge.as_ref()?;
+        // A count of masked spans takes every file's judgment, whatever the
+        // pattern: a gated count would tell where the pattern's literals
+        // occur in a secret.
+        if opts.count_masked {
+            return None;
+        }
+        // A files-without view or an inverted search shows the files and
+        // lines that do not match: their text is the judge's.
+        if opts.invert_match.unwrap_or(false)
+            || opts.output == SearchOutput::FilesWithoutMatch
+            || opts.syntax == PatternSyntax::Pcre2
+        {
+            return None;
+        }
+        let multiline = opts.multiline.unwrap_or(false);
+        let mut ast = regex_syntax::ast::parse::Parser::new()
+            .parse(spelled)
+            .ok()?;
+        // The prefixes are read with case, and compared without it wherever
+        // the pattern compares without it: a group without case (as several
+        // terms searched without case are joined, `(?i:a)|(?i:b)`) spells
+        // each literal in every case, which the extractor cuts to a few
+        // bytes, mid-character at a `k` (the Kelvin sign) or an `s`.
+        let caseless_groups = with_case(&mut ast);
+        let hir = regex_syntax::hir::translate::TranslatorBuilder::new()
+            .multi_line(true)
+            .dot_matches_new_line(multiline && opts.multiline_dotall.unwrap_or(false))
+            .utf8(false)
+            .build()
+            .translate(spelled, &ast)
+            .ok()?;
+        let seq = Extractor::new().kind(ExtractKind::Prefix).extract(&hir);
+        let literals = seq.literals()?;
+        // A smart-case search compares without case when its pattern has no
+        // capital; comparing without case here only judges more.
+        let fold = opts.case != CaseRule::Sensitive || caseless_groups;
+        let mut alternates = Vec::with_capacity(literals.len());
+        let mut reach = 0;
+        let mut cut = false;
+        for literal in literals {
+            // A literal the extractor cut inside a character is a prefix
+            // through its last whole character.
+            let bytes = literal.as_bytes();
+            let text = match std::str::from_utf8(bytes) {
+                Ok(text) => text,
+                Err(error) => {
+                    cut = true;
+                    std::str::from_utf8(&bytes[..error.valid_up_to()]).ok()?
+                }
+            };
+            if text.is_empty() || (judge.writes)(text, fold) {
+                return None;
+            }
+            // A character compared without case may take up to four bytes.
+            reach = reach.max(text.chars().count() * 4);
+            alternates.push(regex::escape(text));
+        }
+        let prefixes = regex::bytes::RegexBuilder::new(&alternates.join("|"))
+            .case_insensitive(fold)
+            .build()
+            .ok()?;
+        let exact = !cut
+            && seq.is_exact()
+            && hir.properties().look_set().is_empty()
+            && !opts.whole_word.unwrap_or(false);
+        Some(Self::Gated {
+            exact,
+            prefixes,
+            reach,
+        })
+    }
+
+    /// Whether the search of `file`'s own bytes, which found `matched` lines
+    /// and quit at a NUL when `binary`, proves the text its judge serves
+    /// holds no match. `file` is read from its start.
+    pub(super) fn proves_unmatched(
+        &self,
+        file: &std::fs::File,
+        matched: u32,
+        binary: bool,
+    ) -> std::io::Result<bool> {
+        let Self::Gated {
+            exact,
+            prefixes,
+            reach,
+        } = self
+        else {
+            return Ok(false);
+        };
+        if matched > 0 {
+            return Ok(false);
+        }
+        if *exact && !binary {
+            return Ok(true);
+        }
+        absent_before_nul(file, prefixes, *reach)
+    }
+
+    /// Whether some file of the search may skip its judge.
+    pub(super) fn gates(&self) -> bool {
+        matches!(self, Self::Gated { .. })
+    }
+}
+
+/// `ast` with every case flag (`i`, `-i`) dropped, so each group compares
+/// with case; whether it held one. Every match of the pattern spells, one
+/// character at a time ignoring case, a match of the pattern with case, so
+/// the prefixes of the one with case, compared without case, are each
+/// match's.
+fn with_case(ast: &mut regex_syntax::ast::Ast) -> bool {
+    use regex_syntax::ast::{Ast, Flag, Flags, FlagsItemKind, GroupKind};
+    fn drop_case(flags: &mut Flags) -> bool {
+        let before = flags.items.len();
+        flags
+            .items
+            .retain(|item| item.kind != FlagsItemKind::Flag(Flag::CaseInsensitive));
+        // A negation with no flag after it negates nothing.
+        if flags
+            .items
+            .last()
+            .is_some_and(|item| item.kind == FlagsItemKind::Negation)
+        {
+            flags.items.pop();
+        }
+        flags.items.len() != before
+    }
+    match ast {
+        Ast::Flags(set) => drop_case(&mut set.flags),
+        Ast::Group(group) => {
+            let flagged = match &mut group.kind {
+                GroupKind::NonCapturing(flags) => drop_case(flags),
+                GroupKind::CaptureIndex(_) | GroupKind::CaptureName { .. } => false,
+            };
+            with_case(&mut group.ast) | flagged
+        }
+        Ast::Repetition(repetition) => with_case(&mut repetition.ast),
+        Ast::Alternation(alternation) => alternation
+            .asts
+            .iter_mut()
+            .fold(false, |held, ast| with_case(ast) | held),
+        Ast::Concat(concat) => concat
+            .asts
+            .iter_mut()
+            .fold(false, |held, ast| with_case(ast) | held),
+        Ast::Empty(_)
+        | Ast::Literal(_)
+        | Ast::Dot(_)
+        | Ast::Assertion(_)
+        | Ast::ClassUnicode(_)
+        | Ast::ClassPerl(_)
+        | Ast::ClassBracketed(_) => false,
+    }
+}
+
+/// Whether `file`'s bytes before its first NUL hold no match of `prefixes`.
+/// A judge writes only before the first NUL, and a search reports no hit
+/// past it. A UTF-16 source is searched as its decoded text, which its bytes
+/// do not hold: it is never proved.
+fn absent_before_nul(
+    file: &std::fs::File,
+    prefixes: &regex::bytes::Regex,
+    reach: usize,
+) -> std::io::Result<bool> {
+    use std::io::{Seek, SeekFrom};
+    let mut handle = file;
+    handle.seek(SeekFrom::Start(0))?;
+    let mut window: Vec<u8> = Vec::with_capacity(SCAN_BYTES + reach);
+    let mut chunk = vec![0u8; SCAN_BYTES];
+    let mut first = true;
+    loop {
+        let read = match handle.read(&mut chunk) {
+            Ok(0) => return Ok(true),
+            Ok(read) => read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        };
+        let bytes = &chunk[..read];
+        if first {
+            first = false;
+            if crate::text::has_utf16_bom(bytes) {
+                return Ok(false);
+            }
+        }
+        let nul = memchr::memchr(0, bytes);
+        window.extend_from_slice(&bytes[..nul.unwrap_or(read)]);
+        if prefixes.is_match(&window) {
+            return Ok(false);
+        }
+        if nul.is_some() {
+            return Ok(true);
+        }
+        let keep = window.len().min(reach);
+        window.drain(..window.len() - keep);
+    }
+}

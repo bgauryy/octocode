@@ -1,0 +1,160 @@
+//! What execution hands to response shaping: one domain row's result
+//! ([`DomainResult`]) and one finished call ([`ToolOutcome`]).
+use crate::id::error_codes::{self, ErrorClass};
+use crate::security::Sanitized;
+use octocode_contract_types::ErrorCode;
+use serde_json::{Value, json};
+
+#[derive(Debug)]
+pub struct ToolOutcome {
+    /// The envelope every surface prints, sealed by the output gate.
+    pub structured_content: Sanitized,
+    pub failure: Option<ErrorClass>,
+    pub all_failed: bool,
+    /// The saved request a `{"cursor":…}` call continued, as it ran; `None`
+    /// for a fresh call, whose input says it. A surface that describes the
+    /// call (the CLI's text output) reads it in place of the opaque cursor.
+    pub continued: Option<Value>,
+}
+
+impl ToolOutcome {
+    /// This outcome of a call that continued the saved request `continued`.
+    #[must_use]
+    pub fn continuing(mut self, continued: Option<Value>) -> Self {
+        self.continued = continued;
+        self
+    }
+}
+
+pub struct DomainResult {
+    pub diagnostics: crate::response::result::ToolDiagnostics,
+    pub data: Value,
+    pub status: Option<&'static str>,
+    pub source_digest: Option<String>,
+    pub failure: Option<ErrorClass>,
+    /// Leaves of `data` judged against their whole source, for the output
+    /// gate; never part of `data`.
+    pub judged: crate::security::JudgedLeaves,
+}
+
+impl DomainResult {
+    /// A tool's own payload. Typed error codes use the shared failure class,
+    /// whether a tool returns its error as a payload or as a ToolError.
+    pub fn payload(data: Value, status: Option<&'static str>) -> Self {
+        let failure = (status == Some("error")).then(|| {
+            data.get("errorCode")
+                .and_then(Value::as_str)
+                .and_then(crate::id::error_codes::parse)
+                .map_or(ErrorClass::Unservable, error_codes::class)
+        });
+        Self {
+            diagnostics: Default::default(),
+            data,
+            status,
+            source_digest: None,
+            failure,
+            judged: Default::default(),
+        }
+    }
+
+    /// The one error row: `error`, `errorCode`, then `hints` (when any) and
+    /// `next` (when any). Arms add context fields to `data` afterwards.
+    pub fn failure(
+        code: ErrorCode,
+        message: impl Into<String>,
+        hints: Vec<String>,
+        next: Option<Value>,
+    ) -> Self {
+        // One exit class per code: the contract's table decides it.
+        let kind = error_codes::class(code);
+        let mut data = json!({"error": message.into(), "errorCode": code});
+        crate::response::result::add_hints(&mut data, hints);
+        if let Some(calls) = next {
+            crate::response::result::attach_calls(&mut data, calls);
+        }
+        Self {
+            diagnostics: Default::default(),
+            data,
+            status: Some("error"),
+            source_digest: None,
+            failure: Some(kind),
+            judged: Default::default(),
+        }
+    }
+
+    /// The one provider/transport error row (GitHub, package registries, git,
+    /// language servers). Every fact is stated once, in this order:
+    ///
+    /// ```text
+    /// {error, errorCode, retryable?, httpStatus?,
+    ///  rateLimit?: {resource?, remaining?, resetEpochSeconds?, retryAfterSeconds?},
+    ///  hints?, next?}
+    /// ```
+    ///
+    /// `retryable` is a boolean on transient rows only (true: a retry can
+    /// help); the row finaliser drops it from every other class. `httpStatus` appears only
+    /// when the upstream answered with a status `errorCode` does not name. Rate-limit members are seconds and absent
+    /// when unknown, never null or a made-up 0. There is no `status`, `type`,
+    /// `rateLimitRemaining`, `rateLimitReset` sibling and no raw provider
+    /// dump. Arms add identity fields (owner/repo/path) afterwards. Other error emitters
+    /// (clasify's resource errors) mirror these field names.
+    pub fn provider(
+        code: ErrorCode,
+        message: impl Into<String>,
+        hints: Vec<String>,
+        next: Option<Value>,
+        upstream: Upstream,
+    ) -> Self {
+        let mut row = Self::failure(code, message, Vec::new(), None);
+        let data = &mut row.data;
+        // The emitter's verdict on a transient failure; no other class states it.
+        if error_codes::class(code) == ErrorClass::Transient {
+            data["retryable"] = json!(upstream.retryable);
+        }
+        // The status rides only when `errorCode` does not already name it
+        // (a 404 is `notFound`; a 5xx, an unmapped status or a status the
+        // provider read differently carries its number).
+        if let Some(status) = upstream.http_status.filter(|status| {
+            let named = octocode_github::ProviderErrorKind::from_status(*status);
+            named.code() != code
+                || matches!(
+                    named,
+                    octocode_github::ProviderErrorKind::Server
+                        | octocode_github::ProviderErrorKind::HttpStatus
+                )
+        }) {
+            data["httpStatus"] = json!(status);
+        }
+        if let Some(rate_limit) = upstream.rate_limit {
+            data["rateLimit"] = rate_limit;
+        }
+        crate::response::result::add_hints(data, hints);
+        if let Some(calls) = next {
+            crate::response::result::attach_calls(data, calls);
+        }
+        row
+    }
+}
+
+impl From<crate::response::result::ToolError> for DomainResult {
+    fn from(error: crate::response::result::ToolError) -> Self {
+        Self::failure(
+            error.code,
+            error.message,
+            error.hints,
+            error.calls.map(|next| *next),
+        )
+    }
+}
+
+/// What the upstream said about a failed call (see [`DomainResult::provider`]).
+#[derive(Default)]
+pub struct Upstream {
+    pub retryable: bool,
+    pub http_status: Option<u16>,
+    /// `{resource?, remaining?, resetEpochSeconds?, retryAfterSeconds?}`.
+    pub rate_limit: Option<Value>,
+}
+
+#[cfg(test)]
+mod tests;

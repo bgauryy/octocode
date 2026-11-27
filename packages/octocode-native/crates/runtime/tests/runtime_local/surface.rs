@@ -1,0 +1,268 @@
+//! Runtime surface: briefs, bulk rows, tool availability, the catalog and replay.
+
+use crate::support::{self, Run as _, Workspace, call};
+use octocode_native::runtime::{HostOptions, ToolRuntime};
+use octocode_runtime_base::config::RuntimeSurface;
+use octocode_test_support::json_fixture;
+use serde_json::json;
+use std::collections::BTreeMap;
+
+#[tokio::test]
+async fn bulk_queries_preserve_indexes_and_isolate_domain_failures() {
+    let workspace = Workspace::new();
+    let first = workspace.write("first.txt", "first\n");
+    let second = workspace.write("second.txt", "second\n");
+    let missing = workspace.workspace.join("missing.txt");
+    let runtime = workspace.runtime(&[]);
+
+    let successful = runtime
+        .run(
+            "bulk-success".into(),
+            "localFetch".into(),
+            json!({"queries":[
+                {"path":first},
+                {"path":second}
+            ]}),
+        )
+        .await
+        .expect("bulk success");
+    let rows = successful.structured_content["results"]
+        .as_array()
+        .expect("result rows");
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["index"], 0);
+    assert_eq!(rows[1]["index"], 1);
+    assert_eq!(rows[0]["data"]["content"], "1\tfirst\n");
+    assert_eq!(rows[1]["data"]["content"], "1\tsecond\n");
+    assert!(!successful.all_failed);
+
+    let mixed = runtime
+        .run(
+            "bulk-mixed".into(),
+            "localFetch".into(),
+            json!({"queries":[
+                {"path":missing},
+                {"path":first}
+            ]}),
+        )
+        .await
+        .expect("mixed bulk result");
+    let rows = mixed.structured_content["results"]
+        .as_array()
+        .expect("mixed rows");
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["status"], "error");
+    assert!(rows[1].get("status").is_none());
+    assert!(!mixed.all_failed);
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn cli_ignores_discovery_filters_but_mcp_on_cli_host_enforces_them() {
+    let workspace = Workspace::new();
+    let source = workspace.write("allowed.txt", "local source\n");
+    for env in [
+        vec![("OCTOCODE_ENABLE_LOCAL", "false".into())],
+        vec![("DISABLE_TOOLS", "localFetch".into())],
+        vec![("TOOLS_TO_RUN", "ghSearchCode".into())],
+    ] {
+        let runtime = workspace.runtime(&env);
+        for tool in octocode_runtime_base::id::ToolId::ALL {
+            // Only a required setting decides; no MCP filter touches the CLI.
+            assert_eq!(
+                runtime.is_available(tool.as_str()),
+                tool != octocode_runtime_base::id::ToolId::Clasify,
+                "CLI {}",
+                tool.as_str()
+            );
+        }
+        let read = call(&runtime, "localFetch", json!({"path":source}))
+            .await
+            .expect("CLI read");
+        assert!(!read.all_failed);
+        let refused = runtime
+            .run_mcp(
+                "mcp-filter".into(),
+                "localFetch".into(),
+                json!({"queries":[{"path":source}]}),
+            )
+            .await
+            .expect("MCP response");
+        assert_eq!(
+            crate::support::mcp_payload(&refused)["errorCode"],
+            "toolUnavailable",
+            "{refused}"
+        );
+        runtime.close().await;
+    }
+}
+
+#[tokio::test]
+async fn host_options_environment_controls_embedded_tool_availability() {
+    let workspace = Workspace::new();
+    let runtime = ToolRuntime::from_host(HostOptions {
+        cwd: Some(workspace.workspace.clone()),
+        // The fixture home, so the user's ~/.octocode is never read or written.
+        env: Some(BTreeMap::from([
+            ("OCTOCODE_ENABLE_LOCAL".into(), "true".into()),
+            ("OCTOCODE_BETA".into(), "true".into()),
+            (
+                "OCTOCODE_HOME".into(),
+                workspace.home.to_string_lossy().into_owned(),
+            ),
+        ])),
+        surface: RuntimeSurface::Mcp,
+        ..HostOptions::default()
+    })
+    .expect("embedded runtime with explicit environment");
+    // Beta does not opt MCP into cloning.
+    assert!(runtime.is_available("astSearch"));
+    let catalog = runtime.catalog();
+    {
+        let name = "ghCloneRepo";
+        assert!(!runtime.is_available(name), "{name}");
+        let entry = catalog["tools"]
+            .as_array()
+            .expect("tools")
+            .iter()
+            .find(|tool| tool["name"] == name)
+            .unwrap_or_else(|| panic!("{name} entry"));
+        assert_eq!(entry["available"], false, "{name}");
+        assert_eq!(entry["unavailableReason"], "missingConfiguration", "{name}");
+    }
+    let error = runtime
+        .run_mcp(
+            "mcp-clone".into(),
+            "ghCloneRepo".into(),
+            json_fixture(r#"{"queries": [{"owner": "octocat", "repo": "Hello-World"}]}"#),
+        )
+        .await
+        .expect("MCP answers a refused call as a tool error");
+    assert_eq!(
+        crate::support::mcp_payload(&error)["errorCode"],
+        "toolUnavailable",
+        "ghCloneRepo requires its own opt-in: {error}"
+    );
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn runtime_catalog_lists_available_tools() {
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[]);
+    let internal = octocode_runtime_base::contracts::parsed_contract().expect("embedded contract");
+    assert!(
+        internal["tools"]
+            .as_array()
+            .expect("internal tools")
+            .iter()
+            .all(|tool| tool["outputSchema"].is_object()),
+        "internal output schemas must remain available for runtime validation"
+    );
+    let catalog = runtime.catalog();
+    assert_eq!(catalog["fingerprint"], internal["fingerprint"]);
+    support::checks::assert_absent(&catalog, "outputSchema");
+    assert!(
+        catalog["tools"]
+            .as_array()
+            .expect("public tools")
+            .iter()
+            .all(|tool| tool["available"].is_boolean()
+                && tool["title"].is_string()
+                && tool.get("inputSchema").is_none()
+                && tool.get("querySchema").is_none()),
+        "runtime catalog is names + availability only; schemas ship via core and `scheme`"
+    );
+    let names: Vec<_> = catalog["tools"]
+        .as_array()
+        .expect("tools")
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect();
+    assert!(names.contains(&"localFetch"));
+    assert!(names.contains(&"localSearch"));
+    assert!(names.contains(&"ghSearchCode"));
+    let grammars = catalog["grammarCapabilities"]
+        .as_array()
+        .expect("runtime grammar capabilities");
+    assert!(grammars.iter().any(|entry| {
+        entry["language"] == "Rust"
+            && entry["extensions"]
+                .as_array()
+                .is_some_and(|extensions| extensions.contains(&json!("rs")))
+            && entry["structuralSearch"] == true
+    }));
+    let servers = catalog["lspServers"]
+        .as_array()
+        .expect("runtime lspSearch server languages");
+    let order = ["ts/js", "py", "rust", "c/c++", "go", "c#", "java", "scala"];
+    let positions: Vec<_> = servers
+        .iter()
+        .map(|label| {
+            order
+                .iter()
+                .position(|known| label == *known)
+                .unwrap_or_else(|| panic!("unknown server label {label}"))
+        })
+        .collect();
+    assert!(
+        positions.windows(2).all(|pair| pair[0] < pair[1]),
+        "{servers:?}"
+    );
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn graph_mcp_gate_covers_discovery_calls_and_cli_host_embedding() {
+    for surface in [RuntimeSurface::Cli, RuntimeSurface::Mcp] {
+        for beta in ["false", "true"] {
+            let workspace = Workspace::new();
+            workspace.write("entry.ts", "export function entry() { return 1; }\n");
+            let runtime = ToolRuntime::from_host(HostOptions {
+                cwd: Some(workspace.workspace.clone()),
+                env: Some(BTreeMap::from([
+                    ("OCTOCODE_ENABLE_LOCAL".into(), "true".into()),
+                    ("OCTOCODE_BETA".into(), beta.into()),
+                    (
+                        "OCTOCODE_HOME".into(),
+                        workspace.home.to_string_lossy().into_owned(),
+                    ),
+                ])),
+                surface,
+                ..HostOptions::default()
+            })
+            .expect("runtime");
+            for name in ["graphBuild", "graphQuery"] {
+                assert_eq!(
+                    runtime.is_available(name),
+                    surface == RuntimeSurface::Cli || beta == "true"
+                );
+                let query = if name == "graphBuild" {
+                    json!({"path": workspace.workspace})
+                } else {
+                    json!({"operation": "stats", "path": workspace.workspace})
+                };
+                let result = runtime
+                    .run_mcp(
+                        format!("{name}-{beta}"),
+                        name.into(),
+                        json!({"queries": [query]}),
+                    )
+                    .await
+                    .expect("MCP response");
+                let payload = crate::support::mcp_payload(&result);
+                if beta == "false" {
+                    assert_eq!(payload["errorCode"], "toolUnavailable", "{result}");
+                    assert!(payload.to_string().contains("OCTOCODE_BETA"), "{result}");
+                    assert!(!workspace.workspace.join(".octocode/graph").exists());
+                } else {
+                    assert_ne!(result["isError"], true, "{result}");
+                    let data = &payload["results"][0]["data"];
+                    assert!(data.get("errorCode").is_none(), "{result}");
+                    assert_eq!(data["counts"]["nodesByKind"]["symbol"], 1, "{result}");
+                }
+            }
+            runtime.close().await;
+        }
+    }
+}

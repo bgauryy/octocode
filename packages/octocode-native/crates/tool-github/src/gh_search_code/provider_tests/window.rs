@@ -1,0 +1,452 @@
+//! The search window: its last whole page, per-extension windows and the merged multi-extension walk.
+use super::*;
+use octocode_test_support::json_fixture;
+
+/// A search of `total` results (`src/busy.rs`, `src/calm.rs`, then others),
+/// answered at any `page`/`per_page` as GitHub does.
+async fn mount_counted_search(server: &MockServer, total: usize) {
+    let items = (0..total)
+        .map(|index| {
+            let name = match index {
+                0 => "busy.rs".to_owned(),
+                1 => "calm.rs".to_owned(),
+                _ => format!("f{index}.rs"),
+            };
+            json!({"name":name,"path":format!("src/{name}"),"sha":"1","html_url":"https://x",
+                "repository":{"full_name":"a/b","html_url":"https://x","url":"https://x"}})
+        })
+        .collect::<Vec<_>>();
+    octocode_test_support::mock_http::mount_search_index(server, "/api/v3/search/code", items)
+        .await;
+}
+
+/// A page past GitHub's 1,000-result window repairs to the search's last
+/// real page, not to the window's last page (an empty page past the end).
+#[tokio::test]
+async fn a_page_past_the_window_repairs_to_the_last_real_page() {
+    let server = MockServer::builder().start().await;
+    mount_counted_search(&server, 150).await;
+    let provider = one_shot_provider(&server);
+    let query: GhSearchCodeQuery = serde_json::from_value(json_fixture(
+        r#"{
+            "owner": "a",
+            "repo": "b",
+            "keywords": ["needle"],
+            "page": 60,
+            "fields": ["path"]
+        }"#,
+    ))
+    .expect("query");
+    let context = default_context();
+    let Err(failure) = super::super::run(
+        &provider,
+        &query,
+        Ok(&context),
+        &Passthrough,
+        &octocode_runtime_base::policy::discovery::is_sensitive_repository_file,
+        None,
+    )
+    .await
+    else {
+        panic!("a page past the window is a failure");
+    };
+    let next = failure.calls.expect("repair");
+    assert_eq!(next["repair"]["input"]["queries"][0]["page"], 3, "{next}");
+}
+
+/// Code search serves a page only while its last result lies inside the
+/// 1,000-result window: at 3 a page the window ends at page 333 (999
+/// results), which is the terminal page, and page 334 repairs to it.
+#[tokio::test]
+async fn the_code_search_window_ends_at_its_last_whole_page() {
+    let server = MockServer::builder().start().await;
+    mount_counted_search(&server, 2236).await;
+    let provider = one_shot_provider(&server);
+    let at = |page: usize| -> GhSearchCodeQuery {
+        serde_json::from_value(json!({
+            "owner":"a","repo":"b","keywords":["needle"],"page":page,"fields":["path"]
+        }))
+        .expect("query")
+    };
+    let context = default_context();
+    let first = execute(
+        &provider,
+        &at(1),
+        &context,
+        &Passthrough,
+        &octocode_runtime_base::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
+    .expect("first page");
+    assert!(
+        first.data["pagination"]["total"].is_null(),
+        "{}",
+        first.data
+    );
+    let last = execute(
+        &provider,
+        &at(20),
+        &context,
+        &Passthrough,
+        &octocode_runtime_base::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
+    .expect("last page");
+    assert!(last.data["next"]["nextPage"].is_null(), "{}", last.data);
+    assert_eq!(last.data["terminalLimit"], true, "{}", last.data);
+    let Err(failure) = super::super::run(
+        &provider,
+        &at(21),
+        Ok(&context),
+        &Passthrough,
+        &octocode_runtime_base::policy::discovery::is_sensitive_repository_file,
+        None,
+    )
+    .await
+    else {
+        panic!("a page past the window is a failure");
+    };
+    let next = failure.calls.expect("repair");
+    assert_eq!(next["repair"]["input"]["queries"][0]["page"], 20, "{next}");
+}
+
+/// An owner-wide search past the window reaches its matches one
+/// repository at a time: its first page leads to the owner's repositories,
+/// the scopes that split it. A search already in one repository has no
+/// such lead (code search has no date or size field to split by).
+#[tokio::test]
+async fn an_owner_wide_capped_search_leads_to_the_owners_repositories() {
+    use serde_json::Value;
+    let server = MockServer::builder().start().await;
+    mount_counted_search(&server, 2236).await;
+    let provider = one_shot_provider(&server);
+    let context = default_context();
+    let page = async |row: Value| {
+        let query: GhSearchCodeQuery = serde_json::from_value(row).expect("query");
+        execute(
+            &provider,
+            &query,
+            &context,
+            &Passthrough,
+            &octocode_runtime_base::policy::discovery::is_sensitive_repository_file,
+        )
+        .await
+        .expect("page")
+        .data
+    };
+    let owner_wide = page(json!({"owner":"a","keywords":["needle"],"fields":["path"]})).await;
+    octocode_runtime_base::test_support::checks::related_call(
+        &owner_wide,
+        "ghSearchRepo",
+        |input| input["queries"][0] == json!({"operation":"list","owner":"a"}),
+    );
+    assert!(
+        owner_wide["warnings"].to_string().contains("ghSearchRepo"),
+        "the warning names the lead it promises: {owner_wide}"
+    );
+    let one_repo =
+        page(json!({"owner":"a","repo":"b","keywords":["needle"],"fields":["path"]})).await;
+    let leads = one_repo
+        .get("related")
+        .map(Value::to_string)
+        .unwrap_or_default();
+    assert!(!leads.contains("\"list\""), "{one_repo}");
+}
+
+/// A merged multi-`extensions` page is page N of each extension's own
+/// search of `floor(limit / k)` files, so the window is that search's: its
+/// last whole page is the last, and the page after repairs to it. The error
+/// states the caller's `limit` and the merged reachable total (every
+/// search's), as page 1 does, never the per-search size.
+#[tokio::test]
+async fn a_multi_extension_window_is_each_searchs_own() {
+    use octocode_tools_shared::gh_shared::SearchWindow;
+    let server = MockServer::builder().start().await;
+    let matched = 5000;
+    mount_counted_search(&server, matched).await;
+    let provider = one_shot_provider(&server);
+    let extensions = ["rs", "ts", "go"];
+    let at = |page: usize| -> GhSearchCodeQuery {
+        serde_json::from_value(json!({
+            "owner":"a","repo":"b","keywords":["needle"],"extensions":extensions,
+            "page":page,"fields":["path"]
+        }))
+        .expect("query")
+    };
+    let limit = octocode_engine::num::saturating_usize(at(1).limit.get());
+    let per_search = limit / extensions.len();
+    let last = SearchWindow::PageEnd.last_page(per_search);
+    let reachable = extensions.len() * SearchWindow::PageEnd.reach(matched, per_search).total;
+    let context = default_context();
+    let page = execute(
+        &provider,
+        &at(last),
+        &context,
+        &Passthrough,
+        &octocode_runtime_base::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
+    .expect("the last page");
+    assert!(paths_of(&page).len() <= limit, "{}", page.data);
+    let Err(failure) = super::super::run(
+        &provider,
+        &at(last + 1),
+        Ok(&context),
+        &Passthrough,
+        &octocode_runtime_base::policy::discovery::is_sensitive_repository_file,
+        None,
+    )
+    .await
+    else {
+        panic!("a page past the window is a failure");
+    };
+    assert_eq!(
+        failure.message,
+        format!(
+            "Page {} is past GitHub's search window: at limit {limit}, page {last} is the last, reaching the first {reachable} results.",
+            last + 1
+        )
+    );
+    let next = failure.calls.expect("repair");
+    assert_eq!(
+        next["repair"]["input"]["queries"][0]["page"], last,
+        "{next}"
+    );
+}
+
+/// A two-file search for `wrap_app` on the default branch: `src/busy.rs`
+/// holds `busy` hit lines (no context between them), `src/calm.rs` one.
+async fn mount_hit_files(server: &MockServer, busy: usize) {
+    mount_counted_search(server, 2).await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/HEAD"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(SHA))
+        .mount(server)
+        .await;
+    for (name, body) in [
+        ("busy.rs", "wrap_app();\n".repeat(busy)),
+        ("calm.rs", "fn wrap_app() {}\n".to_owned()),
+    ] {
+        octocode_test_support::mock_http::list_in_trees(server, "a", "b", &format!("src/{name}"))
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/a/b/contents/src%2F{name}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "type":"file","encoding":"base64","content":STANDARD.encode(body)
+            })))
+            .mount(server)
+            .await;
+    }
+}
+
+/// The `files` of a `wrap_app` search of `a/b`, picking `fields` when given.
+async fn hit_files(server: &MockServer, fields: Option<serde_json::Value>) -> serde_json::Value {
+    let mut row = json!({"owner": "a", "repo": "b", "keywords": ["wrap_app"]});
+    if let Some(fields) = fields {
+        row["fields"] = fields;
+    }
+    let query: GhSearchCodeQuery = serde_json::from_value(row).expect("query");
+    let out = execute(
+        &one_shot_provider(server),
+        &query,
+        &default_context(),
+        &Passthrough,
+        &octocode_runtime_base::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
+    .expect("search");
+    assert!(out.data.get("warnings").is_none(), "{}", out.data);
+    out.data["files"].clone()
+}
+
+/// A code row's keys split in two: the identity and the facts that qualify
+/// its lines, which every pick keeps (`CODE_ROW_ID`) and so no pick names
+/// (naming one would change nothing; `path` names the identity alone), and
+/// the lines, which a pick names.
+#[tokio::test]
+async fn every_code_row_key_is_kept_by_every_pick_or_named_by_one() {
+    let named = |key: &str| {
+        octocode_runtime_base::contracts::validate(
+            "ghSearchCode",
+            json!({"queries": [{"owner": "a", "repo": "b", "keywords": ["x"], "fields": [key]}]}),
+        )
+        .is_ok()
+    };
+    let kept = crate::gh_search_code::CODE_ROW_ID;
+    assert!(named("path"));
+    for key in kept {
+        assert!(*key == "path" || !named(key), "{key} rides every pick");
+    }
+    let server = MockServer::builder().start().await;
+    mount_hit_files(&server, 3).await;
+    let mut keys = std::collections::BTreeSet::new();
+    for fields in [None, Some(json!(["path", "matches", "matchedLines"]))] {
+        let files = hit_files(&server, fields).await;
+        for row in files.as_array().expect("files") {
+            keys.extend(row.as_object().expect("row").keys().cloned());
+        }
+    }
+    for key in &keys {
+        assert!(
+            kept.contains(&key.as_str()) || named(key),
+            "{key}: neither kept by every pick nor named by one"
+        );
+    }
+    assert!(
+        keys.iter().any(|key| !kept.contains(&key.as_str())),
+        "the rows list lines a pick names: {keys:?}"
+    );
+}
+
+/// A `matchedLines` pick states each file's hit line numbers even where every
+/// listed line is a hit (no context), alone or beside `matches`, and no
+/// warning calls the picked field missing.
+#[tokio::test]
+async fn a_matched_lines_pick_states_the_hit_lines_without_context() {
+    let server = MockServer::builder().start().await;
+    mount_hit_files(&server, 3).await;
+    for fields in [
+        json!(["path", "matchedLines"]),
+        json!(["path", "matches", "matchedLines"]),
+    ] {
+        let files = hit_files(&server, Some(fields.clone())).await;
+        assert_eq!(files[0]["path"], "src/busy.rs", "{files}");
+        assert_eq!(files[0]["matchedLines"], json!([1, 2, 3]), "{files}");
+        assert_eq!(files[1]["matchedLines"], json!([1]), "{files}");
+        assert_eq!(
+            files[0].get("matches").is_some(),
+            fields.to_string().contains("\"matches\""),
+            "{files}"
+        );
+    }
+}
+
+/// Every layout of merged searches lists each GitHub page once: page 1 of
+/// each search, then the later pages `k` to a merged page, every merged
+/// page full but the last.
+#[test]
+fn merged_pages_list_every_github_page_once_and_fill_each_page() {
+    for pages in [
+        vec![4, 0],
+        vec![0, 4],
+        vec![1, 5, 2],
+        vec![3, 3, 3],
+        vec![58, 58, 58],
+        vec![0, 0],
+        vec![7],
+        vec![2, 0, 0, 9, 1],
+    ] {
+        let k = pages.len();
+        let total = super::super::search_page::merged_pages(&pages);
+        let mut listed: Vec<(usize, usize)> = (0..k).map(|search| (search, 1)).collect();
+        listed.retain(|&(search, _)| pages[search] > 0);
+        for current in 2..=total {
+            let units = super::super::search_page::later_pages(&pages, current);
+            assert!(!units.is_empty(), "{pages:?} page {current}");
+            if current < total {
+                assert_eq!(units.len(), k, "{pages:?} page {current} is full");
+            }
+            listed.extend(units);
+        }
+        assert!(
+            super::super::search_page::later_pages(&pages, total.max(1) + 1).is_empty(),
+            "{pages:?}"
+        );
+        let mut expected: Vec<(usize, usize)> = pages
+            .iter()
+            .enumerate()
+            .flat_map(|(search, &count)| (1..=count).map(move |page| (search, page)))
+            .collect();
+        let mut sorted = listed.clone();
+        sorted.sort_unstable();
+        expected.sort_unstable();
+        assert_eq!(sorted, expected, "{pages:?}: every page once");
+    }
+}
+
+/// A multi-extension walk rechecks page-one totals on each independent
+/// request, then fills later pages from live extensions:100 `.ts` files and
+/// no `.rs` produce25 +50 +25 files, every file once.
+#[tokio::test]
+async fn a_multi_extension_walk_skips_exhausted_searches_and_fills_its_pages() {
+    let server = MockServer::builder().start().await;
+    let items = (0..100)
+        .map(|index| {
+            let name = format!("p{}_{}.ts", index / 25 + 1, index % 25);
+            json!({"name":name,"path":name,"sha":"1","html_url":"https://x",
+             "repository":{"full_name":"a/b","html_url":"https://x","url":"https://x"}})
+        })
+        .collect::<Vec<_>>();
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/code"))
+        .and(wiremock::matchers::query_param_contains(
+            "q",
+            "extension:ts",
+        ))
+        .respond_with(octocode_test_support::mock_http::SearchIndex(items))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/code"))
+        .and(wiremock::matchers::query_param_contains(
+            "q",
+            "extension:rs",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json_fixture(
+            r#"{"total_count": 0, "incomplete_results": false, "items": []}"#,
+        )))
+        .expect(3)
+        .mount(&server)
+        .await;
+    let provider = one_shot_provider(&server);
+    let mut sizes = Vec::new();
+    let mut listed = Vec::new();
+    for page in 1.. {
+        let query: GhSearchCodeQuery = serde_json::from_value(json!({
+            "owner":"a","repo":"b","keywords":["needle"],"matchIn":["path"],
+            "extensions":["ts","rs"],"page":page
+        }))
+        .expect("query");
+        let out = execute(
+            &provider,
+            &query,
+            &default_context(),
+            &Passthrough,
+            &octocode_runtime_base::policy::discovery::is_sensitive_repository_file,
+        )
+        .await
+        .expect("page");
+        let paths = paths_of(&out);
+        sizes.push(paths.len());
+        listed.extend(paths);
+        if out.data["pagination"]["hasMore"] != true {
+            break;
+        }
+    }
+    assert_eq!(sizes, [25, 50, 25]);
+    let mut unique = listed.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(unique.len(), 100, "{listed:?}");
+    assert_eq!(listed.len(), 100, "{listed:?}");
+    let requests = server.received_requests().await.unwrap_or_default();
+    assert_eq!(
+        requests.len(),
+        9,
+        "six .ts reads and three page-one .rs probes"
+    );
+    for request in requests.iter().filter(|request| {
+        request
+            .url
+            .query_pairs()
+            .any(|(key, value)| key == "q" && value.contains("extension:rs"))
+    }) {
+        assert!(
+            request
+                .url
+                .query_pairs()
+                .any(|(key, value)| key == "page" && value == "1"),
+            "exhausted searches have no later-page request"
+        );
+    }
+}

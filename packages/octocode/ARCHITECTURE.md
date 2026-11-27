@@ -1,75 +1,41 @@
-# Octocode CLI Architecture
+# Octocode CLI architecture
 
-`octocode` is the user-facing **CLI and installer** package. It is a thin
-presentation layer: it parses input, routes to a handler, and renders output.
-At source/build time, all tool logic — schemas, execution, pagination,
-security — comes from `@octocodeai/octocode-tools-core` (which in turn calls the
-native `@octocodeai/octocode-engine` and reads metadata from
-`@octocodeai/octocode-core`). Nothing in this package shapes tool data; it only
-formats it for a terminal.
+`octocode` is the npm launcher for the native Rust CLI in [`../octocode-native`](../octocode-native). Native owns every command, including help, version, skills, interactive installation, and the browser configuration editor.
 
-## Boundary
+## Runtime boundary
 
-- `src/index.ts` is the binary entry (`bin: out/octocode.js`). It calls
-  `runCLI()`, falls back to top-level help, and owns process signals/exit.
-- `src/cli/index.ts` (`runCLI`) is the dispatcher: parse args → handle global
-  flags (`--help`, `--version`, `--context`, `--no-color`) → route to a command,
-  the `tools`/`context` surface, or interactive install.
-- Keep dispatch thin. New behavior belongs in a command or feature module, not
-  in `runCLI`.
+`src/cli/index.ts` forwards the argument vector unchanged. `src/cli/native-delegate.ts` resolves the platform binary through the native package's shared resolver and runs it with inherited stdin, stdout, stderr, environment, and working directory. The shared `bin/launch-native.cjs` forwards signals and returns the child's exit status. Node does not parse flags, select commands, format native output, or launch a separate management implementation.
 
-## Layers
+```text
+octocode (bin) → native CLI → Rust ToolRuntime                       after postinstall
+octocode (bin) → out/octocode.js → native CLI → Rust ToolRuntime     otherwise
+```
 
-- `src/cli/` — argument parsing (`parser.ts`), routing (`routing.ts`, the
-  local-vs-GitHub ref resolver), validation, help rendering, and exit codes
-  (`exit-codes.ts`).
-- `src/cli/commands/` — one file per command. Two groups:
-  - **Quick commands** (`clone`, `cache`) — thin
-    shortcuts that resolve a target ref and materialize it locally.
-    Legacy research shortcuts (`cat`, `ls`, `find`, `grep`, `history`, `repo`,
-    `pkg`, `lsp`, `binary`, `unzip`, `diff`, `pr`) and the unified `search`
-    command are intentionally removed; use `tools <name>` for research.
-  - **Management commands** (`install`, `auth`/`login`/`logout`, `status`) —
-    eagerly loaded; manage setup, credentials, and environment state.
-- `src/cli/tool-command.ts` — the raw `tools <name>` / `context` surface. Bridges
-  directly to `octocode-tools-core/direct` (`executeDirectTool`, schema text,
-  display fields) for power users and agents.
-- `src/ui/` — interactive TUI: the menu loop (`menu.ts`), install flow
-  (`install/`), config inspector (`config/`), and skills marketplace
-  (`skills-menu/`). Reached via `octocode install` → `runInteractiveMode`.
-- `src/features/` — stateful operations behind commands/UI: MCP `install`,
-  GitHub `github-oauth` / `gh-auth`, `skills` install, registry `sync`, and
-  `node-check`.
-- `src/configs/` — static, Zod-validated catalogs: `mcp-registry.ts` (installable
-  MCP servers) and `skills-marketplace.ts` (skill sources). Validated by
-  `scripts/validate-*.ts`.
-- `src/utils/` — terminal primitives (colors, spinner, prompts), MCP config I/O,
-  token storage, platform/shell/fs helpers, and frontmatter parsing.
+The bin, `out/octocode`, is a stub that imports the launcher. The postinstall step (`scripts/postinstall.mjs` → `out/install.js`, source `src/cli/native-install.ts`) replaces it with the platform package's binary, hard-linked (copied where a link is refused), once that file reports `octocode <pinned version>`: staged beside the bin and renamed over it, so the bin is always the stub or a verified binary. Every install, upgrade included, repeats it; a workspace source checkout (a package directory outside any `node_modules`) is never swapped. The stub stays when scripts do not run (`--ignore-scripts`, pnpm and Bun until the package is approved), on Windows (its `.cmd`/`.ps1` shims start Node), under Yarn 2+ (it runs bins through Node), in a pnpm global install (pnpm does not rewrite the global bin's `node` shim after a script approval), and when the platform package is missing or its binary fails the check; postinstall says why on stderr only when the stub stays unexpectedly (a missing platform package, a failed check), and never fails the install. A native bin skips the launcher and its `OCTOCODE_NATIVE_BIN` override: run `node <package>/out/octocode.js` to use one.
 
-## Build
+`OCTOCODE_NATIVE_BIN` is a development override governed by the shared config rule and ignored in production. If resolution or process startup fails, Node prints the launcher failure on stderr and exits `5`; it does not interpret output flags. Once native starts, its stdout, stderr, and exit status pass through unchanged.
 
-- `build.mjs` bundles `src/index.ts` with esbuild → `out/octocode.js`
-  (ESM, minified, code-split, with a CJS-compat banner and a `#!/usr/bin/env node`
-  shebang).
-- `@octocodeai/octocode-tools-core` is deliberately bundled into the CLI output.
-  It is a workspace `devDependency`, not a package npm users install.
-- All published runtime `dependencies`, especially
-  `@octocodeai/octocode-engine`, `@octocodeai/octocode-core`, and `zod`, stay
-  **external** so npm resolves them normally. The native `.node` binary comes
-  from the engine package's platform `optionalDependencies`.
-- `__APP_VERSION__` is injected at build time from `package.json`.
+Rust owns Clap parsing, catalog presentation, validation, config and authentication, client selection and installation, embedded skills, the temporary config-view server, and every research tool. Core authors public tool definitions; config generates the artifacts that native embeds.
 
-## Publish Boundary
+## Build and packaging
 
-`octocode` is published after `@octocodeai/octocode-engine` because the CLI
-declares the engine as a direct runtime dependency. `@octocodeai/octocode-tools-core`
-is absent from the publish order: its code is already inside `out/octocode.js`.
+- `build.mjs` bundles `src/index.ts` to `out/octocode.js` as an ESM launcher and `src/install.ts` to `out/install.js`, and copies the bin stub `src/bin.mjs` to `out/octocode`. `scripts/postinstall.mjs` does nothing in a checkout not yet built.
+- `octocode` declares every native platform package in `optionalDependencies` (written from `PLATFORMS` by `packages/octocode-native/scripts/platform-packages.cjs`); npm installs the one matching `os`/`cpu`/`libc`. The resolver, the registry fallback and the signal-forwarding launcher from `packages/octocode-native/bin/` are bundled at build time. Every call evaluates only the resolver and the launcher: the registry fallback loads when the platform package is missing, and config only when `OCTOCODE_NATIVE_BIN` is set.
+- When npm skipped the platform package, the bundled launcher fetches it once at the pinned version (`__OCTOCODE_NATIVE_VERSION__`) into `~/.octocode/native/` (`OCTOCODE_HOME`), verifying the registry's sha512 and the binary's `--version`. Unbundled source runs never download.
+- The bundle targets Node 22 (`engines.node` `>=22`); the repository's own toolchain stays on Node 24.
+- `@typescript/native-preview` supplies the packaged `tsgo` language server used by native `lspSearch`; it is not a CLI parser.
+- The private `@octocodeai/config` root export is bundled for the development-override policy. The launcher does not import public tool contracts or instructions.
+- `scripts/stage-skills.mjs` stages canonical public skills for the npm package and native build. The native binary embeds the same publishable skill directories.
+- Prepack (`scripts/prepack.mjs`) stages the skills into `skills/` and the repository `docs/` into `out/docs` through `stagePackage` in `skills-dev/octocode-dev/scripts/package-build.mjs`, the same step `octocode-mcp` packs with, so a pack after any build ships both.
+- The build rejects undeclared external runtime imports.
 
-## Rules
+Publishing order and checks: [AGENTS.md "Release and environment"](../../AGENTS.md).
 
-- The CLI renders; it does not compute. Push any data-shaping into
-  `octocode-tools-core`.
-- Lazy-load command and tool modules (dynamic `import`) to keep startup fast and
-  tolerate a missing tool runtime gracefully.
-- Keep `mcp-registry` / `skills-marketplace` schema-valid; run `yarn verify`
-  (lint + typecheck + test + registry/skills validation) before publishing.
+## Invariants
+
+- CLI behavior and presentation belong in native; Node owns process startup only.
+- Public tool definitions belong in core and runtime behavior belongs in Rust.
+- Keep arguments, stdio, environment, working directory, signals, and exit status intact across the launcher boundary.
+- Verify direct native and built npm entry points against the same command cases. Browser session ports and credentials are generated per invocation; their lifecycle and API contract must match.
+
+The public `octocode/native` entry resolves the platform binary and delegates arguments and signals. The separate graph package uses it for its MCP and CLI.

@@ -1,0 +1,1161 @@
+# Code graph architecture
+
+The native `crates/engine` crate owns the reusable code graph model and algorithms. Runtime packages own path policy, cancellation, language-server lifecycle, pagination, redaction, and public tool response shaping.
+
+## Models
+
+One graph is queried and stored; the build has one intermediate:
+
+- `BuiltGraph` (`tool-graph/src/ast_graph/types.rs`): the linker's output for one scan, per-file facts plus the file graph (target file and edge kinds with their first line). Ingest projects it and drops it; nothing stores or queries it.
+- `GraphTables` (`ast_graph/store/format.rs`): file, symbol and package nodes joined by compact relationship edges, with separate occurrence witnesses, unresolved sites, declaration evidence, diagnostics, file digests, components and entries. It is the snapshot `graph.bin` holds and the one model every graphQuery operation, `drift` included, reads. Current extraction emits `contains`, `imports`, `uses`, `calls`, `inherits` and `passes`. A `passes` relation observes a named value supplied as an argument; propagation and invocation remain unsupported.
+
+The graph-facts scan (`engine/src/fact_scan/`) crosses the Rust package boundary as `GraphFactsMappedScan<T>`: `scan_walked_graph_facts` takes a `walk_graph_fact_files` walk, hands each parsed file to the caller's map as a borrowed `GraphFactsView`, and keeps only what the map returns. `FactsSource` picks full graph facts (`Graph`), validated reusable graph facts (`CachedGraph`), or the caller's cached declarations (`Declarations`).
+
+## Ingestion flow
+
+1. AST extraction produces typed declarations, imports, exports, calls, argument observations, modules, ranges, and source diagnostics (a code, a message and an optional line; facts schema v6) for every language in the [grammar registry](SUPPORTED_LANGUAGES_AND_FEATURES.md#language-matrix).
+2. `build_graph` (`ast_graph/graph.rs`) scans a `GraphScan` (root, exclude globs, file bound, language globs, Cargo linking) under the one default prune every local tool walks by (`policy/prune.rs`), records each directory that prune left out as a `default-excluded` diagnostic, and links each file's imports, re-exports, calls and paths into a `BuiltGraph`.
+3. `tables::project` turns it into `GraphTables`, preserving occurrence witnesses before topology deduplication. After encoding, ingest checks recorded source identities and resolution inputs again before atomic publication. These checks detect observed mutations; they do not make a mutable working tree an atomic repository revision.
+
+The graph is syntax evidence: `astSearch`, `graphBuild` and `graphQuery` start no language server, and run no repository code unless the user opted in to the SCIP tier below. Callers confirm identity with explicit `lspSearch` calls, which keeps syntax candidates distinct from semantic claims.
+
+### Opt-in SCIP tier (Rust)
+
+`rust-analyzer scip` gives compiler-precise call targets, but it always runs the repository's build scripts and proc macros. That is what Octocode's headless defaults forbid. So the tier runs only when the user's own rust-analyzer options already enable both `cargo.buildScripts.enable` and `procMacro.enable`, in `lsp-servers.json` under the Octocode home or a trusted project file (`scip_consent`, `lsp/config/defaults.rs`). Fetched code is never indexed.
+
+| Step | Behavior |
+|---|---|
+| Plan | The routed rust-analyzer config (command, env allowlist) runs `scip <cargo workspace root> --output <tmp>`. It is bounded by the caller's deadline and cancel, and kills the process tree. |
+| Cache | The index is kept at `<graph home>/scip/<root tag>/<key>.scip`, written atomically. The key hashes every `.rs`, `Cargo.toml`, `Cargo.lock` and `rust-toolchain*` file under the workspace root, the server's `--version` and the consent. A file lock makes concurrent chunk builds of one workspace run it once. A changed key runs it again. |
+| Link | Each SCIP document path is rebased from the workspace root to the graph scope. At a syntax call site whose name token holds exactly one SCIP reference to a mapped declaration, the edge targets that declaration with resolution `scip` and confidence high. This confirms, replaces or resolves the syntax answer. Ambiguous or unmapped sites keep the syntax result, and no edge is added where syntax recorded no call. |
+| State | `graphBuild.scip` is `indexed` or `failed`, read from the snapshot manifest, so a reused snapshot states it too. On `failed`, a warning names the reason, the snapshot keeps syntax edges only, and the next build retries. Coverage `basis` is `syntax+scip` for an indexed snapshot. Without consent nothing is spawned and both fields read as before. |
+
+On `packages/octocode-native`, a full index took about 200 s and 6.6 to 6.9 GB of memory. A small crate takes a few seconds.
+ Which of graph, LSP and AST answers which question: [choose the evidence you need](../../../../docs/OCTOCODE_TOOLS.md#text-ast-graph-and-lsp-choose-the-evidence-you-need).
+
+## Cycle engine
+
+`ast_graph/algorithms.rs` holds the one cycle engine (`Cycles`): the dependency view of a file graph (data and module-tree edges removed), its strongly connected groups, and the groups its eager-load (runtime) edges close, with or without the edges of unknown load (`CycleLoad`). The `cycles` operation, the `cycle` detector, `drift` and the health summary read it. The engine crate supplies the primitives (`engine/src/graph/algorithms.rs`): strongly connected components (iterative Tarjan) and the condensation.
+
+## Agent graph tools (CLI and beta MCP)
+
+`graphBuild` and `graphQuery` are the only graph surface: the CLI runs them as
+generated tool commands with the standard `{queries:[...]}` envelope, exactly as MCP
+does. Use `--json` for machine callers, including errors:
+
+```sh
+octocode --json graphBuild '{"queries":[{"path":".","keep":10}]}'
+octocode --json graphQuery '{"queries":[{"operation":"stats","path":"."}]}'
+octocode-graph schema graphQuery --view query
+```
+
+MCP exposes these tools when `OCTOCODE_BETA=true` or home configuration enables
+`local.beta`; restart the server after changing configuration. CLI availability
+does not require beta. Discovery, admission and follow-up leads share the same
+policy. `graphBuild` advertises `readOnlyHint:false` because it writes snapshots
+and retention removes older ones; `graphQuery` advertises `readOnlyHint:true`.
+Core owns their generated schemas, policy, annotations and descriptions; the Rust
+runtime owns execution. Octocode Code registers native tools with these names,
+reads the CLI schemas and invokes the installed binary with JSON on stdin. Its
+`request` wrapper and `reason` field belong to the host, not the Rust CLI input.
+
+Pass a source file as `path` to build a snapshot of that file alone. A file and
+its enclosing directory have separate snapshot histories. Use the directory for
+cross-file callers and imports. Evidence paths still identify the original source.
+
+`graphBuild` accepts one query per call; `graphQuery` accepts up to five. On the
+CLI, `graphQuery` runs on the warm `octocode serve` server like every read-only tool.
+Each query opens its selected snapshot and reads the tables and evidence it needs;
+decoded graph snapshots are not retained across queries. `graphBuild`
+writes, so it runs in the calling process and prints its progress (`graphBuild:
+scanning …`, `parsed N/M files`, `linked …`, `encoding snapshot`, `published`)
+on stderr while stdout keeps the result. MCP `graphBuild` reports no
+progress. For a bulk walk, a larger `responseChars` requests more evidence per page.
+Inspect `octocode-graph schema graphBuild --view query` or the query schema above for
+the contract embedded in the installed binary. Query alternatives reject
+missing required inputs and options that do not apply to the chosen operation.
+
+By default a build scans within the workspace and writes to `.octocode/graph`. Set `local.graphHome` to keep snapshots under its `octocode-graph/` directory and scan another authorized path, such as a clone. Choose a graph home outside the scanned path. [Graph settings](../../../../docs/CONFIGURATION.md#all-settings-and-defaults) A build of an unchanged scope answers with
+its newest snapshot instead of rebuilding (`store/ingest/unchanged.rs`): the snapshot
+must carry the same build identity (format, fact schema and analysis versions, package
+version, parser registry, `exclude`, the walk flags, language globs and Cargo setting), and the
+freshness check queries report as `fresh` must find no change. The reuse points
+`latest` at that snapshot and renews its read lease; any doubt rebuilds, and `refresh`
+always rebuilds. A query that names no snapshot in another workspace's home is told
+the home it searched and every allowed `.octocode/graph` above the scope holding a
+snapshot of it, because the home follows the workspace the runtime starts in.
+Retention never removes a snapshot a reader used within the continuation lease,
+whatever its format. Queries can keep reading an explicit published snapshot of the current
+analysis version. The manifest's `analysisVersion` identifies the linking and redaction rules
+that built its facts, independently of the binary format: a snapshot of another analysis
+version is never read for evidence, as the queried snapshot or as a `baseline`. The query
+fails with `notFound` and a `related` graphBuild of that snapshot's scope.
+It also records the installed registry identity and discovery extensions.
+Builds of different scopes run in parallel: an OS lock serializes only
+staging, publication, `latest` and retention across processes, and a per-scope lock lets
+one build at a time write a scope's extraction checkpoint. A build stopped by a deadline
+or cancellation keeps its committed extraction, and the next build of that scope resumes
+from it; `refresh` discards interrupted extraction and starts fresh. Cancellation
+releases both locks. `keep` defaults to three snapshots per
+scope, with a maximum of 100 for retained baselines. Builds redact stored text and
+return location, digest, counts, coverage, diagnostics and elapsed milliseconds.
+
+A build walks as the local tools do by default: ignore rules honored, dot entries
+hidden, the default excludes pruned. `includeIgnored`, `includeHidden` and
+`defaultExcludes:false` lift those (`ast_graph/walk_scope.rs`: one `WalkScope`
+shared by extraction, the scope proof, the build identity and the retry leads); a
+non-default walk is recorded as the manifest's `scan.walk`, so a snapshot of
+another walk is never reused. When it scans no file, a hint counts the graph
+source files behind the paths the walk still skips and why, and `related` holds the
+same `graphBuild` with exactly those flags lifted. A build that lost a race with a
+concurrent edit is not a tool failure: its hint and `related` lead run the same
+build again (`GraphOutput.retry`). The `unresolved-import` issue groups each file's
+sites by message with every line (`sites: [{message, lines}]`); `count` stays the
+total. An unlinked import whose code the project places beyond the scan root is a
+separate `outsideRoot` finding, a scope gap ranked below a broken import; both count
+as `unresolvedInternal`, and each diagnostic row keeps the import's edge kind
+(`importKind`), so joining snapshots of neighboring scopes keeps a type-only import
+apart from a load. That is a relative path climbing out of the root; a JS/TS
+workspace sibling or path dependency outside it, or a `paths` alias or `baseUrl` module
+above it; a Go package of the enclosing module, or a local `replace` or `go.work`
+member outside it; a Java class above it; a Rust path dependency outside it; a Python
+module above it, of the enclosing package, or of a local path dependency its
+`pyproject.toml` names (uv or Poetry `path`, `name @ file:`). A file whose own step panics is a `graph.scan.panicked`
+skip naming the step: `read`, `decode`, `keep`, `parse`, `extract`, `map` or
+`weigh`. A secret scan that unwinds fails the build with no snapshot; the error
+names the files whose string unwinds when scanned alone. A file whose linking
+panics fails it the same way, naming that file. In both, `related` retries the
+build with each named file excluded as that one file (`/<file>`, its glob
+characters matched literally).
+
+Queries select the newest snapshot of exactly `path`, or an exact `graph` ID of
+that scope. **Use the build's path even when supplying its ID**; omitting path
+means the workspace root. The build's `related` stats call includes both fields.
+Every successful query reports freshness, including added files and
+linking inputs and whether the fact schema and package version are the binary's
+(`analysisCurrent`). A truncated scan or a snapshot of another fact schema or package
+version cannot be reported fresh. Paging cursors pin the
+snapshot ID; a pruned snapshot fails explicitly instead of switching to `latest`.
+`responsePagination.next` and `next.*` continue evidence; `related` starts another
+question. Traversal defaults
+to high-confidence calls. Graph absence is not proof of unused code: verify symbol
+identity and consequential callers with `lspSearch` and source reads. `graphQuery`
+exposes 20 operations; `issues` ranks heuristic findings. No language server or LLM
+is required for snapshot creation.
+
+### Choosing a query
+
+| Operation | Inputs beyond scope | Result and defaults |
+|---|---|---|
+| `stats` | Optional `view` (`summary` default, `details`) | `summary`: counts, imports, call sites and unresolved, linkage, languages, diagnostic total. `details` adds `calls.byResolution`, `calls.unresolvedByReason`, `argumentCoverage`, `linkageByLanguage`, `extraction`, `octocodeVersion` and `diagnostics.byCode` |
+| `find` | Optional `target` (a name, path or several words; omit: every node), optional `kind` | Ranked name/path search returning node IDs; without `target`, every node of `kind`, most connected first |
+| `candidates` | Required `target`; optional `kind` | Exact reference candidates, using the same normalization and precedence as node resolution |
+| `node` | Required `target`; optional `kind` | One node, its edge counts and related queries |
+| `symbols` | Optional source `target` (one or a list), `kind` | Symbols nested under each target in source order, each once; omit `target`: every symbol, file by file. A callable states `params` and `returns`, its parameter list and return type as written (whitespace collapsed, no inference), as `find` and `node` do: JS/TS (oxc: functions, methods, interface methods, function-valued fields and variables), Rust, Python, Go, Java, C#, Scala (every curried list, type parameters left out) and C/C++/CUDA (the return type keeps a pointer or reference declarator's `*`/`&`; a function-like `#define` states its parameters). A value declaration states neither |
+| `deps`, `dependents` | Required `target`; optional edge filters, `direction`, `depth`, `kind` | Outgoing/incoming imports for files/packages, calls for symbols; one hop |
+| `callers`, `callees` | Required `target`; same traversal options | Incoming/outgoing calls; one hop; file targets include their symbols and calls within the file. Recursive targets appear once when an edge reaches them. |
+| `walk` | Required `target`; same traversal options | All edge kinds, outgoing, two hops |
+| `path` | Required `target` and `to`; optional edge filters, `direction`, `kind` | Shortest candidate path; calls between two symbols, otherwise imports; no depth option. Condition compatibility is not assessed and execution is not observed. |
+| `cycles` | Optional edge filters | Production cycles; imports by default |
+| `hubs` | Optional edge filters, `kind`, `direction: in/out` | Production nodes ranked by incoming edge count by default |
+| `cochange` | Required file `target` | Files under the scope that non-merge Git commits changed together with `target` (`commits`, `share` of the target's commits, `linked` when an edge of the snapshot joins the two either way), most commits first; `summary.targetCommits`. Read from Git at query time, not stored; renames are not followed, files outside the scope are left out, and nothing is capped: rows page. In a shallow clone the boundary commits (Git's `shallow` file) have no parents, so Git lists their whole tree: they count toward nothing, and `warnings` says the history is shallow |
+| `diagnostics` | Optional `target` code or file prefix | Matching scan/link diagnostics. An `outside-root` or `unresolved-internal` row of an import adds `importKind`, the edge kind that import would link as, spelled as a linked import's `detail` (`static-import`, `type-import`, `dynamic-import`, `type-named-reexport`, `rust-use`, `python-lazy-import`, ...), and `load`, when it takes effect; one statement whose bindings differ (`import { type T, v }`) is one row with its strongest kind. Rows about no import have none |
+| `witnesses` | Optional source `target` (one or a list), destination `to`, edge filters | Occurrences supporting linked relations; a file target includes its symbols. An import of a package (`to: pkg:<name>`) keeps how the package is declared in `detail` (`external`, `external-dev`, `external-unknown`, ...) and the import's own kind in `importKind`, spelled as for a file import. Every form that loads a package is one: an import, a dynamic `import()`, a `require` or `createRequire` call, and a re-export (`export … from`, `export * from`, their `type` forms); the edge stays one per file, package and declaration status, its witnesses one per site. Every `imports` witness states `load` (`eager`, `deferred`, `type`, `compile`, `data`, `unknown`), read from the one kind table in `ast_graph/edges.rs` |
+| `unresolved` | Optional source `target` (one or a list), edge filters, `reasons` | Unlinked call or argument references and unsupported argument forms; a file target includes its symbols; `reasons` filters before paging, so `total` counts kept rows |
+| `stale` | None | Source and linking-input changes since the snapshot |
+| `issues` | Optional `detectors`, `entries`, `baseline`, `minScore`, `minTier` (default 90) | Ranked possible problems with `evidence` and `controls`; see [`issues`](#issues-ranked-hypotheses) |
+| `impact` | At least one of `target`, `changed`, `since`; optional `kind`, `depth` | Combined change seeds, three hops by default; see [`impact`](#impact-blast-radius) |
+| `drift` | Required `baseline` snapshot ID | Structural changes from baseline to selected snapshot; use matching scopes |
+
+Edge filters are `edges` and `confidence`; confidence defaults to `high` and
+affects only call edges, including in `witnesses`.
+Unambiguous re-export bindings retain high confidence;
+medium includes scoped or ambiguous candidates, and low includes global name
+matches. Name matches without an import (same package, import scope, type
+qualifier, receiver type, unique name) stay inside one language family:
+JavaScript/TypeScript, C/C++/CUDA and Java/Scala each form one family, and
+every other language is its own. Unique-name matches also need a name of at
+least three characters. Java and C# never use them: a bare method call binds
+the innermost enclosing class that declares or inherits the name (superclass
+chain, then Java interface default methods; C# partial parts are one class),
+then a static import or `using static`; an unresolved base or a root-object
+member (`toString`, `ToString`) stops the search. Their types bind lexically,
+then through a single-type import or `using` alias, the package directory (Java,
+medium) or enclosing namespaces (C#), then on-demand imports or `using`
+namespaces. Scala binds lexically and along the class linearization; a type an
+unscanned wildcard import could supply stays medium. Python and Rust bare names
+never use graph-wide matches: a name the module neither declares nor imports
+stays unresolved. A Go bare name binds only a declaration of the caller's
+package directory (high; medium from a `_test.go` caller, which may be the
+external test package), never a method, and non-test files never see
+`_test.go` files. Call traversals report their applied confidence. Stats rank called
+symbols using high-confidence production edges and report `callConfidence`.
+`cycles` and `hubs` exclude test edges. Import cycles include type imports;
+`runtime: false` means that group contains no detected eager module-loading cycle; `runtime: "unknown"` means a loop closes only through an edge whose load is not established: a parser-fallback import, or a `type-use-import`. A TypeScript value import whose bindings the file reads only in type positions or not at all (a JSX tag, an export clause or any expression read is a value use) is settled by the tsconfig that governs the file (the nearest one, following `extends`; a solution config with `files: []` defers to its `references` when they agree): `verbatimModuleSyntax`, `preserveValueImports` or `importsNotUsedAsValues` `preserve`/`error` keep it, a `static-import`; otherwise `emitDecoratorMetadata` may keep it, a `type-use-import`; otherwise TypeScript and esbuild elide it, an `elided-import`, type-only like `import type`. With no tsconfig, or references that disagree, it stays a `type-use-import`. List operations
+accept `limit` (minimum 1, no contract maximum) to control the row window; omit
+it for the automatic window. `responseChars` can end a page sooner. `stats`,
+`node` and `path` do not accept `limit`. Where supported, `depth`
+has a minimum of 1 and no contract maximum. `impact` uses its own impact analysis
+and does not accept edge or direction overrides.
+
+An ambiguous reference returns a candidate preview and its complete total. Its
+continuation resumes after the preview, preserving the failed reference, kind,
+scope and snapshot. This applies to destination and change-seed references too.
+`candidates` selects the first matching tier: stored key, case-sensitive name,
+qualified symbol suffix, then file suffix. It trims whitespace and leading `./`;
+continuations resolve against the recorded snapshot without consulting mutable
+filesystem aliases. A reference no tier matches fails with up to five
+`suggestions`: the first `find` rows for the same text. A path-shaped miss
+(`config/fmt`) suggests only nodes under its deepest directory that holds
+snapshot files, never same-word nodes elsewhere; an absolute or
+workspace-relative spelling gets the leads of its root-relative form.
+
+For `deps` and `dependents`, a reference that spells no node key but names a
+directory with files under it (root-relative, workspace-relative or absolute;
+`.` is the root; `/`, `./` and a blank reference name nothing and fail
+`notFound` without suggestions) walks from every file under it: rows are
+the usual file pairs, files inside the directory are seeds and are not listed,
+and `target` is `{id, kind: "directory"}` with the directory's root-relative
+path. `view: "files"` counts the walked edges per file they reach;
+`view: "modules"` counts them per pair of directories they join (`from` the
+importing or calling side, `to` the imported or called one, a package being
+its own module). Both count every walked edge, also several edges into one
+node, so their counts sum to the edges walked and can exceed the plain
+answer's `pagination.total`, which counts reached nodes. Both group before paging,
+and the grouped rows page. `witnesses` states
+`filteredByConfidence`, the matching call witnesses below the query's
+confidence, when there are any. A symbol row states its `symbolName`, its
+declaration `kind`, its `path` (from the workspace root, as its `id` and every
+file id are; from `graph.root` when the snapshot lies outside the workspace) and
+`line`: an `lspSearch` call there confirms the syntax candidate, and a symbol
+answer's `related` holds that call.
+
+`find` ranks every node whose name or key matches, in three tiers. `exact`: the
+whole text equals a key, name or qualified member, key first. Both
+`Owner.method` and `Owner::method` match the graph's qualified symbol,
+including in paths containing `#` (for example, `lib#v2/reader.ts#Reader.read`).
+Omit the `@number` suffix to find all overloads of that member. `words`: the text and every name and
+key split into identifier words (case changes and any separator: space, `_`,
+`-`, `/`, `.`, `#`, `::`; letters and digits stay together), and each query word
+must start a word of the name or key (each whole alphanumeric run also counts,
+so `snapshotreader` matches `SnapshotReader`). The tier keeps only the nodes
+matching the most query words: every word when any node has them all; otherwise
+its rows carry `matchedWords`. Words score a name word equal (6) or started (5)
+above a key word equal (3) or started (2), summed; fewer unmatched name words
+rank first. `prefix`, `contains` and `path`: the whole text sits inside the name
+at its start, inside the name, or inside the key. Ties rank by log(1 + incoming
+calls and imports), times 0.1 for a name declared in more than five files or
+starting with `_`, then by key. A single word therefore keeps the population of
+a plain substring search: names and keys containing it.
+
+`find`, `symbols` and `hubs` construct result rows only for the requested window;
+`stats` states the snapshot's counts and ranks nothing: its `related` call is
+`hubs`, which lists the most imported and most called nodes; the `summary` view
+also offers the same call with `view:"details"`. Exact totals still need
+full enumeration, and `find` sorts its whole population. Search still scans
+nodes, symbols retain a traversal frontier, and hubs retain a full ranking
+vector.
+These operations check cancellation while scanning; cancellation does not return
+a partial count as complete. No constant-memory or sublinear query claim follows.
+
+What a query reads depends on its operation. `node`, `find` and `candidates` read
+the lookup index, the record string table (`STRS`) and only the node and
+declaration blocks their rows need. Topology operations read the node, edge,
+lookup and file metadata tables; declaration blocks are read when rows render
+them. They skip occurrence evidence (`WITN`, `UNRS`) and its strings (`STRE`).
+The source catalog (`SRCE`) is read only when a result renders a
+declaration or origin, and then only the origin blocks (`SRCO`) holding the
+origins it renders; outside a full decode, each block's origin index is checked
+structurally and each origin is decoded and validated when rendered.
+`witnesses` and `unresolved` read every node, the record strings and the one
+occurrence section they page; they count and filter every occurrence, then read
+only the `STRE` blocks the rendered rows reference. Occurrences are checked
+structurally on read; their full semantic validation runs when the snapshot is
+published. Each read section or block is checksum-verified; corruption in a block
+a query does not read is not detected by that query. Reader tests record the
+bytes and blocks read to verify this boundary.
+
+Traversals count every reachable result within the requested depth and filters.
+They render only the requested page; continuations retain the full total and
+reach the rest, including traversals with more than 200,000 nodes.
+
+For a continuation, pass its entire `input` back to the named tool; do not add
+query fields to a cursor request. If a cursor expires, rerun the original query
+with its returned graph ID to preserve snapshot identity. For a new investigation, reuse a suitable
+snapshot and check freshness before rebuilding. Choose a scope that contains
+both ends of the relationships being investigated. Use `localSearch` or
+`astSearch` for one-off lookups; a snapshot pays off across repeated questions.
+Future parsers belong to the Rust [grammar registry](SUPPORTED_LANGUAGES_AND_FEATURES.md#language-matrix)
+and core parser contract, so Octocode Code needs no grammar-specific change.
+
+### `issues`: ranked hypotheses
+
+Each finding carries `evidence`, the false-positive `controls` applied, and a
+`score` (severity × confidence × (0.5 + 0.5 × impact), ×1.1 up to 1 for each
+other detector flagging the subject). `impact` is the highest PageRank
+percentile among the subject's files, for every detector. Files of equal
+PageRank share one percentile, the mean of their positions, so structurally
+equal files score alike (`detect/view.rs` `percentiles`). A
+finding's subject and evidence are what to check before acting: a cycle by a
+`path` query between two members, an unused export by `lspSearch` references
+at its `exportLine`, a critical file by `dependents` to its `farthestDepth`.
+
+| Group | Detectors |
+|---|---|
+| Structure | `cycle` (runtime imports; witness plus `suggestedCuts`) · `dir-cycle` · `unreachable-file` · `test-only` · `unused-export` (JS/TS/Python) · `export-only-local` (exported but used only in its own file) |
+| Dependencies | `undeclared-dependency` (including hoisted phantoms) · `boundary-violation` (deep imports between npm packages) · `unresolved-import` |
+| Architecture | `critical-file` (every production file with 5+ transitive runtime dependents; severity grows with the count) · `single-point-of-failure` (articulation points) |
+
+- Any edge keeps code alive. Only runtime imports between authored files prove
+  cycles, hubs, or layering; type-only, dynamic, and Python function-level
+  imports never do.
+- Test edges (from test files, or Rust `#[cfg(test)]` items such as `mod
+  tests`) never count toward production detectors, `cycles` or `hubs`;
+  traversals (`deps`, `walk`, `impact`) still follow them. A file is a test
+  file by the one rule the `testCode` filter uses (its path, or a Rust
+  `#[cfg(test)]` mount). Examples, benchmarks, stories, `testing/` helpers and
+  test setup files are not tests by that rule: they carry the `support` role,
+  and their imports, like test imports, are no production dependency. A snapshot from an
+  older format asks for a rebuild.
+- `dir-cycle` ignores a Rust module and its own child directory (`tree.rs` or
+  `tree/mod.rs` with `tree/child.rs`, and a crate root with its modules): one
+  module tree is no directory coupling.
+- `unused-export` and `export-only-local` judge only languages with
+  named-import linking; files in other languages are counted in a `notes`
+  entry by language instead of being reported clean.
+- Go, JVM and .NET files share package scope, so file-level checks skip them
+  (`cycle`, `unreachable-file`, `test-only`, `critical-file`,
+  `single-point-of-failure`); one `notes` entry names the detectors that ran and
+  counts the skipped files.
+  Python libraries skip reachability. Generated, bundled, vendored and unparsed
+  files are never subjects.
+- Each finding has a `tier`: `100` nothing references it; `90` no graph or code
+  reference (bare prose words are listed in `evidence.textMentions`); `60` the
+  file path, or every unused export, is referenced in code or qualified text
+  such as `mod.run` (`evidence.mentionedIn`; a file counts as mentioned by its
+  name with an extension, a path or a whole string literal, never a bare word:
+  a sentence's closing dot (`the test oracle.`) is no extension; some exports alone keep 90; a
+  `test-only` file counts only mentions outside tests and its importers), or a mentioned
+  file imports it (the finding names that file), or no mention scan ran. `minTier` defaults to 90; `minTier: 60` shows all, and
+  `summary.hiddenBelowTier` counts the rest.
+- `baseline` (a snapshot ID of the same scope) labels findings `new` or
+  `existing` and lists `baseline.resolvedFindings`. `summary.health` reports
+  Lakos NCCD.
+
+### `impact`: blast radius
+
+- A changed file affects every importer, transitively. A changed symbol affects
+  only the `calls`, `uses` and `inherits` edges bound to it, plus importers that
+  bind no name (`precision: "symbol"`). Barrel files pass changes through by
+  symbol.
+- Rows are dependents, not breakage: `direct` means "depends on the change
+  directly, inspect first". Only tests or execution prove a break.
+- `depth` defaults to 3. Rows carry `depth`, `risk` (`direct` at depth 1,
+  `likely` at 2, `transitive` at 3+), `packageDistance`, `confidence` and
+  `typesOnly`.
+- The summary (first page only) counts rows `byDepth`, lists `components`,
+  and counts `affectedEntrypoints`, `testsToRun` and `testFunctions`
+  (including Rust `mod tests` and pytest `test_*` functions); each counted
+  list is read by its own `next.*` call, so the rows come first. Tests are
+  counted at any depth: a `depthLimited` walk still reaches every test the
+  change reaches.
+- A change to a config linking reads (manifest, workspace list,
+  tsconfig/pyproject/go.mod) affects everything
+  below its directory; `allAffected` marks a root-level change.
+
+### Weights and the co-change overlay
+
+Each weight has one meaning and one source; none is a probability or a
+runtime frequency.
+
+| Signal | Field | Source |
+|---|---|---|
+| Binding confidence | `confidence` (`high`, `medium`, `low`) | The resolution strategy; categorical by design |
+| Connection strength | `sites` | Distinct witness occurrences behind an edge; `hubs` sums the counted edges |
+| Structural importance | `pageRank` (`hubs` `rankBy: "pageRank"`) | PageRank over the admitted edges, each weighted by `sites`; `direction: "out"` reverses them. `path` stays unweighted: shortest-path algorithms read a weight as cost, PageRank as strength |
+| Change coupling | `cochange`: `commits`, `share`, `linked`, summary `targetCommits` | `git log --no-merges --full-diff` of the target at query time; not stored in the snapshot. Renames are not followed |
+| Runtime frequency | — | Not modeled: it needs observed profiles |
+
+`issues` keeps unit-weight PageRank over runtime imports for its `impact`
+term, so issue scores do not move with call counts.
+
+### Recipes
+
+| Goal | graphQuery rows |
+|---|---|
+| Who can reach a dangerous operation? | `impact` with `target` on the function that deletes, spawns or writes. `affectedEntrypoints` is the attack surface. |
+| Unbounded recursion | `cycles` with `edges: ["calls"]`; check each group that walks untrusted input for a depth bound. |
+| Choke points | `issues` with `detectors: ["single-point-of-failure","critical-file"]`, or `hubs` with `rankBy: "pageRank"`. |
+| Hidden coupling | `cochange` on a file; rows with `linked: false` changed with it but share no graph edge. |
+| Is this cycle real? | `path` from `target` to `to` shows the witness; `issues` with `detectors: ["cycle"]` gives `suggestedCuts`. |
+| Dead or orphaned code | `issues` with `detectors: ["unreachable-file","unused-export"]` (add `test-only` for files only tests reach; `entries` names entrypoints), then `dependents` with `edges: ["imports","uses","calls"]` before deleting. |
+| Call gaps of many files | `unresolved` with `target` as a list (up to the schema's maximum) and `reasons`, which filter before paging. |
+| Every witness or symbol, fast | `witnesses` or `symbols` per group of files (`target` lists), walked concurrently; the groups are disjoint, so their totals add up to the unfiltered `total`. |
+
+## Evidence and reuse
+
+Topology answers deduplicate relationships; `witnesses` retains their individual
+occurrences, including repeated calls and argument slots on one line. `unresolved` retains extracted
+sites that the linker could not bind. Both operations page with `limit` and
+`offset`, report the full matching total, and support executable continuation.
+They report `evidence: "syntax"`; a linked call is a candidate, not proof that it
+executed. A call the SCIP tier resolved carries resolution `scip` (`via: "scip"`). A witness may represent a structural relationship and have no line.
+
+Symbol nodes can carry `occurrenceId`, `sourceDigest`, `sourceRange`, `sourceOrigin`,
+`parseAssessment` and `testIdentity`. Each observed range and digest refers to its
+analysis unit's UTF-8 representation. Origins and the page's `sourceEvidence`
+connect those coordinates to captured raw-file snapshots, including BOM/UTF-16
+input and reparsed regions. [Source correspondence](SOURCE_CORRESPONDENCE.md)
+owns the coordinate, branch, atomic-paging and limit rules. Queries preserve the
+captured mapping after source changes or deletion. Structural projections without
+an exact observed span explicitly return `null`. Each occurrence carries a
+`derivation` rule and persisted version
+combining the graph analysis and fact schema versions. The snapshot manifest
+records both, with the format version, and its build identity hashes them: a
+snapshot built under any other one is stale and an ingest rebuilds it, even over
+an unchanged tree. Witness rules name the
+edge family and actual resolver/projection detail; unresolved rules name the
+edge family and failed-resolution reason. Rows are lean by default
+(`includeProvenance: false`): an origin
+proven to be the row's unchanged UTF-8 file bytes is the marker `"identity"`,
+other origins stay explicit, and `derivation` is omitted; file, line, spans,
+digests and IDs are unchanged. The full form returns every origin object and
+`derivation`. IDs identify occurrences within source and snapshot context; they
+are not language-server symbol identities. Recovered declarations remain
+inspectable but are excluded from certain call bindings. Test identities describe
+recognized declarations, not test execution.
+
+`linkage` and `linkageByLanguage` report `linked`, `eligible`, `excluded`,
+`ratio` and `population: "syntax-call-sites"`. Eligible sites are linked sites
+plus unresolved sites classified as plausible repository targets. Excluded sites
+remain in unresolved evidence. The ratio is `null` when there are no eligible
+sites; it measures linkage within this syntax population, not semantic recall.
+Call-query `coverage.callExtraction` reports the grammar capability recorded in
+the snapshot: `supported`, `unsupported` or `notAssessed`. Unsupported and unknown
+capabilities carry an explicit warning. A language with no observed calls has its
+own zero population and nullable ratio; it never borrows another language's
+linkage. Supporting extraction does not imply semantic completeness.
+Every `witnesses` and `unresolved` page includes this coverage, even when empty.
+A source target selects its language's population across the snapshot; those
+counts are not restricted to the selected source or matching evidence rows.
+Without a source target, coverage includes every snapshot source language,
+including languages that produced no rows. A destination filter does not narrow
+that source scope. For multiple languages, `language` is empty, linkage is the
+snapshot-wide extracted-site population, and the warning names supported,
+unsupported and unassessed languages. `callExtraction` is supported or unsupported
+only when all those languages share that recorded capability; mixed or unknown
+capabilities report `notAssessed`.
+
+Argument evidence uses the standalone recipient occurrence, even when a computed
+recipient has no named call fact. `recipient.sourceRange` covers the full call-like
+expression; the row's `sourceRange` covers the argument slot, and
+`selectionByteRange` covers the selected name. `argument.groupIndex` and `index`
+are zero based; a keyword label is retained where observed. A linked `passes`
+edge points from the enclosing owner to the argument's binding candidate.
+
+Exact declaration bindings are accepted directly. An observed import binding
+resolves through that import and its export chain; it cannot fall back to an
+unrelated same-file member. Name lookup is allowed only when the extractor
+explicitly assessed its lexical scope. Bare names select the nearest visible
+lexical parent; implicit member candidates require the grammar adapter to admit
+that lookup and must belong to a lexical ancestor. Observed local or
+parameter bindings outside the declaration inventory remain
+`binding-unrepresented`, with `bindingSourceRange`; unassessed scope remains
+`scope-not-assessed`. Recovered occurrences cannot establish bindings. These
+barriers never fall back to a same-named global function. Unsupported slots and
+whole groups retain their range, parse assessment and adapter `construct`;
+unsupported groups have no invented slot index or target name. Argument
+derivations identify `syntax-argument-reference:1` and the actual binding strategy
+or unresolved reason.
+
+`argumentCoverage` is always snapshot-scoped, including on filtered evidence
+pages. Its independent `syntax-argument-slots` population records each language's
+capability and reference forms. When every file of that language was extracted without recovery or a deadline,
+counts include sites, groups, slots, direct references, non-reference values,
+unsupported slots and unsupported groups. Slots partition into direct references,
+non-reference values and unsupported slots; unsupported groups have no known slot
+count. Unsupported or unassessed extraction has no fabricated counts. Build
+receipts, `stats` with `view:"details"`, every evidence page and queries explicitly
+selecting `passes` carry the persisted population. Argument observations do not change call linkage.
+
+Changed trees extract their selected files afresh and rebuild all bindings against
+the current file and configuration inventory. An unfinished build can reuse its
+validated per-file extraction artifacts when retried. This handles added, removed
+and renamed dependencies without relying on stale positive or negative bindings.
+It does not implement dependency-based incremental resolution.
+`extraction.parsedFiles` and `extraction.reusedFiles` report work for the build.
+Interrupted builds can recover
+committed extraction artifacts on retry. `extraction.resumedFiles` is the subset
+of reused files recovered from an interrupted job; it does not mean linking or
+projection resumed. Source digests are checked again before reuse.
+
+The graph builder writes extraction progress under `.facts/jobs/<root digest>`.
+The job records scan settings, source inventory, linking configuration and
+parser/registry versions. Each artifact binds its source digest and complete
+captured correspondence to the job. Artifacts are replaced atomically but not
+synced: a torn or lost artifact fails its header digest or identity check and is
+extracted again. Only the job record is synced, at each stage transition.
+Extraction uses bounded input batches. Linking reads facts kept decoded in memory
+up to 128 MiB of encoded artifacts, then restores one spilled file at a time. Secret-bearing artifacts stay in memory and must be
+parsed again after interruption. `checkpointedFiles`, `spilledBytes` and
+`memoryOnlyFiles` describe this work; `maxSpillBytes` and `maxMemoryOnlyBytes`
+declare its terminal budgets (2 GiB of retained disk artifacts and 64 MiB of
+memory-only artifacts per job). A file past a budget, or past one artifact's
+bound, is linked from its decoded facts without a checkpoint: the graph stays
+complete, and the graphBuild receipt warns how many files an interrupted build
+would parse again. Atomic replacement can temporarily add one
+artifact of at most 64 MiB; retry removes leftover temporary job files before
+writing more. One unfinished job is retained per canonical scope root. Publication
+removes that build's extraction artifacts; a generation identity and the job lock
+prevent an older publication from removing another build's work. A durable
+completion marker makes artifacts ineligible for reuse if deletion is interrupted.
+Removed source artifacts are pruned on retry; `refresh` or a changed extraction
+policy resets the job. This is not a global disk budget across scopes and does not
+bound linking or projection memory. A failed build leaves previously published
+snapshots available.
+
+Artifact namespaces bind the canonical root, parser overrides, installed
+provider/capability identity, fact schema, runtime version and extraction version.
+Within an admitted job, artifacts that fail content validation are extracted again.
+A retained job over its disk quota fails explicitly. `refresh` resets the stored
+extraction job. Plain engine graph scans extract their selected sources afresh;
+there is no process-wide parsed-facts cache.
+Tests compare resumed extraction with a fresh binding and projection rebuild
+after source, file-inventory and resolution-configuration changes, and verify that
+completed artifacts cannot supply facts to the next build.
+
+## Persisted graphs
+
+`graphBuild` runs the `build_graph` linker. It projects the result into file, symbol, and package nodes with
+`contains`, `imports`, `uses`, `calls`, and `inherits` edges, and publishes an immutable snapshot:
+
+```text
+<workspace>/.octocode/graph/
+  .facts/                        # unfinished per-scope extraction jobs
+  latest                         # id of the newest snapshot
+  <YYYYMMDDTHHMMSSZ>-<scope>-<root tag>/
+    manifest.json                # root, scope, counts, link tallies, diagnostics,
+                                 # linking-config digests (inputs), sha256
+    graph.bin
+```
+
+The root tag is 6 hex digits of the scanned root, so two roots whose scopes
+slug alike (`a-b`, `a/b`) never share an id, and pruning keeps snapshots per
+root. Same-second publications use increasing numeric suffixes; retention orders
+those suffixes numerically and never fills a pruned gap. Before any read, hash or
+`git` call, a snapshot's manifest root must be canonical and inside the allowed roots.
+
+Freshness has one owner (`ast_graph/freshness.rs`). It covers every source and the linking configs that change
+resolution (tsconfig/jsconfig, `package.json`, `Cargo.toml`, `go.mod`, and the
+like). Query freshness and the `stale` operation use it: `stale` rescans the
+scoped file list, so it reports `changed`, `missing`, `added` and `excluded`
+sources and changed configs. The rescan walks what the build walked: the
+snapshot's walk flags and one admission (`walk_scope::build_admission`), so a
+source the path policy withholds (`.env.py`, a credential store) under
+`includeHidden` is no `added` file. Every rebuild lead (`reingest`, the narrower
+scopes of `scopeTooBroad`, the exclude retry, the missing-manifest note) carries
+the snapshot's whole build scope through `build_scope::BuildScope`: walk flags,
+`exclude` and `parserGlobs`, their root-relative globs rebased onto the lead's
+root. A snapshot truncated at its file limit is never
+reported fresh.
+
+`graph.bin` (format v19) is a sectioned, varint-coded file:
+
+- **Header:** magic `OCGRAPH\0`, format version, section count, and the
+  SHA-256 of the section directory. This root is also recorded in the manifest.
+- **Section table:** `{tag, offset, len, sha256}` entries. Ordinary sections hash
+  their complete body; blocked sections hash a directory that commits to each
+  record block. `NODE` and `DECL` use independently checked blocks of up to 256
+  records.
+- **`STRS`:** sorted unique strings, front-coded. Full canonical keys allow
+  selected node blocks to decode independently; front coding shares repeated
+  path prefixes. The reader refuses a section out of order, so string ids order
+  record keys as the strings do. A decoded dictionary is one buffer.
+- **`NODE` and `EDGE`:** varint columns. Edges are delta-coded by source, and
+  kind, confidence and a test bit (every site of the edge is test code: a
+  test file, or a Rust `#[cfg(test)]` item) share one byte.
+- **`WITN`, `UNRS`, `DECL`:** linked occurrence witnesses, unresolved sites,
+  and declaration source identity, parse assessment and optional test identity.
+  Occurrences include representation byte spans, analysis-unit origins and derivation
+  versions. Typed argument metadata references `STRS` and is validated separately
+  from relationship details. A witness of an import of a package also stores the
+  import's edge kind, since its edge's detail is the declaration status.
+- **`SRCE`:** captured source snapshots, representations, analysis units and encoded
+  origins. Numeric references avoid repeating descriptor IDs in every origin.
+  The reader validates every origin, including those outside a query's selected
+  page, and retains a compact offset/range/cost index. It reconstructs selected
+  origins under the output budget. This required section stores correspondence
+  and digests, not raw source text; each response fragment includes the complete
+  descriptor closure for the origins it returns.
+- **`LOOK`, `KEYX` / `NAMX`:** node lookup metadata and degree counts, plus key
+  and name permutations. Full decode checks lookup metadata against node records
+  and edge counts; selected node blocks are checked against their lookup entries.
+  A topology operation reads no lookup entry (it renders nodes and degrees from
+  `NODE` and `EDGE`) and checks the key and name index order its searches use.
+- **`DIAG`, `FDIG`, `FCMP`, `ENTR`:** diagnostics (file, line, code,
+  message, the file node a diagnostic is about, when that is another
+  file, and the edge kind of the unlinked import it is about), per-file
+  digests, components, and entrypoints.
+- **`FSTM`** (optional): per-file size, mtime, ctime and inode, recorded only
+  for files untouched for their settle window (`stamp::SourceStamp::settle_for`: twice the granularity of the write time, at least twice a 20 ms clock tick, so 2 seconds on a whole-second file system) before the scan. Query freshness
+  compares these stamps before hashing a source; a file without a stamp, or with
+  a different one, is hashed.
+- **Adjacency:** topology operations rebuild both CSR directions in O(V + E).
+  Point operations obtain degree counts from the authenticated lookup metadata.
+
+Encoding is deterministic. Full decode validates cross-references, evidence ownership,
+line and byte ranges, typed declaration metadata and all stored blocks.
+`node`, `find` and `candidates` select node/declaration blocks while retaining shared
+string, lookup, source-catalog and freshness metadata. These operations avoid
+decoding every node and occurrence, but their memory and I/O are not bounded by
+the result-page size. A query verifies only the blocks it reads and leaves unread
+bodies unchecked; full decode checks every stored block. Neither is a claim about
+semantic analysis completeness. Responses do not report these checks: read and
+decode counts exist only as test evidence (`validation`, `#[cfg(test)]`), and their
+read bytes exclude source-freshness reads. Agents judge coverage from `stats` and
+`coverage`, and currency from `freshness` and the `stale` operation.
+Publication writes encoded sections to a staged file, avoiding an additional
+whole-snapshot output buffer, and syncs the snapshot before publishing `latest`.
+An unknown major version asks the user to re-ingest, and readers ignore unknown
+section tags.
+
+Call edges are syntax candidates. Each one is linked in one of these ways, in
+this order:
+
+1. A same-file declaration (with receiver-aware member preference).
+2. An import binding, following named and star re-exports. Explicit exports take
+   precedence over stars. A visited set terminates cycles without cutting long
+   chains; multiple possible targets remain medium-confidence candidates.
+3. A namespace or module qualifier (`ns.f`, `pkg.F`, `mod::f`): high when the
+   bound module declares or exports exactly one target, the same for every
+   language.
+4. A unique name across the whole graph (`low` confidence).
+
+Receiver calls bind the owning type before searching its `extends` chains.
+Overrides stop a branch, repeated identities collapse, and cycles terminate.
+`super` (Python `super()`) begins at the bases; `implements` does not supply a
+method body. Rust wildcard imports follow their module bindings and re-exports;
+explicit imports and declarations take precedence. Rust paths walk inline
+`mod` blocks from the module that spells them (`nested::f`, `self::a::f`,
+`super::f`, `crate::file_mod::inline::f`). A Rust method call prefers an
+inherent `impl T` member over a trait impl's; a provided trait method `T` does
+not override links through `impl Trait for T` at medium confidence.
+Crate names (`use other_crate::f`, and a path rooted at `::` such as
+`::serde::Deserialize`, which names an extern crate) resolve through
+`cargo metadata`, run once
+for each Cargo workspace that encloses a scanned Rust file: the nearest
+`Cargo.toml` at or above the file, inside or above the scan root. A scan of a
+folder of crates, of several independent workspaces, or of a crate's
+subdirectory links them the same way; only the request's cancellation bounds
+the runs. Rust files no manifest encloses still link module paths by syntax,
+and one `unsupported-linking` diagnostic counts them. A Python
+module's attributes are its top-level definitions and the names its imports
+bind, so `from pkg import X` follows `pkg/__init__.py` re-exports; `from m import
+*` binds names without a leading underscore (`__all__` is not read). Python
+`@decorator` lines are `decorates` calls owned by the enclosing scope, and an
+import in a branch `typing.TYPE_CHECKING` keeps from running is a type import.
+The file's names for the constant are followed (`import typing as t`,
+`TYPE_CHECKING as TC`, a module-level `FLAG = TYPE_CHECKING`), and so are `not`,
+`and`, `or` and the `else` of a negated guard. A Go method is `Type.Method`:
+`x.M()` reads the method set of `x`'s type across its package, then the
+shallowest methods promoted through embedded fields or interfaces (`embeds`
+heritage); an unresolved embedded type keeps a found method medium. A `:=` or
+`var` binding of a call takes the first result type of the callee (facts schema 25):
+a bare result type binds only in the caller's own package, through the caller's
+import qualifier when the callee is another package's, and stays unbound for a
+qualified result type, a result named by a type parameter (`func F[T any]() T`,
+or the receiver's `Box[T]`) or another package's method (`resolve/rust_returns.rs`,
+`in_caller_scope`). The declared result type wins whenever a declaration is
+found: `NewT()` declared `-> Iface` is an `Iface`, and a found declaration with
+no single named result leaves the value untyped; the name rule (`NewT()` is a
+`T`) applies only when no declaration is found (`Received` in
+`resolve/rust_returns.rs`). Go import
+aliases bind the package under the alias, dot imports bind like a wildcard and
+blank imports bind nothing; a plain import binds the name in the target's
+`package` clause, not the path's last segment. A file under a `//go:build`
+constraint no build satisfies (`ignore`, alone or in a conjunction) holds no
+graph facts, no import reaches it, and an `unsupported-linking` diagnostic says
+so; its outline still reads it. Other build tags are not evaluated: those files
+stay package candidates. A constructor-shaped receiver (`T(..).m()`,
+`T::new(..).m()`, `NewT(..).m()`, a Rust unit struct value) types the call.
+Multiple targets or unresolved branches keep observed candidates at medium
+confidence.
+
+Data members (fields, properties, enum members, and constants or variables a
+type's body declares) are members of their type. A call reaches one through a
+receiver or the type (`s.cb()`, `T.K`), never by a bare name, which would
+otherwise link a builtin or a free function to a same-named field (Go `append`, C
+`compute`). The one exception is a member whose written type is a function type
+(facts schema 28, `function_typed`): a Scala `A => B`, `FunctionN[..]` or
+`PartialFunction[..]`, or an untyped `val` holding a lambda; a C# `Action` or
+`Func` field or property; a C++ `std::function` or function-pointer member. In
+those languages, which have an implicit receiver, a bare call inside the
+member's own type invokes it (`def apply() = resolved()` for `lazy val resolved:
+Function0[A]`, C# `cb()` for `Action cb`). TypeScript and JavaScript have no
+implicit receiver, so `this.cb()` reaches an arrow-typed property and a bare
+`cb()` never does. Limits: only the written type counts, so a C# field of a
+delegate type the repository declares, or a Scala `val` typed by an alias, stays
+unlinked by its bare name; so does a call from a C# partial part other than the
+member's own, from a base class's subclass, or from a C++ out-of-line definition
+(`void S::run() { cb(); }`), whose caller sits outside the class body. A value of
+another type called through `apply` (`m(k)` for a `Map`) is no call of the
+member. Through a receiver, a callable member of the same type and name wins over
+a data member (a Java accessor `name()` beside its field `name`); "the same type"
+is the member's own declaration, or a Rust type and an `impl` block of its name
+in its crate, never a same-named type elsewhere. A data member whose qualified
+name repeats in its file takes the `@n` key suffix, its place among the
+same-named declarations in source order (never its line, so a line inserted
+above moves no key and `drift` shows no relation change), so a same-named method
+keeps its plain key (`Buf.len` is the method, `Buf.len@1` the field). A written
+call of an enum member through its type (`Attempt::Done(1)`) constructs it and
+links as `constructs:<resolution>`; `v.Done(1)` through a value does not link.
+A Rust macro invocation (`format!(..)`) is a call of kind `expands`: it links
+only to a `macro_rules!` macro (`expands:<resolution>`), and a call `f(..)` only
+to a function, since macros and functions are separate namespaces. An
+invocation of a macro the repository does not declare stays unresolved as
+`name!`, so `format!` never binds a function named `format`.
+
+CommonJS links the same way. A module-scope `require('./m')` binding (whole module,
+destructured key or `.key`) counts as an import only when oxc semantics prove it
+holds the loaded module; a guarded form such as `root.x || require('./m')` binds
+it only on one branch, at medium (below). A `require` binding inside a function or block
+(`function f() { const m = require('./m'); m.k() }`) holds only over that scope:
+it must be declared directly in the scope that holds it, never written, and not
+declared again in a nested scope; calls inside the scope link at medium
+confidence, since a lazy load runs only when its scope does. An inline
+`require('./m').k()` links that one call the same way. A specifier built at
+runtime (`require(p)`, `require('./' + p)`) links nothing and is disclosed as an
+`unsupported-linking` diagnostic with reason `non-literal-specifier`. An ESM
+import of a CommonJS module reaches `module.exports` through its default import
+and each proven export key (`exports.k = ...`) through a named import. A module
+exports only what unconditional
+Program-level writes to `module.exports`, `exports` or `module.exports.k` prove.
+A function, arrow or class written straight into such an export
+(`exports.k = function () {}`, `module.exports = { k() {} }`,
+`module.exports = function name() {}`) is a declaration named as callers write
+it, and owns the calls inside it. A barrel `module.exports = require('./impl')` forwards every export of its
+target, as `export * from` does (a spread `{ ...require('./impl') }` is not read).
+A whole export `module.exports = v` also exports the members of what `v` holds,
+followed through identifier chains only (B122): a variable initialized by another
+name, or by a call of the file's own function whose every `return` gives one
+local, ends at a function or class, and each `v.k = f` statement written directly
+in the scope that declares it (before that function returns it) exports the
+function `f` declared there as `k`. A UMD wrapper (the module body is one
+function called in place) that writes `module.exports` once, directly or through
+an alias `var m = .. && module`, at its statement level or in `if` branches,
+exports the same way. An export written in a branch, or a value passed on to code
+that may change its members (`mixin(lodash, ..)`), holds on some runs only: its
+links are medium. Any other export inside an IIFE or a conditional proves
+nothing. A guarded load `var x = E || require('./m')` (or `??`) binds the module
+on the branch where `E` fails, at medium confidence even at module scope. Any
+later write to `x` drops the binding, except a write of the guard's own source
+text (`x = E`, compared as text, never by name): it assigns one of the two values
+the declaration already admits, so the binding stays at medium. The value `E`
+holds then need not be the loaded module (after `_.noConflict()` restores an
+earlier global it is not).
+A bare specifier naming the importer's own package (`require('lodash')` inside
+lodash) reaches its source only as Node resolves it: through self-reference,
+which needs `exports` in its `package.json`, or as a workspace member; otherwise
+it is the installed copy, a third-party package.
+
+ES modules bind the way TypeScript does. A bare call never names a class or
+object-literal member, which is never in lexical scope, so `mutate()` inside a
+class that declares `mutate` reaches the imported `mutate`. A member call keeps
+its receiver as written (`this.app.scene.mutate`, `get().run`). `ns.f()` through
+`import * as ns` reaches that module's export `f`. `X.m()` through `import { X }`
+or `import X` reaches the member `m` of the declaration `X` names: a class
+static, an object-literal method or a namespace function. No same-named
+declaration elsewhere is a candidate. A longer receiver path links only when the
+syntax types it: a TS annotation, `new T()`, a class field, or a parameter
+destructured under an interface, type alias or inline type literal of the same
+file (`({ scene }: Props)`). Any other path stays unresolved.
+
+C, C++ and CUDA link the way a compiler and linker see a translation unit. A
+`.h` header holding syntax only C++ has (`namespace`, `template`, `class`,
+`using namespace`, `extern "C++"`) parses as C++, and as CUDA when a
+declaration names `__global__` or `__device__`; other headers stay C. A
+prototype (`int f(void);`, an in-class `void draw();`) is not the function's
+body: a call bound to it reaches the one definition with the same enclosing
+namespaces and classes, an out-of-line `void Widget::draw() {}` included (several
+definitions: the one whose file includes the prototype's header). A `static`
+or anonymous-namespace function is a target only in its own file and the files
+that include it. `ns::f()` and `::ns::f()` name the declarations whose enclosing
+scopes end with (or equal) the written path, in the caller's file, directory or
+included headers; a match only elsewhere is `low`. Template arguments
+(`f<A>(x)`) are not part of the callee, `p->m()` is a member call like `p.m()`,
+and a `<<<grid, block>>>` launch calls its kernel. An unparsable preprocessor
+branch (`else` before `#ifdef`) is recovered as one statement; its sibling
+statements keep their calls. A branch a literal condition disables (`#if 0`,
+the `#else` of `#if 1`) adds no include, call or declaration to the graph; any
+other condition is not evaluated, so both its branches stay candidates. Overloads of one scope all stay medium
+candidates. Calls inside macro bodies, calls through function pointers and C
+calls to assembly symbols are not linked.
+
+Grammar adapters distinguish ordinary call lookup from named construction.
+Named Java, C# and C++/CUDA construction can target type declarations only;
+JavaScript constructors retain callable-name lookup. Same-file constructor
+candidates must match the complete written container path and lexical visibility.
+An explicit global `::Type` never falls back to a nested type. A unique exact
+same-file candidate is high confidence; multiple candidates remain medium.
+Cross-file names still depend on the linker's supported namespace/import rules;
+an unresolved qualification is retained. Physical namespace occurrences remain
+separate: unqualified visibility across reopened namespaces or equivalent compact
+and nested namespace declarations is not inferred. Anonymous namespace containers
+also stay distinct; implicit visibility outside them is not inferred. When matching
+type declarations exist but this scope admission is unproven, the site reports
+`constructor-binding-not-assessed` rather than claiming the type is absent.
+Target-typed construction, constructor delegation and unsupported construction
+forms retain their source occurrence with `constructor-target-unavailable`,
+`constructor-binding-not-assessed` or `unsupported-constructor-form`. These
+unassessed sites are excluded from the eligible linkage denominator, counted
+separately and inspectable through `unresolved`. Parser recovery takes precedence
+over binding admission. No argument becomes an invocation through this process.
+A bump of `GRAPH_FACTS_SCHEMA_VERSION`, `ANALYSIS_VERSION` or `FORMAT_VERSION`
+invalidates earlier extraction, binding or storage representations: rebuild older
+snapshots with the current binary. A call to a name whose only declaration parsed
+recovered reports `recovered-declaration`, not `not-declared-in-repo`.
+
+A bare call whose callee the file binds to a parameter, a local variable or a
+closure calls that value, not a declaration of the same name: the call fact
+records `termBinding`, and the site links nothing and stays unresolved as
+`local-binding`, outside the eligible linkage denominator. Each lane reads the
+fact from its own scopes, never from the name:
+
+| Lane | Binding read |
+|---|---|
+| JS/TS (oxc) | oxc semantics bind the callee of a call, `new`, tagged template or JSX tag to its symbol. A symbol the outline lists as a declaration (a nested `const f = () => ..` included) is recorded as `boundDeclaration` and the call links that declaration only, `local` at high confidence; a symbol in a function or block scope that is no listed declaration, import or CommonJS load binding is a term. Files with `with` or direct `eval` are not assessed |
+| Python, Go, Rust, C/C++/CUDA, C# | the argument adapter's lexical bindings: parameters, and variables bound inside a callable (`let`, `:=`, assignments, declarators); a pattern's written type and a block-scope C/C++ prototype bind no value |
+| Scala | its own term scopes (`Call::term_binding`), which also cover the untyped head of `x.m()`; such member calls keep their receiver reason |
+| Java | none by rule: a bare call names a method, never a variable |
+
+Gaps stay explicit: a scope a lane cannot settle (Rust and C++ closure and
+lambda bodies, Rust `match` and macros, C# lambdas and patterns, Python
+comprehensions, `with`, `global` and an enclosing function that declares a
+nested function, class or import), module-level variables, and JS/TS files
+read by the tree-sitter fallback lane keep the name-based link.
+
+oxc owns JS/TS. A file it cannot parse keeps its facts through the tree-sitter
+lane (partial facts beat none), and says so: `scan.parserFallback` lists each
+`file` with its `producer`, and a `parser-fallback` diagnostic gives oxc's error.
+That lane reads what the tree settles: a `type` token (`type-import`,
+`type-named-reexport`), re-exports, a written `export`, and module-level `const`,
+`let`, `var` and arrow functions. It makes no load claim otherwise: value imports
+and re-exports are `recovered-import`, `recovered-named-reexport` and
+`recovered-star-reexport`, and a cycle only they close is `runtime: "unknown"`.
+Class fields and interface members stay undeclared there.
+
+Every call edge keeps its `resolution` and `confidence`. `graphQuery` then
+answers bounded, paged questions without rebuilding. The code is in
+`crates/tool-graph/src/ast_graph/store/`.
+
+Ingest also classifies files by role, infers entrypoints, and reads manifests
+into components and declared dependencies. That code is in `classify.rs`
+and `store/workspace.rs`. Two more sections carry the results: `FCMP` maps each
+file to its component and `ENTR` maps each entrypoint to the rule that found it.
+Both are optional, so readers treat a missing section as empty. `uses` edges
+link named imports to the exported declaration. `inherits` edges link a class,
+interface, or impl to its base or trait.
+
+`issues` (`store/detect.rs`) runs the detectors on the loaded
+snapshot. It needs no new dependencies:
+
+- iterative Tarjan SCCs
+- Eades–Lin–Smyth greedy feedback-arc cuts
+- BFS witness cycles
+- PageRank (damping 0.85, at most 50 iterations)
+- articulation points with separated-side sizes
+- Lakos CCD/NCCD over the SCC condensation, using bitset reachability
+
+Finding ids hash the detector, the subject, and the identifying evidence, which
+is what lets `baseline` diff two snapshots. `entries` names the
+entrypoints in place of the inferred ones (rule `explicit`) for every detector
+that reads them.
+
+`drift` with `baseline` (`store/drift.rs`) diffs the
+selected snapshot against another by root-relative key, so a checkout of the
+base branch and the head compare: files added, removed and changed (content
+digest), cycle groups added and resolved, file import pairs whose load turned
+from module-load to deferred or back (`staticToDynamic`, `dynamicToStatic`),
+and relations `(from, edge kind, to)` added and removed. A transition is not
+also a removed and an added relation, and a moved line changes no relation.
+
+`dependents <file>` with the default edges also lists the files that use the
+file's exports through a re-exporting module (`edge: uses, via: reexport`).
+C# and Scala imports name namespaces, not files: a C# `using N;` or a Scala
+wildcard import of a repository package (`import a.b._`, `import a.b.*`) gives
+an `imports` edge with detail `namespace-use` (load `compile`), citing the
+import line, to each file declaring a type of `N` the file uses (a call head, a
+receiver type, a base type), as `java-same-package` does for Java. A C#
+namespace holds the types its `namespace` declarations (block or file-scoped)
+enclose directly; a Scala package, the top-level types of files whose directory
+ends in its path. A name the file declares itself, or (C#) one its own
+namespace chain declares, adds no edge, nor does a name two imported namespaces
+declare. An alias `using`, `using static` and explicit Scala imports of one
+type add none.
+TypeScript path aliases follow exact-match and longest-prefix precedence. Aliases
+whose targets all point into `node_modules` count as external dependencies;
+aliases with a project-source fallback still report unresolved internal links.
+A bare JS/TS import that names a scanned file by path (`vs/base/common/x` for
+`src/vs/base/common/x.ts`) but that no tsconfig `paths`/`baseUrl` or workspace
+package links is no edge. Ingest records it as an `unlinked-path-import`
+diagnostic naming that file, and `dependents <file>` lists those importers
+under `summary.unlinkedPathImports` (`file`, `line`, `message`).
+Markup (`.vue`, `.svelte`, `.astro`, `.mdx`, `.html`, `.htm`) has no grammar and
+no graph node. `scan.markupNotLinked` counts the files holding a script, by
+extension. Each import in a `<script>` element, Astro frontmatter or MDX import
+line that resolves to a scanned file is recorded and answered the same way, so
+such a `dependents` is never silently empty. A markup edit does not make a
+snapshot stale.
+Every answer's `graph` block carries `partialReasons` (`filesSkipped`, or
+`maxFiles` for an older snapshot whose scan stopped at a file cap) when the
+snapshot's scan was cut, and `reingest`, the ingest that walks every file, when a
+file cap cut it.
+
+Large inputs are bounded:
+
+- **Over 1,000,000 bytes:** a file is never parsed. It stays a file node with the
+  `unparsed` role, and relative imports of it link through
+  `unparsed-target` edges. The false unresolved diagnostics those imports would
+  otherwise raise are dropped.
+- **Bundles under the bound:** a file classified as bundled (minified,
+  `sourceMappingURL`, webpack/parcel runtime, build output) keeps its file node
+  and every extracted declaration, call site and argument observation. Roles can
+  suppress noise-oriented detector findings but never remove research evidence.
+  Compact and multiline source use the same binding and evidence paths.
+
+### Known limits
+
+- No LSP-enriched call identity: method calls whose receiver type is not
+  locally evident stay unlinked rather than guessed. The answers that follow
+  calls report syntax linkage counts and unresolved reasons so agents can inspect
+  the gap; the ratio is not semantic recall.
+- Unfinished extraction can be resumed, but completed builds retain only their
+  published snapshots. Binding and graph projection are rebuilt for the whole
+  selected scope. There is no dependency-based resolution cache.
+- `passes` covers named argument expressions admitted by each grammar adapter.
+  It does not prove callable type, callback invocation, argument propagation,
+  alias flow or execution. Unsupported forms remain explicit evidence; a missing
+  relation is not proof that no callback exists.
+- Point queries select node/declaration blocks; shared string, lookup and source
+  metadata still scale with the snapshot. Other operations can require complete
+  topology scans; occurrence bodies are skipped when the operation does not use
+  them. `witnesses` and `unresolved` still decode every occurrence record of
+  their section to count it exactly, but read evidence text and source origins
+  one block at a time. Durable checkpoints resume extraction only; linking,
+  projection and global graph algorithms remain in memory. Distributed builds
+  and dependency-based incremental resolution are not implemented. Delivery
+  cursors resume results, independently of extraction checkpoints.
+- Cancellation is checked around snapshot loading and queries, and during evidence
+  iteration. Decode and every global graph algorithm do not yet have fine-grained
+  cancellation checkpoints.
+- Snapshot and source identities do not model simultaneous compiler contexts or
+  persistent semantic-provider identities. Source correspondence covers admitted
+  decoding and installed region adapters; discovering arbitrary generated-file
+  relationships or executing generators remains unsupported.
+- C/C++ unreachable-file precision stays low: headers reach the build through
+  `-I` roots and Kbuild/CMake rules, which ingest does not parse. Without a
+  compilation database, C++ overloads are not resolved by argument types and a
+  header's dialect is read from its own syntax, not the including unit.
+- Rust receivers are typed from a written type, a constructor, `self`/`Self`
+  across every `impl` block of the caller's crate, a block or file `static`/
+  `const` type, and the declared return type of the call the receiver comes
+  from. That call must link to targets that all declare one type. `?`, and an
+  unlinked `.unwrap()`/`.expect(..)` on a declared std `Result<T, _>`/
+  `Option<T>`, yield `T`, unless a crate type of that name declares that
+  method. An `async fn` result is not followed (`.await` is not typed). Not
+  typed, so unresolved with their reason: struct field receivers
+  (`self.field.m()`, which needs field-type facts), deref through
+  `Arc`/`Box`/`MutexGuard` beyond a declared `Box`/`Rc`/`Arc` type, generic
+  bounds whose methods come from macro-generated impls, closure and match-arm
+  locals, and any receiver from another workspace crate. An enum variant
+  constructor (`E::V(..)`) is not a call.
+- A snapshot rooted inside a crate (a module directory) holds no crate root.
+  A module file whose parent module is outside the scan finds its `mod`
+  children in its own directory as well; a `super::` path from it uses the
+  directory resolver; and a `super::` chain that climbs above the snapshot
+  root stays unresolved with an out-of-root diagnostic rather than linking a
+  same-named file inside the root.
+
+### Per-language limits
+
+Each grammar is checked against its language's own name-resolution rules
+(`link_tests/<language>.rs`). A form below stays unresolved, with its reason,
+rather than linked by a name guess.
+
+| Language | Not linked |
+|---|---|
+| TypeScript, TSX, JavaScript | Types only a checker settles: an overloaded callee's argument, `import("..").T`, and members whose declared type names a type parameter. Declared types do link across files: class fields and parameter properties, imported interface and alias members (`app.scene.m()`), `T["k"]` with a literal key, parameters of a function its declarator annotates with an alias (`const f: A = ({ scene }) => ..`), and properties destructured from a typed value; a chain may pass the same class (through an inherited member) or the same alias again. Members of `await import()`; a conditional of two requires (`c ? require(a) : require(b)`); a `require` through a wrapper function; a scope `require` whose name a nested scope declares again. A guarded loader (`root._ \|\| require(..)`) and a UMD wrapper's CommonJS-branch export link at medium |
+| Python | The standard-library module list is generated (`skills-dev/octocode-graph-dev/scripts/gen-python-stdlib.mjs` → `import_resolution/aliases/python_stdlib.txt`: the interpreter's `sys.stdlib_module_names` at a pinned Python line plus typeshed `VERSIONS` entries with an upper bound at a pinned typeshed commit; the file header names both), so a private stdlib module (`_socket`) is never bound to another tree; `cls()`; `__all__` is not read; a constructor call links to the class, not `__init__`; `self` inside a nested function |
+| Go | an explicit type argument applied to one value (`F[T]` with a single argument, which the grammar reads as a type conversion); function values, type switches and method-chain return types. A `NewT()` result is typed `T` from the constructor's name only when no declaration of `NewT` is found; a declared result type (an interface included) wins |
+| Rust | calls inside macros other than std/core forwarding macros (`assert_eq!`, `format!`, `vec!`, …), `json!` values and `tokio`/`futures` `join!`/`try_join!` arguments; untyped closure parameters. A trait default method is matched to its implementing type by name |
+| Java | method references (`Foo::bar`); untyped lambda parameters; `this(..)` and `super(..)` delegation (`constructor-binding-not-assessed`); record accessors and anonymous-class bodies |
+| C# | extension methods and literal receivers; `: base(..)` initializers; a `global using` declared in another file |
+| Scala | implicit and `given` resolution, `summon` and extension methods (a `given` is declared, an anonymous one under the type it provides); calls through the base type never reach an override |
+| C, C++, CUDA | calls inside macros (a call of a function-like `#define` links to the macro, which has no call-syntax namespace of its own: `listLength(l)` reaches the `listLength` a header defines as a function call reaches a function; a use of an object-like macro is no call); calls through function pointers, except a class's own function-pointer or `std::function` member called by its bare name inside the class body; overloads (every overload of the chosen type is a medium candidate); virtual dispatch (the static type's method only); only direct includes count as near for qualified calls |
+| Assembly | a C call into an assembly symbol: assembly is its own link family |
+
+### Open decisions
+
+- **Query surface.** Fold the 20 ops into six primitives: `search` (`find`,
+  `candidates`, `node`, `symbols`), `neighbors` (`deps`, `dependents`,
+  `callers`, `callees`, `walk`), `path`, `evidence` (`witnesses`,
+  `unresolved`, `diagnostics`), `analyze` (`stats`, `hubs`, `cycles`, `stale`,
+  `drift`, `impact`), and a new `context` (search hits expanded into a
+  budgeted subgraph). This is a contract cutover with no aliases.
+- **Override edges.** Add an `overrides` edge kind for Java, Scala and C++
+  virtual calls, or keep override dispatch in `lspSearch`.
+- **C# `global using`.** Linking it needs a global marker on the shared
+  `Import` record.
+- **Java `package` declarations.** Extracting them would make same-package
+  links `high` (today the package is inferred from the directory, `medium`)
+  and replace the `low` unique-name fallback for split source roots.
+- **C++ overloads.** Narrow a call by argument count, or leave an overloaded
+  name unlinked. Today all overloads link at `medium`; CUTLASS `to_string`
+  fans out to about 70.
+- **C/C++ header dialect.** Keep reading a header's dialect from its own syntax,
+  or follow scip-clang and take the language of the files that include it.
+  That needs the include graph before parsing.
+- **Transitive includes.** Count transitively included headers as near for
+  qualified C/C++ calls. Recall rises, at the cost of a wider candidate pool.
+
+Symbols carry a test flag: symbols in test files, symbols inside Rust test
+modules (`mod tests`, `mod proptests`, …), and pytest `test_*` functions and
+`Test*` classes. A Rust file is a test file when only test code mounts it: a
+`mod x;` or a spliced `include!("x.rs")` (edge `rust-include`, a compile-time
+dependency) inside a `#[cfg(test)]` item or in a test file, transitively. `impact.testFunctions` lists the flagged symbols a change
+reaches.
+
+graphQuery pages rows with `limit` and `offset`; a page also ends at the response
+budget. An `impact` summary counts its long lists, and its first page holds
+`next.affectedEntrypoints`, `next.testsToRun` (rows `{path, functions}`: each test
+file with the test functions reached in it) and, for `since`, `next.unmapped`:
+the same query with `list` set, which returns the complete list as ordinary paged
+`rows`; follow its own `next.nextPage` until it ends. A cycle larger than 50 nodes
+gets `next.cycle<i>` (the row's index on its page), which pages every member.
+Continuations repeat the query's `path` and pin the snapshot ID.
+
+Every build and snapshot bound lives in one place
+(`crates/tool-graph/src/ast_graph/limits.rs`). Snapshot reads are bounded at
+512 MiB. Decode permits at most 64 sections, 5 million items per table,
+2 million edges, and 512 MiB of expanded string content. A build is refused
+with `scopeTooBroad` and narrower-scope hints as soon as its snapshot can no
+longer publish:
+
+- **Scan:** the running source-correspondence charge (descriptor allocations,
+  the origin index, reconstruction cost and retained encoded bytes) and a tally
+  of the nodes and `contains` edges each file projects.
+- **Link:** the same tally plus each distinct file edge. One bound counts both
+  the build's edges and the snapshot's EDGE rows, so there is no degraded
+  edge-capped graph.
+- **Projection:** every table's row count, before secret redaction.
+- **Encoding:** expanded string bytes and the `graph.bin` size.
+
+A build exactly at a bound publishes. Reads also reject snapshots beyond their
+bounds. These are input and table limits, not a hard process-memory
+budget; decoded tables, witnesses and algorithm state also consume memory.
+
+## Evaluation
+
+Correctness gates cover typed-fact fidelity, occurrence preservation and paging,
+unresolved-site retention, malformed evidence rejection, clean/reused equivalence
+after dependency and configuration changes, mixed-language capability reporting,
+publication limits, snapshot retention, structural diff
+identity, reverse-graph invariants, SCC partitioning, and native response parity. Run:
+
+```bash
+node packages/octocode-native/scripts/build-slot.cjs -- cargo test --manifest-path packages/octocode-native/Cargo.toml -p octocode-engine --no-default-features graph::
+node packages/octocode-native/scripts/build-slot.cjs -- cargo test --manifest-path packages/octocode-native/Cargo.toml -p octocode-engine --no-default-features --test graph_benchmark frozen_graph_correctness_receipt_is_stable -- --exact
+node packages/octocode-native/scripts/build-slot.cjs -- cargo test --manifest-path packages/octocode-native/Cargo.toml -p octocode-tool-graph ast_graph
+```
+
+The language battery ingests one pinned repository per grammar
+(`packages/octocode-benchmark/local/repos`) and compares the files `callers`
+returns for a probe function with the files ripgrep finds calling it
+(the [battery guide](../../../../skills-dev/octocode-graph-dev/references/battery.md) of the
+[octocode-graph-dev skill](../../../../skills-dev/octocode-graph-dev/SKILL.md) owns running and
+comparing it). Since 2026-11-01 the oracle drops the probe's own declaration
+sites, each case's `exclude` globs (vendored copies, amalgamations) and hits
+inside strings and comments, and names the graph's `unresolved` reason for
+every site in a missed file (`missedSites`). Last run, 2026-11-01 (release
+binary; the 2026-10-30 text-oracle figure in brackets where it differs):
+
+| Language | Repository (dir) | Probe | Recall | Precision |
+|---|---|---|---|---|
+| C | redis (`src`) | `createStringObject` | 1.00 | 1.00 |
+| Rust | tokio | `poll_proceed` | 1.00 | 1.00 |
+| Java | guava (`guava/src`) | `checkNotNull` | 1.00 (0.99) | 1.00 |
+| Python | django | `force_str` | 1.00 (0.95) | 1.00 |
+| CUDA | cutlass (`tools/library`) | `make_gemm_real_canonical_layouts` | 1.00 (0.95) | 1.00 |
+| TypeScript | TypeScript (`packages`) | `areTestsFiltered` | 1.00 (0.91) | 1.00 |
+| C++ | nlohmann/json (excl. `single_include/**`) | `skip_whitespace` | 1.00 (0.67) | 1.00 |
+| Assembly + C | libjpeg-turbo | `jpeg_std_error` | 1.00 (0.89) | 0.89 |
+| C# | Newtonsoft.Json | `ArgumentNotNull` | 0.98 (0.96) | 1.00 |
+| Go | prometheus | `FromStrings` | 0.98 (0.94) | 1.00 |
+| Scala | cats (`core`) | `tailRecM` | 0.94 (0.69) | 1.00 |
+| TSX | excalidraw (`packages`) | `mutateElement` | 1.00 | 1.00 |
+| JavaScript | lodash (excl. `vendor/**`) | `isObject` | 0.67 | 1.00 |
+| JavaScript (CommonJS) | next.js (`scripts`) | `getGitHubToken` | 1.00 | 1.00 |
+| JavaScript (lazy `require`) | VS Code (`scripts/chat-simulation`) | `startServer` | 1.00 | 1.00 |
+
+The oracle still matches text, not bindings:
+
+- **Assembly + C:** the one "extra" file (`decompress_libjpeg.cc`, in the libjpeg-turbo repository's `fuzz/` directory, not this one) calls
+  the function through an `extern "C"` include, so it is a real caller.
+- **C#:** the one miss is a `recovered-declaration` site.
+- **Go:** the two misses are `ambiguous` sites (119 sites in two test files).
+- **TSX:** declared types across files (class fields, imported interface and
+  alias members, `T["k"]`, parameters of an annotated alias, 2026-11-08) took
+  recall from 0.58 to 0.77 at precision 1.00. The test global `window.h`
+  (`declare global` / script-file `Window` interfaces merged across files,
+  `InstanceType<typeof App>`, `const h = window.h`) and the parameters of a
+  function passed to a call (`register({ perform: (.., app) => .. })`, typed by
+  the callee's declared parameter, a type parameter reading as its constraint)
+  took it to 1.00 at precision 1.00 (2026-11-10). A `Window` member links at
+  `medium`: the declaring file may sit outside the program that reads it.
+- **Scala:** the two misses are member calls on untyped receivers
+  (`monadInstance.tailRecM`, `fn1.tailRecM`).
+- **JavaScript:** after B122 (2026-11-08) `test/test-fp.js` links at medium
+  through its guarded loader and lodash's UMD export; recall 0.50 → 0.67. Two
+  files stay missed: `lib/common/minify.js` binds `_ = require('lodash')`, the
+  installed package (now `external-package`: lodash has no `exports`, so it
+  cannot require itself), and `test/test.js` loads lodash by a path computed at
+  run time (`interopRequire(filePath)`).
+- **JavaScript (CommonJS):** the probe is the exported name with the most
+  caller files among modules two or more files load by relative `require`,
+  picked before measuring; its callers use module-scope destructured requires.
+- **JavaScript (lazy `require`):** the probe is the export called most through
+  a function-scope or inline relative `require` across two or more files,
+  picked before measuring (row added 2026-11-23, from the v20 battery).
+- **TSX:** one oracle hit is a type position
+  (`typeof h.app.scene.mutateElement<T>`), not a call.
+
+`local-binding` (2026-11-12) left recall and precision unchanged on every row.
+The sites it moved out of name-based links and other reasons: JavaScript 3,321
+(1,208 of them were linked, mostly lodash's `func`, `iteratee` and
+`runInContext` locals such as `nativeMax`), Python 4,156, Go 3,875, TSX 2,476,
+Scala 1,003 (relabelled from `other` and `not-declared-in-repo`; no link
+changed), TypeScript 329, CUDA 80, `javascript-cjs` 70, C# 41, Rust 38,
+`javascript-lazy` 38, C++ 15, C 2; Java none, by rule.
+
+Rust receiver typing was also checked against rust-analyzer call hierarchy on
+the octocode native crates (2026-11-01, graph-view LSP cross-check, same-crate
+edges). The receiver rules recovered 26 of the 140 edges only LSP reported, and
+kept every edge both reported whose call still exists (791 of 792; the other
+call was removed from the source). 8 edges LSP did not report were added, each
+checked against the source and correct: `self.m()` calls inside `format!`
+arguments, which rust-analyzer does not list, and functions LSP lists under
+another ID. `type-qualified` name guesses on `T::f(..).m()` were dropped:
+`.unwrap()`/`.expect(..)` now types its value from the declared std
+`Result`/`Option` of the call it follows, which outranks a constructor-name
+guess. 4 calls in function-local `static` initializers moved to their
+function. On the language battery, Rust's link rate rose from 0.21 to 0.233
+with recall and precision at 1.00. The remaining LSP-only edges are the
+untyped forms listed under Known limits; 122 of them cross crates.
+
+Timing is a criterion benchmark, not a CI threshold. It builds and queries the same frozen graph (`OCTOCODE_GRAPH_BENCH_FILES`, default 20,000 files, and `OCTOCODE_GRAPH_BENCH_FANOUT`, default 4):
+
+```bash
+node packages/octocode-native/scripts/build-slot.cjs -- cargo bench --manifest-path packages/octocode-native/Cargo.toml -p octocode-engine --bench graph
+```
+
+Measure any proposed graph library or incremental parsing against the same correctness test and benchmark before adopting it.

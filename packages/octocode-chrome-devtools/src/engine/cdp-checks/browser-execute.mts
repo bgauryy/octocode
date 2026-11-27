@@ -1,0 +1,396 @@
+import { connectionOverrideNote } from '../cdp-policy.mjs';
+import { redactPlanForEvidence } from './plan-redact.mjs';
+import {
+  readFileSync,
+  writeFileSync,
+  appendFileSync,
+  closeSync,
+} from 'node:fs';
+import { join } from 'node:path';
+import { run as monitor } from './live-har-monitor.mjs';
+import { jsonPointer, validatePlan } from './plan-validate.mjs';
+import { frameScope, scopedSession } from './plan-scopes.mjs';
+import { historyOps } from './plan-history-ops.mjs';
+import { commitSave } from './plan-save.mjs';
+import { pageOps } from './plan-page-ops.mjs';
+import { captureOps } from './plan-capture-ops.mjs';
+import {
+  closeRouting,
+  enablePlanDomains,
+  logQueryContinuation,
+  protocolOps,
+} from './plan-protocol-ops.mjs';
+import type { Payload } from '../cdp-connection.mjs';
+import { originViolation, readSessionMeta } from '../session-meta.mjs';
+import { errorMessage } from '../error-message.mjs';
+import type { CheckSession } from '../cdp-runner-session.mjs';
+import type {
+  DisposableScope,
+  EventStream,
+  FrameScopes,
+  PlanScope,
+  PlanState,
+  PlanStep,
+  StepRow,
+} from './plan-types.mjs';
+
+/** Why the plan stopped: the failed step, or a failure outside any step. */
+type Failure = {
+  step?: number;
+  error: string;
+  outcomeUncertain?: boolean;
+  instruction?: string;
+};
+
+export { DOM_ACTIONS } from './dom-config.mjs';
+export { validatePlan } from './plan-validate.mjs';
+
+const arg = (flag: string) => {
+  const i = process.argv.indexOf(flag);
+  return i < 0 ? null : process.argv[i + 1];
+};
+const ops = { ...pageOps, ...historyOps, ...captureOps, ...protocolOps };
+const log = (line: string) => console.log(line);
+const readPlanInput = () => {
+  const file = arg('--plan');
+  return JSON.parse(
+    file ? readFileSync(file, 'utf8') : process.env.BROWSER_PLAN || 'null'
+  );
+};
+const protocolErrorOf = (error: unknown) =>
+  error instanceof Error && 'protocolError' in error
+    ? error.protocolError
+    : undefined;
+
+/** What each plan event listener saw, for the run result. */
+const eventCoverage = (streams: Map<string, EventStream>) =>
+  [...streams.entries()].map(([id, stream]) => ({
+    id,
+    event: stream.event,
+    observed: stream.observed,
+    matched: stream.matched,
+    artifact: stream.file,
+    boundary: 'listener registration to flow completion',
+  }));
+
+/** The run failure a step error records; a timeout leaves the step's outcome unknown. */
+function stepFailure(error: unknown, step: PlanStep, index: number): Failure {
+  const message = errorMessage(error);
+  const uncertain =
+    error instanceof Error &&
+    'outcomeUncertain' in error &&
+    error.outcomeUncertain === true;
+  return {
+    step: index + 1,
+    error: message,
+    ...(uncertain ||
+    /CDP timeout|step deadline|step budget exhausted/.test(message)
+      ? {
+          outcomeUncertain:
+            uncertain ||
+            ['act', 'cdp', 'goto', 'history', 'reload', 'readStream'].includes(
+              step.op
+            ),
+          instruction:
+            'Inspect state before any retry; an acknowledged outcome is unavailable.',
+        }
+      : {}),
+  };
+}
+
+/** The port's allowlist (open --allow-origin), if one was set for the browser this run drives. */
+const sessionAllowOrigins = () =>
+  readSessionMeta(arg('--port') ?? '9222').allowOrigins;
+
+/** Fails when the page reached a URL outside the allowlist (a redirect or a click that left it). */
+async function assertStayedOnAllowedOrigins(
+  cdp: CheckSession,
+  allowOrigins: readonly string[]
+) {
+  if (cdp.targetInfo.type !== 'page') return;
+  const reached = await cdp.send('Runtime.evaluate', {
+    expression: 'location.href',
+    returnByValue: true,
+  });
+  const href = reached.result?.value;
+  if (typeof href !== 'string') return;
+  const violation = originViolation(href, allowOrigins);
+  if (violation)
+    throw new Error(
+      `The page navigated outside the allowlist to ${href}. ${violation}`
+    );
+}
+
+export async function run(connection: CheckSession, input?: unknown) {
+  const allowOrigins = sessionAllowOrigins();
+  const plan = validatePlan(input ?? readPlanInput(), { allowOrigins });
+  const planArtifact = connection.saveArtifact(
+    'browser-plan.json',
+    redactPlanForEvidence(plan)
+  ).file;
+  const journalArtifact = join(connection.outputDir, 'browser-steps.jsonl');
+  writeFileSync(journalArtifact, '', { mode: 0o600, flag: 'wx' });
+  console.log(`[ARTIFACT] STEPS ${journalArtifact}`);
+  const journal = (row: StepRow) =>
+    appendFileSync(journalArtifact, `${JSON.stringify(row)}\n`);
+  let stepDeadline: number | null = null;
+  const cdp: CheckSession = {
+    ...connection,
+    foreground() {
+      return cdp.send('Page.bringToFront');
+    },
+    send(method: string, params?: Payload, sessionId?: string) {
+      const remaining =
+        stepDeadline === null ? Infinity : stepDeadline - Date.now();
+      if (remaining <= 0)
+        return Promise.reject(
+          new Error(`Browser step deadline exceeded before ${method}`)
+        );
+      const commandMs = plan.commandMs ?? plan.waitMs ?? 8000;
+      const request = connection.send(method, params, sessionId, {
+        timeoutMs: Math.min(commandMs, remaining),
+      });
+      // The step budget, not the command limit, cut this request short.
+      return remaining < commandMs
+        ? request.catch((error: unknown) => {
+            throw errorMessage(error).startsWith('CDP timeout')
+              ? new Error(
+                  `Browser step budget exhausted during ${method} (${Math.round(remaining)}ms left); raise timeoutMs`,
+                  { cause: error }
+                )
+              : error;
+          })
+        : request;
+    },
+  };
+  const results: StepRow[] = [],
+    scopes: FrameScopes = new Map(),
+    sessionScopes = new Map<string, DisposableScope>(),
+    streams = new Map<string, EventStream>(),
+    artifacts = new Map<unknown, string>();
+  let failure: Failure | null = null;
+  // Optional steps that failed; the plan went on past them.
+  const failedOptionalSteps: Failure[] = [];
+  const started = Date.now();
+  // A { $step | $event, pointer } reference resolves to the value it selects.
+  const unavailable = (
+    step: unknown,
+    event: unknown,
+    pointer: unknown,
+    source?: unknown
+  ) => {
+    const tried = JSON.stringify(pointer ?? ''),
+      n = JSON.stringify(step);
+    const shape =
+      'use {"$step": N, "pointer": "/root/nodeId"}: the pointer is relative to that step\'s raw CDP response, as Chrome returns it (DOM.getDocument: /root/nodeId; Runtime.evaluate: /result/objectId), with nothing added around it';
+    if (step === undefined)
+      return new Error(
+        `Result reference is unavailable: event ${JSON.stringify(event)} has no matched event yet (pointer ${tried})`
+      );
+    if (source === undefined)
+      return new Error(
+        `Result reference is unavailable: step ${JSON.stringify(step)} has no saved result (steps with results: ${[...artifacts.keys()].join(', ') || 'none'}); ${shape}`
+      );
+    const keys =
+      source && typeof source === 'object' && !Array.isArray(source)
+        ? Object.keys(source)
+        : [];
+    return new Error(
+      `Result reference is unavailable: step ${n}, pointer ${tried} selects nothing; top-level keys of step ${n}'s result: ${keys.slice(0, 12).join(', ') || (Array.isArray(source) ? 'an array' : 'none')}${keys.length > 12 ? `, … (${keys.length} in all)` : ''}; ${shape}`
+    );
+  };
+  const resolveReference = (
+    step: unknown,
+    event: unknown,
+    pointer: unknown
+  ) => {
+    const artifact = step !== undefined ? artifacts.get(step) : undefined;
+    if (step !== undefined && artifact === undefined)
+      throw unavailable(step, event, pointer);
+    const source =
+      artifact !== undefined
+        ? JSON.parse(readFileSync(artifact, 'utf8'))
+        : typeof event === 'string'
+          ? streams.get(event)?.last
+          : undefined;
+    const selected = jsonPointer(source, pointer ?? '');
+    if (selected === undefined) throw unavailable(step, event, pointer, source);
+    return selected;
+  };
+  const resolveParams = (value: unknown): unknown => {
+    if (!value || typeof value !== 'object') return value;
+    const step: unknown = Reflect.get(value, '$step'),
+      event: unknown = Reflect.get(value, '$event');
+    if (step !== undefined || event !== undefined) {
+      return resolveReference(step, event, Reflect.get(value, 'pointer'));
+    }
+    return Array.isArray(value)
+      ? value.map(resolveParams)
+      : Object.fromEntries(
+          Object.entries(value).map(([k, v]) => [k, resolveParams(v)])
+        );
+  };
+  const state: PlanState = {
+    plan,
+    connection,
+    cdp,
+    streams,
+    artifacts,
+    protocol: null,
+    resolveParams,
+    log,
+  };
+  const execute = async () => {
+    await enablePlanDomains(state);
+    for (const [index, step] of plan.steps.entries()) {
+      const timeout = step.timeoutMs ?? plan.waitMs ?? 8000,
+        row: StepRow = {
+          index: index + 1,
+          op: step.op,
+          status: 'running',
+          ...(step.optional ? { optional: true } : {}),
+          startedAt: new Date().toISOString(),
+        };
+      journal(row);
+      results.push(row);
+      console.log(
+        `[PROGRESS] BROWSER step=${index + 1}/${plan.steps.length} op=${step.op}`
+      );
+      const exitBefore = process.exitCode;
+      const stepStarted = Date.now();
+      stepDeadline = stepStarted + timeout;
+      const progress = setInterval(
+        () =>
+          console.log(
+            `[PROGRESS] BROWSER step=${index + 1} op=${step.op} elapsedMs=${Date.now() - stepStarted}`
+          ),
+        1000
+      );
+      try {
+        let target: PlanScope = step.frame
+          ? await frameScope(cdp, step.frame, {
+              timeoutMs: timeout,
+              scopes,
+              log,
+            })
+          : cdp;
+        if (step.session !== undefined) {
+          const sessionId = resolveParams(step.session);
+          if (typeof sessionId !== 'string' || !sessionId)
+            throw new Error('Session reference is not an id');
+          let scope = sessionScopes.get(sessionId);
+          if (!scope) {
+            scope = scopedSession(
+              cdp,
+              { targetId: null, type: 'session' },
+              sessionId
+            );
+            sessionScopes.set(sessionId, scope);
+          }
+          target = scope;
+        }
+        row.targetId = target.targetInfo.id;
+        row.source = {
+          selectedUrl: target.targetInfo.url ?? null,
+          frameId: target.targetInfo.frameId ?? null,
+        };
+        if (target.targetInfo.sessionId)
+          row.sessionId = target.targetInfo.sessionId;
+        const current = { step, index, timeout, row, target };
+        await (ops[step.op] ?? protocolOps.protocol)(state, current);
+        if (allowOrigins) await assertStayedOnAllowedOrigins(cdp, allowOrigins);
+        commitSave(state, current);
+        row.status = 'complete';
+      } catch (error) {
+        const protocolError = protocolErrorOf(error);
+        if (protocolError)
+          row.artifact = cdp.saveArtifact(
+            `protocol-error-${index + 1}.json`,
+            protocolError
+          ).file;
+        row.status = 'failed';
+        row.error = errorMessage(error);
+        const failed = stepFailure(error, step, index);
+        if (!step.optional) {
+          failure = failed;
+          break;
+        }
+        // A recipe behind the step may have marked the process failed; the plan went on.
+        process.exitCode = exitBefore;
+        failedOptionalSteps.push(failed);
+      } finally {
+        stepDeadline = null;
+        clearInterval(progress);
+        row.finishedAt = new Date().toISOString();
+        row.source = {
+          ...row.source,
+          ...(row.condition?.url ? { url: row.condition.url } : {}),
+          capturedAt: row.finishedAt,
+        };
+        journal(row);
+      }
+    }
+    // A last step that only set per-connection state leaves nothing behind for the next call.
+    const last = plan.steps.at(-1);
+    const note =
+      !failure && last?.op === 'cdp' && connectionOverrideNote(last.method);
+    if (note) log(note);
+  };
+  try {
+    if (plan.observe?.network)
+      await monitor(cdp, {
+        onReady: execute,
+        monitorMs: plan.observe.afterMs ?? 0,
+        url: '',
+      });
+    else await execute();
+  } catch (error) {
+    failure ??= { error: errorMessage(error) };
+  } finally {
+    for (const stream of streams.values()) {
+      stream.target.off(stream.event, stream.handler);
+      closeSync(stream.fd);
+      logQueryContinuation(log, 'EVENTS', stream.file);
+    }
+    closeRouting(state);
+    for (const scope of sessionScopes.values()) scope.dispose();
+    for (const { scope, sessionId } of scopes.values()) {
+      scope.dispose();
+      if (sessionId)
+        await cdp
+          .send('Target.detachFromTarget', { sessionId })
+          .catch(() => {});
+    }
+    const result = {
+      ok: !failure,
+      failure,
+      planArtifact,
+      journalArtifact,
+      elapsedMs: Date.now() - started,
+      requestedSteps: plan.steps.length,
+      completedSteps: results.filter(r => r.status === 'complete').length,
+      failedOptionalSteps,
+      steps: results,
+      coverage: {
+        executedSteps: results.length,
+        unvisitedSteps: plan.steps.length - results.length,
+        boundary:
+          'selected targets and frames during this plan; no site-wide coverage',
+      },
+      eventCoverage: eventCoverage(streams),
+    };
+    cdp.saveArtifact('browser-result.json', result);
+    for (const skipped of failedOptionalSteps)
+      console.log(
+        `[FINDING] BROWSER_OPTIONAL_FAILED ${JSON.stringify(skipped)}`
+      );
+    if (failure) {
+      process.exitCode = 1;
+      console.log(`[FINDING] BROWSER_STOPPED ${JSON.stringify(failure)}`);
+    } else
+      console.log(
+        `[METRIC] BROWSER completed=${result.completedSteps}/${result.requestedSteps} failedOptional=${failedOptionalSteps.length} elapsedMs=${result.elapsedMs}`
+      );
+  }
+  return { ok: !failure, results };
+}

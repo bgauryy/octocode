@@ -1,50 +1,32 @@
-# RFC / Plan Workflow
+Load when planning evidence, auditing an RFC, or a disagreement survives source review. [output](../output.md) owns structure; `octocode-research` owns tools and verification.
 
-Load before drafting or improving any RFC/plan. Why: choose the smallest artifact set and preserve one decision/claim spine.
-Advance from framing and research through option choice, artifact writing, question closure, measurable acceptance, validation, and delivery.
+# RFC evidence, audit and clasify review
 
-## Select mode and shape
-- RFC/design/architecture: decision, alternatives, rationale, risks, implementation, KPIs.
-- Plan: evidence-backed implementation route; include decision/KPI detail only when useful.
-- Decision: options matrix, recommendation, adoption, rollback.
-- Migration: current/target state, compatibility, phases, rollout, rollback.
-- Validation/improve: upgrade the existing artifact in place; preserve prior decisions and reasoning.
-Trivial one-file edits route to `octocode-research` Change mode.
-Small and reversible uses one `RFC.md`; irreversible, cross-package, public-contract, data, security, or prior-art-heavy work uses the full folder.
+## Gather evidence
 
-## One ledger, ordered artifacts
-Track `claim | evidence | confidence | artifact/section | next proof`; only confirmed/likely claims may support a recommendation, uncertain claims become open questions.
-Write in dependency order:
-1. `RFC.md` — goals, scope, decision, alternatives, risks; frozen when accepted.
-2. `PREREQUISITES.md` — existing-code readiness, baselines, blockers, owners.
-3. `IMPLEMENTATION.md` — closes every open question, then dependency-ordered build/rollout.
-4. `KPI.md` — acceptance, metrics, guardrails, decision rule, traceability.
-5. `RESOURCES.md` — source inventory; never a substitute for inline decision evidence.
-Later artifacts reference RFC anchors and never restate goals/scope.
+- Per [checklist area](checklist.md#completeness) that could change the decision: current source, callers, tests; local constraints, prior art, primary docs for options; real consumers and reversible steps for a migration; a dependency's current release, maintained source, license, integration points, limits; a reproducible baseline, and a benchmark when measurement decides.
+- Deciding claim: verify in the original source; search snippets are leads.
+- Doubtful or conflicting deciding claim: Hypothesis test: claim, strongest rival, distinguishing check, result (confirmed, dismissed, unresolved); unresolved stays an open choice.
+- Keep material counterarguments.
 
-## Gates
-- Ask when flow uncertainty changes artifact shape, owner, scope, or tradeoff priority.
-- Split independent decisions; include at least two options, including do-nothing.
-- Research current state before recommending; preserve exact citations.
-- Public API/data/security/compatibility changes require rollout, rollback trigger, and owner.
-- Tabular content renders as a real markdown table, not prose.
-- Every citation states why it matters; every artifact stays dense — no filler, no duplicate phrasing, no data loss.
-- Close or explicitly defer every open question before Ready for Review.
-- Reject a brainstorming handoff marked Prototype First, Narrow, Park, or not ready.
+## Audit an existing RFC
 
-## Reassess existing RFCs (audit)
-Run this whenever asked to review, rate, clean up, or revisit `.octocode/rfc/`, and before any delete/archive/keep call on an existing RFC — not only when writing a new one.
-1. Read every file in the RFC's folder (or the single `RFC.md`), not just the header.
-2. Re-derive scope from the RFC text, then grep/read the live packages it claims to touch — never trust prior checkboxes as proof.
-3. Classify: Implemented, Partially implemented (name exactly what's open), Not implemented, or Superseded/Obsolete — and flag any RFC that contradicts a more recently accepted one (e.g. two RFCs both claiming schema/API ownership).
-4. Write or refresh the RFC's `## Audit Reasoning` block (template: `references/rfc-audit.md`) in place, dated, with file:line evidence for both what shipped and what's missing.
-5. Recommend one of: **Delete/archive** (implemented-and-stale, or superseded with no unique open item), **Fix-and-keep** (partially done; document is otherwise still the right owner), or **Keep-as-TODO** (untouched, still wanted).
-Do not silently delete — surface the recommendation and act only on explicit approval.
-6. If an RFC is deleted or archived, check other kept RFCs for dependency notes pointing at it and correct or re-point them in the same pass.
+- Read the proposal and its support; verify the live code it describes.
+- Find implemented work, wanted gaps, contradictions, superseded choices and [trace](trace.md) gaps; recommend keep, update, or retire, with deciding evidence. Feedback: objection (blocks; states the consequence) vs concern (non-blocking). Shipped work that diverged: After Action Review: intended, happened, why different, next.
+- Authorized edits: update substance in place, keep accepted decisions, make the current decision clear; no audit headers, transcripts, diary, or review metadata.
+- Archive or delete only within the user's scope; update references.
 
-## Validate and deliver
-Run deterministic checks that can fail.
-Confirm goals/non-goals, evidence, fair alternatives, pre-mortem, blast radius, dependency order, V&V, rollback, KPI guardrails, and complete traceability.
-Deliver: `Status`, `Decision`, `Why`, `Alternatives`, `Risk`, `Success signal`, `Next step`; then ask before saving. Save approved full sets under `.octocode/rfc/{name}/`; otherwise keep the result in chat.
+## Optional clasify review
 
-Next: for evidence load `references/research-playbook.md`; to write the decision `references/rfc-template.md`; for readiness `references/rfc-prerequisites.md`; for build `references/rfc-implementation.md`; for acceptance `references/rfc-kpi.md`; for provenance `references/rfc-resources.md`; when auditing an existing RFC `references/rfc-audit.md`.
+Only when a consequential disagreement survives source review, no direct check settles it, and a typed judgment could change the next action; ordinary evidence review is the default.
+
+- Keep RFC revision, criteria, source evidence, proposed answers, and gaps together; [closure rules](questions.md#track-and-close-questions) still apply.
+- Delegated reviewers (when authorized): Delphi: same evidence, independent first positions, then share; keep dissent. Task contract for each: objective a different question, inputs the shared evidence, constraints read-only (you keep write authority and judgment), output a position; keep partial returns.
+- Credential: `OCTOCODE_TYPESAFE_KEY` or `classification.api` in `.octocoderc`; use [shared configuration handling](configuration.md).
+
+1. Name the next action this judgment could change; inspect the live query: `octocode schema clasify --view query`. Check credentials without displaying them; missing access leaves review partial, never approved.
+2. Submit typed questions over the pinned evidence and competing arguments, including an uncertainty outcome. Inspect every page, error and coverage limit. Retry only for a useful repair or new evidence; otherwise preserve the partial result.
+3. Verify the deciding original source before updating the same RFC with conclusion, dissent and uncertainty. Confidence is not correctness; a provider answer grants no implementation authority. Omit requests, receipts, timing and usage.
+- Measuring whether assisted review helps: `octocode-agentic`; no evaluation report in the RFC.
+
+Next: find remaining gaps with the [checklist](checklist.md#completeness) and close each one per [questions](questions.md#track-and-close-questions).

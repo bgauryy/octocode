@@ -1,0 +1,243 @@
+//! Call nodes: the callee label a call edge names and the name token it targets.
+
+use tree_sitter::Node;
+
+use super::{compact_identifier, first_descendant, is_name_like, node_text};
+
+pub(in crate::signatures) fn is_call_node(kind: &str) -> bool {
+    matches!(
+        kind,
+        "call_expression"
+            | "call"
+            | "method_invocation"
+            | "invocation_expression"
+            | "function_call_expression"
+            | "member_call_expression"
+            | "macro_invocation"
+            | "command"
+    )
+}
+
+/// The callee label of a call node and the node that spells it. The label
+/// is structural: the argument lists, index expressions and literals of a
+/// chained receiver (`write(&path, "…").expect`) are elided to their
+/// brackets (`write().expect`), so no argument text is carried as a name.
+pub(in crate::signatures) fn call_callee<'tree>(
+    node: Node<'tree>,
+    content: &str,
+) -> Option<(String, Node<'tree>)> {
+    let (label, spelled) = callee_text(node, content)?;
+    Some((elide_arguments(&label), spelled))
+}
+
+/// `label` with the inside of every bracket group and string literal
+/// removed: `a(x, "s").b[0].c` → `a().b[].c`. Quotes and brackets nested
+/// inside a group are skipped with it; a backslash escapes the next char.
+pub(super) fn elide_arguments(label: &str) -> String {
+    let mut out = String::with_capacity(label.len());
+    let mut depth = 0usize;
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    for c in label.chars() {
+        if let Some(open) = quote {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == open {
+                quote = None;
+                if depth == 0 {
+                    out.push(c);
+                }
+            }
+            continue;
+        }
+        match c {
+            '"' | '\'' | '`' => {
+                quote = Some(c);
+                if depth == 0 {
+                    out.push(c);
+                }
+            }
+            '(' | '[' | '{' => {
+                if depth == 0 {
+                    out.push(c);
+                }
+                depth += 1;
+            }
+            ')' | ']' | '}' if depth > 0 => {
+                depth -= 1;
+                if depth == 0 {
+                    out.push(c);
+                }
+            }
+            _ if depth == 0 => out.push(c),
+            _ => {}
+        }
+    }
+    out
+}
+
+fn callee_text<'tree>(node: Node<'tree>, content: &str) -> Option<(String, Node<'tree>)> {
+    // Java `obj.name(..)`: the receiver lives in a sibling `object` field.
+    if let (Some(object), Some(name)) = (
+        node.child_by_field_name("object"),
+        node.child_by_field_name("name"),
+    ) && let Some(method) = node_text(name, content).and_then(compact_identifier)
+    {
+        let receiver = node_text(object, content)
+            .map(|text| text.split_whitespace().collect::<String>())
+            .and_then(|text| compact_identifier(&text))
+            .filter(|text| text.len() <= 80)
+            .unwrap_or_else(|| "<expr>".to_owned());
+        return Some((format!("{receiver}.{method}"), name));
+    }
+    for field in ["function", "name", "method", "macro", "constructor"] {
+        if let Some(child) = node.child_by_field_name(field)
+            && let Some(label) = child_label(explicit_instance_of(child), content)
+        {
+            return Some(label);
+        }
+    }
+    let child = first_descendant(node, 3, is_name_like)?;
+    Some((
+        node_text(child, content).and_then(compact_identifier)?,
+        child,
+    ))
+}
+
+/// The label of a call's callee node as written.
+/// Go `f[T](..)` and `pkg.F[T, U](..)` call the generic function `f`.
+fn explicit_instance_of(function: Node<'_>) -> Node<'_> {
+    if function.kind() == "index_expression"
+        && let Some(operand) = function.child_by_field_name("operand")
+    {
+        operand
+    } else {
+        function
+    }
+}
+
+fn child_label<'tree>(child: Node<'tree>, content: &str) -> Option<(String, Node<'tree>)> {
+    if let Some(name) = node_text(child, content).and_then(compact_identifier) {
+        return Some((name, child));
+    }
+    // rustfmt/prettier break method chains across lines: collapse
+    // the whitespace so `self\n    .config\n    .iter` keeps its
+    // receiver instead of degrading to a bare `iter`.
+    if let Some(name) = node_text(child, content)
+        .map(|text| text.split_whitespace().collect::<String>())
+        .and_then(|text| compact_identifier(&text))
+    {
+        return Some((name, child));
+    }
+    let descendant = first_descendant(child, 3, is_name_like)?;
+    Some((
+        node_text(descendant, content).and_then(compact_identifier)?,
+        descendant,
+    ))
+}
+
+/// The function a Scala application names: a curried chain
+/// (`f(a)(b)`) and explicit type arguments (`f[A](a)`) are peeled to `f`.
+#[cfg(feature = "tree-sitter-scala")]
+pub(in crate::signatures) fn scala_applied_function(node: Node<'_>) -> Option<Node<'_>> {
+    let mut function = node.child_by_field_name("function")?;
+    while function.kind() == "call_expression" {
+        function = function.child_by_field_name("function")?;
+    }
+    if function.kind() == "generic_function" {
+        function = function.child_by_field_name("function")?;
+    }
+    Some(function)
+}
+
+/// A Scala call label. A curried chain is one site, at its outermost
+/// application: an inner application has none of its own.
+#[cfg(feature = "tree-sitter-scala")]
+pub(in crate::signatures) fn scala_call_callee<'tree>(
+    node: Node<'tree>,
+    content: &str,
+) -> Option<(String, Node<'tree>)> {
+    if node.parent().is_some_and(|parent| {
+        parent.kind() == "call_expression" && parent.child_by_field_name("function") == Some(node)
+    }) {
+        return None;
+    }
+    // `new K(a)(b)`: a constructor with several parameter lists, no call.
+    let function = scala_applied_function(node).filter(|f| f.kind() != "instance_expression")?;
+    let (label, spelled) = child_label(function, content)?;
+    Some((elide_arguments(&label), spelled))
+}
+
+/// The call an infix application spells: `a m b` calls `a.m`. A symbolic
+/// operator (`1 + 2`) stays no call, like every operator of every grammar.
+#[cfg(feature = "tree-sitter-scala")]
+pub(in crate::signatures) fn scala_infix_callee<'tree>(
+    node: Node<'tree>,
+    content: &str,
+) -> Option<(String, Node<'tree>)> {
+    let operator = node
+        .child_by_field_name("operator")
+        .filter(|operator| operator.kind() == "identifier")?;
+    let method = node_text(operator, content)?;
+    let receiver = node
+        .child_by_field_name("left")
+        .and_then(|left| node_text(left, content))
+        .map(|text| text.split_whitespace().collect::<String>())
+        .and_then(|text| compact_identifier(&text))
+        .filter(|text| text.len() <= 80)
+        .unwrap_or_else(|| "<expr>".to_owned());
+    Some((format!("{receiver}.{method}"), operator))
+}
+
+/// The last name-leaf under `node` (inclusive) spelling `name`: the token a
+/// call edge targets (`run` in `self.run`, `new` in `Self::new`).
+pub(in crate::signatures) fn last_name_leaf<'tree>(
+    node: Node<'tree>,
+    content: &str,
+    name: &str,
+) -> Option<Node<'tree>> {
+    let mut found = None;
+    let mut pending = vec![node];
+    let mut cursor = node.walk();
+    while let Some(current) = pending.pop() {
+        if is_name_leaf(current)
+            && node_text(current, content) == Some(name)
+            && found.is_none_or(|last: Node<'_>| last.start_byte() < current.start_byte())
+        {
+            found = Some(current);
+        }
+        pending.extend(current.named_children(&mut cursor));
+    }
+    found
+}
+
+/// The first identifier-kind token under `node` spelled `name`, in source
+/// order: a call chain's head call (`read` in `read(..).map_err(..)`).
+pub(in crate::signatures) fn first_name_leaf<'tree>(
+    node: Node<'tree>,
+    content: &str,
+    name: &str,
+) -> Option<Node<'tree>> {
+    let mut found = None;
+    let mut pending = vec![node];
+    let mut cursor = node.walk();
+    while let Some(current) = pending.pop() {
+        if is_name_leaf(current)
+            && node_text(current, content) == Some(name)
+            && found.is_none_or(|first: Node<'_>| current.start_byte() < first.start_byte())
+        {
+            found = Some(current);
+        }
+        pending.extend(current.named_children(&mut cursor));
+    }
+    found
+}
+
+/// An identifier-kind token (`identifier`, `type_identifier`,
+/// `field_identifier`, …): the only nodes that can reference a declaration.
+/// Comments and string contents are separate token kinds, so they never match.
+pub(in crate::signatures) fn is_name_leaf(node: Node<'_>) -> bool {
+    node.named_child_count() == 0 && is_name_like(node.kind())
+}

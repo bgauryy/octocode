@@ -1,0 +1,238 @@
+//! Tool exposure by surface. CLI exposes every tool except one whose
+//! [`required_setting`] is unset; MCP adds its configuration gates: the
+//! setting that turns the tool's section on ([`section_setting`]) and the
+//! tool's own opt-in ([`mcp_opt_in`]). Provider readiness is checked by
+//! invocation, never by discovery. Execution still enforces credentials and
+//! security.
+
+use crate::config::{ConfigFieldSpec, ConfigOutput, RuntimeSurface, field};
+use crate::id::{ToolId, ToolSection};
+use std::sync::Arc;
+
+/// Whether a tool runs on this runtime, and if not, the one reason.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Availability {
+    Available,
+    /// `tools.disabled` lists it, or `tools.enabled` leaves it out.
+    ToolList(&'static ConfigFieldSpec),
+    /// Settings it needs that are unset, in prerequisite order.
+    MissingConfiguration(Vec<&'static ConfigFieldSpec>),
+}
+
+impl Availability {
+    #[must_use]
+    pub fn is_available(&self) -> bool {
+        matches!(self, Self::Available)
+    }
+
+    /// The catalog's `unavailableReason`.
+    #[must_use]
+    pub fn reason_code(&self) -> Option<&'static str> {
+        match self {
+            Self::Available => None,
+            Self::ToolList(_) => Some("toolsList"),
+            Self::MissingConfiguration(_) => Some("missingConfiguration"),
+        }
+    }
+
+    /// What keeps the tool off, naming the setting (and its variable) to change.
+    #[must_use]
+    pub fn reason_text(&self) -> String {
+        match self {
+            Self::Available => "it is available.".into(),
+            Self::ToolList(setting) if setting.path == field::TOOLS_DISABLED.path => {
+                format!("{} lists it.", setting.display_name())
+            }
+            Self::ToolList(setting) => format!("{} does not list it.", setting.display_name()),
+            Self::MissingConfiguration(settings) => format!(
+                "it needs {}.",
+                settings
+                    .iter()
+                    .map(needed_text)
+                    .collect::<Vec<_>>()
+                    .join(" and ")
+            ),
+        }
+    }
+
+    /// The variables that would make the tool available: the tool list's
+    /// variable, or every unset prerequisite's.
+    #[must_use]
+    pub fn env_vars(&self) -> Vec<&'static str> {
+        match self {
+            Self::Available => Vec::new(),
+            Self::ToolList(setting) => setting.env_name().into_iter().collect(),
+            Self::MissingConfiguration(settings) => settings
+                .iter()
+                .filter_map(|setting| setting.env_name())
+                .collect(),
+        }
+    }
+}
+
+/// A missing setting as the user must set it: storage names the value it needs.
+fn needed_text(setting: &&'static ConfigFieldSpec) -> String {
+    if setting.path == field::STORAGE_MODE.path {
+        let env = setting.env_name().map(|env| format!(" ({env})"));
+        return format!("{}=persistent{}", setting.path, env.unwrap_or_default());
+    }
+    setting.display_name()
+}
+
+/// Every tool's [`Availability`] on one runtime, in contract order.
+#[derive(Clone, Debug)]
+pub struct ToolAvailability {
+    tools: Vec<(ToolId, Availability)>,
+    available: Arc<[&'static str]>,
+}
+
+impl ToolAvailability {
+    #[must_use]
+    pub fn resolve(config: &ConfigOutput, surface: RuntimeSurface) -> Self {
+        let tools: Vec<_> = ToolId::ALL
+            .into_iter()
+            .map(|id| (id, resolve(config, surface, id)))
+            .collect();
+        let available = tools
+            .iter()
+            .filter(|(_, availability)| availability.is_available())
+            .map(|(id, _)| id.as_str())
+            .collect();
+        Self { tools, available }
+    }
+
+    /// The availability of the tool named `tool`; `None` for an unknown name.
+    #[must_use]
+    pub fn get(&self, tool: &str) -> Option<&Availability> {
+        self.tools
+            .iter()
+            .find(|(id, _)| id.as_str() == tool)
+            .map(|(_, availability)| availability)
+    }
+
+    #[must_use]
+    pub fn is_available(&self, tool: &str) -> bool {
+        self.available.contains(&tool)
+    }
+
+    /// The names of the available tools, in contract order.
+    #[must_use]
+    pub fn available(&self) -> &Arc<[&'static str]> {
+        &self.available
+    }
+}
+
+/// The classification credential (`classification.api`): a blank value is
+/// an explicit opt-out.
+#[must_use]
+pub fn classification_key(config: &ConfigOutput) -> Option<&str> {
+    field::CLASSIFICATION_API
+        .env_name()
+        .and_then(|env| config.env_value(env))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+/// The setting a tool does not run without, on every surface: discovery and
+/// instructions leave the tool out, and a direct CLI call answers what to set.
+/// An optional tool joins by naming its setting here and its
+/// `MCP_TOOL_INSTRUCTIONS` block in core.
+const fn required_setting(id: ToolId) -> Option<&'static ConfigFieldSpec> {
+    match id {
+        ToolId::Clasify => Some(field::CLASSIFICATION_API),
+        ToolId::GhCloneRepo => Some(field::STORAGE_MODE),
+        _ => None,
+    }
+}
+
+/// The setting that turns a section on for an MCP host; the external section
+/// (GitHub and package registries) needs none. The CLI offers every section:
+/// a CLI call is the user's own request (securityCheck sends the package name
+/// to OSV only when run). The one place a section meets a setting: a tool
+/// joins a section in core `TOOL_POLICIES`, never here.
+const fn section_setting(section: ToolSection) -> Option<&'static ConfigFieldSpec> {
+    match section {
+        ToolSection::External => None,
+        ToolSection::Local => Some(field::LOCAL_ENABLED),
+        ToolSection::Security => Some(field::TOOLS_ENABLE_SECURITY),
+        ToolSection::Clasify => Some(field::CLASSIFICATION_API),
+    }
+}
+
+/// The opt-in of its own an MCP host needs before it offers a tool whose
+/// section is on: a clone writes a checkout to disk.
+const fn mcp_opt_in(id: ToolId) -> Option<&'static ConfigFieldSpec> {
+    match id {
+        ToolId::GhCloneRepo => Some(field::TOOLS_ENABLE_CLONE),
+        _ => None,
+    }
+}
+
+/// Settings MCP exposure needs, each once: the section's ([`section_setting`]),
+/// the tool's own opt-in ([`mcp_opt_in`]) and its [`required_setting`]. Hiding
+/// public clasify never disables goals on other tools: the credential stays
+/// separate.
+fn prerequisites(id: ToolId) -> impl Iterator<Item = &'static ConfigFieldSpec> {
+    let section = section_setting(id.section());
+    let required = required_setting(id)
+        .filter(|setting| section.is_none_or(|section| section.path != setting.path));
+    [section, mcp_opt_in(id), required].into_iter().flatten()
+}
+
+fn is_met(config: &ConfigOutput, setting: &ConfigFieldSpec) -> bool {
+    let resolved = &config.resolved;
+    match setting.path {
+        path if path == field::LOCAL_ENABLED.path => resolved.local.enabled,
+        path if path == field::LOCAL_BETA.path => resolved.local.beta,
+        path if path == field::TOOLS_ENABLE_CLONE.path => resolved.tools.enable_clone,
+        path if path == field::TOOLS_ENABLE_SECURITY.path => resolved.tools.enable_security,
+        path if path == field::CLASSIFICATION_API.path => classification_key(config).is_some(),
+        path if path == field::STORAGE_MODE.path => {
+            crate::config::is_persistent_storage_enabled(resolved)
+        }
+        _ => false,
+    }
+}
+
+/// The MCP restriction, shared by discovery, admission and emitted leads. CLI
+/// callers retain access to beta tools without opting into MCP exposure.
+pub fn mcp_restriction(config: &ConfigOutput, id: ToolId) -> Option<Availability> {
+    let availability = resolve(config, RuntimeSurface::Mcp, id);
+    (!availability.is_available()).then_some(availability)
+}
+
+fn resolve(config: &ConfigOutput, surface: RuntimeSurface, id: ToolId) -> Availability {
+    if surface == RuntimeSurface::Cli {
+        return required_setting(id)
+            .filter(|setting| !is_met(config, setting))
+            .map_or(Availability::Available, |setting| {
+                Availability::MissingConfiguration(vec![setting])
+            });
+    }
+    let tools = &config.resolved.tools;
+    let listed = |names: &Option<Vec<String>>| {
+        names
+            .as_ref()
+            .map(|names| names.iter().any(|name| name == id.as_str()))
+    };
+    if listed(&tools.disabled) == Some(true) {
+        return Availability::ToolList(field::TOOLS_DISABLED);
+    }
+    if listed(&tools.enabled) == Some(false) {
+        return Availability::ToolList(field::TOOLS_ENABLED);
+    }
+    if id.is_beta() && !config.resolved.local.beta {
+        return Availability::MissingConfiguration(vec![field::LOCAL_BETA]);
+    }
+    let missing: Vec<_> = prerequisites(id)
+        .filter(|setting| !is_met(config, setting))
+        .collect();
+    if missing.is_empty() {
+        Availability::Available
+    } else {
+        Availability::MissingConfiguration(missing)
+    }
+}
+
+#[cfg(test)]
+mod tests;

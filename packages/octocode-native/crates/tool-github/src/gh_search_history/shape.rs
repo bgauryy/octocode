@@ -1,0 +1,494 @@
+//! The response for one page: rows, pagination, leads, warnings and the
+//! partial state.
+use super::{HistoryOperation, HistorySearch, leads, rows};
+use crate::gh_search_history::gh_search_history_query;
+use crate::qualifier_keywords::{Qualifier, qualifier};
+use octocode_github::HistoryPage;
+use octocode_runtime_base::id::ToolId;
+use octocode_runtime_base::response::result::remove_null_fields;
+use octocode_tools_shared::gh_shared::commit;
+use octocode_tools_shared::gh_shared::{
+    SearchCompleteness, SearchWindow, apply_partial, lean_rows, pick_rows,
+};
+use serde_json::{Value, json};
+
+mod detail;
+use detail::{COMMIT_DETAIL, ISSUE_DETAIL, PULL_REQUEST_DETAIL, detail_unless_sorted};
+
+/// Where a page sits in the result.
+pub(super) struct Paging {
+    page: usize,
+    per: usize,
+    more: bool,
+    /// The reachable total (search caps it).
+    total: usize,
+    /// The provider total exceeds the reachable total.
+    capped: bool,
+    /// The provider's own match count (a search's `total_count`).
+    matched: usize,
+    /// A REST list's exact row count: a complete first page, or the size
+    /// the transport read for page 1 of several.
+    exact_list_total: Option<usize>,
+    /// Rows this page shows.
+    shown: usize,
+    listed: bool,
+    incomplete: bool,
+    /// The page lies past the last one: no rows, though the search has some
+    /// (or the list has an earlier page).
+    past_end: bool,
+}
+
+impl Paging {
+    pub(super) fn new(result: &HistoryPage, page: usize, per: usize) -> Self {
+        // A REST list has no search window and states no total.
+        let reach = if result.listed {
+            SearchWindow::PageStart.reach(0, per)
+        } else {
+            SearchWindow::PageStart.reach(result.total_count, per)
+        };
+        let more = if result.listed {
+            result.has_more
+        } else {
+            page < reach.pages
+        };
+        Self {
+            page,
+            per,
+            more,
+            total: reach.total,
+            capped: reach.capped,
+            matched: result.total_count,
+            exact_list_total: result.list_total,
+            shown: result.items.len(),
+            listed: result.listed,
+            incomplete: result.incomplete_results,
+            past_end: result.items.is_empty()
+                && page > 1
+                && (result.listed || reach.past_last(page)),
+        }
+    }
+    /// The page facts: where the page starts and the rows it shows, with
+    /// the total when one is known. A search total the provider caps is a
+    /// floor (`countScope:"capped"`), one it reported incomplete is
+    /// `partial`, and an exact one says `complete`; page 1 of a REST list
+    /// states the size the transport read, and a later page or a list with
+    /// no stated size states none (the rows listed so far are not one). The cursor rides
+    /// `next.nextPage`, bounded by the contract's `page` maximum.
+    fn pagination(&self) -> Value {
+        use octocode_runtime_base::response::pages::PageFacts;
+        let facts = PageFacts::open(
+            PageFacts::start_of(self.page, self.per),
+            self.shown,
+            self.more,
+        )
+        .out_of_range(self.past_end);
+        let (total, scope) = if !self.listed {
+            let scope = if self.capped {
+                Some("capped")
+            } else if self.incomplete {
+                Some("partial")
+            } else {
+                Some("complete")
+            };
+            (Some(self.total), scope)
+        } else if let Some(total) = self.exact_list_total {
+            (Some(total), None)
+        } else {
+            (None, None)
+        };
+        let mut block = match total {
+            Some(total) => facts.with_total(total),
+            None => facts,
+        }
+        .to_value();
+        if let Some(scope) = scope {
+            block["countScope"] = json!(scope);
+        }
+        block
+    }
+}
+
+/// The response for one page.
+pub(super) fn shape(
+    query: &HistorySearch,
+    result: HistoryPage,
+    paging: &Paging,
+    terms: String,
+) -> Value {
+    let HistoryPage {
+        items, warnings, ..
+    } = result;
+    let narrow = if paging.capped {
+        leads::narrow_capped(query, &items)
+    } else {
+        None
+    };
+    let mut value = match gh_search_history_query::operation(query) {
+        HistoryOperation::PullRequest => pull_requests(query, &items, paging, terms),
+        HistoryOperation::Issue => issues(query, &items, paging, terms),
+        HistoryOperation::Commit => commits(query, items, paging),
+    };
+    if !warnings.is_empty() {
+        value["warnings"] = json!(warnings);
+    }
+    if gh_search_history_query::operation(query) == HistoryOperation::Issue
+        && !paging.more
+        && !paging.past_end
+        && paging.page <= 1
+        && let Some(map) = value.as_object_mut()
+    {
+        map.remove("pagination");
+    }
+    if paging.more
+        && let Some(next) = leads::next_page(query, paging.page + 1)
+    {
+        octocode_runtime_base::response::collection::insert_walk(
+            &mut value["calls"],
+            octocode_runtime_base::id::ToolId::GhSearchHistory,
+            None,
+            next,
+        );
+    }
+    remove_null_fields(&mut value);
+    mark_empty(&mut value, paging.more);
+    // A page past the end is restarted by the shared response stage, not
+    // broadened: the search has results.
+    if value["status"] == "empty"
+        && !paging.past_end
+        && let Some(lead) = leads::broaden_search(query)
+    {
+        octocode_runtime_base::response::result::attach_related(&mut value, lead);
+        octocode_runtime_base::response::result::add_hints(&mut value, [leads::DROP_ONE_FILTER]);
+    }
+    // A path scope that listed nothing may name no path at all: its
+    // parent's listing checks it.
+    if value["status"] == "empty"
+        && !paging.past_end
+        && let Some(check) = octocode_tools_shared::gh_shared::path_check(
+            &octocode_runtime_base::response::result::query_row(&**query, &[]),
+        )
+    {
+        value["calls"]["viewTree"] = check;
+    }
+    if value["status"] == "empty"
+        && !paging.past_end
+        && gh_search_history_query::operation(query) == HistoryOperation::Commit
+        && only_the_path_narrows(query)
+        && let Some(path) = gh_search_history_query::path(query)
+    {
+        // GitHub lists pushed history only: a file that exists only in the
+        // caller's checkout reads the same as a path that never existed.
+        let at = gh_search_history_query::reference(query).unwrap_or("the default branch");
+        octocode_runtime_base::response::result::add_hints(
+            &mut value,
+            [format!(
+                "No commit touches `{path}` on {at} of GitHub (pushed history only): use local git for unpushed work, or retry with the ref that holds it."
+            )],
+        );
+    }
+    // Terms that matched nothing: a keyword spelled as a qualifier names its
+    // filter; plain terms are ANDed.
+    if value["status"] == "empty" && !paging.past_end {
+        let keywords = gh_search_history_query::keywords(query);
+        let qualifiers = qualifier_keyword_hints(&keywords);
+        if qualifiers.is_empty() && !keywords.is_empty() {
+            octocode_runtime_base::response::result::add_hints(&mut value, [leads::TERMS_ANDED]);
+        }
+        octocode_runtime_base::response::result::add_hints(&mut value, qualifiers);
+    }
+    disclose_provider_limits(&mut value, query, paging, narrow);
+    // `effectiveQuery` is the request in GitHub's search syntax: it explains
+    // an answer the rows do not (none matched, or GitHub capped or cut the
+    // search). Beside a whole page of rows it only restates the request.
+    if value["status"] != "empty"
+        && !paging.capped
+        && !paging.incomplete
+        && let Some(fields) = value.as_object_mut()
+    {
+        fields.remove("effectiveQuery");
+    }
+    value
+}
+
+/// The search qualifiers a keyword can spell, with the `filters` field that
+/// carries each: a keyword matches text, so `author:ada` finds nothing a
+/// filter would.
+pub(super) const QUALIFIER_FILTERS: &[Qualifier] = &[
+    qualifier!(["author"] => "filters.author"),
+    qualifier!(["committer"] => "filters.committer"),
+    qualifier!(["assignee"] => "filters.assignee"),
+    qualifier!(["mentions"] => "filters.mentions"),
+    qualifier!(["commenter"] => "filters.commenter"),
+    qualifier!(["reviewed-by"] => "filters.reviewedBy"),
+    qualifier!(["label"] => "filters.labels" ("a list")),
+    qualifier!(["base"] => "filters.baseRef"),
+    qualifier!(["head"] => "filters.headRef"),
+];
+
+/// A hint per keyword spelled as a qualifier (`author:sharkdp`) that names
+/// the `filters` field carrying it.
+pub(super) fn qualifier_keyword_hints(keywords: &[&str]) -> Vec<String> {
+    crate::qualifier_keywords::hints(keywords, QUALIFIER_FILTERS)
+}
+
+/// Whether a commit listing is narrowed by its path alone: no author,
+/// committer or date window. Only then does an empty listing say that no
+/// commit touches the path; with any of them, commits touching it may lie
+/// outside them, and the broadening hint names each one to drop.
+fn only_the_path_narrows(query: &HistorySearch) -> bool {
+    query.author().is_none()
+        && query.committer().is_none()
+        && gh_search_history_query::committed_at(query).is_none()
+}
+
+/// Whether pull-request rows keep `createdAt` beside `mergedAt`: when they
+/// are sorted by creation, or filtered on it (`since`/`until` set the
+/// `created:` window, or a `created:` qualifier).
+pub(super) fn keeps_created(query: &HistorySearch) -> bool {
+    gh_search_history_query::sort(query).as_deref() == Some("created")
+        || query.filters().created.is_some()
+}
+
+/// Whether rows carry `key`: the caller picked it in `fields`.
+fn carries(fields: &[String], key: &str) -> bool {
+    fields.iter().any(|field| field == key)
+}
+
+/// Puts each non-empty `text` of an item on its row as `key`: rows and items
+/// are one to one, in order.
+fn attach_text(
+    value: &mut Value,
+    rows: &str,
+    items: &[Value],
+    key: &str,
+    text: impl Fn(&Value) -> Option<String>,
+) {
+    let listed = value.get_mut(rows).and_then(Value::as_array_mut);
+    for (row, item) in listed.into_iter().flatten().zip(items) {
+        if let (Some(row), Some(text)) = (row.as_object_mut(), text(item)) {
+            row.insert(key.to_owned(), json!(text));
+        }
+    }
+}
+
+fn item_body(item: &Value) -> Option<String> {
+    item.get("body")
+        .and_then(Value::as_str)
+        .filter(|body| !body.trim().is_empty())
+        .map(str::to_owned)
+}
+
+fn commit_body(item: &Value) -> Option<String> {
+    commit::message_body(item).map(str::to_owned)
+}
+
+fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms: String) -> Value {
+    let fields = gh_search_history_query::fields(query);
+    let state = query.state();
+    let keep_created = keeps_created(query);
+    let rows = items
+        .iter()
+        .map(|item| {
+            let mut row = rows::map_pr(item.clone());
+            rows::drop_implied(&mut row, state.as_deref(), keep_created, &fields);
+            rows::drop_default_base(&mut row, item, &fields);
+            rows::name_repository(
+                &mut row,
+                item,
+                gh_search_history_query::owner(query),
+                gh_search_history_query::repo(query),
+            );
+            row
+        })
+        .collect::<Vec<_>>();
+    let mut v = json!({"pullRequests":rows,"effectiveQuery":terms,
+        "pagination":paging.pagination()});
+    if carries(&fields, "body") {
+        attach_text(&mut v, "pullRequests", items, "body", item_body);
+    }
+    // A listed row states a target branch other than the default
+    // ([`rows::drop_default_base`]); a search row's is read by `fields`.
+    let mut detail = detail_unless_sorted(query, PULL_REQUEST_DETAIL);
+    if paging.listed {
+        detail.retain(|field| *field != "baseRef");
+    }
+    lean_rows(&mut v, "pullRequests", &detail, &fields);
+    pick_rows(
+        &mut v,
+        "pullRequests",
+        &["number", "owner", "repo"],
+        &fields,
+    );
+    rows::drop_filtered_labels(&mut v, "pullRequests", &query.filters().label);
+    // List mode runs the REST endpoint, not the search terms.
+    if paging.listed
+        && let Some(map) = v.as_object_mut()
+    {
+        map.remove("effectiveQuery");
+    }
+    if let Some(read) = leads::issue_links_read(query) {
+        v["calls"]["readIssueLinks"] = read;
+    }
+    v
+}
+
+fn issues(query: &HistorySearch, items: &[Value], paging: &Paging, terms: String) -> Value {
+    let fields = gh_search_history_query::fields(query);
+    let state = query.state();
+    let issues = items
+        .iter()
+        .map(|item| {
+            let mut row = rows::map_issue(item.clone());
+            rows::drop_implied(&mut row, state.as_deref(), true, &fields);
+            rows::name_repository(
+                &mut row,
+                item,
+                gh_search_history_query::owner(query),
+                gh_search_history_query::repo(query),
+            );
+            row
+        })
+        .collect::<Vec<_>>();
+    let mut v = json!({"issues":issues,
+        "effectiveQuery":terms,"pagination":paging.pagination()});
+    if carries(&fields, "body") {
+        attach_text(&mut v, "issues", items, "body", item_body);
+    }
+    lean_rows(
+        &mut v,
+        "issues",
+        &detail_unless_sorted(query, ISSUE_DETAIL),
+        &fields,
+    );
+    pick_rows(&mut v, "issues", &["number", "owner", "repo"], &fields);
+    rows::drop_filtered_labels(&mut v, "issues", &query.filters().label);
+    // List mode runs the REST endpoint, not the search terms.
+    if paging.listed
+        && let Some(map) = v.as_object_mut()
+    {
+        map.remove("effectiveQuery");
+    }
+    v
+}
+
+/// A commit page: a listing's and a keyword search's items carry the same
+/// committer and parents, so both rows state a different committer and the
+/// merge mark.
+fn commits(query: &HistorySearch, items: Vec<Value>, paging: &Paging) -> Value {
+    let fields = gh_search_history_query::fields(query);
+    let commits = items
+        .iter()
+        .map(|item| {
+            let mut row = rows::map_commit_list(item.clone());
+            rows::name_repository(
+                &mut row,
+                item,
+                gh_search_history_query::owner(query),
+                gh_search_history_query::repo(query),
+            );
+            row
+        })
+        .collect::<Vec<_>>();
+    let mut v = json!({"commits":commits});
+    shape_commit_rows(&mut v, &items, &fields);
+    // `shape` adds the reachable `next.nextPage`. A complete list says so
+    // too (`hasMore:false`): the REST list has no total, so a missing block
+    // would leave the end of the history unstated.
+    v["pagination"] = paging.pagination();
+    v
+}
+
+/// The default row, `fields` pick and judged text of a commit page.
+fn shape_commit_rows(v: &mut Value, items: &[Value], fields: &[String]) {
+    if carries(fields, "messageBody") {
+        attach_text(v, "commits", items, "messageBody", commit_body);
+    }
+    lean_rows(v, "commits", COMMIT_DETAIL, fields);
+    pick_rows(v, "commits", &["commitSha", "owner", "repo"], fields);
+    one_repository_once(v);
+    // A row of only a SHA, date, author and headline reads as one line, as a
+    // comparison's and a pull request's commits do.
+    if let Some(rows) = v.get_mut("commits").and_then(Value::as_array_mut) {
+        for row in rows.iter_mut() {
+            *row = commit::line(std::mem::take(row));
+        }
+    }
+}
+
+/// A page whose commits all lie in one repository states its `owner` and
+/// `repo` once, on the page (the identity the hoist plan states once), so
+/// each row is the commit alone; rows of several repositories keep theirs.
+fn one_repository_once(v: &mut Value) {
+    let Some(rows) = v.get("commits").and_then(Value::as_array) else {
+        return;
+    };
+    let at = |row: &Value| (row.get("owner").cloned(), row.get("repo").cloned());
+    let Some((Some(owner), Some(repo))) = rows.first().map(at) else {
+        return;
+    };
+    if !rows
+        .iter()
+        .all(|row| at(row) == (Some(owner.clone()), Some(repo.clone())))
+    {
+        return;
+    }
+    for row in v["commits"].as_array_mut().into_iter().flatten() {
+        if let Some(fields) = row.as_object_mut() {
+            fields.shift_remove("owner");
+            fields.shift_remove("repo");
+        }
+    }
+    v["owner"] = owner;
+    v["repo"] = repo;
+}
+
+/// A complete page with no rows is empty, so the shared fallback hint fires.
+pub(super) fn mark_empty(value: &mut Value, more: bool) {
+    let rows = ["pullRequests", "issues", "commits"]
+        .iter()
+        .find_map(|key| value.get(*key).and_then(Value::as_array));
+    if !more && rows.is_some_and(Vec::is_empty) {
+        value["status"] = json!("empty");
+    }
+}
+
+/// Provider-side incompleteness, disclosed by the one rule every GitHub
+/// search shares ([`apply_partial`]); a capped search also gets its
+/// narrowing lead (`narrowScope`). A REST list has no window and no
+/// incomplete flag, so it states neither.
+fn disclose_provider_limits(
+    value: &mut Value,
+    query: &HistorySearch,
+    paging: &Paging,
+    narrow: Option<(leads::PastWindow, Value)>,
+) {
+    let subject = match gh_search_history_query::operation(query) {
+        HistoryOperation::PullRequest => "pull request",
+        HistoryOperation::Issue => "issue",
+        HistoryOperation::Commit => "commit",
+    };
+    apply_partial(
+        value,
+        &**query,
+        &SearchCompleteness {
+            tool: ToolId::GhSearchHistory,
+            matched: if paging.capped {
+                paging.matched
+            } else {
+                paging.total
+            },
+            reachable: paging.total,
+            incomplete: paging.incomplete,
+            page: paging.page,
+            has_more: paging.more,
+            subject,
+        },
+    );
+    if paging.capped
+        && let Some((route, lead)) = narrow
+        && route.stated_on(paging.page, paging.more)
+    {
+        value["calls"]["narrowScope"] = lead;
+        octocode_runtime_base::response::paging::push_warnings(value, [route.warning().to_owned()]);
+    }
+}

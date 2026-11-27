@@ -1,0 +1,730 @@
+//! Pull request rows: patch-hit filtering, base-side reads of removed files, miss leads, verbatim comments and shared commit rows.
+use super::*;
+use octocode_test_support::json_fixture;
+
+async fn mount_pr(server: &MockServer, files: Value) {
+    mount_json(
+        server,
+        "/api/v3/repos/o/r/pulls/1",
+        200,
+        json!({"number":1,"title":"Fix","state":"open","user":{"login":"ada"},
+            "head":{"sha":HEAD,"ref":"fix"},"base":{"sha":BASE,"ref":"main"},
+            "changed_files":files.as_array().map_or(0, Vec::len),
+            "additions":1,"deletions":1,"created_at":"2024-01-01T00:00:00Z"}),
+    )
+    .await;
+    mount_json(server, "/api/v3/repos/o/r/pulls/1/files", 200, files).await;
+}
+
+/// `matchString` matches patch lines only: a file whose path alone holds
+/// it is not kept (its whole patch would answer nothing), and the files the
+/// filter dropped are counted on the call.
+#[tokio::test]
+async fn pr_match_string_keeps_patch_hits_only_and_counts_dropped_files() {
+    let server = MockServer::builder().start().await;
+    mount_pr(
+        &server,
+        json_fixture(
+            r#"[
+                {
+                    "filename": "src/a.rs",
+                    "status": "modified",
+                    "additions": 1,
+                    "deletions": 1,
+                    "sha": "1",
+                    "patch": "@@ -1,2 +1,2 @@\n keep\n-old\n+new Needle"
+                },
+                {
+                    "filename": "src/needle.rs",
+                    "status": "modified",
+                    "additions": 1,
+                    "deletions": 1,
+                    "sha": "2",
+                    "patch": "@@ -1 +1 @@\n-x\n+y"
+                },
+                {
+                    "filename": "src/b.rs",
+                    "status": "modified",
+                    "additions": 1,
+                    "deletions": 1,
+                    "sha": "3",
+                    "patch": "@@ -1 +1 @@\n-p\n+q"
+                }
+            ]"#,
+        ),
+    )
+    .await;
+    let out = read(
+        &server,
+        json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "o",
+                "repo": "r",
+                "number": 1,
+                "sections": ["patches"],
+                "matchString": ["needle"]
+            }"#,
+        ),
+    )
+    .await;
+    let paths = out["pullRequests"][0]["files"]
+        .as_array()
+        .expect("files")
+        .iter()
+        .map(|file| file["path"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(paths, [json!("src/a.rs")], "{out}");
+    let warnings = out["warnings"].to_string();
+    assert!(
+        warnings.contains("matchString dropped 2 of 3 changed files"),
+        "{out}"
+    );
+}
+
+/// A patchless file a `matchString` could not search is read at the side
+/// that holds it: a removed file at the base, never at the head (a 404).
+/// Its path holding the literal does not make it searched.
+#[tokio::test]
+async fn pr_unpatched_removed_file_is_searched_at_the_base() {
+    let server = MockServer::builder().start().await;
+    mount_pr(
+        &server,
+        json_fixture(
+            r#"[
+                {
+                    "filename": "src/needle_gone.rs",
+                    "status": "removed",
+                    "additions": 0,
+                    "deletions": 900,
+                    "sha": "1"
+                },
+                {
+                    "filename": "src/a.rs",
+                    "status": "modified",
+                    "additions": 1,
+                    "deletions": 1,
+                    "sha": "2",
+                    "patch": "@@ -1,2 +1,2 @@\n keep\n-old\n+new needle"
+                }
+            ]"#,
+        ),
+    )
+    .await;
+    let out = read(
+        &server,
+        json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "o",
+                "repo": "r",
+                "number": 1,
+                "sections": ["patches"],
+                "matchString": ["needle"]
+            }"#,
+        ),
+    )
+    .await;
+    assert_eq!(
+        out["pullRequests"][0]["unsearchedFiles"],
+        json_fixture(r#"["!tooLarge src/needle_gone.rs"]"#),
+        "{out}"
+    );
+    let search = &out["next"]["searchUnpatchedFile"]["input"]["queries"][0];
+    assert_eq!(search["path"], "src/needle_gone.rs", "{out}");
+    assert_eq!(search["ref"], BASE, "{out}");
+}
+
+/// A credential file a PR `matchString` could not search is listed as
+/// withheld, and it is no gap and no lead: the path policy refuses a read of
+/// it, so the row is not partial and offers no source search.
+#[tokio::test]
+async fn pr_withheld_file_is_listed_without_partial_or_lead() {
+    let server = MockServer::builder().start().await;
+    mount_pr(
+        &server,
+        json_fixture(
+            r#"[
+                {
+                    "filename": ".env",
+                    "status": "modified",
+                    "additions": 1,
+                    "deletions": 1,
+                    "sha": "1",
+                    "patch": "@@ -1 +1 @@\n-A=1\n+needle=2"
+                },
+                {
+                    "filename": "src/a.rs",
+                    "status": "modified",
+                    "additions": 1,
+                    "deletions": 1,
+                    "sha": "2",
+                    "patch": "@@ -1 +1 @@\n-x\n+needle"
+                }
+            ]"#,
+        ),
+    )
+    .await;
+    let out = read(
+        &server,
+        json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "o",
+                "repo": "r",
+                "number": 1,
+                "sections": ["patches"],
+                "matchString": ["needle"]
+            }"#,
+        ),
+    )
+    .await;
+    assert_eq!(
+        out["pullRequests"][0]["unsearchedFiles"],
+        json_fixture(r#"["!withheld .env"]"#),
+        "{out}"
+    );
+    assert!(out.get("isPartial").is_none(), "{out}");
+    assert!(out["next"].get("searchUnpatchedFile").is_none(), "{out}");
+    assert!(!out.to_string().contains("needle=2"), "{out}");
+}
+
+/// A PR `matchString` that hit no patch line is an empty row whose leads run
+/// the fix, with no prose naming them: the same read without the literal (its
+/// scope kept, its `contextLines` dropped), then the whole file inventory. The
+/// section menu stays out: it would offer the whole PR's patches, the read the
+/// miss narrowed away from.
+#[tokio::test]
+async fn pr_match_string_miss_offers_the_unfiltered_read() {
+    let server = MockServer::builder().start().await;
+    mount_pr(
+        &server,
+        json_fixture(
+            r#"[
+                {
+                    "filename": "src/a.rs",
+                    "status": "modified",
+                    "additions": 1,
+                    "deletions": 1,
+                    "sha": "1",
+                    "patch": "@@ -1,2 +1,2 @@\n keep\n-old\n+new"
+                }
+            ]"#,
+        ),
+    )
+    .await;
+    let query = json_fixture(
+        r#"{
+            "operation": "pullRequest",
+            "owner": "o",
+            "repo": "r",
+            "number": 1,
+            "include": ["src/**"],
+            "matchString": ["zzqx"],
+            "contextLines": {"before": 2, "after": 2}
+        }"#,
+    );
+    let out = read(&server, query.clone()).await;
+    assert_eq!(out["status"], "empty", "{out}");
+    assert!(out.get("hints").is_none(), "{out}");
+    let lead = octocode_runtime_base::test_support::checks::related_call(
+        &out,
+        "ghGetHistoryItem",
+        |input| input["queries"][0].get("matchString").is_none(),
+    );
+    assert_eq!(lead["tool"], "ghGetHistoryItem", "{out}");
+    assert!(lead.get("confidence").is_none(), "{out}");
+    let unfiltered = &lead["input"]["queries"][0];
+    for absent in ["matchString", "contextLines", "regexEngine", "caseMode"] {
+        assert!(unfiltered.get(absent).is_none(), "{absent}: {unfiltered}");
+    }
+    assert_eq!(unfiltered["number"], 1, "{unfiltered}");
+    assert_eq!(
+        unfiltered["include"],
+        json_fixture(r#"["src/**"]"#),
+        "{unfiltered}"
+    );
+    assert_eq!(
+        unfiltered["sections"],
+        json_fixture(r#"["patches"]"#),
+        "{unfiltered}"
+    );
+    let inventory = &octocode_runtime_base::test_support::checks::related_call(
+        &out,
+        "ghGetHistoryItem",
+        |input| input["queries"][0]["sections"] == json_fixture(r#"["files"]"#),
+    )["input"]["queries"][0];
+    assert_eq!(inventory["number"], 1, "{inventory}");
+    assert_eq!(
+        inventory["sections"],
+        json_fixture(r#"["files"]"#),
+        "{inventory}"
+    );
+    for absent in ["include", "matchString", "contextLines"] {
+        assert!(inventory.get(absent).is_none(), "{absent}: {inventory}");
+    }
+    checks::assert_leads_valid(&out);
+    let published = published(ToolId::GhGetHistoryItem, &out);
+    let calls = checks::leads(&published);
+    assert_eq!(calls.len(), 2, "{out}");
+    assert!(calls.iter().all(|call| call.kind == "related"));
+}
+
+/// A PR `include` that matched no changed file is an empty row whose lead
+/// reads the whole file inventory to copy a path from; there is no literal
+/// to drop.
+#[tokio::test]
+async fn pr_include_miss_offers_the_file_inventory() {
+    let server = MockServer::builder().start().await;
+    mount_pr(
+        &server,
+        json_fixture(
+            r#"[
+                {
+                    "filename": "src/a.rs",
+                    "status": "modified",
+                    "additions": 1,
+                    "deletions": 1,
+                    "sha": "1",
+                    "patch": "@@ -1,2 +1,2 @@\n keep\n-old\n+new"
+                }
+            ]"#,
+        ),
+    )
+    .await;
+    let out = read(
+        &server,
+        json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "o",
+                "repo": "r",
+                "number": 1,
+                "sections": ["files"],
+                "include": ["docs/"]
+            }"#,
+        ),
+    )
+    .await;
+    assert_eq!(out["status"], "empty", "{out}");
+    assert!(out.get("hints").is_none(), "{out}");
+    // The miss says what the scope saw, as a commit or comparison read does:
+    // the changed-file count and the nearest changed directories.
+    assert!(
+        out["warnings"]
+            .to_string()
+            .contains("include matched 0 of 1 changed files; changed directories: src/."),
+        "{out}"
+    );
+    assert!(out["next"].get("withoutMatchString").is_none(), "{out}");
+    let inventory = &octocode_runtime_base::test_support::checks::related_call(
+        &out,
+        "ghGetHistoryItem",
+        |input| input["queries"][0]["sections"] == json_fixture(r#"["files"]"#),
+    )["input"]["queries"][0];
+    assert_eq!(inventory["number"], 1, "{inventory}");
+    assert_eq!(
+        inventory["sections"],
+        json_fixture(r#"["files"]"#),
+        "{inventory}"
+    );
+    assert!(inventory.get("include").is_none(), "{inventory}");
+    checks::assert_leads_valid(&out);
+}
+
+/// Comment text is GitHub's verbatim text by default: an HTML comment in a
+/// discussion or inline review comment stays, and no raw re-read is needed.
+#[tokio::test]
+async fn pr_comment_bodies_are_verbatim_by_default() {
+    let server = MockServer::builder().start().await;
+    mount_pr(&server, json!([])).await;
+    let comment = |id: u64| {
+        json!({"id":id,"user":{"login":"rev"},"body":"See <!-- hidden note --> this \u{1f6a8}",
+            "created_at":"2024-01-01T00:00:00Z"})
+    };
+    mount_json(
+        &server,
+        "/api/v3/repos/o/r/issues/1/comments",
+        200,
+        json!([comment(1)]),
+    )
+    .await;
+    let mut inline = comment(2);
+    inline["path"] = json!("src/a.rs");
+    inline["line"] = json!(3);
+    inline["side"] = json!("RIGHT");
+    inline["commit_id"] = json!(HEAD);
+    mount_json(
+        &server,
+        "/api/v3/repos/o/r/pulls/1/comments",
+        200,
+        json!([inline]),
+    )
+    .await;
+    let out = read(
+        &server,
+        json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "o",
+                "repo": "r",
+                "number": 1,
+                "sections": ["comments", "reviewComments"]
+            }"#,
+        ),
+    )
+    .await;
+    let row = &out["pullRequests"][0];
+    for section in ["comments", "reviewComments"] {
+        assert_eq!(
+            row[section][0]["body"], "See <!-- hidden note --> this \u{1f6a8}",
+            "{section}: {out}"
+        );
+    }
+    assert!(row.get("bodyView").is_none(), "{out}");
+    assert!(out.pointer("/next/readRawBody").is_none(), "{out}");
+}
+
+/// A pull request's commits are the one commit row every history list
+/// shows (headline, login author, committer date in UTC), and keep the
+/// message past its headline as `messageBody`.
+#[tokio::test]
+async fn pr_commit_rows_are_the_shared_commit_row_with_their_body() {
+    let server = MockServer::builder().start().await;
+    mount_json(
+        &server,
+        "/api/v3/repos/o/r/pulls/1",
+        200,
+        json!({"number":1,"title":"t","state":"open","user":{"login":"ada"},
+            "head":{"sha":HEAD},"base":{"sha":BASE},"commits":2,"changed_files":0}),
+    )
+    .await;
+    let mut rebased = commit_raw(HEAD, "Fix parser\n\nWhy it broke.\n");
+    rebased["commit"]["committer"] =
+        json_fixture(r#"{"name": "Bot", "date": "2024-02-01T02:00:00+02:00"}"#);
+    let unlinked = json!({"sha":BASE,"author":null,"commit":{"message":"one line",
+        "author":{"name":"Ada","date":"2024-01-02T00:00:00Z"}}});
+    mount_json(
+        &server,
+        "/api/v3/repos/o/r/pulls/1/commits",
+        200,
+        json!([rebased, unlinked]),
+    )
+    .await;
+    let data = read(
+        &server,
+        json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "o",
+                "repo": "r",
+                "number": 1,
+                "sections": ["commits"]
+            }"#,
+        ),
+    )
+    .await;
+    assert_eq!(
+        data["pullRequests"][0]["commits"],
+        json!([
+            {"commitSha":HEAD,"committedAt":"2024-02-01T00:00:00Z","messageHeadline":"Fix parser",
+                "author":"ada","messageBody":"Why it broke."},
+            // A commit with nothing beside its row (no body) is one line.
+            format!("{BASE} 2024-01-02T00:00:00Z Ada: one line")
+        ]),
+        "{data}"
+    );
+}
+
+/// A pull-request page whose patch window shows a prefix of the files, each
+/// with its patch: the patches are the evidence, so no source read of any
+/// file (shown or past the window) and no merge-code pick is offered.
+#[tokio::test]
+async fn pr_delivered_patches_lead_to_no_source_read() {
+    let server = MockServer::builder().start().await;
+    let added = |name: &str, count: usize| {
+        let lines = (1..=count)
+            .map(|line| format!("+{name} {line}: distinctive line\n"))
+            .collect::<String>();
+        json!({"filename":format!("src/{name}.ts"),"status":"modified","additions":count,
+            "deletions":0,"sha":name,"patch":format!("@@ -1,0 +1,{count} @@\n{lines}")})
+    };
+    let files = json!([added("alpha", 20), added("beta", 20), added("gamma", 60)]);
+    mount_json(
+        &server,
+        "/api/v3/repos/o/r/pulls/1",
+        200,
+        json!({"number":1,"title":"Fix","state":"closed","user":{"login":"ada"},
+            "merged_at":"2024-01-02T00:00:00Z","merge_commit_sha":MERGE_BASE,
+            "head":{"sha":HEAD,"ref":"fix"},"base":{"sha":BASE,"ref":"main"},
+            "changed_files":3,"additions":100,"deletions":0,"created_at":"2024-01-01T00:00:00Z"}),
+    )
+    .await;
+    mount_json(&server, "/api/v3/repos/o/r/pulls/1/files", 200, files).await;
+    let out = read_with_budget(
+        &server,
+        json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "o",
+                "repo": "r",
+                "number": 1,
+                "sections": ["patches"]
+            }"#,
+        ),
+        Some(300),
+    )
+    .await;
+    let shown = out["pullRequests"][0]["files"]
+        .as_array()
+        .expect("files")
+        .iter()
+        .filter_map(|file| file["path"].as_str())
+        .collect::<Vec<_>>();
+    assert!(!shown.is_empty(), "{out}");
+    assert!(!shown.contains(&"src/gamma.ts"), "window cuts gamma: {out}");
+    assert!(
+        checks::leads(&out)
+            .into_iter()
+            .all(|lead| lead.tool != "ghGetFileContent"),
+        "{out}"
+    );
+}
+
+/// Comment sections the caller asked for are stated even when they hold
+/// nothing: an empty list says zero, where an absent one reads as not
+/// fetched.
+#[tokio::test]
+async fn requested_comment_sections_with_none_are_empty_lists() {
+    let server = MockServer::builder().start().await;
+    mount_pr(&server, json!([changed_file("src/a.rs")])).await;
+    mount_json(
+        &server,
+        "/api/v3/repos/o/r/issues/1/comments",
+        200,
+        json!([]),
+    )
+    .await;
+    mount_json(
+        &server,
+        "/api/v3/repos/o/r/pulls/1/comments",
+        200,
+        json!([]),
+    )
+    .await;
+    let out = read(
+        &server,
+        json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "o",
+                "repo": "r",
+                "number": 1,
+                "sections": ["comments", "reviewComments"]
+            }"#,
+        ),
+    )
+    .await;
+    let pr = &out["pullRequests"][0];
+    assert_eq!(pr["comments"], json!([]), "{out}");
+    assert_eq!(pr["reviewComments"], json!([]), "{out}");
+}
+
+/// Body-less COMMENTED reviews whose inline comments are in the same read
+/// are folded into those comments (`reviewId` names each one), and the
+/// response counts them: an empty `reviews` list never reads as "no
+/// reviews" (flask#4692: 7 such reviews, `reviews: []`).
+#[tokio::test]
+async fn reviews_folded_into_their_comments_are_counted() {
+    let server = MockServer::builder().start().await;
+    mount_pr(&server, json!([changed_file("src/a.rs")])).await;
+    let reviews = [10, 11, 12].map(|id| {
+        json!({"id": id, "user": {"login": "rev"}, "state": "COMMENTED", "body": "",
+            "submitted_at": "2024-01-02T00:00:00Z", "commit_id": HEAD})
+    });
+    mount_json(
+        &server,
+        "/api/v3/repos/o/r/pulls/1/reviews",
+        200,
+        json!(reviews),
+    )
+    .await;
+    let inline = [10, 11, 12].map(|review| {
+        json!({"id": review * 100, "pull_request_review_id": review, "user": {"login": "rev"},
+            "body": format!("note {review}"), "path": "src/a.rs", "line": 1, "side": "RIGHT",
+            "commit_id": HEAD, "created_at": "2024-01-02T00:00:00Z"})
+    });
+    mount_json(
+        &server,
+        "/api/v3/repos/o/r/pulls/1/comments",
+        200,
+        json!(inline),
+    )
+    .await;
+    let out = read(
+        &server,
+        json_fixture(
+            r#"{
+                "operation": "pullRequest",
+                "owner": "o",
+                "repo": "r",
+                "number": 1,
+                "sections": ["reviews", "reviewComments"]
+            }"#,
+        ),
+    )
+    .await;
+    let pr = &out["pullRequests"][0];
+    assert_eq!(pr["reviews"], json!([]), "{out}");
+    let named = pr["reviewComments"]
+        .as_array()
+        .expect("reviewComments")
+        .iter()
+        .filter(|comment| comment.get("reviewId").is_some())
+        .count();
+    assert_eq!(named, reviews.len(), "{out}");
+    let notes = out["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|note| note.contains(&reviews.len().to_string()) && note.contains("reviewId"))
+        .count();
+    assert_eq!(notes, 1, "{out}");
+}
+
+/// A page of files holding some GitHub sent without a patch, read on its own
+/// (`page` past the first): its window lists them, and each leads to a read
+/// at the head and the base; the diff is gone, the source is not, so the row
+/// is partial without a terminal limit. A later page's files that have a
+/// patch lead to no read.
+#[tokio::test]
+async fn a_later_page_reads_its_withheld_patches_and_claims_no_terminal_limit() {
+    for page in [1, 2] {
+        let server = MockServer::builder().start().await;
+        mount_pr(
+            &server,
+            json_fixture(
+                r#"[
+                    {
+                        "filename": "vendor/big.go",
+                        "status": "modified",
+                        "additions": 4500,
+                        "deletions": 4,
+                        "sha": "1"
+                    },
+                    {
+                        "filename": "vendor/gone.go",
+                        "status": "removed",
+                        "additions": 0,
+                        "deletions": 900,
+                        "sha": "2"
+                    },
+                    {
+                        "filename": "src/a.go",
+                        "status": "modified",
+                        "additions": 1,
+                        "deletions": 1,
+                        "sha": "3",
+                        "patch": "@@ -1,2 +1,2 @@\n keep\n-old\n+new"
+                    },
+                    {
+                        "filename": "assets/logo.png",
+                        "status": "modified",
+                        "additions": 0,
+                        "deletions": 0,
+                        "sha": "4"
+                    }
+                ]"#,
+            ),
+        )
+        .await;
+        let out = read(
+            &server,
+            json!({
+                "operation": "pullRequest",
+                "owner": "o",
+                "repo": "r",
+                "number": 1,
+                "sections": ["patches"],
+                "page": page
+            }),
+        )
+        .await;
+        let row = &out["pullRequests"][0];
+        let files = row["files"].as_array().expect("files");
+        let limited = |path: &str| {
+            files
+                .iter()
+                .find(|file| file["path"] == path)
+                .unwrap_or_else(|| panic!("{path} listed: {out}"))
+        };
+        for path in ["vendor/big.go", "vendor/gone.go"] {
+            assert_eq!(limited(path)["patchUnavailable"], "tooLarge", "{out}");
+            assert_eq!(limited(path)["isPartial"], true, "{out}");
+            assert!(limited(path).get("terminalLimit").is_none(), "{out}");
+        }
+        // A binary file has no source to read: its limit is terminal.
+        assert_eq!(limited("assets/logo.png")["terminalLimit"], true, "{out}");
+        let reads: Vec<(String, String)> = checks::leads(&out)
+            .into_iter()
+            .filter(|lead| lead.tool == "ghGetFileContent")
+            .flat_map(|lead| {
+                lead.query["queries"]
+                    .as_array()
+                    .expect("queries")
+                    .iter()
+                    .map(|read| {
+                        (
+                            read["path"].as_str().expect("path").to_owned(),
+                            read["ref"].as_str().expect("ref").to_owned(),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        for want in [
+            ("vendor/big.go", HEAD),
+            ("vendor/big.go", BASE),
+            ("vendor/gone.go", BASE),
+        ] {
+            assert!(
+                reads.contains(&(want.0.to_owned(), want.1.to_owned())),
+                "page {page} lacks the read {want:?}: {out}"
+            );
+        }
+        // A later page's patched files lead to no read.
+        if page > 1 {
+            assert!(
+                !reads.iter().any(|(path, _)| path == "src/a.go"),
+                "{reads:?}"
+            );
+        }
+    }
+}
+
+/// A `matchString` view narrowed to its hit hunks states the whole patch's
+/// size (`fullPatchChars`) on the row: that row is evidence, so it offers no
+/// read of the whole patches beside it.
+#[tokio::test]
+async fn a_narrowed_patch_states_its_whole_size_and_offers_no_full_patch_read() {
+    let server = MockServer::builder().start().await;
+    mount_pr(
+        &server,
+        json!([{"filename":"src/a.rs","status":"modified","additions":2,"deletions":2,"sha":"1",
+            "patch":"@@ -1,3 +1,3 @@\n a\n-old\n+new needle\n b\n@@ -50,3 +50,3 @@\n c\n-x\n+y\n d"}]),
+    )
+    .await;
+    let out = read(
+        &server,
+        json!({"operation":"pullRequest","owner":"o","repo":"r","number":1,
+            "sections":["patches"],"matchString":["needle"]}),
+    )
+    .await;
+    let file = &out["pullRequests"][0]["files"][0];
+    assert!(file["fullPatchChars"].as_u64().is_some(), "{out}");
+    assert!(
+        checks::find_related_call(&out, "ghGetHistoryItem", |_| true).is_none(),
+        "{out}"
+    );
+}

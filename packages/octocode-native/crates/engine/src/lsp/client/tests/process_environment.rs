@@ -1,0 +1,135 @@
+//! Observe the environment of a real LSP child without mutating the test runner.
+use super::*;
+use serde_json::Value;
+
+const CHILD: &str = "OCTOCODE_LSP_ENV_FIXTURE";
+const TOOLCHAIN_ENV: &[&str] = &[
+    "RUSTUP_HOME",
+    "CARGO_HOME",
+    "RUSTUP_TOOLCHAIN",
+    "DOTNET_ROOT",
+    "DOTNET_ROOT_ARM",
+    "DOTNET_ROOT_ARM64",
+    "DOTNET_ROOT_X64",
+    "DOTNET_ROOT_X86",
+    "DOTNET_ROOT(x86)",
+];
+const CREDENTIALS: &[&str] = &[
+    "GITHUB_TOKEN",
+    "AWS_SECRET_ACCESS_KEY",
+    "CARGO_REGISTRIES_PRIVATE_TOKEN",
+];
+
+#[test]
+fn toolchain_environment_reaches_the_server_without_inheriting_credentials() {
+    let runtime = tokio::runtime::Runtime::new().expect("runtime");
+    runtime.block_on(async {
+        if std::env::var_os(CHILD).is_some() {
+            check_server_environment().await;
+            return;
+        }
+        let home = tempfile::tempdir().expect("isolated home");
+        let test = module_path!()
+            .split_once("::")
+            .map(|(_, path)| format!("{path}::toolchain_environment_reaches_the_server_without_inheriting_credentials"))
+            .expect("test module");
+        let mut child = tokio::process::Command::new(std::env::current_exe().expect("test binary"));
+        child
+            .args(["--exact", &test, "--nocapture", "--test-threads=1"])
+            .env(CHILD, "1")
+            .env("HOME", home.path())
+            .env("USERPROFILE", home.path())
+            .env("RUSTUP_HOME", home.path().join("toolchains"))
+            .env("CARGO_HOME", home.path().join("cargo"))
+            .env("RUSTUP_TOOLCHAIN", "fixture-toolchain")
+            .kill_on_drop(true);
+        for key in TOOLCHAIN_ENV.iter().filter(|key| key.starts_with("DOTNET_ROOT")) {
+            child.env(key, home.path().join(key));
+        }
+        for key in CREDENTIALS {
+            child.env(key, "fixture-credential-must-not-reach-server");
+        }
+        let output = tokio::time::timeout(Duration::from_secs(30), child.output())
+            .await
+            .expect("bounded child test")
+            .expect("spawn child test");
+        assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    });
+}
+
+async fn check_server_environment() {
+    // What a server is given: nothing from this process (`None`), what
+    // discovery carried from a call's environment, and what its entry
+    // configures over that. The process's own environment is never read.
+    for mode in ["process only", "carried", "configured"] {
+        let (_tmp, root, mut config) = configurable_server("lsp-env", &[], None);
+        let report = root.join("observed-env.json");
+        let wrapper = root.join("capture-env.js");
+        write_executable(
+            &wrapper,
+            r#"#!/usr/bin/env node
+const fs = require('fs');
+fs.writeFileSync(process.argv[3], JSON.stringify(process.env));
+require(process.argv[2]);
+"#,
+        );
+        config.args = Some(vec![config.command, report.to_string_lossy().into_owned()]);
+        config.command = wrapper.to_string_lossy().into_owned();
+        let mut expected = TOOLCHAIN_ENV
+            .iter()
+            .map(|key| {
+                (
+                    (*key).to_owned(),
+                    std::env::var(key).expect("isolated toolchain setting"),
+                )
+            })
+            .collect::<std::collections::HashMap<_, _>>();
+        match mode {
+            "carried" => {
+                config.env = Some(
+                    crate::lsp::client::LSP_SERVER_ENV_ALLOWLIST
+                        .iter()
+                        .filter_map(|key| Some(((*key).to_owned(), std::env::var(key).ok()?)))
+                        .collect(),
+                );
+            }
+            "configured" => {
+                for (key, value) in &mut expected {
+                    *value = format!("configured-{key}");
+                }
+                let mut configured = expected.clone();
+                configured.insert("PATH".to_owned(), std::env::var("PATH").unwrap_or_default());
+                config.env = Some(configured);
+            }
+            _ => {
+                let only_path = ("PATH".to_owned(), std::env::var("PATH").unwrap_or_default());
+                config.env = Some(std::collections::HashMap::from([only_path]));
+            }
+        }
+        let client = NativeLspClient::new(config);
+        client.start().await.expect("start environment fixture");
+        client.stop().await.expect("stop environment fixture");
+        let observed: Value =
+            serde_json::from_slice(&std::fs::read(&report).expect("server environment"))
+                .expect("environment JSON");
+        for (key, value) in expected {
+            if mode == "process only" {
+                assert!(
+                    observed.get(&key).is_none(),
+                    "the process's {key} reached a server the call did not carry it to"
+                );
+                continue;
+            }
+            assert_eq!(
+                observed[&key], value,
+                "server environment for {key}, {mode}"
+            );
+        }
+        for key in CREDENTIALS.iter().chain(&[CHILD]) {
+            assert!(
+                observed.get(*key).is_none(),
+                "unrequested {key} reached the server"
+            );
+        }
+    }
+}

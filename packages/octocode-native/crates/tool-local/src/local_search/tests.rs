@@ -1,0 +1,276 @@
+use super::*;
+use crate::test_support::ls_query;
+use crate::test_support::policy_for;
+use crate::test_support::search_in;
+use octocode_contract_types::{LocalSearchQuery, StructureSearchQuery};
+
+use octocode_runtime_base::{
+    execution::cancel::NeverCancel, policy::path::PathPolicy, security::ContentSecurity,
+};
+use std::fs;
+
+/// Replace `path`'s bytes with `content` of the same length and restore
+/// its nanosecond modification time, so size and time cannot reveal the
+/// edit.
+fn rewrite_keeping_stamp(path: &std::path::Path, content: &str) {
+    let before = fs::metadata(path).expect("fixture metadata");
+    assert_eq!(before.len(), content.len() as u64, "same-size rewrite");
+    let modified = before.modified().expect("mtime");
+    fs::write(path, content).expect("rewrite");
+    fs::File::options()
+        .write(true)
+        .open(path)
+        .and_then(|file| file.set_modified(modified))
+        .expect("restore mtime");
+    let after = fs::metadata(path).expect("fixture metadata");
+    assert_eq!(
+        (after.len(), after.modified().expect("mtime")),
+        (before.len(), modified)
+    );
+}
+
+/// Settle the fixture writes so far (on this thread's settle clock): a scan is
+/// stored for its later pages only when nothing its walk searched was
+/// written within it (see `manifest`).
+fn settle() {
+    octocode_engine::stamp::settle_written_so_far();
+}
+
+/// A continuation of `request` cut from the stored scan it took before
+/// `between` ran. The stored walk's proof held when the page took the scan,
+/// so `between` changes the tree in the window no stamp closes: after the
+/// proof, before the page reads or shows a file. What the page checks then
+/// (each read and shown file's read policy and stored digest) is all that
+/// stands between the change and the page.
+fn stored_page_after(
+    request: &LocalSearchQuery,
+    policy: &PathPolicy,
+    security: &ContentSecurity,
+    response_window: Option<usize>,
+    between: impl FnOnce(),
+) -> Result<LocalSearchResult, octocode_runtime_base::response::result::ToolError> {
+    let scan = super::executor::scan_query(request, policy, &NeverCancel, (response_window, None))
+        .expect("scan");
+    assert!(scan.digests.is_some(), "the page took the stored scan");
+    between();
+    let alternates = super::probes::Alternates::new(request, &scan);
+    super::executor::page_of(
+        octocode_runtime_base::test_support::BUILD_IDENTITY,
+        request,
+        policy,
+        security,
+        &NeverCancel,
+        scan,
+        &alternates,
+    )
+}
+
+fn values(result: &LocalSearchResult) -> String {
+    serde_json::to_string(&result.files).expect("files serialize")
+}
+
+fn search_fixture(files: &[(&str, &str)], request: LocalSearchQuery) -> serde_json::Value {
+    search_fixture_at(
+        files,
+        request,
+        octocode_runtime_base::security::SourceLimits::REAL,
+    )
+}
+
+/// A published match row's value as its reader takes it: its own `value`,
+/// else `term`, the request's one `matchString` term (a span equal to it
+/// leaves its value out, as the output reference states).
+fn read_value(row: &serde_json::Value, term: &str) -> String {
+    row["value"].as_str().unwrap_or(term).to_owned()
+}
+
+/// [`search_fixture`] under a scanner that judges sources at `limits`.
+fn search_fixture_at(
+    files: &[(&str, &str)],
+    request: LocalSearchQuery,
+    limits: octocode_runtime_base::security::SourceLimits,
+) -> serde_json::Value {
+    let root = tempfile::tempdir().expect("fixture directory");
+    for (name, body) in files {
+        let path = root.path().join(name);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("fixture dir");
+        }
+        fs::write(path, body).expect("fixture");
+    }
+    let (policy, _) = policy_for(root.path());
+    let security = ContentSecurity::with_limits(limits);
+    let request = ls_query(
+        serde_json::json!({"path": root.path().to_string_lossy().into_owned()}),
+        Some(&request),
+    );
+    let result = search_in(&request, &policy, &security, None).expect("search");
+    result.to_row().expect("serialize")
+}
+
+/// The declaration hit row `index` of `file` sits in: its `enclosing` index
+/// into the file's `declarations`.
+fn owner_of(file: &serde_json::Value, index: usize) -> Option<serde_json::Value> {
+    let owner = file["matches"][index].get("enclosing")?.as_u64()?;
+    file["declarations"]
+        .get(usize::try_from(owner).ok()?)
+        .cloned()
+}
+
+/// Search `root` with `fields` (path set to `root`), default security and
+/// no cancellation.
+fn search_root(root: &std::path::Path, fields: serde_json::Value) -> LocalSearchResult {
+    let (policy, security) = policy_for(root);
+    let mut fields = fields;
+    fields["path"] = root.to_string_lossy().into_owned().into();
+    let request = ls_query(fields, None);
+    search_in(&request, &policy, &security, None).expect("search")
+}
+
+/// Run a structureSearch row (a lead's query) and return its JSON text.
+fn list_structure(
+    query: serde_json::Value,
+    policy: &PathPolicy,
+    security: &ContentSecurity,
+) -> String {
+    let query: StructureSearchQuery = serde_json::from_value(query).expect("structureSearch query");
+    crate::structure_search::execute_structure(&query, policy, security, &NeverCancel, None)
+        .expect("listing runs")
+        .to_string()
+}
+
+/// Runs `start` (a localSearch query row) in the workspace `root`, and every
+/// page lead its pages offer, under `checks::walk`: each call once, each row
+/// once, every page and its leads within the contract. Rows are `path:line`
+/// (`path` on list views). Returns the walk and each page's result, in walk
+/// order.
+fn walk_search(
+    root: &std::path::Path,
+    start: serde_json::Value,
+    window: Option<usize>,
+) -> (
+    octocode_runtime_base::test_support::checks::Walk,
+    Vec<serde_json::Value>,
+) {
+    let (policy, security) = policy_for(root);
+    let mut bodies = Vec::new();
+    let walk = octocode_runtime_base::test_support::checks::walker::walk(
+        "localSearch",
+        serde_json::json!({"queries": [start]}),
+        |call| {
+            let input = octocode_runtime_base::test_support::opened_input(
+                octocode_runtime_base::id::ToolId::LocalSearch,
+                call,
+            );
+            let row = &input["queries"][0];
+            let query: LocalSearchQuery =
+                serde_json::from_value(row.clone()).expect("localSearch row");
+            let result = search_in(&query, &policy, &security, window)
+                .unwrap_or_else(|error| panic!("{row}: {error:?}"));
+            let body = result.to_row().expect("result");
+            let page = octocode_runtime_base::test_support::checks::Page {
+                output: octocode_runtime_base::test_support::published(
+                    octocode_runtime_base::id::ToolId::LocalSearch,
+                    &body,
+                ),
+                rows: row_ids(&body),
+            };
+            bodies.push(body);
+            page
+        },
+    );
+    (walk, bodies)
+}
+
+/// Each shown row of a page as `path:line`, or `path` for a file without
+/// rows.
+fn row_ids(body: &serde_json::Value) -> Vec<String> {
+    let mut ids = Vec::new();
+    for file in body["files"].as_array().into_iter().flatten() {
+        let path = file["path"].as_str().expect("path");
+        match file["matches"].as_array() {
+            Some(rows) => ids.extend(
+                rows.iter()
+                    .map(|row| format!("{path}:{}:{}", row["line"], row["column"])),
+            ),
+            None => ids.push(path.to_owned()),
+        }
+    }
+    ids
+}
+
+/// The calls `row` offers that start new work (kind `related`), wherever it
+/// holds them. A continuation (kind `continue`) reads on in the same answer
+/// and is no guidance.
+fn related_calls(
+    row: &serde_json::Value,
+) -> Vec<octocode_runtime_base::test_support::checks::Lead> {
+    octocode_runtime_base::test_support::checks::leads(row)
+        .into_iter()
+        .filter(|lead| lead.kind == "related")
+        .collect()
+}
+
+/// Guidance by row type: a row that returns evidence states no hint and
+/// offers no related call; what to read next is written from its rows.
+fn assert_evidence_row_guides_nothing(row: &serde_json::Value) {
+    assert!(row.get("hints").is_none(), "an evidence row hints: {row}");
+    assert!(
+        related_calls(row).is_empty(),
+        "an evidence row offers a related call: {row}"
+    );
+}
+
+/// Guidance by row type: an empty row states at most one hint and offers at
+/// most one related call, and never a call without the hint that explains
+/// it. Returns the call's first query, when the row offers one.
+fn one_recovery(row: &serde_json::Value) -> Option<serde_json::Value> {
+    let hints = row["hints"].as_array().map_or(0, Vec::len);
+    let mut calls = related_calls(row);
+    assert!(hints <= 1, "an empty row states one hint at most: {row}");
+    assert!(
+        calls.len() <= hints,
+        "an empty row offers one related call at most, with its hint: {row}"
+    );
+    calls.pop().map(|call| call.query["queries"][0].clone())
+}
+
+mod binaries;
+mod build_identity;
+mod changed;
+mod churned_pages;
+mod empty_pages;
+mod guidance_by_row_type;
+mod large_sources;
+mod limit;
+mod long_line_rows;
+mod match_list;
+mod output_fields;
+mod pages;
+mod recovery;
+mod regex_reading;
+mod row_facts;
+mod scope;
+mod secrets;
+mod seek;
+mod sort_match_count;
+mod sort_times;
+#[cfg(unix)]
+mod special_files;
+mod stored;
+mod streamed;
+mod tally;
+mod test_code;
+mod windows;
+
+/// A generated Rust file of `functions` functions with five `let ` lines
+/// each: an engine-like hot file whose hits all sit inside declarations.
+fn let_heavy_rust(prefix: &str, functions: usize) -> String {
+    (0..functions)
+        .map(|n| {
+            format!(
+                "pub fn {prefix}_{n:03}(input: &Request) -> Result<Response, Error> {{\n    let header = input.header();\n    let body = parse_body(&header)?;\n    let validated = validate(body)?;\n    let mapped = map_fields(&validated);\n    let response = Response::new(mapped);\n    Ok(response)\n}}\n\n"
+            )
+        })
+        .collect()
+}

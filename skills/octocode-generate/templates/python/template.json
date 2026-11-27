@@ -1,0 +1,13 @@
+{
+  "description": "Python with uv: Ruff lint and format, mypy, pytest and a CI workflow",
+  "scripts": {},
+  "install": [
+    "uv add --dev ruff mypy pytest"
+  ],
+  "notes": "mypy is the stable default type checker; with pyright or ty, change the CI typecheck step to match.",
+  "alternatives": {
+    "ruff.toml": [
+      ".ruff.toml"
+    ]
+  }
+}

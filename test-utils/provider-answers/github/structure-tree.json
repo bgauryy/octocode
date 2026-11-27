@@ -1,0 +1,82 @@
+{
+ "case": "github/structure-tree",
+ "tool": "ghStructure",
+ "query": {
+  "operation": "tree",
+  "owner": "octocat",
+  "repo": "Hello-World",
+  "ref": "master"
+ },
+ "recordedAt": "2026-11-05",
+ "unread": [
+  "tree[*].mode",
+  "tree[*].sha",
+  "tree[*].type",
+  "tree[*].url",
+  "url"
+ ],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.github.com/repos/octocat/Hello-World/commits/master",
+    "accept": "application/vnd.github.sha"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "cache-control",
+     "private, max-age=60, s-maxage=60"
+    ],
+    [
+     "content-type",
+     "application/vnd.github.sha; charset=utf-8"
+    ],
+    [
+     "etag",
+     "\"7fd1a60b01f91b314f59955a4e4d4e80d8edf11d\""
+    ]
+   ],
+   "digest": "sha256:14c00b5abdbd44acbb58983de2d9364919962364349d2359aece6cb4c8ed6ac6",
+   "body": "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d"
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.github.com/repos/octocat/Hello-World/git/trees/7fd1a60b01f91b314f59955a4e4d4e80d8edf11d",
+    "accept": "application/vnd.github+json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "cache-control",
+     "private, max-age=86400, s-maxage=86400"
+    ],
+    [
+     "content-type",
+     "application/json; charset=utf-8"
+    ],
+    [
+     "etag",
+     "\"b90c09e7fe09739f9b4b2e66856571c92d82277ca98f20ccd2a53494334bf327\""
+    ]
+   ],
+   "digest": "sha256:32249653dabb143e8a0fea88f20743f388ff25bf1ef2dbe0373cdbdf2b0f5aca",
+   "body": {
+    "sha": "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d",
+    "url": "https://api.github.com/repos/octocat/Hello-World/git/trees/7fd1a60b01f91b314f59955a4e4d4e80d8edf11d",
+    "tree": [
+     {
+      "path": "README",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "980a0d5f19a64b4b30a87d4206aade58726b60e3",
+      "size": 13,
+      "url": "https://api.github.com/repos/octocat/Hello-World/git/blobs/980a0d5f19a64b4b30a87d4206aade58726b60e3"
+     }
+    ],
+    "truncated": false
+   }
+  }
+ ]
+}

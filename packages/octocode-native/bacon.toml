@@ -1,0 +1,40 @@
+#:schema https://dystroy.org/bacon/.bacon.schema.json
+
+# bacon watch loop: `bacon` (check), `bacon clippy`, `bacon test`.
+# Each job uses the package and feature selection of a package.json script, so
+# it reuses that script's compiled crates instead of compiling another copy.
+# Plain `cargo check` here would build only the default member without
+# `dev-unify`: a separate copy of every workspace crate.
+
+default_job = "check"
+env.CARGO_TERM_COLOR = "always"
+
+# Same selection as `yarn typecheck` and `yarn lint`.
+[jobs.check]
+command = ["cargo", "check", "--locked", "--workspace", "--all-targets", "--all-features"]
+need_stdout = false
+
+# Same command as `yarn lint`.
+[jobs.clippy]
+command = ["cargo", "clippy", "--locked", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings"]
+need_stdout = false
+
+# The Rust test selections (`SELECTIONS` in scripts/rust-tests.cjs), verbatim
+# (tests/build-publication.test.cjs checks it). Narrow a run: `bacon test -- <filter>`.
+[jobs.test]
+command = [
+    "cargo", "nextest", "run", "--hide-progress-bar", "--failure-output", "final",
+    "--locked", "-p", "octocode-native", "-p", "octocode-runtime-base",
+    "-p", "octocode-tools-shared", "-p", "octocode-tool-graph", "-p", "octocode-tool-lsp",
+    "-p", "octocode-tool-github", "-p", "octocode-tool-local", "-p", "octocode-tool-ast",
+    "-p", "octocode-tool-packages", "-p", "octocode-tool-clasify", "-p", "octocode-github",
+    "-p", "octocode-io", "-p", "octocode-cli", "-p", "octocode-engine",
+    "-p", "octocode-contract-types", "-p", "octocode-test-support", "--features",
+    "octocode-native/dev-unify",
+]
+need_stdout = true
+analyzer = "nextest"
+
+[keybindings]
+c = "job:clippy"
+t = "job:test"

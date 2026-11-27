@@ -1,0 +1,74 @@
+//! An owner-only query's REST repository listing, by latest push.
+use octocode_github::{GitHubProvider, ProviderError, RepositorySearchPage, RequestContext};
+
+/// List an owner's repositories by latest push. The listing API cannot rank
+/// by relevance, and its own default order is creation (oldest first).
+/// Search excludes archived repositories by default (`archived:false`); the
+/// listing API cannot, so unless `keep_archived` it filters them and keeps
+/// reading provider pages until a page of kept rows or the end of the listing
+/// (no Link next): the request's own cancellation and the transport's pacing
+/// bound the reads, not a page count. A page never holds more than `per`
+/// rows: a provider page whose kept rows would overflow it is left whole to
+/// the next call (the cursor resumes at it), so no kept row is cut or shown
+/// twice.
+pub async fn owner_listing(
+    provider: &GitHubProvider,
+    owner: &str,
+    archive: octocode_contract_types::GitHubArchive,
+    order: &str,
+    current: usize,
+    per: usize,
+    context: &RequestContext,
+) -> Result<(RepositorySearchPage, OwnerListing), ProviderError> {
+    let mut items = Vec::new();
+    let mut filtered_out = 0;
+    let mut provider_page = current;
+    let more = loop {
+        let (batch, has_next) = provider
+            .transport
+            .list_owner_repositories(owner, "pushed", order, provider_page, per, context)
+            .await?;
+        let read = batch.len();
+        let kept = batch
+            .into_iter()
+            .filter(|item| match archive {
+                octocode_contract_types::GitHubArchive::Include => true,
+                octocode_contract_types::GitHubArchive::Only => item.archived,
+                octocode_contract_types::GitHubArchive::Exclude => !item.archived,
+            })
+            .collect::<Vec<_>>();
+        if !items.is_empty() && items.len() + kept.len() > per {
+            provider_page -= 1;
+            break true;
+        }
+        filtered_out += read - kept.len();
+        items.extend(kept);
+        if !has_next || items.len() >= per {
+            break has_next;
+        }
+        provider_page += 1;
+    };
+    Ok((
+        RepositorySearchPage {
+            total_count: items.len(),
+            incomplete_results: false,
+            items,
+            sso_partial_organizations: Vec::new(),
+        },
+        OwnerListing {
+            last_page: provider_page,
+            more,
+            filtered_out,
+        },
+    ))
+}
+
+pub struct OwnerListing {
+    /// Last provider page listed; the next cursor is the page after it.
+    pub(super) last_page: usize,
+    /// The last page carried a Link `rel="next"`.
+    pub(super) more: bool,
+    /// Repositories the archive filter left out on the provider pages read:
+    /// archived ones under `exclude`, non-archived ones under `only`.
+    pub(super) filtered_out: usize,
+}

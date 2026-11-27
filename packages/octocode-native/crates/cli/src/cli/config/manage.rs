@@ -1,0 +1,187 @@
+use super::ManageError;
+use octocode_native::runtime::ToolRuntime;
+use serde_json::json;
+
+/// Structured local management endpoint; input and errors never echo secret values.
+pub(crate) fn manage(
+    runtime: &ToolRuntime,
+    request: &serde_json::Value,
+) -> Result<serde_json::Value, ManageError> {
+    use octocode_runtime_base::config::{edit_scoped_env, edit_setting, inspect_management};
+    let operation = request
+        .get("operation")
+        .and_then(serde_json::Value::as_str)
+        .ok_or("Operation is required.")?;
+    let inspector = runtime.inspect_config();
+    let workspace = inspector
+        .project_env_path
+        .parent()
+        .ok_or("Workspace configuration directory is unavailable.")?;
+    if operation == "inspect" {
+        return Ok(enrich_settings(
+            inspect_management(runtime.config(), workspace),
+            runtime.config(),
+        ));
+    }
+    let scope = request
+        .get("scope")
+        .and_then(serde_json::Value::as_str)
+        .ok_or("Scope is required.")?;
+    let directory = match scope {
+        "home" => runtime.config().home.as_path(),
+        "workspace" => workspace,
+        _ => return Err("Scope must be home or workspace.".into()),
+    };
+    let key = request
+        .get("key")
+        .and_then(serde_json::Value::as_str)
+        .ok_or("Key is required.")?;
+    let revision = request
+        .get("revision")
+        .and_then(serde_json::Value::as_str)
+        .ok_or("File revision is required; inspect before saving.")?;
+    let (changed, notice) = match operation {
+        "setEnv" | "removeEnv" => {
+            let value = if operation == "setEnv" {
+                Some(
+                    request
+                        .get("value")
+                        .and_then(serde_json::Value::as_str)
+                        .ok_or("Environment value must be a string.")?,
+                )
+            } else {
+                None
+            };
+            let changed = edit_scoped_env(
+                &directory.join(".env"),
+                key,
+                value,
+                scope == "workspace",
+                Some(revision),
+            )
+            .map_err(|e| ManageError::from_edit(&e, "Cannot safely write configuration."))?;
+            (changed, None)
+        }
+        "setSetting" | "removeSetting" => {
+            let value = if operation == "setSetting" {
+                Some(request.get("value").ok_or("Setting value is required.")?)
+            } else {
+                None
+            };
+            let edit = edit_setting(
+                &directory.join(".octocoderc"),
+                key,
+                value,
+                revision,
+                scope == "workspace",
+            )
+            .map_err(|e| ManageError::from_edit(&e, &e.to_string()))?;
+            (edit.changed(), edit.notice(key))
+        }
+        _ => return Err("Unknown configuration operation.".into()),
+    };
+    let mut response = json!({"success":true,"changed":changed,"key":key,"scope":scope});
+    if let Some(notice) = notice {
+        response["notice"] = json!(notice);
+    }
+    Ok(response)
+}
+
+/// The generated native contract is the one metadata source for the browser
+/// editor.  This replaces the former Node-side join with `CONFIG_FIELDS`.
+pub(super) fn enrich_settings(
+    mut view: serde_json::Value,
+    config: &octocode_runtime_base::config::ConfigOutput,
+) -> serde_json::Value {
+    use octocode_runtime_base::config::{
+        CONFIG_FIELDS, ConfigFieldKind, HOME_TRUSTED_ENV_KEYS, KNOWN_ENV, PROTECTED_KEYS,
+        known_env_report, setting_report,
+    };
+    // Only what the page offers: entries that belong to a provider group.
+    // Every key and environment variable, with where its value comes from now:
+    // a value set in the shell is not in any file the page reads.
+    let policy = |name: &str| {
+        if !PROTECTED_KEYS.contains(&name) {
+            "any"
+        } else if HOME_TRUSTED_ENV_KEYS.contains(&name) {
+            "home"
+        } else {
+            "process"
+        }
+    };
+    let credential_settings = CONFIG_FIELDS
+        .iter()
+        .filter(|field| field.credential && field.group.is_some())
+        .filter_map(|field| {
+            let name = field.env_name()?;
+            let report = setting_report(config, field);
+            Some(json!({
+                "key": name,
+                "kind": "key",
+                "description": field.description,
+                "default": field.default_value(),
+                "group": field.group,
+                "docsUrl": field.docs_url,
+                "credential": true,
+                "writableFrom": policy(name),
+                "set": report.set,
+                "source": report.source,
+                "value": report.value,
+            }))
+        });
+    let environment_entries = KNOWN_ENV.iter().map(|known| {
+        let report = known_env_report(config, known);
+        json!({
+            "key": known.name,
+            "kind": known.kind,
+            "description": known.description,
+            "default": known.default,
+            "group": known.group,
+            "docsUrl": known.docs_url,
+            "credential": known.credential,
+            "writableFrom": policy(known.name),
+            "set": report.set,
+            "source": report.source,
+            "value": report.value,
+        })
+    });
+    view["knownKeys"] = environment_entries.chain(credential_settings).collect();
+    let Some(settings) = view
+        .get_mut("settings")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return view;
+    };
+    for setting in settings {
+        let Some(key) = setting.get("key").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let Some(field) = CONFIG_FIELDS.iter().find(|field| field.path == key) else {
+            continue;
+        };
+        let kind = match field.kind {
+            ConfigFieldKind::Boolean => "boolean",
+            ConfigFieldKind::String => "string",
+            ConfigFieldKind::Url => "url",
+            ConfigFieldKind::Path => "path",
+            ConfigFieldKind::StringArray => "stringArray",
+            ConfigFieldKind::Enum => "enum",
+        };
+        setting["type"] = json!(kind);
+        setting["credential"] = json!(field.credential);
+        setting["displayDefault"] = field.default_value();
+        setting["description"] = json!(field.description);
+        setting["notes"] = json!(field.notes);
+        setting["sectionTitle"] = json!(field.section_title);
+        setting["group"] = json!(field.group);
+        setting["docsUrl"] = json!(field.docs_url);
+        setting["env"] = json!(field.env_name());
+        if let Ok(default) = serde_json::from_str(field.default_json) {
+            setting["defaultValue"] = default;
+        }
+        if !field.values.is_empty() {
+            setting["values"] = json!(field.values);
+        }
+    }
+    view
+}

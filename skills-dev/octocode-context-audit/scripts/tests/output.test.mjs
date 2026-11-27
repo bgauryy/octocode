@@ -1,0 +1,95 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
+import { html } from '../lib/report-html.mjs';
+
+const cli = resolve(import.meta.dirname, '../context-audit.mjs');
+const snapshot = () => ({
+  workspace: '/fixture', generatedAt: '2026-01-01T00:00:00Z',
+  instructions: { files: [], alwaysLoadedTokens: 0 },
+  skills: { uniqueCount: 0, descriptionTokens: 0, skills: [] }, mcp: [],
+  usage: { days: 1, sessions: 0, calls: 0, servers: {}, shell: {}, tools: {}, errors: {} },
+  unusedTools: [], findings: [],
+});
+
+test('accepted HTML renders the saved audit without collecting again or changing its evidence', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'context-report-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const source = join(dir, 'context-audit.json'), marker = join(dir, 'probed');
+  const original = JSON.stringify(snapshot());
+  writeFileSync(source, original);
+  writeFileSync(join(dir, '.mcp.json'), JSON.stringify({ mcpServers: { sentinel: {
+    command: process.execPath, args: ['-e', `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'started')`],
+  } } }));
+  const result = spawnSync(process.execPath, [cli, '--render', source, '--workspace', dir, '--json'], { cwd: dir, encoding: 'utf8', timeout: 5000 });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { output: join(dir, 'context-audit.html'), render: 'unverified' });
+  assert.equal(readFileSync(source, 'utf8'), original);
+  assert.equal(existsSync(marker), false);
+  assert.match(readFileSync(join(dir, 'context-audit.html'), 'utf8'), /Context audit/);
+});
+
+test('invalid saved evidence does not replace a previous HTML report', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'context-report-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const source = join(dir, 'context-audit.json'), output = join(dir, 'context-audit.html');
+  writeFileSync(output, 'previous report');
+  for (const input of ['{broken', '{}']) {
+    writeFileSync(source, input);
+    const result = spawnSync(process.execPath, [cli, '--render', source], { encoding: 'utf8', timeout: 5000 });
+    assert.notEqual(result.status, 0);
+    assert.equal(readFileSync(output, 'utf8'), 'previous report');
+  }
+  const missing = spawnSync(process.execPath, [cli, '--render', '--json'], { encoding: 'utf8', timeout: 5000 });
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /--render requires a value/);
+});
+
+test('saved report values remain escaped text, including severity and numeric-looking fields', () => {
+  const report = snapshot(), input = '\"><script>alert(1)</script>';
+  report.findings = [{ severity: input, area: input, subject: input, message: input }];
+  report.usage.days = input;
+  report.usage.tools = { fixture: input };
+  report.skills.uniqueCount = input;
+  const page = html(report);
+  assert.ok(!page.includes('<script>'));
+  assert.match(page, /class="sev unknown"/);
+  assert.ok(page.includes('&lt;script&gt;'));
+});
+
+test('default audits stay in the selected workspace and preserve earlier snapshots', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'context-default-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const invoke = () => {
+    const result = spawnSync(process.execPath, [cli, '--workspace', dir, '--no-probe', '--days', '0'], { encoding: 'utf8', timeout: 20_000 });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.match(/report: (.+)/)[1].trim();
+  };
+  const first = invoke();
+  const original = readFileSync(first, 'utf8');
+  const second = invoke();
+  assert.notEqual(first, second);
+  assert.ok(first.startsWith(join(dir, '.octocode', 'octocode-context-audit')));
+  assert.equal(readFileSync(first, 'utf8'), original);
+  assert.equal(existsSync(second), true);
+});
+
+test('--compare reports per-surface size deltas and findings resolved and new', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ctx-compare-'));
+  try {
+    const before = { ...snapshot(), instructions: { files: [], alwaysLoadedTokens: 900 }, mcp: [{ name: 'octocode', toolTokens: 5000 }], findings: [{ severity: 'high', area: 'mcp', subject: 'octocode', message: 'over budget' }, { severity: 'low', area: 'skills', subject: 'x', message: 'long' }] };
+    const after = { ...snapshot(), instructions: { files: [], alwaysLoadedTokens: 600 }, mcp: [{ name: 'octocode', toolTokens: 4200 }], findings: [{ severity: 'low', area: 'skills', subject: 'x', message: 'long' }, { severity: 'medium', area: 'usage', subject: 'y', message: 'unused' }] };
+    writeFileSync(join(dir, 'a.json'), JSON.stringify(before));
+    writeFileSync(join(dir, 'b.json'), JSON.stringify(after));
+    const run = spawnSync(process.execPath, [cli, '--compare', join(dir, 'a.json'), join(dir, 'b.json')], { encoding: 'utf8' });
+    assert.equal(run.status, 0, run.stderr);
+    const out = JSON.parse(run.stdout);
+    assert.deepEqual(out.surfaces.instructions.alwaysLoadedTokens, { before: 900, after: 600, delta: -300 });
+    assert.equal(out.surfaces.mcp.octocode.toolTokens.delta, -800);
+    assert.deepEqual(out.findings, { resolved: ['high | mcp | octocode'], new: ['medium | usage | y'], stillOpen: 1 });
+    assert.equal(spawnSync(process.execPath, [cli, '--compare', join(dir, 'missing.json'), join(dir, 'b.json')]).status, 2);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

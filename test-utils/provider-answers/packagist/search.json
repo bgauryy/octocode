@@ -1,0 +1,63 @@
+{
+ "case": "packagist/search",
+ "tool": "artifactSearch",
+ "query": {
+  "operation": "search",
+  "ecosystem": "packagist",
+  "keywords": [
+   "psr log"
+  ],
+  "limit": 5,
+  "view": "details"
+ },
+ "recordedAt": "2026-11-05",
+ "unread": [
+  "next",
+  "results[*].downloads",
+  "results[*].favers",
+  "results[*].repository"
+ ],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://packagist.org/search.json?q=psr+log&page=1&per_page=5",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "cache-control",
+     "public, s-maxage=300"
+    ],
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:030adde4540cff57f6fe9bb930f3768f26d025e63d8b0356d82eb5667cf277c6",
+   "body": {
+    "results": [
+     {
+      "name": "psr/log",
+      "description": "Common interface for logging libraries",
+      "url": "https://packagist.org/packages/psr/log",
+      "repository": "https://github.com/php-fig/log",
+      "downloads": 1332770654,
+      "favers": 10598
+     },
+     {
+      "name": "consolidation/log",
+      "description": "Improved Psr-3 / Psr\\Log logger based on Symfony Console components.",
+      "url": "https://packagist.org/packages/consolidation/log",
+      "repository": "https://github.com/consolidation/log",
+      "downloads": 72198430,
+      "favers": 154
+     }
+    ],
+    "total": 694,
+    "next": "https://packagist.org/search.json?q=psr%20log&page=2&per_page=5"
+   }
+  }
+ ]
+}

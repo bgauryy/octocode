@@ -1,0 +1,267 @@
+{
+ "case": "rubygems/exact",
+ "tool": "artifactSearch",
+ "query": {
+  "operation": "resolve",
+  "ecosystem": "rubygems",
+  "packageName": "rack",
+  "version": "2.2.3",
+  "view": "details"
+ },
+ "recordedAt": "2026-11-08",
+ "unread": [
+  "authors",
+  "bug_tracker_uri",
+  "built_at",
+  "changelog_uri",
+  "created_at",
+  "dependencies",
+  "documentation_uri",
+  "downloads",
+  "downloads_count",
+  "gem_uri",
+  "homepage_uri",
+  "metadata",
+  "ruby_version",
+  "rubygems_version",
+  "sha",
+  "source_code_uri",
+  "spec_sha",
+  "summary",
+  "version_created_at",
+  "version_downloads"
+ ],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://rubygems.org/api/v2/rubygems/rack/versions/2.2.3.json",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "cache-control",
+     "max-age=60, public"
+    ],
+    [
+     "content-type",
+     "application/json; charset=utf-8"
+    ],
+    [
+     "etag",
+     "\"fca0f44da342c71a8a4c35a5ae4da12d\""
+    ]
+   ],
+   "digest": "sha256:b837a095e561da6f95b9b44005d02fe7264da0c29db5c42e739b32c7ae7d2d6e",
+   "body": {
+    "name": "rack",
+    "downloads": 1385135007,
+    "version": "2.2.3",
+    "version_created_at": "2020-06-15T22:25:14.574Z",
+    "version_downloads": 190872692,
+    "platform": "ruby",
+    "ruby_abi": null,
+    "authors": "Leah Neukirchen",
+    "info": "Rack provides a minimal, modular and adaptable interface for developing\nweb applications in Ruby. By wrapping HTTP requests and responses in\nthe simplest way possible, it unifies and distills the API for web\nservers, web frameworks, and software in between (the so-called\nmiddleware) into a single method call.\n",
+    "licenses": [
+     "MIT"
+    ],
+    "metadata": {
+     "changelog_uri": "https://github.com/rack/rack/blob/master/CHANGELOG.md",
+     "bug_tracker_uri": "https://github.com/rack/rack/issues",
+     "source_code_uri": "https://github.com/rack/rack",
+     "documentation_uri": "https://rubydoc.info/github/rack/rack"
+    },
+    "yanked": false,
+    "sha": "2638e7eb6689a5725c7e16f30cc4aa4e31694dc3ca30d790952526781bd0bb44",
+    "spec_sha": "015e8da2b823f49f2bf026c34e2706e7e5a9ad544c71f7e73e52b10120da6489",
+    "project_uri": "https://rubygems.org/gems/rack",
+    "gem_uri": "https://rubygems.org/gems/rack-2.2.3.gem",
+    "homepage_uri": "https://github.com/rack/rack",
+    "wiki_uri": null,
+    "documentation_uri": "https://rubydoc.info/github/rack/rack",
+    "mailing_list_uri": null,
+    "source_code_uri": "https://github.com/rack/rack",
+    "bug_tracker_uri": "https://github.com/rack/rack/issues",
+    "changelog_uri": "https://github.com/rack/rack/blob/master/CHANGELOG.md",
+    "funding_uri": null,
+    "dependencies": {
+     "development": [
+      {
+       "name": "minitest",
+       "requirements": "~> 5.0"
+      },
+      {
+       "name": "minitest-global_expectations",
+       "requirements": ">= 0"
+      },
+      {
+       "name": "minitest-sprint",
+       "requirements": ">= 0"
+      },
+      {
+       "name": "rake",
+       "requirements": ">= 0"
+      }
+     ],
+     "runtime": []
+    },
+    "built_at": "2020-06-15T00:00:00.000Z",
+    "created_at": "2020-06-15T22:25:14.574Z",
+    "description": "Rack provides a minimal, modular and adaptable interface for developing\nweb applications in Ruby. By wrapping HTTP requests and responses in\nthe simplest way possible, it unifies and distills the API for web\nservers, web frameworks, and software in between (the so-called\nmiddleware) into a single method call.\n",
+    "downloads_count": 190872692,
+    "number": "2.2.3",
+    "summary": "A modular Ruby webserver interface.",
+    "rubygems_version": ">= 0",
+    "ruby_version": ">= 2.3.0",
+    "prerelease": false,
+    "requirements": []
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.github.com/repos/rack/rack/git/ref/tags/2.2.3",
+    "accept": "application/vnd.github+json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "cache-control",
+     "private, max-age=60, s-maxage=60"
+    ],
+    [
+     "content-type",
+     "application/json; charset=utf-8"
+    ],
+    [
+     "etag",
+     "\"682923766ffab5ad9ca7e906b498ebd315c7b7df5ecdaa6bbf9a402711abcaae\""
+    ]
+   ],
+   "digest": "sha256:ad54bfdf707c674442b44051a4da8eb2bd2f3d43074f2d7313a086f2d456298b",
+   "body": {
+    "ref": "refs/tags/2.2.3",
+    "node_id": "MDM6UmVmOTYwNzE6cmVmcy90YWdzLzIuMi4z",
+    "url": "https://api.github.com/repos/rack/rack/git/refs/tags/2.2.3",
+    "object": {
+     "sha": "4d456648c521ad1392afcd8ae35e332c83a09849",
+     "type": "tag",
+     "url": "https://api.github.com/repos/rack/rack/git/tags/4d456648c521ad1392afcd8ae35e332c83a09849"
+    }
+   },
+   "unread": [
+    "node_id",
+    "url",
+    "sha",
+    "object.sha",
+    "object.type",
+    "object.url",
+    "tagger",
+    "message",
+    "verification"
+   ],
+   "unreadReasons": {
+    "node_id": "GitHub database identity of the verification object is not selected artifact metadata.",
+    "url": "GitHub API routing URL for verification; the source repository is carried separately.",
+    "sha": "Internal annotated-tag object identifier; the selected artifact source is the verified tag/ref.",
+    "object.sha": "Resolved Git object used to check the tag, not a separate artifact field; ref and verification carry the selected source.",
+    "object.type": "Git verification plumbing; the public result exposes the verified release tag.",
+    "object.url": "GitHub API routing URL for tag resolution, not the source repository URL.",
+    "tagger": "Tag author identity/time is not the artifact publication metadata requested by this registry lookup.",
+    "message": "Annotated-tag message is not the registry package description.",
+    "verification": "Git signature diagnostics are outside artifact tag-existence verification."
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.github.com/repos/rack/rack/git/ref/tags/v2.2.3",
+    "accept": "application/vnd.github+json"
+   },
+   "status": 404,
+   "headers": [
+    [
+     "content-type",
+     "application/json; charset=utf-8"
+    ]
+   ],
+   "digest": "sha256:e2e3c64edab172132f77ce89a0e8c190db1cd30936a096344f45893bd5b75f8a",
+   "body": {
+    "message": "Not Found",
+    "documentation_url": "https://docs.github.com/rest/git/refs#get-a-reference",
+    "status": "404"
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.github.com/repos/rack/rack/git/tags/4d456648c521ad1392afcd8ae35e332c83a09849",
+    "accept": "application/vnd.github+json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "cache-control",
+     "private, max-age=60, s-maxage=60"
+    ],
+    [
+     "content-type",
+     "application/json; charset=utf-8"
+    ],
+    [
+     "etag",
+     "\"e16a76ff15478734a53456561cf9ffa1602efe9caaa0983a882ac741be63a64a\""
+    ]
+   ],
+   "digest": "sha256:6d0299d3967712aba762683b7a502ac56bc17a10a2b3304e2f6235210a674863",
+   "body": {
+    "node_id": "MDM6VGFnOTYwNzE6NGQ0NTY2NDhjNTIxYWQxMzkyYWZjZDhhZTM1ZTMzMmM4M2EwOTg0OQ==",
+    "sha": "4d456648c521ad1392afcd8ae35e332c83a09849",
+    "url": "https://api.github.com/repos/rack/rack/git/tags/4d456648c521ad1392afcd8ae35e332c83a09849",
+    "tagger": {
+     "name": "Aaron Patterson",
+     "email": "person@example.test",
+     "date": "2020-06-15T22:23:03Z"
+    },
+    "object": {
+     "sha": "1741c580d71cfca8e541e96cc372305c8892ee74",
+     "type": "commit",
+     "url": "https://api.github.com/repos/rack/rack/git/commits/1741c580d71cfca8e541e96cc372305c8892ee74"
+    },
+    "tag": "2.2.3",
+    "message": "tagging release\n",
+    "verification": {
+     "verified": false,
+     "reason": "unsigned",
+     "signature": null,
+     "payload": null,
+     "verified_at": null
+    }
+   },
+   "unread": [
+    "node_id",
+    "url",
+    "sha",
+    "object.sha",
+    "object.type",
+    "object.url",
+    "tagger",
+    "message",
+    "verification"
+   ],
+   "unreadReasons": {
+    "node_id": "GitHub database identity of the verification object is not selected artifact metadata.",
+    "url": "GitHub API routing URL for verification; the source repository is carried separately.",
+    "sha": "Internal annotated-tag object identifier; the selected artifact source is the verified tag/ref.",
+    "object.sha": "Resolved Git object used to check the tag, not a separate artifact field; ref and verification carry the selected source.",
+    "object.type": "Git verification plumbing; the public result exposes the verified release tag.",
+    "object.url": "GitHub API routing URL for tag resolution, not the source repository URL.",
+    "tagger": "Tag author identity/time is not the artifact publication metadata requested by this registry lookup.",
+    "message": "Annotated-tag message is not the registry package description.",
+    "verification": "Git signature diagnostics are outside artifact tag-existence verification."
+   }
+  }
+ ]
+}

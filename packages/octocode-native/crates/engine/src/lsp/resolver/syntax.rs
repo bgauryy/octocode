@@ -1,0 +1,450 @@
+//! The grammar-aware resolution: symbol candidates from a tree-sitter
+//! walk, ranked by declaration, exactness and literal-ness.
+
+use super::line_scan::{find_symbol_in_line, hit_for};
+use super::{DEFAULT_RADIUS, check_budget, hinted_line, line_delta, order_hint_error};
+use crate::error::Result;
+use crate::lsp::types::{LspFuzzyPosition, LspResolvedSymbol};
+use crate::signatures::node_kinds::is_comment_kind;
+use crate::signatures::spelled::Spelled;
+use crate::text::LineIndex;
+use crate::text::utf8_offsets::hide_bom_in_line;
+use std::time::Instant;
+use tree_sitter::Node;
+
+mod literals;
+use literals::literal_context;
+
+#[derive(Clone)]
+pub(super) struct SymbolCandidate {
+    pub(super) line_index: usize,
+    pub(super) source: std::ops::Range<usize>,
+    character: usize,
+    pub(super) is_exact: bool,
+    is_declaration: bool,
+    /// The match is literal text, rather than code or a quoted declaration
+    /// name; ranked after identifiers on the same line.
+    pub(super) is_literal: bool,
+}
+
+/// One step of the walk's root-to-current path: a node's kind and the field
+/// it fills in its parent. Kept alongside the cursor so declaration checks
+/// never call `Node::parent()` (which re-descends from the root each time).
+#[derive(Clone, Copy)]
+struct PathStep<'tree> {
+    kind: &'tree str,
+    field: Option<&'tree str>,
+    literal: bool,
+}
+
+pub(super) fn collect_symbol_candidates(
+    node: Node<'_>,
+    content: &str,
+    index: &LineIndex,
+    symbol_name: &str,
+    language_id: Option<&str>,
+    candidates: &mut Vec<SymbolCandidate>,
+    deadline: Instant,
+) -> Result<()> {
+    // A candidate's text holds the name, so a node without it holds none.
+    let spelled = Spelled::of(content, canonical_symbol_name(language_id, symbol_name));
+    let mut cursor = node.walk();
+    let mut path = vec![PathStep {
+        kind: node.kind(),
+        field: None,
+        literal: literal_context(false, node, None),
+    }];
+    loop {
+        check_budget(deadline)?;
+        let current = cursor.node();
+        if current.is_named()
+            && !is_ignored_node(current.kind())
+            && spelled.within(current.start_byte(), current.end_byte())
+        {
+            if let Some(mut candidate) =
+                candidate_from_node(current, content, index, symbol_name, language_id)
+            {
+                candidate.is_declaration = candidate.is_exact
+                    && is_declaration_name(&path)
+                    && !is_data_key(language_id, &path);
+                candidate.is_literal =
+                    !candidate.is_declaration && path.last().is_some_and(|step| step.literal);
+                candidates.push(candidate);
+            }
+            if cursor.goto_first_child() {
+                let parent_literal = path.last().is_some_and(|step| step.literal);
+                path.push(PathStep {
+                    kind: cursor.node().kind(),
+                    field: cursor.field_name(),
+                    literal: literal_context(parent_literal, cursor.node(), cursor.field_name()),
+                });
+                continue;
+            }
+        }
+        loop {
+            if cursor.goto_next_sibling() {
+                let parent_literal = path.iter().rev().nth(1).is_some_and(|step| step.literal);
+                if let Some(step) = path.last_mut() {
+                    *step = PathStep {
+                        kind: cursor.node().kind(),
+                        field: cursor.field_name(),
+                        literal: literal_context(
+                            parent_literal,
+                            cursor.node(),
+                            cursor.field_name(),
+                        ),
+                    };
+                }
+                break;
+            }
+            if !cursor.goto_parent() {
+                return Ok(());
+            }
+            path.pop();
+        }
+    }
+}
+
+fn candidate_from_node(
+    node: Node<'_>,
+    content: &str,
+    index: &LineIndex,
+    symbol_name: &str,
+    language_id: Option<&str>,
+) -> Option<SymbolCandidate> {
+    // A node that only wraps one named child of the same span (Go's
+    // one-value `expression_list`) spells nothing of its own: the walk reaches
+    // that child, whose own context says whether it is code or literal.
+    if node.named_child_count() == 1
+        && node
+            .named_child(0)
+            .is_some_and(|child| child.byte_range() == node.byte_range())
+    {
+        return None;
+    }
+    // `content` is text: a span of it is text exactly when it is on char
+    // boundaries, so nothing validates the root's whole file again.
+    let text = content.get(node.start_byte()..node.end_byte())?;
+    let is_exact = exact_symbol_text(text, symbol_name, language_id);
+    if !is_exact && node.named_child_count() > 0 && !is_symbolish_node(node.kind()) {
+        return None;
+    }
+
+    let match_offset = if is_exact {
+        text.find(symbol_name)
+            .or_else(|| text.find(canonical_symbol_name(language_id, symbol_name)))
+            .unwrap_or(0)
+    } else {
+        // A container's own spelling is its first code occurrence: one
+        // inside a string or comment it holds (a dictionary's quoted key) is
+        // that literal's, which the walk reaches on its own.
+        let name = canonical_symbol_name(language_id, symbol_name);
+        (0..)
+            .map_while(|order| find_symbol_in_line(text, name, order))
+            .find(|offset| !within_literal(node, node.start_byte() + offset))?
+    };
+    // Tree-sitter rows count only `\n`; derive the line from the byte offset
+    // so a lone `\r` breaks lines here exactly as it does for the server.
+    let (line_index, column) = index.position_of(node.start_byte() + match_offset);
+    Some(SymbolCandidate {
+        line_index,
+        source: node.byte_range(),
+        character: column,
+        is_exact,
+        // Set by the walk, which holds the ancestor path.
+        is_declaration: false,
+        is_literal: false,
+    })
+}
+
+pub(super) fn pick_candidate(
+    mut candidates: Vec<SymbolCandidate>,
+    fuzzy: &LspFuzzyPosition,
+    lines: &[&str],
+) -> Result<Option<LspResolvedSymbol>> {
+    // Nested nodes (e.g. `string` and its `string_fragment` child) can report
+    // the same position; keep one candidate per position, preferring the most
+    // symbol-like reading so an `occurrence` counts each occurrence once.
+    candidates.sort_by_key(|candidate| {
+        (
+            candidate.line_index,
+            candidate.character,
+            candidate.is_literal,
+            !candidate.is_exact,
+            !candidate.is_declaration,
+        )
+    });
+    candidates.dedup_by_key(|candidate| (candidate.line_index, candidate.character));
+    let order_hint = fuzzy.order_hint.unwrap_or(0) as usize;
+    // Identifier positions (sorted by line, then column: `occurrence` order),
+    // so the hit can say when its line spells the name more than once.
+    let identifiers = candidates
+        .iter()
+        .filter(|candidate| !candidate.is_literal)
+        .map(|candidate| (candidate.line_index, candidate.character))
+        .collect::<Vec<_>>();
+
+    let selected = match fuzzy.line_hint {
+        Some(line_hint) if line_hint > 0 => {
+            let target = hinted_line(line_hint);
+            let mut same_line: Vec<&SymbolCandidate> = candidates
+                .iter()
+                .filter(|candidate| candidate.line_index == target)
+                .collect();
+            // Identifier occurrences come first (in column order), then
+            // mentions inside string literals: `occurrence` indexes the
+            // identifiers, and a literal mention counts only on a line that
+            // has no identifier.
+            same_line.sort_by_key(|candidate| (candidate.is_literal, candidate.character));
+            let identifiers_on_line = same_line
+                .iter()
+                .filter(|candidate| !candidate.is_literal)
+                .count();
+            let indexable = if identifiers_on_line > 0 {
+                identifiers_on_line
+            } else {
+                same_line.len()
+            };
+            // An explicit `occurrence` past them names none: say so, never
+            // answer for another occurrence.
+            if order_hint > 0 && !same_line.is_empty() && order_hint >= indexable {
+                return Err(order_hint_error(&fuzzy.symbol_name, line_hint, indexable));
+            }
+            if let Some(candidate) = same_line.get(order_hint).filter(|_| order_hint < indexable) {
+                Some((*candidate).clone())
+            } else {
+                candidates
+                    .iter()
+                    .filter(|candidate| candidate.line_index.abs_diff(target) <= DEFAULT_RADIUS)
+                    .min_by_key(|candidate| {
+                        (
+                            candidate.line_index.abs_diff(target),
+                            candidate.is_literal,
+                            !candidate.is_exact,
+                            !candidate.is_declaration,
+                            candidate.line_index,
+                            candidate.character,
+                        )
+                    })
+                    .cloned()
+                    .or_else(|| only_candidate(&candidates, order_hint))
+            }
+        }
+        _ => candidates.into_iter().min_by_key(|candidate| {
+            (
+                !candidate.is_declaration,
+                candidate.is_literal,
+                !candidate.is_exact,
+                candidate.line_index,
+                candidate.character,
+            )
+        }),
+    };
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+
+    let line = lines.get(selected.line_index).copied().unwrap_or_default();
+    let mut hit = hit_for(
+        line,
+        selected.line_index,
+        selected.character,
+        fuzzy
+            .line_hint
+            .filter(|line_hint| *line_hint > 0)
+            .map(|line_hint| line_delta(hinted_line(line_hint), selected.line_index))
+            .unwrap_or(0),
+    );
+    // Every occurrence on the line through one index of it: a long line
+    // with many occurrences is measured once, not once per occurrence.
+    let shown = hide_bom_in_line(selected.line_index, line, 0).0;
+    let index = LineIndex::tree_sitter(shown);
+    hit.occurrences_on_line = identifiers
+        .into_iter()
+        .filter(|(line_index, _)| *line_index == selected.line_index)
+        .map(|(_, character)| {
+            let byte = hide_bom_in_line(selected.line_index, line, character).1;
+            index.row_col_to_utf16_column(shown, 0, crate::num::saturating_u32(byte))
+        })
+        .collect();
+    Ok(Some(hit))
+}
+
+/// What a line too far from every occurrence can only mean: the file's one
+/// declaration of the name, or, with none, its one code occurrence. Any other
+/// file leaves the choice to the caller, and an explicit `occurrence` counts on
+/// the line it named, so it means nothing here.
+fn only_candidate(candidates: &[SymbolCandidate], order_hint: usize) -> Option<SymbolCandidate> {
+    if order_hint > 0 {
+        return None;
+    }
+    let code = || {
+        candidates
+            .iter()
+            .filter(|candidate| candidate.is_exact && !candidate.is_literal)
+    };
+    let declarations = code()
+        .filter(|candidate| candidate.is_declaration)
+        .collect::<Vec<_>>();
+    match (declarations.as_slice(), code().count()) {
+        ([only], _) => Some((*only).clone()),
+        ([], 1) => code().next().cloned(),
+        _ => None,
+    }
+}
+
+/// Whether `byte` of `node` lies in a string or comment below it: the
+/// innermost node there or an ancestor up to `node` is literal text, with no
+/// interpolation between (`f"{name}"` is code again).
+fn within_literal(node: Node<'_>, byte: usize) -> bool {
+    let mut current = node.descendant_for_byte_range(byte, byte + 1);
+    while let Some(inner) = current.filter(|inner| inner.id() != node.id()) {
+        let kind = inner.kind();
+        if kind.contains("interpolation") || kind == "template_substitution" {
+            return false;
+        }
+        if literal_context(false, inner, None) {
+            return true;
+        }
+        current = inner.parent();
+    }
+    false
+}
+
+fn is_ignored_node(kind: &str) -> bool {
+    is_comment_kind(kind) || kind == "ERROR"
+}
+
+fn is_symbolish_node(kind: &str) -> bool {
+    kind.contains("identifier")
+        || kind.contains("name")
+        || kind.contains("selector")
+        || kind.contains("string")
+        || kind.contains("key")
+        || kind == "pair"
+        || kind == "property"
+        || kind == "attribute"
+}
+
+/// Most unfielded wrapper nodes between a name token and the declaration it
+/// names (e.g. Go `a, b :=` puts the names in an `expression_list`).
+const MAX_NAME_WRAPPER_HOPS: usize = 3;
+
+/// `true` when the last node of `path` is the *name* of a declaration: it (or
+/// a bounded chain of unfielded wrappers around it) fills a naming field
+/// (`name`, C's `declarator`, `key`, …) of a declaring node. An identifier
+/// merely used inside a class body, function body or object value is not.
+fn is_declaration_name(path: &[PathStep<'_>]) -> bool {
+    let mut child = path.len().saturating_sub(1);
+    for _ in 0..=MAX_NAME_WRAPPER_HOPS {
+        if child == 0 {
+            return false;
+        }
+        let parent = path[child - 1].kind;
+        match path[child].field {
+            Some(field) => return is_naming_field(field) && is_declaring_kind(parent),
+            None => child -= 1,
+        }
+    }
+    false
+}
+
+/// `true` when the last node of `path` is a quoted key of a `pair` in a
+/// language whose pairs build plain data (a Python `dict`, a Ruby hash): the
+/// key is a string, not a member name. Object literals of the JavaScript
+/// family and data documents (JSON, YAML, TOML) declare their keys.
+fn is_data_key(language_id: Option<&str>, path: &[PathStep<'_>]) -> bool {
+    let declares_keys = language_id.is_none_or(|language| {
+        crate::lsp::family::is_typescript_family(Some(language))
+            || matches!(language, "json" | "jsonc" | "yaml" | "toml")
+    });
+    if declares_keys {
+        return false;
+    }
+    // The leaf, or the fielded node its unfielded wrappers sit in (a
+    // `string_content` inside the `string` key), as `is_declaration_name`
+    // walks them.
+    let mut child = path.len().saturating_sub(1);
+    for _ in 0..=MAX_NAME_WRAPPER_HOPS {
+        if child == 0 {
+            return false;
+        }
+        if path[child].field.is_some() {
+            return path[child].field == Some("key")
+                && path[child - 1].kind == "pair"
+                && crate::signatures::node_kinds::is_string_kind(path[child].kind);
+        }
+        child -= 1;
+    }
+    false
+}
+
+fn is_naming_field(field: &str) -> bool {
+    matches!(
+        field,
+        "name" | "declarator" | "key" | "left" | "pattern" | "label"
+    )
+}
+
+/// Node kinds that introduce a name. Uses (`call`, `invocation`, member
+/// `expression`s, `scoped`/`qualified` paths, imports) also carry `name`
+/// fields in some grammars and are excluded.
+fn is_declaring_kind(kind: &str) -> bool {
+    const USE_MARKERS: [&str; 8] = [
+        "call",
+        "invocation",
+        "expression",
+        "reference",
+        "scoped",
+        "qualified",
+        "import",
+        "argument",
+    ];
+    const DECLARING_MARKERS: [&str; 20] = [
+        "declaration",
+        "definition",
+        "declarator",
+        "signature",
+        "_item",
+        "_spec",
+        "class",
+        "struct",
+        "interface",
+        "enum",
+        "trait",
+        "type_alias",
+        "method",
+        "function",
+        "variant",
+        "module",
+        "namespace",
+        "parameter",
+        "pair",
+        "assignment",
+    ];
+    !USE_MARKERS.iter().any(|marker| kind.contains(marker))
+        && DECLARING_MARKERS.iter().any(|marker| kind.contains(marker))
+}
+
+/// Identifier identity without language-specific escapes; source spelling
+/// and ranges stay unchanged. Sigils that belong to a name remain significant.
+#[must_use]
+pub fn canonical_symbol_name<'a>(language_id: Option<&str>, name: &'a str) -> &'a str {
+    let bare = match language_id {
+        Some("rust") => name.strip_prefix("r#"),
+        Some("csharp") => name.strip_prefix('@'),
+        Some("scala") => name
+            .strip_prefix('`')
+            .and_then(|name| name.strip_suffix('`')),
+        _ => None,
+    };
+    bare.filter(|name| !name.is_empty()).unwrap_or(name)
+}
+
+fn exact_symbol_text(text: &str, symbol_name: &str, language_id: Option<&str>) -> bool {
+    let symbol_name = canonical_symbol_name(language_id, symbol_name);
+    if canonical_symbol_name(language_id, text) == symbol_name {
+        return true;
+    }
+    canonical_symbol_name(language_id, text.trim_matches(['"', '\'', '`'])) == symbol_name
+}

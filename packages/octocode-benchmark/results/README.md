@@ -1,77 +1,134 @@
-# Results
+# Results index
 
-Start with [SUMMARY.md](SUMMARY.md). It uses the latest complete campaign for
-each matchup and does not combine invalid or incomplete runs.
+The version timeline of Octocode's benchmark and the index of every stored round. This file, the
+[per-question baselines](baselines/) and the round reports under `rounds/` are tracked. Raw measurements
+and transcripts in `campaigns/` are local and gitignored. Keep raw records immutable: these
+are what new versions are compared against ([METHOD.md](../METHOD.md#compare-a-new-version)). Folder names
+are relative to `results/` unless they start with `campaigns/` (relative to the benchmark package).
+Raw evidence of every round (answers, verdicts, transcripts, receipts) lives in `campaigns/<version>-<date>-<purpose>/`. New rounds follow [METHOD.md](../METHOD.md#record) and the setup in [TESTING_ENV.md](../TESTING_ENV.md).
 
-## Latest campaigns — full 30 Q × 3 passes per matchup (local build v18.1.1, gpt-5.5 judge)
+## Version timeline
 
-Three full pairwise matchups over the complete 30-question v2 set, 3 passes each, local build
-`out/octocode.js` v18.1.1; blind neutral **gpt-5.5** judge, X/Y randomized per question,
-leanest-path enforced, 95% bootstrap CIs.
+Newest first. Each new round adds a row: version, date, binary, scorecard, and its headline against the
+previous version and the stored baselines.
 
-- **[Octocode vs gh+RTK](full-octocode-vs-rtk-162848-2026-08-07.md)** — correctness parity
-  (9.29 / 9.42), Octocode **reliably ~3.2× leaner** (per-Q geo-mean 3.21×, 95% CI 2.36–4.46,
-  median 2.83×, leaner 67/89, wins 56/33). Supersedes the earlier 2-pass RTK "parity"
-  snapshot — the larger 3-pass run resolves toward Octocode leaner (CI now well above 1×).
-- **[Octocode vs gh+Headroom](full-octocode-vs-headroom-134213-2026-08-07.md)** — Octocode
-  more correct (9.30 / 8.62) **and** ~2.6× leaner (per-Q geo-mean 2.62×, 95% CI 1.87–3.71,
-  median 2.77×, leaner 63/88, wins 60/28).
+| Version | Date | Build | Round (scorecard or stored folder) | Headline |
+|---|---|---|---|---|
+| 20.2.0 sanity: every tool, schemas, workflows | 2026-11-26 | local dev build `20.2.0+08808283`, SHA-256 `c8d336ec…`, with tool sections and gated clauses | [Results](rounds/20.2.0-2026-11-26-sanity/README.md) | One reviewer, direct calls on CLI and MCP: all 17 tools right against `sed`, `rg`, `find`, `gh`, npm and OSV; small pages rebuild a 614-line file, 158 commits and 162 tree files exactly once; 12 of 12 workflows in the expected calls; provisional 8.0–9.8 (efficiency, timing and freshness not measured) |
+| 20.2.0 local MCP vs `gh` | 2026-11-26 | local dev build `20.2.0+91434a43`, SHA-256 `cce5ad43…d928`; read-only `gh` 2.96.0 | [Results](rounds/20.2.0-2026-11-26-local-gh/README.md) | 30 GitHub questions, three interleaved passes, 180 sessions, fresh Sonnet 5.5, blind Opus 5.5 judge: quality tied (9.68 vs 9.70 on 88 valid pairs, 0 wins either way; two `gh` answers invalid from a harness defect); Octocode 580 vs 1,038 tool calls (0.56×), cost 1.19× `gh` (1.09–1.31), $13.24 vs $11.11; no measurable change from the earlier 26 November round (1.14×, 585 vs 1,005 calls) |
+| 20.2.0 before vs after the cost changes vs `gh` | 2026-11-26 | base `20.2.0+505dd250`, SHA-256 `693637dd…7b93`; candidate `20.2.0+91434a43`, SHA-256 `eb8f75f2…e612`; read-only `gh` 2.96.0 | [Results](rounds/20.2.0-2026-11-26-base-cand-gh/README.md) · [summary](../../../docs/V19_V20.md#three-pass-recheck) | 60 questions, three interleaved passes, 540 sessions, quality scored per fact: on disk the candidate costs 0.83× the base (95% interval 0.77–0.90), 295 vs 392 calls, failed calls 9.4% → 2.0%; on GitHub 1.02× (0.96–1.08), facts right 797 vs 799 of 846; candidate vs `gh` cost 1.14× (1.07–1.22), 585 vs 1,005 calls; loading schemas on demand costs 1.11× (1.05–1.18) |
+| 20.2.0 vs 19.1.0 vs `gh` | 2026-11-25 | local release build `20.2.0+505dd250`, SHA-256 `693637dd…7b93`, vs `octocode-mcp` 19.1.0 vs read-only `gh` | [Results](rounds/20.2.0-2026-11-25-v19-v20-gh/README.md) · [summary](../../../docs/V19_V20.md) | All 60 questions and 10 workflows, every arm rerun, fresh Sonnet 5.5 per version, blind Opus 5.5 judge: quality tied at the ceiling (v20 10.00 on all 70, v19 9.83–10.00, `gh` 9.93–10.00); v20 vs v19: cost $6.97 vs $11.64 on the 60, 36% fewer calls, failed calls 13% → 5%; v20 vs `gh` on the 30 GitHub questions: 183 vs 318 calls, 31.3 s vs 33.6 s, $4.74 vs $3.72 |
+| 20.2.0 surface before vs after context efficiency | 2026-11-24 | one 20.2.0 build, SHA-256 `6ec8617b…3474`; each arm's `tools/list` served by a proxy | [Results](rounds/20.2.0-2026-11-24-context-efficiency/README.md) | 69 questions (29 GitHub, 40 local): input tokens per answer 0.900× (95% CI 0.848–0.953), tool calls and output unchanged; correctness not judged |
+| 20.2.0 vs 19.1.0 vs `gh`: workflows | 2026-11-24 | 20.2.0 vs `octocode-mcp` 19.1.0 vs read-only `gh` | [Results](rounds/20.2.0-2026-11-24-workflows/README.md) | 10 questions that each take several tools, judged against answer keys: GitHub W1–W6 v20 9.7, `gh` 9.3, v19 7.4; on disk W7–W10 v20 9.8, v19 9.3 |
+| 20.2.0 vs 19.1.0 vs `gh` | 2026-11-24 | 20.2.0 vs `octocode-mcp` 19.1.0 vs read-only `gh` | [Results](rounds/20.2.0-2026-11-24-v19-v20-gh/README.md) · [upgrade guide](../../../docs/V19_V20.md) | All 60 questions (30 GitHub, 30 on code on disk), fresh Sonnet 5.5 per version, blind Opus 5.5 judge: quality 9.69 vs 9.34 (v20 5 wins, v19 3, 49 ties, 3 unresolved); failed calls 26% → 5%, 51% fewer characters, 45% fewer input tokens counting cached, 26% lower cost. GitHub: `gh` 9.57, v20 9.52, v19 8.97; `gh` re-reads 73% fewer cached tokens |
+| 20.2.0 vs 19.1.0 vs `gh`: workflows | 2026-11-23 | 20.2.0 vs `octocode-mcp` 19.1.0 vs read-only `gh` | [Results](rounds/20.2.0-2026-11-23-workflows/README.md) | 10 questions that each take several tools, judged against answer keys: GitHub W1–W6 v20 10.0, `gh` 9.3, v19 7.6; on disk W7–W10 v19 9.6, v20 8.9 (an estimated count where an exact one was asked) |
+| 20.2.0 vs 19.1.0 vs `gh` | 2026-11-23 | 20.2.0 vs `octocode-mcp` 19.1.0 vs read-only `gh` | [Results](rounds/20.2.0-2026-11-23-v19-v20-gh/README.md) · [upgrade guide](../../../docs/V19_V20.md) | All 60 questions (30 GitHub, 30 on code on disk), fresh Sonnet 5.5 per version, blind Opus 5.5 judge: quality 9.59 vs 9.32 (v20 5 wins, v19 2, 52 ties); 47% fewer characters, 38% fewer input tokens counting cached, 43% lower cost. GitHub: `gh` 9.55, v20 9.45, v19 8.95; `gh` re-reads 79% fewer cached tokens |
+| 20.2.0 | 2026-11-22 | staged host `881395dd…15813` | [Staged tool and core audit](rounds/20.2.0-2026-11-22-staged-audit/SCORECARD.md) | All 17 tools exercised. The public clone workflow and three older connected regressions passed. A contradictory Go release warning caps artifactSearch at 4.0. Provisional mean 8.6/10. |
+| 20.2.0 | 2026-11-22 | dev build `9599f78a…eed12` | [Results and ratings](rounds/20.2.0-2026-11-22-core-context/SCORECARD.md) · [Core context inventory](rounds/20.2.0-2026-11-22-core-context/CONTEXT.md) · [Workflow receipts](rounds/20.2.0-2026-11-22-core-context/EFFICIENCY.md) | Fresh results and measured descriptions, schemas and instructions for all 17 tools. The follow-up live archive check passed. The provisional 17-tool mean is 8.7/10. |
+| 20.2.0 | 2026-11-22 | dev build `62f112ed…8949a7` | [Public tool recheck](rounds/20.2.0-2026-11-22-tool-recheck/SCORECARD.md) | All 17 tools rated across local, GitHub, package, security and classifier workflows. Provider-backed verification on the rebuilt host was limited. |
+| 20.2.0 | 2026-11-21 | dev build `e246ff42…a405f` (`20.2.0+56f67471`, after fix round 5) | [Rating round 4](rounds/20.2.0-2026-11-21-ratings-round-4/SCORECARD.md) | Not ready: rater average 8.6 (round 3 8.2), gated 8.1 (7.6), correct 9.5; 34 round-3 issues fixed, 12 partly; lspSearch uncapped; astSearch and graphQuery still capped at 4 (R4-K1 silent miss after an unterminated key block, R4-G1 symbol impact wrong both ways); R4-C1 search `classification` bills without a cap; 42 findings in FINDINGS.md |
+| 20.2.0 | 2026-11-20 | dev build `cb4b7786…a422` (`20.2.0+4476eb38`, after fix round 4) | [Rating round 3](rounds/20.2.0-2026-11-20-ratings-round-3/SCORECARD.md) | Not ready: rater average 8.2 (round 2 8.0), correct 9.4; every re-tested round-2 issue fixed or partly fixed; astSearch, lspSearch and graphQuery capped at 4 by new silent misses or a wrong count (R3-K1, R3-K2, R3-G1); 48 findings in FINDINGS.md |
+| 20.2.0 | 2026-11-20 | dev build `c6e1e3ab…10cd` (`20.2.0+69024e9f`, dirty tree) | [Independent ratings, 12 dimensions](rounds/20.2.0-2026-11-20-independent-ratings/SCORECARD.md) | Not ready: 8 independent raters, all 17 tools; rater average 8.0 (previous 7.8), correct 9.4; lspSearch, securityCheck and ghStructure capped at 4 by the correctness gate (K1, K2, P1, GR1); 58 findings frozen in FINDINGS.md |
+| 20.2.0 | 2026-11-18 | release pin `3d691596…14a4` (round 3 `bin-r4l`, snapshot of the dirty tree) | [17-tool ratings](rounds/20.2.0-2026-11-18-tool-ratings/SCORECARD.md) | Not ready: ghSearchCode and securityCheck capped at 4 (walk refused after 625 files; false "no fix" for prerelease-only fixes); others 6.7–9.4; graphQuery cap lifted; 42 defects (2 blockers, 4 major) |
+| 20.2.0 | 2026-11-15 | host release `bfe156c1…502b` | Deep efficiency and freshness | 8,696 Rust tests; fresh 17-tool CLI/MCP acceptance/131 pages; 70 independent cache scenarios; 12 Rust operations and real-workspace replay; smaller multiline output, comparable scoped speed, cumulative provisional ratings |
+| 20.2.0 | 2026-11-15 | host release `4e2052ae…4f35` | Claude handoff follow-up | Replay after eviction, inline Rust test relevance and input-repair disclosures; 8,663 Rust tests passed, fresh CLI/MCP acceptance and qualified timing observations; prior comparative scores remain attached to their build |
+| 20.2.0 | 2026-11-14 | repaired host release `c4f7ee4e…1c0` | 17-tool ratings | 120 owned questions (inventory, not 120 claimed passes), per-tool 1–10 dimensions, rg/ast-grep/gh-lean/Graphify/LSP comparisons; three evidence-contract repairs and completed final-build checks |
+| 20.2.0 | 2026-11-14 | host release, SHA-256 `0dd29415…0d2d`, commit `73cddf5b32` plus shared dirty tree | advanced capability scorecard | Fresh rg/ast-grep/gh-lean/Graphify/direct-LSP comparisons: selected local/semantic evidence agrees; expert outputs smaller; graph queries faster in sample; explicit gh cache reverses the tested hybrid speed advantage; annotated-tag object gap |
+| 20.2.0 | 2026-10-29 | native CLI, binary SHA-256 `30c301e0…a073`, commit `cb94ad744` plus uncommitted tree | `github30-v20-2026-10-29` | GitHub 30: correctness 9.57; 15,590 characters per question; 1.43× leaner than v18; gh-lean 0.47× v20's characters at 8.83 correctness; warm 1.5–2.3× faster than v18, cold 1.3–2.0× slower |
+| 20.2.0 pre-release (`local-mcp-v9`, native 20.2.0) | 2026-10-10 | local MCP build | `local-30q-2026-10-10` | local core 30: correctness 10.0 vs lean shell 9.60; shell used 0.81× the characters; 19.1.0 used 2.32× |
+| 20.x pre-release (`mcp-v9`) | 2026-10-10 | local MCP build | `lean-vs-mcp-30q-2026-10-10` | GitHub 30: correctness parity with gh-lean (8.83 vs 8.87); gh-lean leaner |
+| 19.1.0 (published) | 2026-10-10/12 | `npx` | `lean-vs-mcp-30q-2026-10-10`, `local-30q-2026-10-10`, `pi-published-161933-2026-10-12` | the comparison point for the pre-release v20 builds |
+| 18.2.2 (published) | 2026-08-08 | `npx octocode@18.2.2` | `full-octocode-vs-rtk-011533-2026-08-08`, `full-octocode-vs-headroom-091618-2026-08-08`; speed baseline in `github30-v20-2026-10-29/timing` | about 2.4× leaner than gh + RTK and 2.3× leaner than gh + Headroom at correctness parity |
+| 18.1.1 (local build) | 2026-08-07 | `out/octocode.js` | `overview`, `full-octocode-vs-*-2026-08-07` | GitHub 30 × 3 passes: correctness 9.26; 22,111 characters per question; plain gh 2.0×, gh + Headroom 2.6×, gh + RTK 3.2× more characters |
 
-- **[Octocode vs plain gh](full-octocode-vs-gh-152630-2026-08-07.md)** — correctness parity
-  (9.19 / 9.27), Octocode **reliably ~2.0× leaner** (per-Q geo-mean 1.99×, 95% CI 1.52–2.61,
-  median 2.16×, leaner 67/89, wins 51/38). Plain `gh` is the leanest baseline, so the margin is
-  smaller but still significant.
+Tool renames between v18 and v20 (needed to compare per tool across versions) are in
+[baselines/release-notes-v18-v20.md](baselines/release-notes-v18-v20.md).
 
-**Net:** at near-ceiling correctness parity, Octocode delivers answers in ~2.0× fewer characters
-than plain `gh`, ~2.6× fewer than gh+Headroom, and ~3.2× fewer than gh+RTK (all CIs above 1×) —
-a leaner context window and better model attention, with the margin widening on deep, large-file,
-multi-hop research.
+## Per-question baselines (tracked)
 
-### Published-CLI validation (npx octocode@18.2.2)
-
-- **[Octocode vs gh+RTK — published CLI](full-octocode-vs-rtk-011533-2026-08-08.md)** — first full
-  30×3 run against the **published** `npx octocode@18.2.2` (not the local build). Correctness parity
-  (8.78 / 8.96, sign p=0.40), Octocode **~2.4× leaner** (per-Q geo-mean 2.37×, 95% CI 1.70–3.35×,
-  median 2.26×, leaner 66/90, p<0.0001; judge wins 47/43). Confirms the shipped artifact tracks the
-  local-build result (~3.2×); pooled 11.09× is outlier-driven (Q28=24.9%, leave-one-out 8.73×).
-- **[Octocode vs gh+Headroom — published CLI](full-octocode-vs-headroom-091618-2026-08-08.md)** — full
-  30×3 run against **published** `npx octocode@18.2.2` vs compressed gh+Headroom 0.34.0. Correctness
-  parity (8.68 / 8.68, sign p=0.59), Octocode **~2.3× leaner** (per-Q geo-mean 2.27×, 95% CI
-  1.70–3.01×, median 2.60×, leaner 67/90, p<0.0001; judge wins 47/43). Compression narrows but does
-  not close the gap; pooled 5.77× outlier-driven (Q28=20.3%, leave-one-out 4.98×).
-
-### Superseded (earlier, smaller runs)
-
-- [campaign-2pass-183432](campaign-2pass-183432-2026-08-06.md) (25×2, published CLI) — found
-  vs-Headroom 2.87× (stable) but vs-RTK parity (CI 0.70–2.05 straddled 1×). The RTK result is
-  now resolved by the 30×3 run above. Per-pass: [P1 175653](campaign-175653-2026-08-06.md).
-
-## Historical reports (restored, prior methodology)
-
-Kept for traceability; superseded by the 2-pass campaign above and not summed into the
-headline (different harness generations / single-pass or v1 suite):
-
-| Report | Note |
+| File | What it holds |
 |---|---|
-| [gh+RTK 011611](octocode-vs-gh-rtk-011611-2026-08-06.md) | 25×1 v2, published CLI; RTK char win overstated by single pass |
-| [gh+RTK 200641](octocode-vs-gh-rtk-200641-2026-08-05.md) · [183927](octocode-vs-gh-rtk-183927-2026-08-05.md) · [191906](octocode-vs-gh-rtk-191906-2026-08-05.md) | earlier v1/interim RTK runs |
-| [gh+Headroom 011859](octocode-vs-gh-headroom-011859-2026-08-06.md) | 25×1 v2 |
-| [gh+Headroom 1845](octocode-vs-gh-headroom-1845-2026-08-05.md) · [200034](octocode-vs-gh-headroom-200034-2026-08-05.md) | 20×3 and earlier Headroom runs |
+| [baselines/github30.md](baselines/github30.md) | per question: characters and correctness for v20, gh-lean, v18, plain gh, gh + RTK, gh + Headroom |
+| [baselines/local-core30.md](baselines/local-core30.md) | per question: characters, calls, seconds and correctness for the pre-release v20 build, its clasify variant, 19.1.0 and the lean shell |
+| [baselines/release-notes-v18-v20.md](baselines/release-notes-v18-v20.md) | v18 → v20 tool map: renames and what changed per tool |
 
-Historical complete reports may remain in this directory for traceability but
-are not silently pooled across different harness generations. Invalid and
-incomplete reports are removed rather than included with caveats in the
-headline calculation.
+The August 2026 write-ups (v18.1.1 and 18.2.2 against gh, RTK and Headroom: `SUMMARY.md`, each campaign's
+report, `per_question_summary.json`, the visual `index.html`) are also tracked on the `main` branch:
+`git show main:packages/octocode-benchmark/results/<file>`.
 
-Write new reports as
-`<comparison-name>-<HHMMSS>-<YYYY-MM-DD>.md` using
-[REPORT_TEMPLATE.md](../skills/octocode-benchmark/references/REPORT_TEMPLATE.md). Measurement is in Unicode
-characters delivered to the runner; correctness takes precedence over
-footprint. Failed probes inside a complete run remain counted.
+## Rounds (tracked)
 
-## Supplementary probes (not headline campaigns)
+The 22 November 2026 core-context round includes the [blocker inventory and ratings for all 25 skills](rounds/20.2.0-2026-11-22-core-context/BLOCKERS-AND-SKILLS.md).
 
-| Comparison | Report | Outcome |
+Every folder under `rounds/` is listed here; add a line when a round lands. Keep the newest scorecards; fold older ones into a timeline row.
+
+`rounds/<version>-<date>/SCORECARD.md`, one per round, from the [scorecard template](../briefs/SCORECARD.md).
+- [20.2.0 vs 19.1.0 vs `gh`, 2026-11-24](rounds/20.2.0-2026-11-24-v19-v20-gh/README.md): all 60 research questions
+  again on fresh Sonnet 5.5 agents, with new, cached and output tokens per question; the
+  [workflow questions](rounds/20.2.0-2026-11-24-workflows/README.md) beside it.
+- [20.2.0 vs 19.1.0 vs `gh`, 2026-11-23](rounds/20.2.0-2026-11-23-v19-v20-gh/README.md): all 60 research questions on
+  fresh Sonnet 5.5 agents, with new, cached and output tokens per question.
+- [20.2.0 — rating round 4, 2026-11-21](rounds/20.2.0-2026-11-21-ratings-round-4/SCORECARD.md): the same 8 lanes and
+  12 dimensions after fix round 5; findings in [FINDINGS.md](rounds/20.2.0-2026-11-21-ratings-round-4/FINDINGS.md),
+  each lane's report in [lanes/](rounds/20.2.0-2026-11-21-ratings-round-4/lanes/).
+- [20.2.0 — rating round 3, 2026-11-20](rounds/20.2.0-2026-11-20-ratings-round-3/SCORECARD.md): the same 8 lanes and
+  12 dimensions after fix round 4; findings in [FINDINGS.md](rounds/20.2.0-2026-11-20-ratings-round-3/FINDINGS.md).
+- [20.2.0 — independent ratings on 12 dimensions, 2026-11-20](rounds/20.2.0-2026-11-20-independent-ratings/SCORECARD.md):
+  8 rater agents on fresh questions against ground truth, CLI plus MCP checks on the same binary; findings in
+  [FINDINGS.md](rounds/20.2.0-2026-11-20-independent-ratings/FINDINGS.md).
+- [20.2.0 — all 17 tool ratings, 2026-11-18](rounds/20.2.0-2026-11-18-tool-ratings/SCORECARD.md):
+  newest build (round-3 pin), 5 lanes, CLI and MCP, two capped tools with verified causes.
+Earlier 20.2.0 rounds (2026-11-14 and 2026-11-15: advanced comparisons, 17-tool ratings, final verification, deep
+efficiency, handoff follow-up, full round, workflow efficiency, live CLI usage) were removed from the tree; their
+headlines stay in the timeline above and the files stay in git history: `git show 6717848eb:packages/octocode-benchmark/results/rounds/<folder>/<file>`.
+
+## GitHub research, 30 questions ([questions/github](../questions/github/README.md))
+
+| Folder | Date | Arms | What it holds |
+|---|---|---|---|
+| `github30-v20-2026-10-29` | 2026-10-29 | Octocode v20 CLI, gh-lean (stored answers) | The v20 headline: answers, per-call logs (`metrics.json`), blind packet, Opus 5.5 verdicts with swapped re-judges, v18-vs-v20 timing, `per-question.md`, frozen `harness/` (historical, not runnable) |
+| `lean-vs-mcp-114934-2026-10-09` (raw: `campaigns/lean-vs-mcp-114934-2026-10-09`) | 2026-10-09 | gh-lean, MCP v3/v4/v9/v10, extras, published 19.1.0 | **The stored gh-lean baseline answers** that new Octocode rounds are judged against |
+| `lean-vs-mcp-30q-2026-10-10` | 2026-10-10 | MCP v9, gh-lean, 19.1.0 | correctness parity with gh-lean; gh-lean leaner |
+| `output-quality-2026-10-16`, `release-review-rebuilt-2026-10-15`, `release-fixes-2026-10-16` | 2026-10-15/16 | MCP builds vs gh-lean | release checks against lean gh |
+| `pi-local-163239-2026-10-12`, `pi-published-161933-2026-10-12`, `pi-local-vs-published-164221-2026-10-12`, `pi-local-now-vs-published-231129-2026-10-12` | 2026-10-12 | local build, published 19.1.0, gh-lean (pi runner) | build against published release |
+| `local-3arm-q1-10-2026-10-09` | 2026-10-09 | gh, gh-lean, MCP v5–v8 | Q1–Q10 iteration runs |
+| `overview` | 2026-08 | Octocode v18.1.1, gh, gh + RTK, gh + Headroom (3 passes) | **The August baselines as numbers**: `per_question_summary.json`, `matrix_summary.json`, `MATRIX.md`, static dashboard `index.html` |
+| `full-octocode-vs-gh-152630-2026-08-07`, `full-octocode-vs-rtk-162848-2026-08-07`, `full-octocode-vs-rtk-011533-2026-08-08`, `full-octocode-vs-headroom-134213-2026-08-07`, `full-octocode-vs-headroom-091618-2026-08-08` | 2026-08-07/08 | Octocode (local or v18.2.2) vs gh, RTK, Headroom | full-campaign reports; raw answers are not kept |
+| `campaign-175653-2026-08-06`, `campaign-2pass-183432-2026-08-06`, `live-3arm-130222-2026-08-09`, `octocode-vs-gh-rtk-*-2026-08-0*`, `octocode-vs-gh-headroom-*-2026-08-0*` | 2026-08-05/09 | Octocode vs RTK, Headroom | earlier 20- and 25-question runs |
+| `raw-ab-2026-08` | 2026-08-05/06 | Octocode vs RTK, Headroom | raw A/B runs, judge files and logs from that period (`runs/`, `logs/`) |
+
+## Local code, pinned clones
+
+| Folder | Date | Set | Arms | What it holds |
+|---|---|---|---|---|
+| `local-30q-2026-10-10` | 2026-10-10 | local-core | local MCP v9/v10, clasify v9, 19.1.0, lean shell | the local headline: Octocode 10.0 vs shell 9.60 correctness; shell 0.81× characters |
+| `local-native-terra-2026-10-17` (raw: `campaigns/terra-cli-ab-20261017T094616Z`) | 2026-10-17 | local-scenarios | native CLI vs shell | exploratory, not one fresh agent per question |
+| `local40-terra-goals-2026-10-13`, `LOCAL_MATRIX`, `local-goals`, `local-overview` | 2026-10-13 | local-goals | local MCP ± clasify | goals ablation |
+| `local-ranking-2026-10-13`, `read-tool-ranking-2026-10-13` | 2026-10-13 | local | read and ranking variants | context savings by ranking |
+
+## Classification (clasify, JEV)
+
+| Folder | Date | What it holds |
 |---|---|---|
-| Live 3-arm run (`octocode@18.2.2` vs `gh`+RTK and `gh`+Headroom) | [live-3arm-130222](live-3arm-130222-2026-08-09.md) | 30×1 fresh live run with three isolated runner agents and two blind judges. All 90 logs strict-valid. Octocode was leaner than RTK on 19/30 (geo 1.58×) and leaner than Headroom on 20/30 (geo 1.56×). Single pass only — not a headline replacement. |
-| Octocode (local build, prompt+desc fixes) vs `gh` + RTK | [localfix-020431](octocode-vs-gh-rtk-localfix-020431-2026-08-06.md) | 25×1, arm B = local out/octocode.js. Octocode more correct this pass (mean 9.72/9.24; paired B 5 win/17 tie/3 loss, p≈0.73 n.s.), ~3.2× leaner (geo-mean 3.24×), leaner 20/25. Targeted fixes improved Q21 (verbatim node value) & Q25 (diff-over-comment). Local-build probe, not a published-CLI headline; Q25 contested. |
+| `mcp-clasify-ab-111154-2026-10-09` | 2026-10-09 | MCP with clasify on vs off, GitHub |
+| `gated-jev-2026-10-13`, `gated-jev-github30-2026-10-13`, `gated-jev-local40-2026-10-13`, `gated-jev-github`, `gated-jev-local`, `gated-jev-*-datasets`, `gated-jev-accounting-2026-10-13`, `gated-jev-evidence-2026-10-13`, `GATED_JEV_GITHUB_MATRIX`, `GATED_JEV_LOCAL_MATRIX` | 2026-10-13 | gated clasify enabled vs disabled, 30 GitHub and 40 local questions |
+| `terra-goals-2026-10-13`, `github30-terra-goals-2026-10-13` | 2026-10-13 | goals with and without JEV |
+| `selective-guidance-2026-10-13`, `selective-guidance-{github30,local40,transfer12}*`, `SELECTIVE_GUIDANCE_*_MATRIX`, `selective-semantics-2026-10-13`, `review-classification-2026-10-13` | 2026-10-13 | clasify guidance variants |
+| `beta-jev-all-tools-20261017T131700Z` | 2026-10-17 | beta and JEV all-tool recheck |
+
+## Retired lanes (kept, no longer run)
+
+Local models through FreeLlama or Ollama with the native tools. These compare models, not
+Octocode with a competitor, and are no longer part of the benchmark.
+
+| Folder | Date |
+|---|---|
+| `local-model-all-tools-20261017T1520`, `local-model-search-20261017T143311Z`, `local-model-tools-pilot-20261017T1510`, `local-model-issues-and-options-20261017`, `jev-local-model-pilot-20261017`, `mac32-model-selection-20261017`, `devstral-native-pilot-20261017`, `bonsai-native-ollama0406-20261017`, `gemma-local-instructions-20261017T142630Z`, `gemma-without-freellama-20261017T142950Z`, `gemma-without-freellama-20261017T142958Z`, `freellama-mcp-smoke-20261017T141737Z`, `ollama-native-smoke-20261017T141117Z` | 2026-10-17 |
+
+## Other
+
+| Folder | What it holds |
+|---|---|
+| `archive-unified-2026-09` | September–October 2026 unified-results archive (dedup, production review, `s12`, `ff-final2`, `p7-final` runs) |
+| `runs` | per-run records from the old summary scripts |
+| `campaigns/*` | raw transcripts, answers, receipts and judge attempts for the October campaigns; historical JSON keeps original command paths; archive relocation is recorded separately |

@@ -1,0 +1,59 @@
+import { test } from 'node:test';
+import type { TestContext } from 'node:test';
+import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import type { JsonRecord } from './json-record.ts';
+import { binary, spawnSync, tempWorkspace } from './helpers.ts';
+
+function fixture(t: TestContext) {
+  const workspace = tempWorkspace(t, 'communication-tools-');
+  const database = join(workspace, 'audit.sqlite');
+  const run = (args: string[], input = '') => spawnSync(binary, [...args, '--workspace', workspace, '--database', database], { input, encoding: 'utf8' });
+  return { workspace, database, run };
+}
+
+test('MCP explicit tool selection reduces discovery and refuses hidden tools', t => {
+  const f = fixture(t);
+  const session = JSON.parse(f.run(['join', '{"name":"reviewer","vendor":"raw"}']).stdout).id;
+  const frames = `${[
+    { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+    { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'agents', arguments: {type: 'list', input: {}} } },
+    { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'leases', arguments: {type: 'acquire', input: { paths: [{path: 'blocked'}], reasoning: 'This tool was not selected' }} } },
+  ].map(frame => JSON.stringify(frame)).join('\n')}\n`;
+  const run = f.run(['mcp', '--tools', 'messages,agents', '--session', session], frames);
+  assert.equal(run.status, 0, run.stderr);
+  const rows = run.stdout.trim().split('\n').map((line): JsonRecord => JSON.parse(line));
+  assert.deepEqual(rows[0].result.tools.map((tool: JsonRecord) => tool.name), ['agents', 'messages'], 'catalog order is stable independent of selection order');
+  assert.equal(rows[1].result.isError, undefined);
+  assert.doesNotMatch(rows[1].result.content[0].text, /null/, 'tool results omit null fields');
+  assert.equal(rows[2].result.isError, true);
+  const completion = rows[0].result.tools.find((tool: JsonRecord) => tool.name === 'messages').inputSchema.oneOf.find((branch: JsonRecord) => branch.properties.type.const === 'complete').properties.input;
+  assert.deepEqual(completion.properties.outcome.enum, ['completed', 'failed', 'rejected', 'canceled']);
+  assert.deepEqual(completion.dependentRequired.outcome, ['message', 'reply']);
+  const full = JSON.parse(f.run(['schema']).stdout).tools;
+  assert.deepEqual(JSON.parse(f.run(['schema', 'tools', '--tools', 'messages,agents']).stdout), rows[0].result.tools);
+  assert.ok(Buffer.byteLength(JSON.stringify(rows[0].result.tools)) < Buffer.byteLength(JSON.stringify(full)) / 2);
+  // Bound discovery budget for all five families; this is a regression
+  // budget for discovery, never permission to truncate schemas or tool results.
+  const discoveryBudgetBytes = 24 * 1024;
+  assert.ok(Buffer.byteLength(JSON.stringify(full)) <= discoveryBudgetBytes, 'default tools/list stays within its context budget');
+  const leases = JSON.parse(f.run(['locks', '--session', session]).stdout);
+  assert.equal(leases.items.length, 0);
+});
+
+test('invalid selections fail before opening storage or starting vendor agents', t => {
+  const f = fixture(t);
+  for (const tools of ['unknown', 'join', 'agents,agents', '', 'agents,']) {
+    for (const args of [
+      ['mcp', '--session', 'missing'],
+      ['run', '--vendor', 'codex', '--model', 'unused', '--prompt', 'unused'],
+    ]) {
+      const result = f.run([...args, '--tools', tools]);
+      assert.notEqual(result.status, 0, tools);
+      assert.equal(existsSync(f.database), false);
+    }
+  }
+  assert.notEqual(f.run(['join', '{"name":"bad","vendor":"raw"}', '--tools', 'agents']).status, 0);
+  assert.equal(existsSync(f.database), false);
+});

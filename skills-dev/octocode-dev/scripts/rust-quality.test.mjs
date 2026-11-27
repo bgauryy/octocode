@@ -1,0 +1,155 @@
+import assert from 'node:assert/strict';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { test } from 'node:test';
+import { ROOT } from './lib/workspaces.mjs';
+import {
+  NATIVE,
+  countUnits,
+  crateDirs,
+  diffUnitGraphs,
+  fuzzInvocation,
+  installCommand,
+  inventory,
+  llvmLinesInvocations,
+  loadManifest,
+  miriInvocations,
+  parseVersion,
+  pinSpec,
+} from './rust-quality.mjs';
+
+const manifest = loadManifest();
+
+test('a version is the first x.y.z in a tool banner', () => {
+  assert.equal(parseVersion('cargo-nextest 0.9.148 (abc 2026-10-01)'), '0.9.148');
+  assert.equal(parseVersion('Version: 1.14.0'), '1.14.0');
+  assert.equal(parseVersion('cargo-xwin-xwin 0.23.0'), '0.23.0');
+  assert.equal(parseVersion('no version here'), null);
+});
+
+test('inventory compares each pinned tool with the installed one and never installs', () => {
+  const tools = [
+    { name: 'a', version: '1.0.0', versionCommand: ['a', '--version'] },
+    { name: 'b', version: '2.0.0', versionCommand: ['b', '--version'] },
+    { name: 'c', version: '3.0.0', versionCommand: ['c', '--version'] },
+    { name: 'd', version: '4.0.0', versionCommand: ['d', '--version'], optional: true },
+  ];
+  const banners = { a: 'a 1.0.0', b: 'b 2.1.0' };
+  const calls = [];
+  const run = (command, args) => {
+    calls.push([command, ...args]);
+    return command in banners ? { status: 0, stdout: banners[command] } : { status: null, stdout: '' };
+  };
+  const rows = inventory({ tools, toolchains: {} }, run);
+  assert.deepEqual(rows.map(row => [row.name, row.state, row.have]), [
+    ['a', 'ok', '1.0.0'],
+    ['b', 'mismatch', '2.1.0'],
+    ['c', 'missing', null],
+    ['d', 'missing', null],
+  ]);
+  assert.equal(rows[3].optional, true);
+  assert.equal(rows[1].install, 'cargo install --locked b@2.0.0');
+  assert.ok(calls.every(([, ...args]) => args.join(' ') === '--version'), 'only version probes run');
+});
+
+test('every pinned tool installs at its exact version', () => {
+  for (const tool of manifest.tools) {
+    assert.match(tool.version, /^\d+\.\d+\.\d+$/, tool.name);
+    assert.equal(installCommand(tool), `cargo install --locked ${tool.name}@${tool.version}`);
+  }
+  assert.match(manifest.toolchains.nightly.channel, /^nightly-\d{4}-\d{2}-\d{2}$/, 'a dated nightly');
+});
+
+test('pins name each tool at its manifest version for CI installs', () => {
+  const pins = { tools: [{ name: 'a', version: '1.0.0' }, { name: 'b', version: '2.0.0' }] };
+  assert.equal(pinSpec(pins, ['b', 'a']), 'b@2.0.0,a@1.0.0');
+  assert.throws(() => pinSpec(pins, ['c']), /c is not pinned/);
+  assert.throws(() => pinSpec(pins, []), /at least one/);
+});
+
+test('a fuzz run selects the pinned nightly, its own build directory and a time bound', () => {
+  const { command, args } = fuzzInvocation(manifest, { target: 'utf8_offsets', seconds: 30, targetDir: '/tmp/fz' });
+  assert.equal(command, 'cargo');
+  assert.deepEqual(args.slice(0, 7), [
+    `+${manifest.toolchains.nightly.channel}`, 'fuzz', 'run', '--fuzz-dir', 'fuzz', '--target-dir', '/tmp/fz',
+  ]);
+  assert.deepEqual(args.slice(7, 10), ['utf8_offsets', 'fuzz/corpus/utf8_offsets', 'fuzz/seeds/utf8_offsets']);
+  assert.ok(args.includes('-max_total_time=30'));
+  assert.ok(args.indexOf('--') < args.indexOf('-max_total_time=30'));
+  assert.throws(() => fuzzInvocation(manifest, { target: 'nope', seconds: 1 }), /unknown fuzz target/);
+});
+
+test('every fuzz target is a bin of the fuzz workspace with a committed seed corpus', () => {
+  const cargo = readFileSync(path.join(NATIVE, manifest.fuzz.dir, 'Cargo.toml'), 'utf8');
+  for (const target of manifest.fuzz.targets) {
+    assert.match(cargo, new RegExp(`name = "${target}"`), target);
+    const seeds = path.join(NATIVE, manifest.fuzz.dir, 'seeds', target);
+    assert.ok(existsSync(seeds) && readdirSync(seeds).length > 0, `${target} seeds`);
+  }
+  assert.match(readFileSync(path.join(NATIVE, 'Cargo.toml'), 'utf8'), /exclude = \["fuzz"\]/);
+});
+
+test('miri runs one bounded nightly invocation per manifest selection', () => {
+  const runs = miriInvocations(manifest, { targetDir: 'miri-target' });
+  assert.equal(runs.length, manifest.miri.runs.length);
+  for (const [i, run] of manifest.miri.runs.entries()) {
+    const { command, args, env } = runs[i];
+    assert.equal(command, 'cargo');
+    assert.deepEqual(args.slice(0, 8), [`+${manifest.toolchains.nightly.channel}`, 'miri', 'test', '--locked', '-p', run.package, '--lib', '--'], run.package);
+    const selection = args.slice(8);
+    if (run.exact) assert.deepEqual(selection.slice(0, run.exact.length + 1), ['--exact', ...run.exact], run.package);
+    else assert.equal(selection[0], run.filter, run.package);
+    const skips = selection.slice(run.exact ? run.exact.length + 1 : 1);
+    assert.deepEqual(skips, (run.skip ?? []).flatMap(name => ['--skip', name]), run.package);
+    assert.deepEqual(env, { ...run.env, ...(run.miriflags && { MIRIFLAGS: run.miriflags }), CARGO_TARGET_DIR: 'miri-target' }, run.package);
+  }
+});
+
+test('every selected miri test still exists in its crate', () => {
+  const dirs = crateDirs();
+  for (const run of manifest.miri.runs) {
+    const dir = dirs.get(run.package);
+    assert.ok(dir, run.package);
+    const source = sources(path.join(dir, 'src')).join('\n');
+    for (const name of [...(run.exact ?? []), ...(run.skip ?? [])]) {
+      // `module::` names a test module; anything else a test function.
+      const pattern = name.endsWith('::') ? `mod ${name.slice(0, -2).split('::').at(-1)};` : `fn ${name.split('::').at(-1)}\\(`;
+      assert.match(source, new RegExp(pattern), `${run.package}: ${name}`);
+    }
+  }
+});
+
+test('llvm-lines can record build timings for the same selection first', () => {
+  const [timings, lines] = llvmLinesInvocations(manifest, { pkg: 'octocode-io', timings: true });
+  assert.deepEqual(timings.args, ['build', '--locked', '-p', 'octocode-io', '--lib', '--all-features', '--timings']);
+  assert.deepEqual(lines.args, ['llvm-lines', '--locked', '-p', 'octocode-io', '--lib', '--all-features']);
+  assert.equal(timings.env.CARGO_TARGET_DIR, lines.env.CARGO_TARGET_DIR);
+  assert.equal(llvmLinesInvocations(manifest, {}).length, 1);
+});
+
+function sources(dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) return sources(full);
+    return entry.name.endsWith('.rs') ? [readFileSync(full, 'utf8')] : [];
+  });
+}
+
+test('units counts what cargo rebuilt from its JSON messages, ignoring other lines', () => {
+  const lines = [
+    JSON.stringify({ reason: 'compiler-artifact', package_id: 'path+file:///w/crates/cli#octocode-cli@20.2.0', target: { kind: ['bin'], name: 'octocode' }, profile: { test: false }, fresh: false }),
+    JSON.stringify({ reason: 'compiler-artifact', package_id: 'registry+https://github.com/rust-lang/crates.io-index#serde@1.0.0', target: { kind: ['lib'], name: 'serde' }, profile: { test: false }, fresh: true }),
+    JSON.stringify({ reason: 'build-finished', success: true }),
+    'not json',
+  ].join('\n');
+  assert.deepEqual(countUnits(lines), { units: 2, fresh: 1, rebuilt: 1, rebuiltUnits: ['octocode-cli bin octocode'] });
+});
+
+test('unit-diff names the units one graph has and the other lacks', () => {
+  const unit = (name, features = []) => ({ pkg_id: `p ${name}`, target: { name, kind: ['lib'] }, mode: 'build', profile: { name: 'dev' }, features });
+  const diff = diffUnitGraphs({ units: [unit('a'), unit('b', ['x'])] }, { units: [unit('a'), unit('b', ['y'])] });
+  assert.equal(diff.shared, 1);
+  assert.equal(diff.onlyA.length, 1);
+  assert.match(diff.onlyA[0], /\| x$/);
+  assert.match(diff.onlyB[0], /\| y$/);
+});

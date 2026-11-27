@@ -1,0 +1,343 @@
+mod manage;
+mod read;
+use super::{emit_error, write_json};
+pub(super) use manage::manage;
+use octocode_contract_types::ErrorCode;
+use octocode_native::runtime::{ErrorClass, ToolRuntime};
+use octocode_runtime_base::response::exit::ExitClass;
+pub(super) use read::{check, get, list};
+use serde_json::json;
+use std::io;
+
+/// A failed `config --manage` request. The code tells the config view how to
+/// recover: `CONFLICT` refreshes the inspected files before retrying, and
+/// `UNAVAILABLE` means this build cannot serve the view's contract.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum ManageError {
+    /// A malformed request or a rejected value.
+    InvalidInput(String),
+    /// The file changed or is locked since it was inspected.
+    Conflict(String),
+    /// The view's contract fingerprint does not match this build.
+    Unavailable(String),
+}
+
+impl ManageError {
+    pub(super) fn code(&self) -> &'static str {
+        match self {
+            Self::InvalidInput(_) => "INVALID_INPUT",
+            Self::Conflict(_) => "CONFLICT",
+            Self::Unavailable(_) => "UNAVAILABLE",
+        }
+    }
+
+    /// The CLI exit class: bad input is correctInput (2), a conflict is a
+    /// restart (6: refresh, then edit again), and contract drift is
+    /// unservable (5).
+    pub(super) fn exit_code(&self) -> u8 {
+        let class = match self {
+            Self::InvalidInput(_) => ErrorClass::CorrectInput,
+            Self::Conflict(_) => ErrorClass::Restart,
+            Self::Unavailable(_) => ErrorClass::Unservable,
+        };
+        super::exit_code(ExitClass::Failed(class))
+    }
+
+    /// Map a locked-file edit error: `WouldBlock` is a revision conflict,
+    /// `InvalidInput` keeps its message, and anything else is reported as
+    /// `fallback` without echoing OS details.
+    pub(super) fn from_edit(error: &io::Error, fallback: &str) -> Self {
+        match error.kind() {
+            io::ErrorKind::WouldBlock => {
+                Self::Conflict("Configuration changed or is busy; refresh and retry.".into())
+            }
+            io::ErrorKind::InvalidInput => Self::InvalidInput(error.to_string()),
+            _ => Self::InvalidInput(fallback.into()),
+        }
+    }
+}
+
+impl std::fmt::Display for ManageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidInput(message) | Self::Conflict(message) | Self::Unavailable(message) => {
+                f.write_str(message)
+            }
+        }
+    }
+}
+
+impl From<String> for ManageError {
+    fn from(message: String) -> Self {
+        Self::InvalidInput(message)
+    }
+}
+
+impl From<&str> for ManageError {
+    fn from(message: &str) -> Self {
+        Self::InvalidInput(message.into())
+    }
+}
+
+/// `octocode config`: where configuration lives and which keys are loaded,
+/// never their values (`config get KEY` prints one value on request).
+pub(super) fn show(runtime: &ToolRuntime, json_out: bool) -> u8 {
+    let view = runtime.inspect_config();
+    let config_file = view
+        .config_path
+        .clone()
+        .unwrap_or_else(|| view.home.join(".octocoderc"));
+    let config_file_exists = view.config_path.is_some();
+    let project_config_exists = view.project_config_path.is_some();
+    if json_out {
+        return write_json(&json!({
+            "home": view.home,
+            "storage": view.storage_mode,
+            "configFile": {
+                "path": config_file,
+                "exists": config_file_exists,
+                "keys": view.config_keys,
+            },
+            "projectConfigFile": {
+                "path": view.project_config_file,
+                "exists": project_config_exists,
+                "keys": view.project_config_keys,
+            },
+            "envFiles": {
+                "global": {"path": view.global_env_path, "exists": view.global_env_path.is_file()},
+                "project": {"path": view.project_env_path, "exists": view.project_env_exists},
+            },
+            "envKeys": view.loaded_keys,
+            "skippedProtected": view.skipped_protected,
+            "skippedExisting": view.skipped_existing,
+            "diagnostics": view.diagnostics,
+        }));
+    }
+    let found = |exists: bool| if exists { "" } else { " (not found)" };
+    println!("home     {}", view.home.display());
+    println!("storage  {}", view.storage_mode);
+    println!("config");
+    println!(
+        "  global   {}{}",
+        config_file.display(),
+        found(config_file_exists)
+    );
+    println!(
+        "  project  {}{}",
+        view.project_config_file.display(),
+        found(project_config_exists)
+    );
+    println!(".env");
+    println!(
+        "  global   {}{}",
+        view.global_env_path.display(),
+        found(view.global_env_path.is_file())
+    );
+    println!(
+        "  project  {}{}",
+        view.project_env_path.display(),
+        found(view.project_env_exists)
+    );
+    let list = |label: &str, keys: &[String]| {
+        if !keys.is_empty() {
+            println!("{label} ({}): {}", keys.len(), keys.join(", "));
+        }
+    };
+    list("config keys", &view.config_keys);
+    list("project config keys", &view.project_config_keys);
+    list("env keys", &view.loaded_keys);
+    for skip in &view.skipped_protected {
+        println!(
+            "skipped (protected) {}: found in {} but not applied; set it in the process environment or config file",
+            skip.key,
+            skip.source_path.display()
+        );
+    }
+    for skip in &view.skipped_existing {
+        println!(
+            "skipped (existing) {}: found in {} but the process environment already sets it",
+            skip.key,
+            skip.source_path.display()
+        );
+    }
+    for diagnostic in &view.diagnostics {
+        println!("{diagnostic}");
+    }
+    println!(
+        "Values are not shown here; `octocode config get KEY` prints one, `octocode config list` every setting."
+    );
+    0
+}
+
+/// `config home`: the Octocode home directory, one line, for scripts and skills.
+pub(super) fn home(runtime: &ToolRuntime, json_out: bool) -> u8 {
+    let home = &runtime.config().home;
+    if json_out {
+        return write_json(&json!({"home": home}));
+    }
+    println!("{}", home.display());
+    0
+}
+
+/// The environment variable `key` names: a setting path (`classification.api`)
+/// resolves to the variable that sets it; any other key is used as written.
+pub(super) fn env_key(key: &str) -> &str {
+    octocode_runtime_base::config::CONFIG_FIELDS
+        .iter()
+        .find(|field| field.path == key)
+        .and_then(octocode_runtime_base::config::ConfigFieldSpec::env_name)
+        .unwrap_or(key)
+}
+
+/// `config set KEY VALUE` / `config set KEY --stdin`.
+pub(super) fn set(
+    runtime: &ToolRuntime,
+    key: &str,
+    value: Option<String>,
+    stdin: bool,
+    json_out: bool,
+) -> u8 {
+    let value = if stdin {
+        read_stdin_value()
+    } else {
+        value.ok_or("Supply a value: config set KEY VALUE, or config set KEY --stdin.")
+    };
+    match value {
+        Ok(value) => edit(runtime, key, Some(&value), json_out),
+        Err(message) => {
+            emit_error(ErrorCode::InvalidInput, message, json_out);
+            2
+        }
+    }
+}
+
+/// `config unset KEY`. A dotted key no setting declares, such as one an older
+/// Octocode wrote, is removed from each `.octocoderc` that holds it; every other
+/// key from the home `.env`.
+pub(super) fn unset(runtime: &ToolRuntime, key: &str, json_out: bool) -> u8 {
+    let declared = octocode_runtime_base::config::CONFIG_FIELDS
+        .iter()
+        .any(|field| field.path == key);
+    if key.contains('.') && !declared {
+        return unset_unknown_setting(runtime, key, json_out);
+    }
+    edit(runtime, key, None, json_out)
+}
+
+/// Remove `key`, which no setting declares, from the home and workspace
+/// `.octocoderc`; a file that does not hold it is left alone.
+fn unset_unknown_setting(runtime: &ToolRuntime, key: &str, json_out: bool) -> u8 {
+    use octocode_runtime_base::config::{
+        CONFIG_FILE_NAME, config_revision, edit_setting, read_private_config,
+    };
+    let files = [
+        (runtime.config().home.join(CONFIG_FILE_NAME), false),
+        (runtime.inspect_config().project_config_file, true),
+    ];
+    let mut removed = Vec::new();
+    let mut notice = None;
+    // Each file is read just before its edit: when the workspace file is the
+    // home file, the second pass finds the key already gone.
+    for (path, workspace) in files {
+        let edited = read_private_config(&path)
+            .map_err(|error| {
+                if error.kind() == io::ErrorKind::InvalidInput {
+                    error
+                } else {
+                    io::Error::other("Cannot safely read configuration.")
+                }
+            })
+            .and_then(|text| {
+                edit_setting(
+                    &path,
+                    key,
+                    None,
+                    &config_revision(text.as_deref()),
+                    workspace,
+                )
+            });
+        match edited {
+            Ok(edit) => {
+                notice = notice.or_else(|| edit.notice(key));
+                if edit.changed() {
+                    removed.push(path);
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return edit_failed(&error, &path.display().to_string(), json_out),
+        }
+    }
+    if removed.is_empty() {
+        let code = ErrorCode::InvalidInput;
+        emit_error(
+            code,
+            &format!(
+                "No .octocoderc holds {key}, and no setting has that name; nothing was changed."
+            ),
+            json_out,
+        );
+        return super::exit_code(ExitClass::of(code));
+    }
+    if json_out {
+        return write_json(
+            &json!({"action": "unset", "key": key, "paths": removed, "changed": true, "notice": notice}),
+        );
+    }
+    for path in &removed {
+        println!("unset {key}: {} (updated)", path.display());
+    }
+    if let Some(notice) = notice {
+        println!("{notice}");
+    }
+    0
+}
+
+fn read_stdin_value() -> Result<String, &'static str> {
+    let bytes = octocode_io::read::read_limited(io::stdin(), 64 * 1024)
+        .map_err(|_| "Cannot read value from stdin.")?
+        .ok_or("Value exceeds 64 KiB.")?;
+    let mut value = String::from_utf8(bytes).map_err(|_| "Cannot read value from stdin.")?;
+    if value.ends_with('\n') {
+        value.pop();
+        if value.ends_with('\r') {
+            value.pop();
+        }
+    }
+    // An empty pipe or an early Ctrl-D must not overwrite a saved key; `unset` removes one.
+    if value.is_empty() {
+        return Err("No value on stdin; nothing was changed.");
+    }
+    Ok(value)
+}
+
+fn edit(runtime: &ToolRuntime, key: &str, value: Option<&str>, json_out: bool) -> u8 {
+    let path = runtime.inspect_config().global_env_path;
+    match octocode_runtime_base::config::edit_scoped_env(&path, key, value, false, None) {
+        Ok(changed) => {
+            let action = if value.is_some() { "set" } else { "unset" };
+            if json_out {
+                write_json(&json!({"action": action, "key": key, "path": path, "changed": changed}))
+            } else {
+                println!(
+                    "{action} {key}: {} ({})",
+                    path.display(),
+                    if changed { "updated" } else { "unchanged" }
+                );
+                0
+            }
+        }
+        Err(error) => edit_failed(&error, "global config", json_out),
+    }
+}
+
+/// Report a failed edit of `target`: a rejected key or value is invalid input,
+/// anything else a file access failure.
+fn edit_failed(error: &io::Error, target: &str, json_out: bool) -> u8 {
+    let code = if error.kind() == io::ErrorKind::InvalidInput {
+        ErrorCode::InvalidInput
+    } else {
+        ErrorCode::FileAccessFailed
+    };
+    emit_error(code, &format!("Cannot edit {target}: {error}"), json_out);
+    super::exit_code(ExitClass::of(code))
+}

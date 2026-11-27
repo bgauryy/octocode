@@ -1,0 +1,19 @@
+{
+  "name": "octocode",
+  "owner": {
+    "name": "Guy Bary",
+    "url": "https://octocode.ai"
+  },
+  "plugins": [
+    {
+      "name": "octocode",
+      "description": "Octocode code research tools and public skills for Claude Code",
+      "source": {
+        "source": "npm",
+        "package": "@octocodeai/claude-plugin",
+        "version": "0.1.0"
+      }
+    }
+  ],
+  "description": "Octocode code research tools and public skills for Claude Code"
+}

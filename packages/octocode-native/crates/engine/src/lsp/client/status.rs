@@ -1,0 +1,290 @@
+//! Readiness, liveness, capability, and busy-state queries.
+
+use super::{LspLease, NativeLspClient};
+use crate::error::Result;
+use crate::lsp::transport::{Readiness, STARTUP_SETTLE_MS, ServerHealth};
+use serde_json::Value;
+use std::sync::{Arc, atomic::Ordering};
+use tokio::time::Duration;
+
+/// Longest a later acquire re-waits for a server whose first readiness wait
+/// timed out: long enough to catch an index that is about to finish, short
+/// enough that a call does not pay a language's whole budget again.
+pub(crate) const RESUME_REWAIT_MS: u32 = 15_000;
+
+impl NativeLspClient {
+    /// Wait for the server to finish any post-`initialized` indexing, returning
+    /// how the wait ended, so a caller can tell a confirmed-idle server apart
+    /// from one that never reported progress or is still busy.
+    pub(crate) async fn wait_for_ready(&self, timeout_ms: Option<u32>) -> Result<Readiness> {
+        let timeout_ms = u64::from(timeout_ms.unwrap_or(45_000));
+        let readiness = self
+            .inner
+            .progress
+            .wait_until_idle(timeout_ms, self.settle_ms(self.startup_settle_ms()))
+            .await;
+        {
+            let mut slot = self
+                .inner
+                .readiness
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            *slot = Some(readiness);
+        }
+        Ok(readiness)
+    }
+
+    /// `false` if the client was never started/already stopped, or if its
+    /// connection's read loop has observed the server process close (crash).
+    /// Lets the JS client pool evict a stale pooled entry at the next
+    /// `acquire()` instead of returning a client whose requests will just
+    /// fail until the idle timer eventually reaps it.
+    pub async fn is_alive(&self) -> bool {
+        match self.inner.connection.lock().await.as_ref() {
+            Some(connection) => connection.is_alive(),
+            None => false,
+        }
+    }
+
+    /// See [`crate::lsp::config::serves_requests_concurrently`].
+    pub fn serves_requests_concurrently(&self) -> bool {
+        crate::lsp::config::serves_requests_concurrently(&self.inner.config)
+    }
+
+    /// See [`crate::lsp::config::workspace_symbol_cap_advice`].
+    pub fn workspace_symbol_cap_advice(&self) -> &'static str {
+        crate::lsp::config::workspace_symbol_cap_advice(&self.inner.config)
+    }
+
+    /// See [`crate::lsp::config::workspace_symbol_limit`].
+    pub fn workspace_symbol_limit(&self) -> Option<usize> {
+        crate::lsp::config::workspace_symbol_limit(&self.inner.config)
+    }
+
+    /// The configuration this client's server runs under.
+    pub fn config(&self) -> &crate::lsp::types::LspLanguageServerConfig {
+        &self.inner.config
+    }
+
+    /// Whether this server is still building its index: its answers so far may
+    /// miss files. A server with no project index is never building one.
+    pub fn is_indexing(&self) -> bool {
+        crate::lsp::clangd_database::indexes_project(&self.inner.config)
+            && self.inner.progress.has_active()
+    }
+
+    /// What an answer of this server depends on beyond the files it reads:
+    /// the server (this client, never reused), the document text it holds
+    /// ([`Self::documents_sent`]) and the work it began. `None` while any work
+    /// is open (indexing, a load): an answer then may change with no edit.
+    /// An equal state later means the same server holds the same documents
+    /// and began no work since.
+    #[must_use]
+    pub fn answer_state(&self) -> Option<String> {
+        if self.inner.progress.has_active() {
+            return None;
+        }
+        Some(format!(
+            "{}:{}:{}",
+            self.inner.instance,
+            self.documents_sent(),
+            self.inner.progress.begins()
+        ))
+    }
+
+    /// What the server says is wrong with it right now: while it does, what it
+    /// answers may be incomplete or wrong.
+    pub fn health(&self) -> Option<ServerHealth> {
+        self.inner.progress.health()
+    }
+
+    /// Whether this server has finished an index of its project: it announced the
+    /// work (clangd does, even reusing shards), shows none open, and wrote shards.
+    /// That speaks only for the files [`Self::index_covers`].
+    pub fn has_finished_index(&self) -> bool {
+        crate::lsp::clangd_database::indexes_project(&self.inner.config)
+            && self.inner.progress.begins() > 0
+            && !self.inner.progress.has_active()
+            && crate::lsp::clangd_database::has_index_shards(&self.inner.config)
+    }
+
+    /// Whether `file` (canonical) differs from when this server started: its index
+    /// holds what the file said then, and clangd does not watch files.
+    pub fn changed_since_start(&self, file: &str) -> bool {
+        use crate::lsp::clangd_database::file_state;
+        match self
+            .inner
+            .listed_files
+            .get()
+            .and_then(|listed| listed.get(file))
+        {
+            Some(state) => file_state(file) != *state,
+            None => {
+                let Some(started) = self.inner.started_at.get() else {
+                    return true;
+                };
+                file_state(file).is_some_and(|(modified, _)| modified > *started)
+            }
+        }
+    }
+
+    /// The listed files that differ from when this server started.
+    pub fn changed_listed_files(&self) -> Vec<String> {
+        use crate::lsp::clangd_database::file_state;
+        self.inner
+            .listed_files
+            .get()
+            .into_iter()
+            .flatten()
+            .filter(|(file, state)| file_state(file) != **state)
+            .map(|(file, _)| file.clone())
+            .collect()
+    }
+
+    /// The names this server's index holds (see `clangd_database::indexed_names`).
+    pub fn indexed_names(&self) -> std::collections::HashSet<String> {
+        crate::lsp::clangd_database::indexed_names(&self.inner.config)
+    }
+
+    /// Whether this server's index holds `file` (canonical) as it is on disk: it
+    /// wrote a shard for that name, the database lists the file (a header reaches
+    /// the index through its includers instead), and it has not changed since.
+    pub fn index_covers(&self, file: &str, indexed: &std::collections::HashSet<String>) -> bool {
+        let path = std::path::Path::new(file);
+        let named = path
+            .file_name()
+            .is_some_and(|name| indexed.contains(&*name.to_string_lossy()));
+        let listed = self
+            .inner
+            .listed_files
+            .get()
+            .is_some_and(|listed| listed.contains_key(file));
+        let header = path.extension().is_some_and(|extension| {
+            ["h", "hh", "hpp", "hxx", "cuh", "inc", "def"]
+                .contains(&&*extension.to_string_lossy().to_lowercase())
+        });
+        named && (listed || header) && !self.changed_since_start(file)
+    }
+
+    pub fn has_capability(&self, capability: String) -> bool {
+        let capabilities = self
+            .inner
+            .capabilities
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        capabilities
+            .as_ref()
+            .map(|value| capability_supported(value, &capability))
+            .unwrap_or(false)
+    }
+
+    /// How this server's last readiness wait ended; `None` before its first.
+    pub fn readiness(&self) -> Option<Readiness> {
+        *self
+            .inner
+            .readiness
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// How long startup waits for a first `$/progress`: none for a server
+    /// that announces its project load only once a document is open (the
+    /// TypeScript family: tsserver starts loading after `didOpen`), where the
+    /// open wait catches it; [`STARTUP_SETTLE_MS`] otherwise.
+    fn startup_settle_ms(&self) -> u64 {
+        if crate::lsp::family::is_typescript_family(self.inner.config.language_id.as_deref()) {
+            0
+        } else {
+            STARTUP_SETTLE_MS
+        }
+    }
+
+    /// `settle` bounded by [`LspClientOptions::settle_cap`](crate::lsp::client::LspClientOptions::settle_cap).
+    pub(super) fn settle(&self, settle: Duration) -> Duration {
+        self.inner
+            .options
+            .settle_cap
+            .map_or(settle, |cap| settle.min(cap))
+    }
+
+    /// [`Self::settle`] in milliseconds.
+    pub(super) fn settle_ms(&self, settle_ms: u64) -> u64 {
+        u64::try_from(self.settle(Duration::from_millis(settle_ms)).as_millis())
+            .unwrap_or(settle_ms)
+    }
+
+    pub(crate) fn language_id(&self) -> Option<&str> {
+        self.inner.config.language_id.as_deref()
+    }
+
+    /// Serialize readiness probes on this server so simultaneous semantic requests
+    /// share its first completed wait. Outlines only need this on an empty answer.
+    pub async fn wait_for_project_readiness(&self) {
+        if let Some(timeout) = crate::lsp::pool::readiness_timeout(self.language_id()) {
+            let _wait = self.inner.readiness_wait.lock().await;
+            self.resume_timed_out_readiness(timeout).await;
+        }
+    }
+
+    /// The readiness wait a pooled client owes before it is handed out: the
+    /// whole `timeout_ms` for a client that never waited (just started), and
+    /// up to [`RESUME_REWAIT_MS`] again for one whose last wait ended in
+    /// `timeout` (the server kept indexing since, so the next call can see
+    /// it finish instead of failing on the stored `timeout`, without paying
+    /// the whole budget on every call). Any other readiness returns at
+    /// once. A re-wait never pays the silent-server settle again: a
+    /// `timeout` means the server already reported progress. The wait holds
+    /// a lease, so idle expiry cannot stop the server under it.
+    pub(crate) async fn resume_timed_out_readiness(&self, timeout_ms: u32) {
+        let budget = match self.readiness() {
+            None => timeout_ms,
+            Some(Readiness::Timeout) => timeout_ms.min(RESUME_REWAIT_MS),
+            Some(Readiness::ProgressIdle | Readiness::SilentServer) => return,
+        };
+        let _activity = self.lease();
+        let _ = self.wait_for_ready(Some(budget)).await;
+    }
+
+    /// Mark this client busy for as long as the returned guard lives. Hold
+    /// one across a whole multi-request operation (document syncs, readiness
+    /// waits, and the gaps between requests) so the pool's idle timer and LRU
+    /// eviction never stop the server mid-operation. Requests, syncs, and
+    /// diagnostic waits take their own lease internally.
+    pub fn lease(&self) -> LspLease {
+        LspLease::new(&self.inner.activity)
+    }
+
+    /// `true` when `other` is a clone of this client (same server process
+    /// state), not merely one with an equal config.
+    pub(crate) fn same_client(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
+    /// `true` while any request, sync, diagnostic wait, or [`LspLease`] is
+    /// outstanding on this client (or a clone of it).
+    pub(crate) fn is_busy(&self) -> bool {
+        self.inner.activity.load(Ordering::Acquire) > 0
+    }
+
+    /// The bytes the server tree held at the last watchdog sample.
+    pub(crate) fn last_resident_bytes(&self) -> u64 {
+        self.inner.resident_bytes.load(Ordering::Relaxed)
+    }
+}
+
+fn capability_supported(capabilities: &Value, capability: &str) -> bool {
+    capabilities
+        .get(capability)
+        .map(capability_value_supported)
+        .unwrap_or(false)
+}
+
+fn capability_value_supported(value: &Value) -> bool {
+    match value {
+        Value::Bool(enabled) => *enabled,
+        Value::Null => false,
+        Value::Object(_) => true,
+        Value::Array(items) => !items.is_empty(),
+        _ => false,
+    }
+}

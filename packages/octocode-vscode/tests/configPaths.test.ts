@@ -41,7 +41,7 @@ describe('detectEditorInfo', () => {
   it('detects Cursor on macOS', () => {
     expect(detectEditorInfo('Cursor', baseOptions)).toEqual({
       name: 'Cursor',
-      scheme: 'cursor',
+      configKey: 'mcpServers',
       mcpConfigPath: '/Users/tester/.cursor/mcp.json',
     });
   });
@@ -55,7 +55,7 @@ describe('detectEditorInfo', () => {
       })
     ).toEqual({
       name: 'Cursor',
-      scheme: 'cursor',
+      configKey: 'mcpServers',
       mcpConfigPath: 'C:\\Users\\tester\\AppData\\Roaming/Cursor/mcp.json',
     });
   });
@@ -63,7 +63,7 @@ describe('detectEditorInfo', () => {
   it('detects Windsurf', () => {
     expect(detectEditorInfo('Windsurf', baseOptions)).toEqual({
       name: 'Windsurf',
-      scheme: 'windsurf',
+      configKey: 'mcpServers',
       mcpConfigPath: '/Users/tester/.codeium/windsurf/mcp_config.json',
     });
   });
@@ -71,9 +71,9 @@ describe('detectEditorInfo', () => {
   it('falls back to VS Code', () => {
     expect(detectEditorInfo('Code - Insiders', baseOptions)).toEqual({
       name: 'VS Code',
-      scheme: 'vscode',
       mcpConfigPath:
-        '/Users/tester/Library/Application Support/Claude/claude_desktop_config.json',
+        '/Users/tester/Library/Application Support/Code - Insiders/User/mcp.json',
+      configKey: 'servers',
     });
   });
 });

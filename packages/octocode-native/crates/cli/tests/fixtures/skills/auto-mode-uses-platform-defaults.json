@@ -1,0 +1,185 @@
+{
+  "setup": [
+    {
+      "dir": "<ROOT>/bundled/fixture-skill",
+      "marker": "v1"
+    }
+  ],
+  "runs": [
+    {
+      "skills": [
+        {
+          "name": "fixture-skill",
+          "sourcePath": "<ROOT>/bundled/fixture-skill"
+        }
+      ],
+      "canonicalSkillsDir": "<ROOT>/home/.octocode/skills",
+      "targets": [
+        {
+          "platform": "claude",
+          "scope": "global",
+          "homeDir": "<ROOT>/home"
+        },
+        {
+          "platform": "cursor",
+          "scope": "global",
+          "homeDir": "<ROOT>/home"
+        },
+        {
+          "platform": "codex",
+          "scope": "project",
+          "projectDir": "<ROOT>/project"
+        }
+      ],
+      "mode": "auto"
+    }
+  ],
+  "result": {
+    "ok": true,
+    "action": "install",
+    "dryRun": false,
+    "force": false,
+    "upgrade": false,
+    "canonicalSkillsDir": "<ROOT>/home/.octocode/skills",
+    "skills": [
+      {
+        "name": "fixture-skill",
+        "source": "<ROOT>/bundled/fixture-skill",
+        "canonical": "<ROOT>/home/.octocode/skills/fixture-skill",
+        "canonicalStatus": "installed",
+        "destinations": [
+          {
+            "platform": "claude",
+            "scope": "global",
+            "destination": "<ROOT>/home/.claude/skills/fixture-skill",
+            "mode": "symlink",
+            "status": "linked",
+            "linkTarget": "<ROOT>/home/.octocode/skills/fixture-skill"
+          },
+          {
+            "platform": "cursor",
+            "scope": "global",
+            "destination": "<ROOT>/home/.cursor/skills/fixture-skill",
+            "mode": "symlink",
+            "status": "linked",
+            "linkTarget": "<ROOT>/home/.octocode/skills/fixture-skill"
+          },
+          {
+            "platform": "codex",
+            "scope": "project",
+            "destination": "<ROOT>/project/.agents/skills/fixture-skill",
+            "mode": "symlink",
+            "status": "linked",
+            "linkTarget": "<ROOT>/home/.octocode/skills/fixture-skill"
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "installed": 1,
+      "upgraded": 0,
+      "linked": 3,
+      "copied": 0,
+      "unchanged": 0,
+      "conflicts": 0,
+      "failed": 0
+    }
+  },
+  "tree": [
+    {
+      "path": "bundled",
+      "kind": "dir"
+    },
+    {
+      "path": "bundled/fixture-skill",
+      "kind": "dir"
+    },
+    {
+      "path": "bundled/fixture-skill/SKILL.md",
+      "kind": "file",
+      "content": "# Fixture skill (v1)\n"
+    },
+    {
+      "path": "bundled/fixture-skill/references",
+      "kind": "dir"
+    },
+    {
+      "path": "bundled/fixture-skill/references/guide.md",
+      "kind": "file",
+      "content": "v1 guide\n"
+    },
+    {
+      "path": "home",
+      "kind": "dir"
+    },
+    {
+      "path": "home/.claude",
+      "kind": "dir"
+    },
+    {
+      "path": "home/.claude/skills",
+      "kind": "dir"
+    },
+    {
+      "path": "home/.claude/skills/fixture-skill",
+      "kind": "symlink",
+      "target": "<ROOT>/home/.octocode/skills/fixture-skill"
+    },
+    {
+      "path": "home/.cursor",
+      "kind": "dir"
+    },
+    {
+      "path": "home/.cursor/skills",
+      "kind": "dir"
+    },
+    {
+      "path": "home/.cursor/skills/fixture-skill",
+      "kind": "symlink",
+      "target": "<ROOT>/home/.octocode/skills/fixture-skill"
+    },
+    {
+      "path": "home/.octocode",
+      "kind": "dir"
+    },
+    {
+      "path": "home/.octocode/skills",
+      "kind": "dir"
+    },
+    {
+      "path": "home/.octocode/skills/fixture-skill",
+      "kind": "dir"
+    },
+    {
+      "path": "home/.octocode/skills/fixture-skill/SKILL.md",
+      "kind": "file",
+      "content": "# Fixture skill (v1)\n"
+    },
+    {
+      "path": "home/.octocode/skills/fixture-skill/references",
+      "kind": "dir"
+    },
+    {
+      "path": "home/.octocode/skills/fixture-skill/references/guide.md",
+      "kind": "file",
+      "content": "v1 guide\n"
+    },
+    {
+      "path": "project",
+      "kind": "dir"
+    },
+    {
+      "path": "project/.agents",
+      "kind": "dir"
+    },
+    {
+      "path": "project/.agents/skills",
+      "kind": "dir"
+    },
+    {
+      "path": "project/.agents/skills/fixture-skill",
+      "kind": "symlink",
+      "target": "<ROOT>/home/.octocode/skills/fixture-skill"
+    }
+  ]
+}

@@ -5,7 +5,7 @@
  *
  * Usage:
  *   corpus-run.mjs --session-dir <scrapeSession> --regex 'offerId|productId' [--roots raw,text,extracts,cdp]
- *   corpus-run.mjs --artifact-dir <.octocode/tmp/chrome-devtools/...> --regex 'items'
+ *   corpus-run.mjs --artifact-dir <.octocode/octocode-chrome-devtools/tmp/...> --regex 'items'
  *   corpus-run.mjs --session-dir <dir> --concat-parts --write-full-clean --regex 'headline'
  *   corpus-run.mjs --session-dir <dir> --script ./my-check.mjs [--script-arg k=v]
  *
@@ -13,10 +13,12 @@
  *   ctx = { root, roots, files, read, write, sessionDir, artifactDir, args, matches }
  *   return { ok, findings?, matches? } (optional)
  */
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, stat, mkdir } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { paginate } from './lib/pagination.mjs';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import {
   takeArg,
   hasFlag,
@@ -27,13 +29,21 @@ import {
   safeScriptPath,
   readJsonFile,
 } from './lib/bridge.mjs';
+import { fail } from './lib/fail.mjs';
 
 function usage(code = 2) {
   console.error(`Usage:
-  corpus-run.mjs --session-dir <scrapeSession> --regex <pattern> [--flags <gimsu>] [--roots raw,text,extracts,cdp,snippets] [--limit 50] [--concat-parts] [--write-full-clean]
+  corpus-run.mjs --session-dir <scrapeSession> --regex <pattern> [--flags <gimsu>] [--roots text,extracts,cdp,snippets,reports,indexes,graph,sources] [--limit 50] [--concat-parts] [--write-full-clean]
   corpus-run.mjs --artifact-dir <chrome-devtools-run> --regex <pattern> [...]
   corpus-run.mjs --session-dir <dir> --script <file.mjs> [--script-arg key=value]
 
+--script runs a trusted module that exports async function run(ctx); ctx = { root, roots, files [{rel, abs, root}],
+read(relOrAbs) -> text, write(rel, text) -> abs path (creates folders under the session), sessionDir, artifactDir,
+args (from --script-arg), matches }. Its return value is saved under indexes/script-results/ and printed as
+script.result (inline when at most 4000 bytes; otherwise follow script.result.next.continue); {ok:false} exits 1.
+
+Default roots follow the documented search order; add raw to audit extraction. The sources root covers the top-level files
+(sources.jsonl, AGENT_INDEX.json, manifest.json, page-map.json, MAP.md).
 Stdout is compact JSON (paths + match samples), never full file dumps.`);
   process.exit(code);
 }
@@ -45,8 +55,10 @@ const sessionDirArg = takeArg(args, '--session-dir');
 const artifactDirArg = takeArg(args, '--artifact-dir');
 const regexStr = takeArg(args, '--regex');
 const flags = takeArg(args, '--flags', 'gi');
-const rootsCsv = takeArg(args, '--roots', 'raw,text,extracts,cdp,snippets');
-const limit = Math.max(1, Math.min(500, Number(takeArg(args, '--limit', '50')) || 50));
+const DEFAULT_ROOTS = 'text,extracts,cdp,snippets,reports,indexes,graph,sources';
+const rootsCsv = takeArg(args, '--roots', DEFAULT_ROOTS);
+const limit = Number(takeArg(args, '--limit', '50'));
+if (!Number.isSafeInteger(limit) || limit < 1 || limit > 300) fail('invalidArguments', '--limit must be an integer from 1 to 300', 2);
 const concatParts = hasFlag(args, '--concat-parts');
 const writeFullClean = hasFlag(args, '--write-full-clean');
 const scriptArg = takeArg(args, '--script');
@@ -60,12 +72,10 @@ const artifactDir = artifactDirArg ? resolve(artifactDirArg) : null;
 const roots = rootsCsv.split(',').map((s) => s.trim()).filter(Boolean);
 
 if (sessionDir && !existsSync(sessionDir)) {
-  console.log(JSON.stringify({ ok: false, error: `session-dir not found: ${sessionDir}` }));
-  process.exit(1);
+  fail('sessionNotFound', `session-dir not found: ${sessionDir}`, 1);
 }
 if (artifactDir && !existsSync(artifactDir)) {
-  console.log(JSON.stringify({ ok: false, error: `artifact-dir not found: ${artifactDir}` }));
-  process.exit(1);
+  fail('notFound', `artifact-dir not found: ${artifactDir}`, 1);
 }
 
 const fullCleanWritten = [];
@@ -80,7 +90,7 @@ if (sessionDir && (concatParts || writeFullClean)) {
     const m = f.rel.match(/^(page-\d+)\.clean\.part-/);
     if (m && !pageIds.includes(m[1])) pageIds.push(m[1]);
   }
-  for (const pageId of [...new Set(pageIds)]) {
+  for (const pageId of new Set(pageIds)) {
     const result = await concatCleanParts(sessionDir, pageId, { writeFull: writeFullClean || concatParts });
     if (result.fullRel) fullCleanWritten.push(result.fullRel);
   }
@@ -93,10 +103,9 @@ async function collectFiles() {
     const listed = await listFilesRecursive(sessionDir, {
       include: (rel) => {
         if (!defaultCorpusInclude(rel) && !rel.startsWith('cdp/')) return false;
-        if (rel === 'sources.jsonl' || rel === 'AGENT_INDEX.json') return roots.includes('extracts') || roots.includes('raw') || true;
-        const top = rel.split('/')[0];
-        if (['raw', 'text', 'extracts', 'cdp', 'snippets', 'indexes', 'graph'].includes(top)) return allow.has(top);
-        return allow.has(top);
+        // Top-level session files belong to the `sources` root; every other file to its folder.
+        if (!rel.includes('/')) return allow.has('sources');
+        return allow.has(rel.split('/')[0]);
       },
     });
     for (const f of listed) {
@@ -129,22 +138,21 @@ async function runRegex() {
   try {
     re = new RegExp(regexStr, flags.includes('g') ? flags : `${flags}g`);
   } catch (error) {
-    console.log(JSON.stringify({ ok: false, error: `invalid regex: ${error.message}` }));
-    process.exit(1);
+    fail('invalidArguments', `invalid regex: ${error.message}`, 2);
   }
   const matches = [];
   const scanned = [];
   for (const file of files) {
-    let text;
+    let text, sourceSnapshot;
     try {
-      const buf = await readFile(file.abs);
-      if (buf.length > maxFileBytes) {
-        scanned.push({ rel: file.rel, skipped: 'max-file-bytes', bytes: buf.length });
+      const size = (await stat(file.abs)).size;
+      if (size > maxFileBytes) {
+        scanned.push({ rel: file.rel, skipped: 'max-file-bytes', bytes: size });
         continue;
       }
-      text = buf.toString('utf8');
-    } catch {
-      continue;
+      const raw = await readFile(file.abs); text = raw.toString('utf8'); sourceSnapshot = createHash('sha256').update(raw).digest('hex');
+    } catch (error) {
+      scanned.push({rel:file.rel,error:error.message}); continue;
     }
     scanned.push({ rel: file.rel, bytes: Buffer.byteLength(text) });
     re.lastIndex = 0;
@@ -162,13 +170,14 @@ async function runRegex() {
         column,
         match: m[0],
         groups: m.slice(1),
+        next: { continue: { command: process.execPath, args: [fileURLToPath(new URL('./source-query.mjs', import.meta.url)), '--file', file.abs, '--snapshot', sourceSnapshot] } },
         snippet: text.slice(start, end).replace(/\s+/g, ' ').trim().slice(0, 240),
       });
       perFile += 1;
-      if (matches.length >= limit || perFile >= Math.max(5, Math.floor(limit / 2))) break;
+      if (m[0].length === 0) re.lastIndex += re.unicode && text.codePointAt(re.lastIndex) > 0xffff ? 2 : 1;
       if (!re.global) break;
     }
-    if (matches.length >= limit) break;
+
   }
   return { matches, scanned };
 }
@@ -195,6 +204,9 @@ const ctxBase = {
   async write(rel, content) {
     const base = sessionDir || artifactDir;
     const abs = join(base, rel);
+    const inside = relative(base, abs);
+    if (!inside || inside.startsWith('..') || isAbsolute(inside)) throw new Error(`ctx.write path must stay inside ${base}: ${rel}`);
+    await mkdir(dirname(abs), { recursive: true });
     await writeFile(abs, content);
     return abs;
   },
@@ -202,19 +214,34 @@ const ctxBase = {
 };
 
 let scriptResult = null;
+let scriptEvidence = null;
+let inlineScriptResult = null;
 if (scriptArg) {
   const absScript = safeScriptPath(scriptArg, process.cwd());
   const mod = await import(pathToFileURL(absScript).href);
   if (typeof mod.run !== 'function') {
-    console.log(JSON.stringify({ ok: false, error: 'script must export async function run(ctx)' }));
-    process.exit(1);
+    fail('invalidScript', 'script must export async function run(ctx)', 2);
   }
-  scriptResult = await mod.run(ctxBase);
+  try { scriptResult = await mod.run(ctxBase); }
+  catch (error) { fail('scriptFailed', error instanceof Error ? error.message : String(error), 1, { script: absScript }); }
+  const value = JSON.stringify(scriptResult ?? null);
+  inlineScriptResult = Buffer.byteLength(value) <= 4000 ? scriptResult : null;
+  const digest = createHash('sha256').update(value).digest('hex');
+  const directory = resolve(sessionDir || artifactDir, 'indexes', 'script-results');
+  await mkdir(directory, { recursive: true });
+  const file = resolve(directory, `${digest}.json`);
+  await writeFile(file, value);
+  scriptEvidence = { file, sha256: digest, next: { continue: { command: process.execPath, args: [fileURLToPath(new URL('./source-query.mjs', import.meta.url)), '--file', file, '--snapshot', digest] } } };
 }
 
 let regexResult = { matches: [], scanned: [] };
 if (regexStr) regexResult = await runRegex();
 
+// Continuations must run unchanged from any cwd, so directory values are absolute.
+const pagingArgs = args.filter((_,i)=>!['--script','--script-arg','--write-full-clean','--concat-parts'].includes(args[i])&&!['--script','--script-arg'].includes(args[i-1]))
+  .map((value,i,list)=>(['--session-dir','--artifact-dir'].includes(list[i-1]) ? resolve(value) : value));
+const skippedFiles = regexResult.scanned.filter(row => row.skipped || row.error).map(row=>({...row,next:{continue:{command:process.execPath,args:[fileURLToPath(new URL('./source-query.mjs',import.meta.url)),'--file',files.find(file=>file.rel===row.rel).abs]}}}));
+const paging = await paginate({lists:{matches:regexResult.matches,scanned:regexResult.scanned,skippedFiles},files:files.map(file=>file.abs),dir:sessionDir||artifactDir,args:pagingArgs,script:fileURLToPath(import.meta.url),defaultLimit:limit});
 const ok = scriptResult?.ok !== false;
 console.log(JSON.stringify({
   ok,
@@ -229,17 +256,10 @@ console.log(JSON.stringify({
   script: scriptArg
     ? {
         path: resolve(scriptArg),
-        result: scriptResult && typeof scriptResult === 'object'
-          ? {
-              ok: scriptResult.ok !== false,
-              findings: scriptResult.findings || scriptResult.matches || undefined,
-              detail: scriptResult.detail || undefined,
-            }
-          : { ok: true, detail: scriptResult },
+        result: { ...(inlineScriptResult && typeof inlineScriptResult === 'object' ? inlineScriptResult : { detail: inlineScriptResult }), ok: scriptResult?.ok !== false, ...scriptEvidence },
       }
     : null,
-  next: regexResult.matches.length
-    ? regexResult.matches.slice(0, 5).map((m) => ({ file: m.file, line: m.line, match: m.match }))
-    : ['No regex hits — broaden pattern or ingest HAR bodies first'],
+  ...paging,
+  coverage: { complete: regexResult.scanned.every(row => !row.skipped && !row.error), maxFileBytes },
 }, null, 2));
 process.exit(ok ? 0 : 1);

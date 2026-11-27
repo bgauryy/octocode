@@ -1,0 +1,114 @@
+[package]
+name = "octocode-native"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+autobins = false
+autotests = false
+autoexamples = false
+license.workspace = true
+repository.workspace = true
+description = "Native Octocode tool execution library"
+
+[lib]
+crate-type = ["rlib"]
+# Internal crate: tests are unit and integration tests, run by nextest, which
+# cannot run doctests. `cargo shear --check-test-targets` flags a doctest here.
+doctest = false
+
+[[test]]
+name = "integration"
+path = "tests/main.rs"
+
+# PageReplayMemo latency and retained bytes across byte caps (prints tables).
+[[bench]]
+name = "page_replay"
+harness = false
+
+# Output gate and validation cost per response page (prints tables).
+[[bench]]
+name = "output_stages"
+harness = false
+
+# Complete recorded envelopes: validation throughput with no provider or I/O in the loop.
+[[bench]]
+name = "contract_layout"
+harness = false
+
+[features]
+# Dev-loop feature unification, enabled by `build:dev` and `test:rust` but never
+# by release builds: the features the test selection's dev-dependencies turn on
+# (the dev-dependencies below; `getrandom/std` and `sys_rng` from the engine's
+# proptest). Without one of them in `build:dev`, tokio, hyper, reqwest and every
+# workspace crate compiled under a second hash, and each switch between
+# `build:dev` and `test:rust` rebuilt them (`cargo --unit-graph`: each entry
+# removed adds 6 to 20 duplicate units). Keep in sync with the dev-dependencies.
+# `octocode-engine/test-hooks` compiles test code into dev builds (the engine's
+# thread-local test clocks, read on every walk-clock and settle-clock reading);
+# the `test-support` features compile the fixtures the layers offer the tests
+# above them; `hyper` and `hyper-util` carry the features wiremock turns on. No
+# dev-dependency turns on tokio's `test-util`: tests move time through injected
+# clocks instead of tokio's paused clock.
+dev-unify = ["octocode-engine/test-hooks", "octocode-runtime-base/test-support", "getrandom/std", "getrandom/sys_rng", "octocode-tools-shared/test-support", "octocode-tool-graph/test-support", "octocode-tool-lsp/test-support", "octocode-tool-github/test-support", "octocode-tool-local/test-support", "octocode-tool-ast/test-support", "octocode-tool-packages/test-support", "octocode-tool-clasify/test-support", "dep:hyper", "dep:hyper-util", "dep:getrandom"]
+
+[dependencies]
+octocode-runtime-base = { path = "../runtime-base" }
+octocode-tools-shared = { path = "../tools-shared" }
+octocode-tool-graph = { path = "../tool-graph" }
+octocode-tool-lsp = { path = "../tool-lsp" }
+octocode-tool-github = { path = "../tool-github" }
+octocode-tool-local = { path = "../tool-local" }
+octocode-tool-ast = { path = "../tool-ast" }
+octocode-tool-packages = { path = "../tool-packages" }
+octocode-tool-clasify = { path = "../tool-clasify" }
+octocode-io = { path = "../io" }
+octocode-contract-types = { path = "../contract-types" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+url = { workspace = true }
+futures-util = { workspace = true }
+secrecy = { workspace = true }
+hex = { workspace = true }
+octocode-engine = { path = "../engine" }
+octocode-github = { path = "../github" }
+tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros", "sync", "time", "signal", "process", "io-util"] }
+# Only for `dev-unify`: the features the dev-dependencies (wiremock) turn on,
+# so a dev build shares hyper's units with the test build. No code names them.
+hyper = { version = "1", features = ["full"], optional = true }
+hyper-util = { version = "0.1", features = ["http2"], optional = true }
+# Only for `dev-unify`, which turns on features the test build uses.
+getrandom = { workspace = true, optional = true }
+
+[build-dependencies]
+# Reads the path dependencies of the manifests the build identity hashes.
+toml = { workspace = true }
+
+[dev-dependencies]
+octocode-runtime-base = { path = "../runtime-base", features = ["test-support"] }
+octocode-tools-shared = { path = "../tools-shared", features = ["test-support"] }
+octocode-test-support = { path = "../test-support" }
+octocode-tool-graph = { path = "../tool-graph", features = ["test-support"] }
+octocode-tool-lsp = { path = "../tool-lsp", features = ["test-support"] }
+octocode-tool-github = { path = "../tool-github", features = ["test-support"] }
+octocode-tool-local = { path = "../tool-local", features = ["test-support"] }
+octocode-tool-ast = { path = "../tool-ast", features = ["test-support"] }
+octocode-tool-packages = { path = "../tool-packages", features = ["test-support"] }
+octocode-tool-clasify = { path = "../tool-clasify", features = ["test-support"] }
+sha2 = { workspace = true }
+octocode-engine = { path = "../engine", features = ["test-hooks"] }
+tempfile = { workspace = true }
+wiremock = { workspace = true }
+
+# Inherits the shared floor from [workspace.lints] (root Cargo.toml). The runtime
+# keeps the existing shared policy; the engine library owns its stricter
+# stdout/stderr lint policy.
+toml = { workspace = true }
+regex = { workspace = true }
+base64 = { workspace = true }
+[lints]
+workspace = true
+
+[package.metadata.cargo-shear]
+# Named only by `dev-unify`, for the features the test build turns on.
+ignored = ["hyper", "hyper-util", "getrandom"]

@@ -1,0 +1,146 @@
+// The ONE place tool contracts are generated. Every consumer (MCP, CLI, and
+// octocode-native) reads these outputs; nothing else generates or copies them.
+//
+//   core Zod schemas ── buildEnforcementContractIr ──▶ contract/tool-contract.json
+//        │                                             (native embed: schemas, rules, defaults)
+//        ├── buildNativeParityFixtures ───────────────▶ contract/contract-fixtures.json
+//        ├── tool-contract/instruction-fixtures.ts ──▶ contract/instruction-fixtures.json
+//        │                                             (native test: composed instructions equal core's)
+//        ├── tool-contract/presentation.ts ───────────▶ contract/cli-presentation.json
+//        │                                             (native embed: `schema` and `<tool> --help`)
+//        └── tool-contract/bundle.ts ──▶ contract/tool-types.schema.json
+//                 └── tool-contract/rust.ts ────────▶ contract/tool_types.rs
+//                     │                               contract/tool_types_base.rs
+//                     (rust-reach.ts keeps only the types native source names
+//                      and what they reach; rust-merge.ts emits each shape once;
+//                      rust-serde.ts derives Deserialize only where a call
+//                      decodes; the base file holds what lower crates name)
+//
+// octocode-native's build.rs embeds contract/ in place, so regenerating here
+// is the whole change. Outputs are committed and never hand-edited; `--check`
+// requires cargo-typify to compare the Rust body and fails when any output is stale.
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import {
+  buildEnforcementContractIr,
+  buildNativeParityFixtures,
+  canonicalizeNativeContractIr,
+  type EnforcementContractIr,
+} from '@octocodeai/octocode-core/schema';
+import { buildToolTypesBundle } from './tool-contract/bundle.ts';
+import { instructionFixtures } from './tool-contract/instruction-fixtures.ts';
+import { readGenerated, writeGenerated } from './generated-files.ts';
+import { isEntryPoint } from './tool-contract/entry-point.ts';
+import { buildCliPresentation } from './tool-contract/presentation.ts';
+import { toolNames } from './tool-contract/rust-dispatch.ts';
+import { renderRust, rustHeader, type Dispatch } from './tool-contract/rust.ts';
+
+export { buildToolTypesBundle } from './tool-contract/bundle.ts';
+
+const contractFile = (name: string): string =>
+  fileURLToPath(new URL(`../contract/${name}`, import.meta.url));
+const rustPath = contractFile('tool_types.rs');
+const basePath = contractFile('tool_types_base.rs');
+
+const sha256 = (text: string): string =>
+  createHash('sha256').update(text).digest('hex');
+
+function corePackageVersion(): string {
+  // `./schema` resolves to <core>/dist/schema.js; the manifest sits one level up.
+  const manifest = new URL(
+    '../package.json',
+    import.meta.resolve('@octocodeai/octocode-core/schema')
+  );
+  const parsed: unknown = JSON.parse(readFileSync(manifest, 'utf8'));
+  const version =
+    typeof parsed === 'object' && parsed !== null && 'version' in parsed
+      ? parsed.version
+      : undefined;
+  if (typeof version !== 'string')
+    throw new TypeError(`${manifest.pathname} has no version`);
+  return version;
+}
+
+/** Every generated file except the Rust body, plus the header it must start with. */
+export function generateToolContract(
+  ir: EnforcementContractIr = buildEnforcementContractIr()
+): {
+  files: Map<string, string>;
+  bundleJson: string;
+  rustHeader: string;
+  dispatch: Dispatch;
+} {
+  const contractJson = canonicalizeNativeContractIr(ir);
+  const { fingerprint, bundle } = buildToolTypesBundle(ir);
+  const bundleJson = `${JSON.stringify(bundle, null, 2)}\n`;
+  const provenance = {
+    sourcePackage: '@octocodeai/octocode-core',
+    sourceVersion: corePackageVersion(),
+    contractFormatVersion: ir.contractFormatVersion,
+    contractFingerprint: fingerprint,
+    contractSha256: sha256(contractJson),
+  };
+  return {
+    files: new Map([
+      [contractFile('tool-contract.json'), contractJson],
+      [
+        contractFile('contract-fixtures.json'),
+        `${JSON.stringify(buildNativeParityFixtures(), null, 2)}\n`,
+      ],
+      [
+        contractFile('cli-presentation.json'),
+        `${JSON.stringify(buildCliPresentation())}\n`,
+      ],
+      [
+        contractFile('instruction-fixtures.json'),
+        `${JSON.stringify(instructionFixtures(), null, 2)}\n`,
+      ],
+      [
+        contractFile('provenance.json'),
+        `${JSON.stringify(provenance, null, 2)}\n`,
+      ],
+      [contractFile('tool-types.schema.json'), bundleJson],
+    ]),
+    bundleJson,
+    rustHeader: rustHeader(fingerprint, sha256(bundleJson)),
+    dispatch: {
+      tools: toolNames(ir.tools),
+      channels: ir.continuationChannels,
+      errorChannels: ir.errorContinuationChannels,
+    },
+  };
+}
+
+function main(): void {
+  const {
+    files,
+    bundleJson,
+    rustHeader: header,
+    dispatch,
+  } = generateToolContract();
+  if (!process.argv.includes('--check')) {
+    // Finish fallible generation before publishing any part of the contract.
+    const rust = renderRust(header, bundleJson, undefined, dispatch);
+    for (const [path, content] of files) writeGenerated(path, content);
+    writeGenerated(basePath, rust.base);
+    writeGenerated(rustPath, rust.types);
+    return;
+  }
+  const stale = [...files]
+    .filter(([path, content]) => readGenerated(path) !== content)
+    .map(([path]) => path);
+  // The whole Rust files are regenerated and compared: a matching header
+  // (fingerprint + bundle digest) does not prove the body was not edited.
+  // renderRust fails loudly when cargo-typify is missing.
+  const rust = renderRust(header, bundleJson, undefined, dispatch);
+  if (readGenerated(rustPath) !== rust.types) stale.push(rustPath);
+  if (readGenerated(basePath) !== rust.base) stale.push(basePath);
+  if (stale.length > 0) {
+    throw new Error(
+      `Generated tool contract is stale (${stale.join(', ')}). Run: node skills-dev/octocode-dev/scripts/dev.mjs contracts:regen`
+    );
+  }
+}
+
+if (isEntryPoint(process.argv[1], import.meta.url)) main();

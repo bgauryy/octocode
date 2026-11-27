@@ -1,0 +1,7 @@
+first 界
+second 😀
+
+fourth alpha
+fifth ALPHA
+sixth alphabet
+last without newline

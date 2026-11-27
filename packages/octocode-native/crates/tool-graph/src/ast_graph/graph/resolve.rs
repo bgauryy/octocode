@@ -1,0 +1,328 @@
+//! Recording edges and resolving import specifiers (generic and Python).
+use super::*;
+use octocode_engine::graph::FileGraphNode;
+
+/// Records one file edge. A repeat of `(target, kind)` keeps the file's
+/// first production evidence line, else its first test-only one
+/// (`test_scoped`), so an edge is test code only when all of its sites are.
+pub(super) fn add_edge(
+    b: &mut BuiltGraph,
+    node: &mut FileGraphNode,
+    target: &str,
+    kind: &str,
+    line: u32,
+    test_scoped: &dyn Fn(u32) -> bool,
+) {
+    // The tally counts distinct (target, kind) edges, each one EDGE row;
+    // a repeat only moves its evidence line.
+    let rank = |line: u32| (test_scoped(line), line);
+    let repeat = node
+        .edges
+        .get_mut(target)
+        .and_then(|kinds| kinds.get_mut(kind))
+        .map(|first| {
+            if rank(line) < rank(*first) {
+                *first = line;
+            }
+        })
+        .is_some();
+    if repeat {
+        return;
+    }
+    b.tally.edges = b.tally.edges.saturating_add(1);
+    // Past the bound the build refuses after this file; the edge is
+    // counted, never held, so a fan-out cannot grow memory first.
+    if b.tally.edges <= b.limits.edge_rows() {
+        node.edges
+            .entry(target.into())
+            .or_default()
+            .insert(kind.into(), line);
+    }
+}
+
+/// A Rust `use` path that unambiguously targets the current crate, so failing to
+/// resolve it means the intra-crate edge graph is incomplete — never a benign
+/// external dependency: `crate::`, `self::` and `super::`. A leading `::`
+/// names an extern crate (`::serde::Deserialize`, `::std::vec::Vec`), as
+/// the resolver reads it: what that crate is follows the manifest, like any
+/// crate name.
+pub(super) fn rust_internal_specifier(spec: &str) -> bool {
+    matches!(
+        spec.split("::").next().unwrap_or(""),
+        "crate" | "self" | "super"
+    )
+}
+
+/// Whether a relative specifier climbs above the snapshot root from the
+/// directory of `file` (`../../x` from a file one directory deep): the
+/// target may well exist, but the scan never held it.
+pub(super) fn escapes_root(file: &str, spec: &str) -> bool {
+    let path = spec.split(['?', '#']).next().unwrap_or(spec);
+    if !path.starts_with("./") && !path.starts_with("../") {
+        return false;
+    }
+    let depth = dirname(file)
+        .split('/')
+        .filter(|s| !s.is_empty() && *s != ".")
+        .count();
+    let mut depth = octocode_engine::num::saturating_i64(depth);
+    for segment in path.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                depth -= 1;
+                if depth < 0 {
+                    return true;
+                }
+            }
+            _ => depth += 1,
+        }
+    }
+    false
+}
+
+/// A path specifier naming data, style, or asset content (`./package.json`,
+/// `./app.css`, `./logo.svg?url`). Such imports are bundler/loader concerns,
+/// never code-graph edges, so failing to link them is not a coverage gap.
+/// Python is excluded: its dotted relative modules (`.utils.json`) are code.
+pub(super) fn is_non_code_specifier(spec: &str) -> bool {
+    const NON_CODE: &[&str] = &[
+        "json", "jsonc", "json5", "css", "scss", "sass", "less", "styl", "pcss", "svg", "png",
+        "jpg", "jpeg", "gif", "webp", "avif", "ico", "bmp", "tif", "tiff", "woff", "woff2", "ttf",
+        "otf", "eot", "mp3", "mp4", "webm", "wav", "ogg", "txt", "md", "html", "htm", "wasm",
+        "node", "yaml", "yml", "toml", "graphql", "gql", "csv", "xml", "pdf",
+    ];
+    let path = spec.split(['?', '#']).next().unwrap_or(spec);
+    let name = path.rsplit('/').next().unwrap_or(path);
+    name.rsplit_once('.').is_some_and(|(stem, ext)| {
+        !stem.is_empty() && NON_CODE.contains(&ext.to_ascii_lowercase().as_str())
+    })
+}
+
+/// Tallies one import resolution; returns whether an unlinked specifier names
+/// an external package (as opposed to an unresolved or unsupported one).
+/// `bare` says what a bare specifier names: project code (alias or workspace
+/// package), so an unlinked one is an internal gap, and whether that code lies
+/// beyond the snapshot root, like a relative path climbing out of it. `kind`
+/// is the edge kind the import links as; an unlinked one's diagnostic keeps it.
+pub(super) fn record_resolution(
+    b: &mut BuiltGraph,
+    file: &str,
+    line: u32,
+    spec: &str,
+    lang: Linker,
+    target: &Option<String>,
+    unsupported: bool,
+    bare: BareTarget,
+    kind: &'static str,
+    security: &ContentSecurity,
+) -> bool {
+    if target.is_some() {
+        b.count_import(ImportOutcome::Resolved, file, line, spec);
+    } else if unsupported {
+        b.count_import(ImportOutcome::Unsupported, file, line, spec);
+        b.diagnostics.push(Diagnostic::new(
+            file,
+            Some(line),
+            DiagnosticCode::UnsupportedLinking,
+            sanitize(
+                security,
+                &format!("Cannot link import {spec:?} (unsupported)."),
+            ),
+        ));
+    } else if lang != Linker::Python
+        && (spec.starts_with('.') || spec.starts_with('/') || bare != BareTarget::External)
+        && is_non_code_specifier(spec)
+    {
+        b.count_import(ImportOutcome::NonCode, file, line, spec);
+    } else if lang != Linker::Python && unscanned_on_disk(&b.root, file, spec) {
+        b.count_import(ImportOutcome::Unscanned, file, line, spec);
+    } else if spec.starts_with('.')
+        || spec.starts_with('/')
+        || (lang == Linker::Rust && rust_internal_specifier(spec))
+        || bare != BareTarget::External
+    {
+        let outside = bare == BareTarget::OutsideRoot
+            || escapes_root(file, spec)
+            || (lang == Linker::Rust && rust_super_escapes_root(file, spec));
+        record_unresolved_internal(b, file, line, spec, outside, kind, security);
+    } else {
+        b.count_import(ImportOutcome::External, file, line, spec);
+        return true;
+    }
+    false
+}
+
+/// Counts one import of project code that links nothing and diagnoses it:
+/// beyond the snapshot root (`outside`) a scope gap, its own code
+/// ([`DiagnosticCode::OutsideRoot`]) and the specifier alone as its message,
+/// since the code says the rest once; else a broken import. Every
+/// language's unlinked project import goes through here, so the two kinds
+/// read alike whatever the resolver. The diagnostic keeps `kind`, the edge
+/// kind the import would have linked as, so a caller joining snapshots
+/// knows how the import loads.
+pub(super) fn record_unresolved_internal(
+    b: &mut BuiltGraph,
+    file: &str,
+    line: u32,
+    spec: &str,
+    outside: bool,
+    kind: &'static str,
+    security: &ContentSecurity,
+) {
+    b.count_import(ImportOutcome::UnresolvedInternal, file, line, spec);
+    let (code, message) = if outside {
+        (DiagnosticCode::OutsideRoot, format!("{spec:?}"))
+    } else {
+        (
+            DiagnosticCode::UnresolvedInternal,
+            format!("Cannot link import {spec:?} (unresolvedInternal)."),
+        )
+    };
+    b.diagnostics.push(Diagnostic {
+        import_kind: Some(kind),
+        ..Diagnostic::new(file, Some(line), code, sanitize(security, &message))
+    });
+}
+
+/// Whether relative `spec` from `file` names a file that exists on disk
+/// under `root`, the snapshot root, though the scan does not hold it
+/// (`../dist/cli.js` build output, `../assets/schema.sql`). A path that
+/// climbs above the root stays an outside-root gap: the scope is the cause.
+fn unscanned_on_disk(root: &std::path::Path, file: &str, spec: &str) -> bool {
+    let path = spec.split(['?', '#']).next().unwrap_or(spec);
+    path.starts_with('.')
+        && join_within_root(dirname(file), path).is_some_and(|rel| root.join(rel).is_file())
+}
+
+pub(super) fn resolve(
+    spec: &str,
+    importer: &str,
+    lang: Linker,
+    hint: Option<&str>,
+    imported: &str,
+    known: &BTreeSet<String>,
+    cargo_crates: &CargoCrates,
+    ctx: &ResolveContext,
+) -> Option<String> {
+    if lang == Linker::Python {
+        return resolve_python(
+            spec,
+            importer,
+            hint,
+            imported,
+            known,
+            &ctx.python_roots_for(importer),
+        )
+        .or_else(|| {
+            // An absolute import naming the scan root's own package.
+            let local = ctx
+                .python_package_local(spec)
+                .filter(|_| hint == Some("python-absolute"))?;
+            if local.is_empty() {
+                return ["__init__.py", "__init__.pyi"]
+                    .into_iter()
+                    .flat_map(|init| {
+                        [format!("{imported}.py"), format!("{imported}/{init}")]
+                            .into_iter()
+                            .chain([init.to_owned()])
+                    })
+                    .find(|file| known.contains(file));
+            }
+            resolve_python(local, importer, hint, imported, known, &["."])
+        })
+        .or_else(|| {
+            // The one topmost package of that name, wherever it lies.
+            let parent = ctx
+                .python_package_parent(spec)
+                .filter(|_| hint == Some("python-absolute"))?;
+            resolve_python(spec, importer, hint, imported, known, &[parent])
+        });
+    }
+    if lang == Linker::CFamily {
+        let quoted = match hint {
+            Some("c-relative") => true,
+            Some("c-system") => false,
+            _ => return None,
+        };
+        if spec.starts_with('/') {
+            return None;
+        }
+        if quoted
+            && let Some(p) = ctx.join_relative(dirname(importer), spec)
+            && known.contains(&p)
+        {
+            return Some(p);
+        }
+        // Then the project's include search path (bounded list), then a
+        // unique path-suffix match for build-system include roots.
+        return ctx
+            .include_dirs(quoted)
+            .iter()
+            .find_map(|dir| join_within_root(dir, spec).filter(|p| known.contains(p)))
+            .or_else(|| ctx.header_by_suffix(spec, importer));
+    }
+    if lang == Linker::Rust {
+        return resolve_rust(spec, importer, known, cargo_crates);
+    }
+    if lang != Linker::JsTs {
+        return None;
+    }
+    if spec.starts_with('/') {
+        return None;
+    }
+    if !spec.starts_with('.') {
+        return ctx.resolve_bare_js(spec, importer, known);
+    }
+    probe_js(&ctx.join_relative(dirname(importer), spec)?, known)
+}
+
+/// Python imports: relative ones climb from the importer's package;
+/// absolute ones try each import root (`roots`, nearest first). With
+/// `from pkg import name`, a submodule `pkg/name.py` wins over `pkg` itself.
+pub(super) fn resolve_python(
+    spec: &str,
+    importer: &str,
+    hint: Option<&str>,
+    imported: &str,
+    known: &BTreeSet<String>,
+    roots: &[&str],
+) -> Option<String> {
+    if !matches!(hint, Some("python-relative") | Some("python-absolute")) {
+        return None;
+    }
+    let dots = spec.chars().take_while(|c| *c == '.').count();
+    let module = spec[dots..].replace('.', "/");
+    let bases = if dots > 0 {
+        let mut base = dirname(importer);
+        for _ in 1..dots {
+            if base == "." {
+                return None;
+            }
+            base = dirname(base);
+        }
+        vec![base]
+    } else {
+        roots.to_vec()
+    };
+    let submodule = (!imported.is_empty()
+        && imported != "*"
+        && imported.chars().all(|c| c == '_' || c.is_alphanumeric()))
+    .then_some(imported);
+    let module_files = |stem: &str| {
+        [
+            format!("{stem}.py"),
+            format!("{stem}.pyi"),
+            join(stem, "__init__.py"),
+            join(stem, "__init__.pyi"),
+        ]
+        .into_iter()
+        .find(|x| known.contains(x))
+    };
+    bases.into_iter().find_map(|base| {
+        let stem = join_within_root(base, &module)?;
+        submodule
+            .and_then(|name| module_files(&join(&stem, name)))
+            .or_else(|| module_files(&stem))
+    })
+}

@@ -1,0 +1,335 @@
+use super::ast_search_query_symbols;
+use super::left_out::{KindsLeftOut, Suppressed};
+use super::names::{NameFilter, names_match, row_names};
+use super::outline::{Outline, OutlineFile};
+use super::rows::row_sizes;
+use octocode_contract_types::AstSearchQuerySymbols;
+use octocode_engine::graph::{GraphFactCode, GraphFactDiagnostic};
+use octocode_runtime_base::execution::cancel::CancellationCheck;
+use octocode_runtime_base::response::result::ToolError;
+use octocode_tools_shared::leads::skipped;
+use serde_json::{Value, json};
+
+/// Applies the kind and name filters to an outline and pins the result.
+pub(super) fn select(
+    q: &AstSearchQuerySymbols,
+    canonical: &std::path::Path,
+    outline: Outline,
+    row_paths: crate::ast_search::RowPaths<'_>,
+    cancel: &dyn CancellationCheck,
+) -> Result<SymbolSet, ToolError> {
+    cancel.check().map_err(ToolError::cancelled)?;
+    let Outline {
+        mut files,
+        scanned,
+        truncated,
+        scan_resume,
+        skipped,
+        mut diagnostics,
+        walk_skips,
+        walk_errors,
+        test_code_excluded,
+        test_code_unread,
+    } = outline;
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    let mut projection = octocode_runtime_base::response::source_evidence::ProjectionBudget::new(
+        octocode_runtime_base::response::source_evidence::ProjectionLimits::default(),
+    );
+    let source_descriptors = octocode_runtime_base::response::source_evidence::merge_descriptors(
+        files.iter().map(|file| &file.source_descriptors),
+        &mut projection,
+        cancel,
+    )?;
+    // A directory query writes each row's file; a single file hoists `path`.
+    let per_row_path = !canonical.is_file();
+    let candidates = kind_candidates(files);
+    let filter = settled_filter(q, candidates.rows.iter().chain(&candidates.off_kind));
+    let kept_rows: Vec<bool> = candidates
+        .rows
+        .iter()
+        .map(|row| {
+            filter
+                .as_ref()
+                .is_none_or(|filter| names_match(filter, row))
+        })
+        .collect();
+    let suppressed = filter.as_ref().and_then(|filter| {
+        Suppressed::of(
+            filter,
+            candidates
+                .rows
+                .iter()
+                .zip(&kept_rows)
+                .filter(|(row, kept)| !**kept && filter.hides(row["name"].as_str().unwrap_or("")))
+                .map(|(row, _)| row),
+        )
+    });
+    let kinds_left_out = filter.as_ref().and_then(|filter| {
+        KindsLeftOut::of(
+            filter,
+            candidates
+                .rows
+                .iter()
+                .zip(&kept_rows)
+                .filter_map(|(row, kept)| kept.then_some(row)),
+            &candidates.off_kind,
+        )
+    });
+    place_notes(per_row_path, &candidates.notes, &mut diagnostics);
+    let recovered = candidates.recovered;
+    let mut name_columns = Vec::new();
+    let mut declarations = candidates
+        .rows
+        .into_iter()
+        .zip(candidates.name_columns)
+        .zip(kept_rows)
+        .filter_map(|((mut row, column), kept)| {
+            if !per_row_path && let Some(fields) = row.as_object_mut() {
+                fields.remove("path");
+            }
+            kept.then(|| {
+                name_columns.push(column);
+                row
+            })
+        })
+        .collect::<Vec<_>>();
+    for row in &mut declarations {
+        if let Some(fields) = row.as_object_mut() {
+            fields.remove("typeName");
+        }
+    }
+    // Hashed as it serializes: built into one `Value` first, it would copy every
+    // row of the outline to hash it.
+    let snapshot = octocode_runtime_base::digest::json_sha256(&(
+        canonical.to_string_lossy(),
+        &q.parser,
+        ast_search_query_symbols::language_globs(q),
+        &q.symbol_filter,
+        ast_search_query_symbols::kinds(q),
+        ast_search_query_symbols::exclude(q),
+        ast_search_query_symbols::include(q),
+        ast_search_query_symbols::scan_offset(q),
+        &q.test_code,
+        &declarations,
+        &diagnostics,
+        truncated,
+        skipped,
+    ));
+    // A name search that may be missing declarations (a recovered parse,
+    // skipped files) completes with a text search for the same name.
+    // An empty name search leads to the name's text as well.
+    let text_search = (recovered || skipped > 0 || truncated || declarations.is_empty())
+        .then(|| text_search_lead(q, canonical))
+        .flatten();
+    let spans = octocode_runtime_base::response::symbol_outline::top_level_spans(&declarations);
+    let sizes = row_sizes(&declarations, &spans, per_row_path.then_some(row_paths));
+    Ok(SymbolSet {
+        text_search,
+        path: canonical.to_string_lossy().into_owned(),
+        snapshot,
+        declarations,
+        name_columns,
+        spans,
+        sizes,
+        source_descriptors,
+        diagnostics,
+        files_scanned: scanned,
+        skipped,
+        truncated,
+        scan_resume,
+        scan_pin: None,
+        recovered,
+        // One counted entry per cause and rule, as every local walk states it.
+        skipped_paths: skipped::skipped_paths(
+            skipped::ledger_entries(canonical, &walk_skips, walk_errors.into()),
+            false,
+            truncated,
+        )?,
+        suppressed,
+        kinds_left_out,
+        directory: per_row_path,
+        test_code_excluded,
+        test_code_unread,
+        walk_errors,
+    })
+}
+
+/// The declaration rows of every file, each with its file, plus each file's
+/// notes.
+struct Candidates {
+    rows: Vec<Value>,
+    /// The name column of each of `rows`.
+    name_columns: Vec<u32>,
+    /// Rows of other kinds whose name equals a `symbolFilter.terms` entry.
+    off_kind: Vec<Value>,
+    /// Per file: (path, its notes).
+    notes: Vec<(String, Vec<GraphFactDiagnostic>)>,
+    /// Some kept note says a parser recovered from syntax errors.
+    recovered: bool,
+}
+
+fn kind_candidates(files: Vec<OutlineFile>) -> Candidates {
+    let mut candidates = Candidates {
+        rows: vec![],
+        name_columns: vec![],
+        off_kind: vec![],
+        notes: vec![],
+        recovered: false,
+    };
+    for file in files {
+        candidates.recovered |= file
+            .notes
+            .iter()
+            .any(|note| note.code == GraphFactCode::RecoveredParse);
+        candidates.name_columns.extend(file.name_columns);
+        for (rows, into) in [
+            (file.rows, &mut candidates.rows),
+            (file.off_kind, &mut candidates.off_kind),
+        ] {
+            into.extend(rows.into_iter().map(|mut row| {
+                row["path"] = json!(file.path);
+                row
+            }));
+        }
+        candidates.notes.push((file.path, file.notes));
+    }
+    candidates
+}
+
+/// Resolve exact-first terms against candidates of every kind before
+/// applying `symbolKinds`. A matching declaration name or trait-impl type
+/// name makes that term exact even when its kind is later excluded.
+/// Explicit exact and substring modes retain their requested behavior.
+fn settled_filter<'a>(
+    q: &AstSearchQuerySymbols,
+    rows: impl Iterator<Item = &'a Value>,
+) -> Option<NameFilter> {
+    let mut filter = ast_search_query_symbols::name_filter(q)?;
+    let names = rows.flat_map(row_names).collect::<Vec<_>>();
+    filter.settle(names.iter().copied());
+    Some(filter)
+}
+
+/// One entry per distinct note: a note one file raised names that file; a
+/// note several files raised is counted once and lists every file (the
+/// repeated message is the only thing removed).
+fn place_notes(
+    per_row_path: bool,
+    file_notes: &[(String, Vec<GraphFactDiagnostic>)],
+    diagnostics: &mut Vec<Value>,
+) {
+    let notes = file_notes.iter().flat_map(|(path, notes)| {
+        notes.iter().map(move |note| {
+            let message = note.to_string();
+            if per_row_path {
+                json!({"path": path, "message": message})
+            } else {
+                json!({"message": message})
+            }
+        })
+    });
+    if per_row_path {
+        diagnostics.extend(octocode_tools_shared::ast_rule::group_diagnostics(
+            notes.collect(),
+        ));
+    } else {
+        diagnostics.extend(notes);
+    }
+}
+
+/// A text search for the `symbolFilter.terms` values under the outlined path: the
+/// completion when a recovered parse or a skipped file may hide one.
+fn text_search_lead(q: &AstSearchQuerySymbols, canonical: &std::path::Path) -> Option<Value> {
+    let filter = ast_search_query_symbols::name_filter(q)?;
+    let names: Vec<&str> = filter
+        .entries
+        .iter()
+        .map(|entry| entry.text.as_str())
+        .collect();
+    let mut query = octocode_tools_shared::source_view::extraction::text_search_query(
+        &canonical.to_string_lossy(),
+        &names,
+    )?;
+    if filter.entries.iter().all(|entry| entry.fold) {
+        query.case_mode = octocode_contract_types::CaseMode::Insensitive;
+    }
+    Some(octocode_runtime_base::response::result::Continuation::related_query(query).build())
+}
+
+/// Every declaration of one symbols query, before paging.
+#[derive(Clone)]
+pub(crate) struct SymbolSet {
+    /// `next.findText` for the name when the outline may be incomplete.
+    pub(super) text_search: Option<Value>,
+    pub(super) path: String,
+    pub(super) snapshot: String,
+    pub(super) declarations: Vec<Value>,
+    /// The 1-based column each of `declarations` was named at on its `line`:
+    /// a page hands its rows' to the judging of their names
+    /// ([`super::super::judged_rows::NamePlaces`]).
+    pub(super) name_columns: Vec<u32>,
+    /// One range of `declarations` per top-level row, the unit of a page.
+    pub(super) spans: Vec<std::ops::Range<usize>>,
+    /// What each top-level row adds to its page ([`row_sizes`]): these depend
+    /// only on the rows and the query's path scope, so pages share them.
+    pub(super) sizes: Vec<usize>,
+    pub(super) source_descriptors: octocode_engine::text::analysis::SourceDescriptors,
+    pub(super) diagnostics: Vec<Value>,
+    pub(super) files_scanned: usize,
+    pub(super) skipped: u32,
+    pub(super) truncated: bool,
+    /// Where a scan cut by the time budget resumes (`scanOffset`).
+    pub(super) scan_resume: Option<u32>,
+    /// What the resume pins of the files through the cut.
+    pub(super) scan_pin: Option<String>,
+    /// A parser recovered from syntax errors: the declarations are a partial
+    /// view of the source, not a complete inventory.
+    pub(super) recovered: bool,
+    /// What the walk skipped, with every path retained across pages.
+    pub(super) skipped_paths: Option<octocode_contract_types::SkippedPaths>,
+    /// What an exact `symbolFilter.terms` match left out.
+    pub(super) suppressed: Option<Suppressed>,
+    /// Exact `symbolFilter.terms` entries `symbolKinds` left without a declaration.
+    pub(super) kinds_left_out: Option<KindsLeftOut>,
+    /// A directory outline: rows group under their files, and the outlined
+    /// directory (the query's own path) is not restated.
+    pub(super) directory: bool,
+    /// What a `testCode` scope left out.
+    pub(super) test_code_excluded: octocode_engine::types::TestCodeExcluded,
+    /// The files a `testCode` scope's verdict needed and could not read.
+    pub(super) test_code_unread: Vec<std::path::PathBuf>,
+    /// Entries the walk could not read, and how many for want of
+    /// permission: absence below them is unproven.
+    pub(super) walk_errors: (u32, u32),
+}
+
+#[cfg(test)]
+impl SymbolSet {
+    /// An empty directory outline whose scan the time budget cut at `resume`.
+    pub(in crate::ast_search) fn cut_at(path: String, resume: u32) -> Self {
+        Self {
+            text_search: None,
+            path,
+            snapshot: "s".to_owned(),
+            declarations: Vec::new(),
+            name_columns: Vec::new(),
+            spans: Vec::new(),
+            sizes: Vec::new(),
+            source_descriptors: Default::default(),
+            diagnostics: Vec::new(),
+            files_scanned: resume as usize,
+            skipped: 0,
+            truncated: true,
+            scan_resume: Some(resume),
+            scan_pin: None,
+            recovered: false,
+            skipped_paths: None,
+            suppressed: None,
+            kinds_left_out: None,
+            directory: true,
+            test_code_excluded: Default::default(),
+            test_code_unread: Vec::new(),
+            walk_errors: (0, 0),
+        }
+    }
+}

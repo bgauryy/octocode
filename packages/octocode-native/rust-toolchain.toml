@@ -1,0 +1,7 @@
+[toolchain]
+channel = "1.99.1"
+# rustup installs these with the toolchain, locally and in CI. rust-analyzer is
+# the Rust language server that lspSearch, and the lspSearch leads other tools
+# offer, use on this repository and in the runtime's Rust fixtures. llvm-tools
+# backs `yarn coverage:rust` (cargo-llvm-cov).
+components = ["clippy", "rustfmt", "rust-analyzer", "llvm-tools"]

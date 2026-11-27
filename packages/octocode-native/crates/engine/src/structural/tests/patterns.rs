@@ -1,0 +1,390 @@
+//! Pattern matching per grammar: captures, expandos, immunity and extensions.
+
+use super::*;
+
+fn run_pattern(src: &str, ext: &str, pattern: &str) -> Vec<StructuralMatch> {
+    search(src, ext, Some(pattern), None).expect("pattern search should succeed")
+}
+
+#[test]
+fn finds_call_and_captures_single_metavar() {
+    let src = "const a = foo(bar);\nconst b = foo(baz);\n";
+    let matches = run_pattern(src, "ts", "foo($X)");
+    assert_eq!(matches.len(), 2);
+    assert_eq!(matches[0].start_line, 1);
+    assert_eq!(
+        matches[0].metavars.get("X").map(Vec::as_slice),
+        Some(&["bar".to_string()][..])
+    );
+    assert_eq!(
+        matches[1].metavars.get("X").map(Vec::as_slice),
+        Some(&["baz".to_string()][..])
+    );
+}
+
+/// Trailing punctuation
+/// the pattern omits (a trailing argument comma, a statement terminator) is
+/// not required of the candidate, as in ast-grep.
+#[test]
+fn pattern_search_preserves_optional_trailing_punctuation() {
+    let src = "throw new Error(\"one\");\nthrow new Error(\n  `two ${x}`,\n);\nexport const answer = 42;\n";
+    let errors = run_pattern(src, "ts", "new Error($MSG)");
+    assert_eq!(
+        errors.iter().map(|m| m.start_line).collect::<Vec<_>>(),
+        [1, 2]
+    );
+    assert_eq!(
+        errors[1].metavars.get("MSG").map(Vec::as_slice),
+        Some(&["`two ${x}`".to_owned()][..])
+    );
+    let exports = run_pattern(src, "ts", "export const $N = $V");
+    assert_eq!(exports.len(), 1);
+    assert_eq!(exports[0].start_line, 5);
+    assert_eq!(
+        exports[0].metavars.get("N").map(Vec::as_slice),
+        Some(&["answer".to_owned()][..])
+    );
+}
+
+#[test]
+fn captures_multi_metavar_as_list() {
+    let src = "log(1, 2, 3);\n";
+    let matches = run_pattern(src, "js", "log($$$ARGS)");
+    assert_eq!(matches.len(), 1);
+    // Multi-captures preserve punctuation so callers can reconstruct
+    // argument lists without guessing where separators were.
+    assert_eq!(
+        matches[0].metavars.get("ARGS").map(Vec::as_slice),
+        Some(
+            &[
+                "1".to_string(),
+                ",".to_string(),
+                "2".to_string(),
+                ",".to_string(),
+                "3".to_string()
+            ][..]
+        )
+    );
+}
+
+#[test]
+fn document_probe_matches_root_without_ellipsis_panic() {
+    for ext in ["ts", "py"] {
+        let matches = run_pattern("foo(a)\nbar(b)\n", ext, "$$$");
+        assert_eq!(matches.len(), 1, "{ext} should return the document root");
+        assert_eq!(matches[0].start_line, 1);
+        assert!(!matches[0].text.is_empty());
+        assert!(matches[0].metavars.is_empty());
+    }
+}
+
+#[test]
+fn comment_and_string_immunity() {
+    // KPI #1: a literal `eval(x)` inside a comment and inside a string must
+    // NOT match — only the real call site (line 3) does.
+    let src = "// eval(evil)\nconst s = \"eval(evil)\";\neval(real);\n";
+    let matches = run_pattern(src, "js", "eval($X)");
+    assert_eq!(matches.len(), 1, "only the real call site matches");
+    assert_eq!(matches[0].start_line, 3);
+    assert_eq!(
+        matches[0].metavars.get("X").map(Vec::as_slice),
+        Some(&["real".to_string()][..])
+    );
+}
+
+#[test]
+fn python_pattern_with_expando_char() {
+    // Python's expando char is µ, not $ — exercises pre_process_pattern.
+    let src = "print(hello)\nprint(world)\n";
+    let matches = run_pattern(src, "py", "print($X)");
+    assert_eq!(matches.len(), 2);
+    assert_eq!(
+        matches[0].metavars.get("X").map(Vec::as_slice),
+        Some(&["hello".to_string()][..])
+    );
+}
+
+#[test]
+fn rust_pattern_with_expando_char() {
+    let src = "fn main() {\n    println(a);\n    println(b);\n}\n";
+    let matches = run_pattern(src, "rs", "println($X)");
+    assert_eq!(matches.len(), 2);
+}
+
+#[cfg(feature = "tree-sitter-cuda")]
+#[test]
+fn cuda_pattern_matches_kernel_launch_and_captures_configuration() {
+    let src = "void launch(int *values) { kernel<<<1, 32>>>(values); }\n";
+    let matches = run_pattern(
+        src,
+        "cu",
+        "void launch(int *$ARG) { kernel<<<$GRID, $BLOCK>>>($ARG); }",
+    );
+    assert_eq!(matches.len(), 1);
+    for (name, expected) in [("GRID", "1"), ("BLOCK", "32"), ("ARG", "values")] {
+        assert_eq!(
+            matches[0].metavars.get(name).map(Vec::as_slice),
+            Some(&[expected.to_owned()][..]),
+            "{name}"
+        );
+    }
+}
+
+#[cfg(feature = "tree-sitter-asm")]
+#[test]
+fn assembly_pattern_uses_an_ascii_expando() {
+    let src = "target:\n  mov %rax, %rbx\n  mov %rcx, %rdx\n";
+    let matches = run_pattern(src, "asm", "mov $SOURCE, $DESTINATION");
+    assert_eq!(matches.len(), 2);
+    assert_eq!(
+        matches[0].metavars.get("SOURCE").map(Vec::as_slice),
+        Some(&["%rax".to_owned()][..])
+    );
+}
+
+#[test]
+fn relational_rule_inside_function() {
+    // KPI: a rule that plain patterns cannot express — `await` calls that
+    // are `inside` a for-loop. `stopBy: end` walks all ancestors.
+    let src =
+        "async function f() {\n  for (const x of xs) {\n    await g(x);\n  }\n  await h();\n}\n";
+    let rule = json!({"pattern":"await $C","inside":{"kind":"for_in_statement","stopBy":"end"}});
+    let matches = search(src, "ts", None, Some(&rule)).expect("rule search should succeed");
+    assert_eq!(
+        matches.len(),
+        1,
+        "only the await inside the for-loop matches"
+    );
+    assert_eq!(matches[0].start_line, 3);
+}
+
+#[test]
+fn unsupported_extension_errors() {
+    match search("x", "zzz", Some("foo()"), None) {
+        Err(e) => assert!(e.contains("does not support")),
+        Ok(_) => panic!("expected an unsupported-extension error"),
+    }
+}
+
+#[test]
+fn supported_extensions_are_rust_owned() {
+    let exts = languages::supported_extensions();
+    assert!(exts.contains(&"ts"));
+    assert!(exts.contains(&"rs"));
+}
+
+// ── markup / style grammars (HTML/CSS) ────────────────────────────────────
+
+// ── Scala ─────────────────────────────────────────────────────────────────
+
+#[cfg(feature = "tree-sitter-scala")]
+#[test]
+fn scala_pattern_captures_call_argument() {
+    // Expando is µ, so `$X` → `µX`, a valid Scala identifier.
+    let src = "object M {\n  def f() = { println(hello); println(world) }\n}\n";
+    let matches = run_pattern(src, "scala", "println($X)");
+    assert_eq!(matches.len(), 2);
+    assert_eq!(
+        matches[0].metavars.get("X").map(Vec::as_slice),
+        Some(&["hello".to_string()][..])
+    );
+}
+
+#[cfg(feature = "tree-sitter-scala")]
+#[test]
+fn scala_comment_and_string_immunity() {
+    // KPI #1: a `println(evil)` in a comment and in a string must NOT match.
+    let src = "object M {\n  // println(evil)\n  val s = \"println(evil)\"\n  def go() = println(real)\n}\n";
+    let matches = run_pattern(src, "scala", "println($X)");
+    assert_eq!(matches.len(), 1, "only the real call site matches");
+    assert_eq!(
+        matches[0].metavars.get("X").map(Vec::as_slice),
+        Some(&["real".to_string()][..])
+    );
+}
+
+/// A name the pattern spells is compared by its text, even when the
+/// candidate's name node holds a token: Scala reads a soft keyword used as a
+/// member (`extension`) as an `identifier` wrapping the keyword token, so the
+/// pattern's `sort`, a leaf, must not match it as an empty list of parts.
+#[cfg(feature = "tree-sitter-scala")]
+#[test]
+fn scala_member_call_matches_only_the_spelled_name() {
+    let src = "object Paths {\n  def ext(p: String) = PathIO.extension(p)\n  def all(p: String) = PathIO.listFiles(p)\n}\n";
+    assert!(
+        run_pattern(src, "scala", "$O.sort($X)").is_empty(),
+        "`$O.sort($X)` must not match `PathIO.extension(p)`"
+    );
+    // The soft keyword still matches where the pattern spells it.
+    let matches = run_pattern(src, "scala", "$O.extension($X)");
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].text, "PathIO.extension(p)");
+    assert_eq!(matches[0].metavars["O"], ["PathIO"]);
+    assert_eq!(matches[0].metavars["X"], ["p"]);
+    // metals `Digest.scala:89`: no `sort` anywhere in the source.
+    let digest = "object Digest {\n  def digestFile(path: AbsolutePath): Boolean = {\n    val ext = PathIO.extension(path.toNIO)\n    Set(\"sbt\", \"scala\")(ext)\n  }\n}\n";
+    assert!(run_pattern(digest, "scala", "$O.sort($X)").is_empty());
+}
+
+#[cfg(feature = "tree-sitter-scala")]
+#[test]
+fn scala_member_call_pattern_still_matches_its_call() {
+    let src =
+        "object M {\n  def f(xs: Buf) = xs.sort(f)\n  def g(p: String) = PathIO.extension(p)\n}\n";
+    let matches = run_pattern(src, "scala", "$O.sort($X)");
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].text, "xs.sort(f)");
+    assert_eq!(matches[0].metavars["O"], ["xs"]);
+    assert_eq!(matches[0].metavars["X"], ["f"]);
+}
+
+/// An over-rejection check, not a guard of the wrapped-name defect: these
+/// grammars spell these names as plain leaves, so this passes with or
+/// without the leaf-text rule. It holds that the rule still lets a spelled
+/// name or literal match its own text, and only it.
+#[test]
+fn spelled_leaves_match_their_own_text_in_other_grammars() {
+    for (ext, src) in [
+        ("ts", "xs.sort(f);\nxs.extension(f);\nsort(1);\nsort(2);\n"),
+        (
+            "rs",
+            "fn t() { xs.sort(f); xs.extension(f); sort(1); sort(2); }\n",
+        ),
+        ("py", "xs.sort(f)\nxs.extension(f)\nsort(1)\nsort(2)\n"),
+    ] {
+        let calls = run_pattern(src, ext, "$O.sort($X)");
+        assert_eq!(calls.len(), 1, "{ext}");
+        assert_eq!(calls[0].text, "xs.sort(f)", "{ext}");
+        let literal = run_pattern(src, ext, "sort(1)");
+        assert_eq!(literal.len(), 1, "{ext}");
+        assert_eq!(literal[0].text, "sort(1)", "{ext}");
+    }
+}
+
+/// C# reads a contextual keyword used as a name (`var`, `from`) as an
+/// `identifier` over the keyword token, the shape Scala gives `extension`:
+/// a spelled name matches only its own text there too.
+#[cfg(feature = "tree-sitter-c-sharp")]
+#[test]
+fn csharp_contextual_keyword_names_match_only_the_spelled_name() {
+    let calls = run_pattern("x.var(y); x.from(y); xs.sort(f);", "cs", "$O.sort($X)");
+    let texts =
+        |found: &[StructuralMatch]| found.iter().map(|m| m.text.clone()).collect::<Vec<_>>();
+    assert_eq!(calls.len(), 1, "{:?}", texts(&calls));
+    assert_eq!(calls[0].text, "xs.sort(f)");
+    let literal = run_pattern("var(1); from(1); sort(1);", "cs", "sort(1)");
+    assert_eq!(literal.len(), 1, "{:?}", texts(&literal));
+    assert_eq!(literal[0].text, "sort(1)");
+}
+
+#[cfg(feature = "tree-sitter-scala")]
+#[test]
+fn scala_extensions_are_supported() {
+    let exts = languages::supported_extensions();
+    for ext in ["scala", "sc", "sbt"] {
+        assert!(exts.contains(&ext), "structural search must support .{ext}");
+    }
+}
+
+// ── First-class extension aliases ─────────────────────────────────────────
+
+#[test]
+fn mts_uses_typescript_grammar_and_dollar_expando() {
+    // `.mts` must resolve to the TS entry (expando `$`, not the µ fallback).
+    let src = "const a = foo(bar);\nconst b = foo(baz);\n";
+    let matches = run_pattern(src, "mts", "foo($X)");
+    assert_eq!(matches.len(), 2);
+    assert_eq!(
+        matches[0].metavars.get("X").map(Vec::as_slice),
+        Some(&["bar".to_string()][..])
+    );
+}
+
+#[test]
+fn retained_alias_extensions_are_supported() {
+    let exts = languages::supported_extensions();
+    for ext in ["mts", "cts", "pyi"] {
+        assert!(exts.contains(&ext), "structural search must support .{ext}");
+    }
+}
+
+/// A pattern whose root the grammar names by a `name` field is a
+/// declaration: its kind, and its name unless that is a metavariable.
+/// Expressions and calls are not declarations.
+#[test]
+fn a_named_root_pattern_is_a_declaration() {
+    let rust = pattern_declaration("fn $NAME($$$ARGS) -> $R { $$$BODY }", "rs").expect("fn");
+    assert_eq!(rust.kind, "function_item");
+    assert_eq!(rust.name, None);
+    let named = pattern_declaration("fn run() {}", "rs").expect("named fn");
+    assert_eq!(
+        named.name,
+        Some(("identifier".to_owned(), "run".to_owned()))
+    );
+    let class = pattern_declaration("class $C { $$$B }", "ts").expect("class");
+    assert_eq!(class.kind, "class_declaration");
+    assert_eq!(pattern_declaration("$X.unwrap()", "rs"), None);
+    assert_eq!(pattern_declaration("foo($A)", "ts"), None);
+    // A call whose grammar names its method by a `name` field is a call.
+    assert_eq!(pattern_declaration("Collections.sort($X)", "java"), None);
+    assert_eq!(pattern_declaration("$O.sort($X)", "java"), None);
+    // So is a path, though its grammar names its last segment `name`.
+    assert_eq!(pattern_declaration("Ordering::SeqCst", "rs"), None);
+    assert_eq!(pattern_declaration("std::chrono::seconds", "cpp"), None);
+    assert_eq!(pattern_declaration("fn ???", "rs"), None);
+}
+
+/// An export wraps the declaration it exports; one that exports no named
+/// declaration is no declaration.
+#[test]
+fn an_exported_declaration_is_the_declaration_inside_its_export() {
+    let exported = pattern_declaration("export function run($$$) { $$$ }", "ts").expect("export");
+    assert_eq!(exported.kind, "function_declaration");
+    assert_eq!(exported.inside.as_deref(), Some("export_statement"));
+    assert_eq!(
+        exported.name,
+        Some(("identifier".to_owned(), "run".to_owned()))
+    );
+    let plain = pattern_declaration("function run($$$) { $$$ }", "ts").expect("plain");
+    assert_eq!(plain.inside, None);
+    assert_eq!(pattern_declaration("export const $A = 1", "ts"), None);
+    assert_eq!(pattern_declaration("export { $A }", "ts"), None);
+}
+
+/// A declaration pattern that spells a `;` in place of the body parses as
+/// the grammar's smaller form of the declaration (a signature), which
+/// matches none of the definitions: the declaration names the fuller kinds
+/// it leaves out. One that spells neither matches both
+/// (`tests/terminators.rs`).
+#[test]
+fn a_bodiless_pattern_names_the_fuller_declaration_kinds() {
+    let signature = pattern_declaration("fn $N($$$A);", "rs").expect("signature");
+    assert_eq!(signature.kind, "function_signature_item");
+    assert_eq!(signature.fuller_kinds, ["function_item"]);
+    let definition = pattern_declaration("fn $N($$$A) { $$$ }", "rs").expect("definition");
+    assert_eq!(definition.kind, "function_item");
+    assert!(definition.fuller_kinds.is_empty(), "{definition:?}");
+}
+
+/// B88: a terminator the compiler appends to give a fragment its context
+/// (`impl X for $T` parses only as `impl X for $T;`) is not one the caller
+/// wrote, so it is not required: the pattern leaves out what it does not
+/// spell, the body included, and matches every implementation of the trait.
+/// A terminator the caller wrote stays required (`struct $S;` is a unit
+/// struct), and a statement that ends in one still matches.
+#[test]
+fn an_appended_terminator_is_not_required_of_the_candidate() {
+    let src = "trait ToolOutput {}\nstruct A;\nimpl ToolOutput for A {\n    fn f(&self) {}\n}\nimpl ToolOutput for B {}\nimpl Other for C {}\nstruct D { a: u8 }\nfn g() { let x = 1; }\n";
+    let lines = |pattern: &str| {
+        run_pattern(src, "rs", pattern)
+            .iter()
+            .map(|found| found.start_line)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(lines("impl ToolOutput for $T"), [3, 6]);
+    assert_eq!(lines("impl ToolOutput for $T { $$$ }"), [3, 6]);
+    // `{}` spells an empty body, which the pattern then requires.
+    assert_eq!(lines("impl ToolOutput for $T {}"), [6]);
+    assert_eq!(lines("struct $S;"), [2]);
+    assert_eq!(lines("let $X = $Y"), [9]);
+}

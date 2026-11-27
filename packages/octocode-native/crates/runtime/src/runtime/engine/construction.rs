@@ -1,0 +1,364 @@
+use super::page_replay::PageReplayMemo;
+use super::{HostOptions, RuntimeError, ToolRuntime, runtime_execution_error};
+use octocode_contract_types::ErrorCode;
+use octocode_runtime_base::config::{self, ConfigInput, ConfigOutput};
+use octocode_runtime_base::execution::{RequestLimits, RequestRuntime, RuntimeLimits};
+use octocode_runtime_base::id::ToolId;
+use octocode_runtime_base::policy::path::{PathPolicy, PathPolicyConfig};
+use octocode_runtime_base::security::ContentSecurity;
+use secrecy::SecretString;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+/// The configuration diagnostics every runtime start prints. A key no
+/// setting reads changes nothing, so `octocode config` reports it instead of
+/// every call; an ignored value of a live setting (invalid, protected, an
+/// unreadable file) is said each time.
+pub(super) fn startup_diagnostics(
+    diagnostics: &[config::ConfigDiagnostic],
+) -> impl Iterator<Item = &config::ConfigDiagnostic> {
+    diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code != config::UNKNOWN_CONFIG_CODE)
+}
+
+impl ToolRuntime {
+    pub fn from_host(options: HostOptions) -> Result<Self, RuntimeError> {
+        Self::from_host_sharing(options, None)
+    }
+
+    /// [`Self::from_host`] whose language servers come from `lsp_pool`, a
+    /// pool its owner shares across runtimes (the CLI's warm server keeps
+    /// one runtime per working directory and one set of servers). Closing
+    /// this runtime leaves the pool running; the owner clears it.
+    pub fn from_host_with_lsp_pool(
+        options: HostOptions,
+        lsp_pool: Arc<octocode_engine::lsp::pool::LspClientPool>,
+    ) -> Result<Self, RuntimeError> {
+        Self::from_host_sharing(options, Some(lsp_pool))
+    }
+
+    /// Print the configuration diagnostics every runtime start prints: on
+    /// stderr, since stdout carries CLI results and MCP JSON-RPC. A host
+    /// that answers a call from another process's runtime (the CLI's warm
+    /// server client) prints its own configuration's, as an in-process
+    /// start would.
+    #[expect(
+        clippy::print_stderr,
+        reason = "startup diagnostics go to stderr; stdout carries results and JSON-RPC"
+    )]
+    pub fn print_startup_diagnostics(config: &ConfigOutput) {
+        for diagnostic in startup_diagnostics(&config.diagnostics) {
+            eprintln!("{diagnostic}");
+        }
+    }
+
+    fn from_host_sharing(
+        options: HostOptions,
+        lsp_pool: Option<Arc<octocode_engine::lsp::pool::LspClientPool>>,
+    ) -> Result<Self, RuntimeError> {
+        // Reject a bad timeout before config acquisition or maintenance run.
+        if let Some(secs) = options.timeout_secs {
+            let max = octocode_runtime_base::execution::MAX_TIMEOUT.as_secs();
+            if !(1..=max).contains(&secs) {
+                return Err(RuntimeError::new(
+                    ErrorCode::InvalidInput,
+                    format!("timeoutSecs must be between 1 and {max}; got {secs}"),
+                ));
+            }
+        }
+        let cwd = options
+            .cwd
+            .or_else(|| std::env::current_dir().ok())
+            .ok_or_else(|| {
+                RuntimeError::new(ErrorCode::Config, "Cannot resolve working directory")
+            })?;
+        let home = std::env::home_dir()
+            .ok_or_else(|| RuntimeError::new(ErrorCode::Config, "Cannot resolve home directory"))?;
+        let env = options.env.unwrap_or_else(octocode_io::env::vars_lossy);
+        let input = match options.loaded {
+            Some(loaded) => config::ConfigInput {
+                env,
+                cwd,
+                os_home: home,
+                runtime_surface: options.surface,
+                ..loaded
+            },
+            None => config::acquire_config_input(env, cwd, home, options.surface),
+        };
+        let runtime = Self::build(input, RuntimeLimits::DEFAULT, lsp_pool)?;
+        // Misconfiguration never fails startup; say what was ignored and
+        // where.
+        Self::print_startup_diagnostics(&runtime.config);
+        // storage.mode=memory must not touch the disk cache at all.
+        if config::is_persistent_storage_enabled(&runtime.config.resolved) {
+            super::super::maintenance::run_if_due(&runtime.config.home, runtime.limits.capture_ttl);
+            runtime
+                .maintenance
+                .start_default(runtime.config.home.clone(), runtime.limits.capture_ttl);
+        }
+        match options.timeout_secs {
+            Some(secs) => runtime.with_request_budget(std::time::Duration::from_secs(secs)),
+            None => Ok(runtime),
+        }
+    }
+
+    /// This runtime with the caller's per-request `budget`: a call past it
+    /// answers an honest partial. Without one (every surface's default) no
+    /// deadline applies.
+    pub fn with_request_budget(
+        mut self,
+        budget: std::time::Duration,
+    ) -> Result<Self, RuntimeError> {
+        self.requests = RequestRuntime::new(RequestLimits {
+            timeout: Some(budget),
+            ..RequestLimits::default()
+        })
+        .map_err(runtime_execution_error)?;
+        Ok(self)
+    }
+
+    pub fn new(input: ConfigInput) -> Result<Self, RuntimeError> {
+        Self::with_limits(input, RuntimeLimits::DEFAULT)
+    }
+
+    /// Tests only; production uses [`Self::new`]. A runtime whose internal
+    /// limits are `limits` instead of the code constants. Not configuration:
+    /// nothing reads them from the environment or a file.
+    pub fn with_limits(input: ConfigInput, limits: RuntimeLimits) -> Result<Self, RuntimeError> {
+        Self::build(input, limits, None)
+    }
+
+    /// A runtime for `input` whose language servers come from `lsp_pool`
+    /// when given, else from a pool of its own.
+    fn build(
+        input: ConfigInput,
+        limits: RuntimeLimits,
+        lsp_pool: Option<Arc<octocode_engine::lsp::pool::LspClientPool>>,
+    ) -> Result<Self, RuntimeError> {
+        let analysis_capabilities = serde_json::to_value(
+            octocode_engine::signatures::languages::analysis_capabilities(),
+        )
+        .and_then(serde_json::from_value)
+        .map_err(|error| {
+            RuntimeError::new(
+                ErrorCode::ExecutionFailed,
+                format!(
+                    "Runtime analysis capabilities do not match the embedded contract: {error}"
+                ),
+            )
+        })?;
+        let config = Arc::new(config::resolve_config(&input));
+        let local = &config.resolved.local;
+        let octocode_home = config.home.clone();
+        let mut additional_roots: Vec<PathBuf> =
+            local.allowed_paths.iter().map(PathBuf::from).collect();
+        // Local tools read the GitHub checkouts (clones, materialized trees)
+        // and clasify URL captures under the cache home, never the rest of
+        // it (credentials, logs).
+        // Each holds one tree per directory at its depth.
+        let fetched_code_roots = [
+            (
+                octocode_tool_github::gh_clone_repo::storage::clones_root(&octocode_home),
+                octocode_tool_github::gh_clone_repo::storage::CHECKOUT_DEPTH,
+            ),
+            (
+                octocode_tool_github::gh_structure::materialize::materialize_root(&octocode_home),
+                octocode_tool_github::gh_structure::materialize::SNAPSHOT_DEPTH,
+            ),
+            (
+                octocode_tools_shared::source_capture::url::capture_root(&octocode_home),
+                octocode_tools_shared::source_capture::url::CAPTURE_DEPTH,
+            ),
+        ];
+        additional_roots.extend(fetched_code_roots.iter().map(|(root, _)| root.clone()));
+        // `local.graphHome`: graph tools write their snapshots in their own
+        // directory there. It is where they write, not a grant to read: the
+        // local tools never read it.
+        let output_roots = local
+            .graph_home
+            .iter()
+            .map(|home| {
+                octocode_tool_graph::ast_graph::store::configured_graph_home(std::path::Path::new(
+                    home,
+                ))
+            })
+            .collect();
+        // Default sandbox: the configured workspace, or the process cwd when
+        // unconfigured — never all of $HOME. Broad $HOME access is opt-in
+        // only, via an explicit workspaceRoot or an allowedPaths entry.
+        let workspace_root = local
+            .workspace_root
+            .as_ref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| input.cwd.clone());
+        let paths = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(workspace_root.clone()),
+            additional_roots,
+            tree_stores: fetched_code_roots.to_vec(),
+            output_roots,
+            include_home: false,
+            home_dir: Some(input.os_home.clone()),
+            allow_credential_files: config.resolved.security.credential_files
+                == octocode_runtime_base::config::CredentialFilesPolicy::Allow,
+            octocode_home: Some(octocode_home.clone()),
+            // The call's own environment names its global ignore file, so
+            // one server walks each caller's tree under that caller's rules.
+            global_ignore: octocode_engine::search::walk::GlobalIgnore::resolve(
+                &config.effective_env,
+                Some(&input.os_home),
+            ),
+        })
+        .map_err(|error| RuntimeError::new(ErrorCode::Policy, error.message))?
+        // The shared clone store holds git objects, not checkouts: local
+        // tools read the worktrees under `clones/`, never the store, even
+        // when the workspace contains the home.
+        .closing(&octocode_tools_shared::gh_git::store_root(&octocode_home));
+        let security = ContentSecurity::new();
+        let requests =
+            RequestRuntime::new(RequestLimits::default()).map_err(runtime_execution_error)?;
+        let persistent = config::is_persistent_storage_enabled(&config.resolved);
+        let saves_local = config::saves_local_results(&config.resolved);
+        let lsp_execution_config = Arc::new(octocode_tool_lsp::lsp_search::LspExecutionConfig {
+            trust_project_config: config.resolved.lsp.trust_project_config,
+            env: config
+                .effective_env
+                .iter()
+                // The settings and the environment a call carries to language
+                // server discovery and start (`PATH`, the toolchain variables).
+                .filter(|(key, _)| {
+                    octocode_engine::process_env::carried(key)
+                        || config::DECLARED_ENV_KEYS.contains(&key.as_str())
+                })
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
+            octocode_home: Some(octocode_home),
+            invocation_dir: Some(input.cwd.clone()),
+            index_on_disk: persistent,
+            fetched_code_roots: if config.resolved.lsp.trust_fetched_code {
+                Vec::new()
+            } else {
+                fetched_code_roots
+                    .iter()
+                    .map(|(root, _)| root.clone())
+                    .collect()
+            },
+            security: security.clone(),
+            prewarm_state: std::sync::Arc::default(),
+        });
+        let classification = octocode_runtime_base::providers::classification::provider();
+        let evaluator = evaluator(&config, &limits, classification);
+        let availability = Arc::new(
+            octocode_runtime_base::execution::availability::ToolAvailability::resolve(
+                &config,
+                input.runtime_surface,
+            ),
+        );
+        let clasify_available = clasify_available(&config, &availability);
+        let page_replays = Arc::new(PageReplayMemo::new(&config, &input.cwd));
+        let cursors = Arc::new(
+            super::cursors::Registry::scoped(
+                octocode_runtime_base::cache::CacheConfig::derived(),
+                saves_local.then(|| {
+                    octocode_runtime_base::cache::Directory::Continuations.path(&config.home)
+                }),
+                page_replays.scope(),
+            )
+            .linking_answers(persistent.then(|| {
+                octocode_runtime_base::cache::Directory::ProviderAnswers.path(&config.home)
+            })),
+        );
+        let section_sessions = Arc::new(octocode_tool_clasify::clasify::sections::Sessions::new(
+            octocode_runtime_base::cache::CacheConfig::derived(),
+            saves_local.then(|| {
+                octocode_runtime_base::cache::Directory::SectionAssessments.path(&config.home)
+            }),
+            page_replays.policy.clone(),
+        ));
+        let lsp_answers = Arc::new(octocode_tool_lsp::lsp_search::ContinuationAnswers::new(
+            octocode_runtime_base::cache::CacheConfig::derived(),
+            saves_local
+                .then(|| octocode_runtime_base::cache::Directory::LspAnswers.path(&config.home)),
+            page_replays.policy.clone(),
+        ));
+        let graph_rows = Arc::new(octocode_tool_graph::ast_graph::store::SavedRows::new(
+            octocode_runtime_base::cache::CacheConfig::derived(),
+            persistent
+                .then(|| octocode_runtime_base::cache::Directory::GraphRows.path(&config.home)),
+            page_replays.policy.clone(),
+        ));
+        let provider_answers = Arc::new(
+            octocode_runtime_base::providers::saved_answers::KeptAnswers::new(persistent.then(
+                || octocode_runtime_base::cache::Directory::ProviderAnswers.path(&config.home),
+            )),
+        );
+        // Notices reach stderr and the warm-server reply outside any
+        // envelope: they pass the same secret scrub as error text.
+        octocode_io::notice::set_scrubber(octocode_runtime_base::security::scrub_error_text);
+        Ok(Self {
+            requests,
+            input,
+            config,
+            analysis_capabilities,
+            limits,
+            availability,
+            evaluator,
+            clasify_available,
+            paths: Arc::new(paths),
+            security: Arc::new(security),
+            github_services: Arc::new(std::sync::OnceLock::new()),
+            provider_answers,
+            owns_lsp_pool: lsp_pool.is_none(),
+            lsp_pool: lsp_pool.unwrap_or_default(),
+            page_replays,
+            cursors,
+            section_sessions,
+            lsp_execution_config,
+            lsp_answers,
+            graph_rows,
+            workspace_root,
+            maintenance: super::super::maintenance::Periodic::default(),
+        })
+    }
+}
+
+/// The one classification evaluator of a runtime: public clasify and every
+/// ranked read share its client and accounting. Every assessment executes
+/// against the current source; derived judgments are not retained.
+fn evaluator(
+    config: &ConfigOutput,
+    limits: &RuntimeLimits,
+    provider: &'static dyn octocode_runtime_base::providers::classification::ClassificationProvider,
+) -> octocode_tools_shared::judgment::Evaluator {
+    octocode_tools_shared::judgment::Evaluator::new(
+        octocode_runtime_base::execution::availability::classification_key(config)
+            .map(|value| SecretString::from(value.to_owned())),
+        config
+            .resolved
+            .classification
+            .api_host
+            .clone()
+            .unwrap_or_else(|| provider.defaults().host.to_owned()),
+        config
+            .resolved
+            .classification
+            .model
+            .clone()
+            .filter(|model| !model.trim().is_empty())
+            .unwrap_or_else(|| provider.defaults().model.to_owned()),
+        provider,
+        limits.classification_timeout,
+        u32::from(limits.max_retries),
+        limits.classification_concurrency,
+    )
+}
+
+/// Whether an agent can be sent to clasify: a provider key is configured
+/// and the tool is available on this surface.
+fn clasify_available(
+    config: &ConfigOutput,
+    availability: &octocode_runtime_base::execution::availability::ToolAvailability,
+) -> bool {
+    octocode_runtime_base::execution::availability::classification_key(config).is_some()
+        && availability.is_available(ToolId::Clasify.as_str())
+}

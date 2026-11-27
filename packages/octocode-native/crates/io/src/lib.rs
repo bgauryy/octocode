@@ -1,0 +1,40 @@
+//! The single owner of cross-crate primitives: owner-only atomic file
+//! replacement ([`atomic`]), bounded advisory file locks ([`lock`]), lossy
+//! environment reads ([`env`](mod@env)), HTTP client construction
+//! ([`http`]), the lock-free request [`cancellation`], the request deadline
+//! [`budget`], response [`retry`] rules and
+//! the bounded body reader, the bounded stream [`read`], Gregorian day math ([`civil`]), the in-process
+//! [`memo`] and keyed single [`flight`], stderr [`notice`]s, and POSIX [`shell`]
+//! quoting for printed commands.
+//! GitHub, runtime, CLI and engine all use them, so they live in this leaf
+//! below all four. Retained memory stores hold issued continuation state;
+//! fresh tool requests do not reuse prior computed results.
+// Numeric conversions are explicit (`try_from` with a stated outcome): a
+// lossy `as` cast fails CI (`-D warnings`). Tests may cast fixture values.
+#![cfg_attr(
+    not(test),
+    warn(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_possible_wrap
+    )
+)]
+// Library output reaches people through its callers or the `octocode_io::notice`
+// owner, never stray stdout/stderr prints; deliberate sites carry `#[expect]`.
+#![deny(clippy::print_stdout, clippy::print_stderr)]
+
+pub mod atomic;
+pub mod budget;
+pub mod cancellation;
+pub mod civil;
+pub mod env;
+pub mod flight;
+pub mod http;
+pub mod lock;
+pub mod memo;
+pub mod notice;
+pub mod read;
+pub mod retry;
+pub mod shell;
+#[cfg(test)]
+mod test_support;

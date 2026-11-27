@@ -1,0 +1,250 @@
+//! A ref that does not exist, named against the repository's default
+//! branch. GitHub tools never fall back to it silently: the failure says
+//! which branch the repository actually has and, for a call that reads at
+//! the ref, offers the same call at that branch as a runnable lead.
+use super::GhFailure;
+use octocode_github::{GitHubProvider, ProviderError, RequestContext};
+use octocode_runtime_base::id::ToolId;
+use octocode_runtime_base::response::result::restart_query;
+use serde_json::Value;
+
+/// The repository's current default branch.
+pub async fn default_branch(
+    provider: &GitHubProvider,
+    owner: &str,
+    repo: &str,
+    context: &RequestContext,
+) -> Result<String, ProviderError> {
+    provider
+        .transport
+        .repository_metadata(owner, repo, context)
+        .await
+        .map(|metadata| metadata.default_branch)
+}
+
+/// What a missing `ref` leaves to say: the repository exists and its default
+/// branch is another ref than the one asked for.
+pub struct DefaultBranchRetry {
+    branch: String,
+    lead: Value,
+}
+
+impl DefaultBranchRetry {
+    /// The repository's default branch.
+    pub fn branch(&self) -> &str {
+        &self.branch
+    }
+
+    /// `message` and the default branch: `…; the default branch is "master".`
+    pub fn message(&self, message: &str) -> String {
+        format!("{message}; the default branch is \"{}\".", self.branch)
+    }
+
+    /// The `atDefaultBranch` lead: the same call with `ref` set to the
+    /// default branch. It is a related call, published in `related[]`, not a
+    /// `next` channel.
+    pub fn lead(self) -> (&'static str, Value) {
+        ("atDefaultBranch", self.lead)
+    }
+
+    /// The failure's message names the default branch and its recovery
+    /// leads with the retry (the refs listing stays beside it).
+    pub(crate) fn apply(self, failure: &mut GhFailure) {
+        failure.message = self.message(&failure.message);
+        let (name, lead) = self.lead();
+        let next = failure.calls.get_or_insert_with(|| Box::new(Value::Null));
+        if !next.is_object() {
+            **next = serde_json::json!({});
+        }
+        next[name] = lead;
+    }
+}
+
+/// The retry for a call (`row`, its wire query) whose refs in `fields` did
+/// not resolve in `owner/repo`: each set to the default branch. `None`
+/// leaves the failure as it is: a field names no ref or a full commit SHA
+/// (not a branch), the default branch is a ref that failed, or the
+/// repository's metadata cannot be read (so the repository itself may be
+/// the problem).
+pub async fn default_branch_retry(
+    provider: &GitHubProvider,
+    tool: ToolId,
+    mut row: Value,
+    fields: &[&str],
+    context: &RequestContext,
+) -> Option<DefaultBranchRetry> {
+    let text = |row: &Value, name: &str| row.get(name).and_then(Value::as_str).map(str::to_owned);
+    let (owner, repo) = (text(&row, "owner")?, text(&row, "repo")?);
+    let requested = fields
+        .iter()
+        .map(|field| text(&row, field))
+        .collect::<Option<Vec<_>>>()?;
+    if requested.is_empty()
+        || requested
+            .iter()
+            .any(|reference| reference.is_empty() || octocode_github::is_full_sha(reference))
+    {
+        return None;
+    }
+    let branch = default_branch(provider, &owner, &repo, context)
+        .await
+        .ok()
+        .filter(|branch| !branch.is_empty() && !requested.contains(branch))?;
+    for field in fields {
+        row[*field] = Value::from(branch.clone());
+    }
+    let lead = restart_query(tool, &row);
+    Some(DefaultBranchRetry { branch, lead })
+}
+
+/// Which of `refs` (field, ref) do not resolve in `owner/repo`, when a call
+/// naming several failed with one not-found answer that does not say which
+/// (a comparison). Each named ref costs one SHA-only request; a full SHA is
+/// not probed (it is not a branch). Empty when every ref resolves or the
+/// repository itself does not (a probe fails for another reason).
+pub async fn unresolved_refs<'a>(
+    provider: &GitHubProvider,
+    owner: &str,
+    repo: &str,
+    refs: &[(&'a str, &str)],
+    context: &RequestContext,
+) -> Vec<&'a str> {
+    let mut missing = Vec::new();
+    for (field, reference) in refs {
+        if reference.is_empty() || octocode_github::is_full_sha(reference) {
+            continue;
+        }
+        match provider
+            .transport
+            .commit_sha(owner, repo, reference, context)
+            .await
+        {
+            Ok(_) => {}
+            Err(error)
+                if error.reason == Some(octocode_github::ProviderErrorReason::RefNotFound) =>
+            {
+                missing.push(*field);
+            }
+            Err(_) => return Vec::new(),
+        }
+    }
+    missing
+}
+
+/// [`default_branch_retry`] for a typed query's failed ref. A refs lookup
+/// ([`looks_up_the_ref`]) keeps only the message: the same lookup of the
+/// default branch would restate it and the refs listing beside it.
+pub async fn with_default_branch(
+    provider: &GitHubProvider,
+    mut failure: GhFailure,
+    tool: ToolId,
+    query: &impl serde::Serialize,
+    context: &RequestContext,
+) -> GhFailure {
+    if failure.error.reason != Some(octocode_github::ProviderErrorReason::RefNotFound) {
+        return failure;
+    }
+    let row = octocode_runtime_base::response::result::query_row(query, &[]);
+    if let Some(spelling) = tag_spelling_retry(provider, tool, &row, context).await {
+        spelling.apply(&mut failure);
+    }
+    let lookup = looks_up_the_ref(tool, &row);
+    match default_branch_retry(provider, tool, row, &["ref"], context).await {
+        Some(retry) if lookup => failure.message = retry.message(&failure.message),
+        Some(retry) => retry.apply(&mut failure),
+        None => {}
+    }
+    failure
+}
+
+/// Whether a call's `ref` is what it asks about (ghStructure
+/// `operation:"refs"`: the ref's commit), not the revision it reads at: the
+/// same call at the default branch answers another question.
+fn looks_up_the_ref(tool: ToolId, row: &Value) -> bool {
+    tool == ToolId::GhStructure && row.get("operation").and_then(Value::as_str) == Some("refs")
+}
+
+/// A `ref` that exists under the other spelling of a version tag: with or
+/// without the `v` prefix (`v1.2.0` / `1.2.0`).
+pub struct TagSpellingRetry {
+    reference: String,
+    lead: Value,
+}
+
+impl TagSpellingRetry {
+    /// The failure's message names the spelling that resolves and its
+    /// recovery leads with the same call at it.
+    fn apply(self, failure: &mut GhFailure) {
+        failure.message = format!("{}; \"{}\" exists", failure.message, self.reference);
+        let next = failure.calls.get_or_insert_with(|| Box::new(Value::Null));
+        if !next.is_object() {
+            **next = serde_json::json!({});
+        }
+        next["atSpelledRef"] = self.lead;
+    }
+}
+
+/// The version-tag spelling of `reference` with the `v` prefix toggled:
+/// `v1.2` ↔ `1.2`. `None` when it is not a version (no digit after the
+/// optional `v`).
+fn other_tag_spelling(reference: &str) -> Option<String> {
+    let starts_digit = |text: &str| text.chars().next().is_some_and(|c| c.is_ascii_digit());
+    match reference.strip_prefix(['v', 'V']) {
+        Some(version) if starts_digit(version) => Some(version.to_owned()),
+        None if starts_digit(reference) => Some(format!("v{reference}")),
+        _ => None,
+    }
+}
+
+/// The same call at the other spelling of its version tag, when that ref
+/// resolves in `owner/repo` (one request). `None` for a non-version ref, a
+/// full SHA, or an alternate that does not resolve.
+pub async fn tag_spelling_retry(
+    provider: &GitHubProvider,
+    tool: ToolId,
+    row: &Value,
+    context: &RequestContext,
+) -> Option<TagSpellingRetry> {
+    let text = |name: &str| row.get(name).and_then(Value::as_str);
+    let (owner, repo, reference) = (text("owner")?, text("repo")?, text("ref")?);
+    if octocode_github::is_full_sha(reference) {
+        return None;
+    }
+    let other = other_tag_spelling(reference)?;
+    provider
+        .transport
+        .commit_sha(owner, repo, &other, context)
+        .await
+        .ok()?;
+    let mut row = row.clone();
+    row["ref"] = Value::from(other.clone());
+    Some(TagSpellingRetry {
+        lead: restart_query(tool, &row),
+        reference: other,
+    })
+}
+
+#[cfg(test)]
+mod tests;
+
+#[cfg(test)]
+mod spelling_tests {
+    use super::other_tag_spelling;
+
+    #[test]
+    fn the_v_prefix_of_a_version_toggles_and_other_refs_have_no_twin() {
+        for (given, twin) in [
+            ("v1.2.0", Some("1.2.0")),
+            ("1.2.0", Some("v1.2.0")),
+            ("V2", Some("2")),
+        ] {
+            assert_eq!(other_tag_spelling(given).as_deref(), twin, "{given}");
+            if let Some(twin) = twin {
+                assert!(other_tag_spelling(twin).is_some());
+            }
+        }
+        for given in ["main", "vendor", "v", "", "release/1.0"] {
+            assert_eq!(other_tag_spelling(given), None, "{given}");
+        }
+    }
+}

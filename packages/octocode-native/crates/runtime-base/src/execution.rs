@@ -1,0 +1,15 @@
+//! The request kernel every layer above shares: one request's execution
+//! context, its errors and cancellation, the runtime's code limits, and
+//! which tools this runtime serves. It names nothing above it, so response
+//! shaping, providers and tools take it without reaching the engine.
+
+pub mod availability;
+pub mod cancel;
+mod lifecycle;
+mod limits;
+
+pub use lifecycle::{
+    ExecutionContext, ExecutionError, MAX_TIMEOUT, RequestAdmission, RequestLimits, RequestRuntime,
+    StorageFault,
+};
+pub use limits::{RuntimeLimits, SelectionLimits};

@@ -1,41 +1,26 @@
 ---
 name: octocode-rfc-generator
-description: "Use when a consequential change needs a decision before coding: write or improve an RFC, design doc, architecture proposal, migration plan, option comparison, rollout plan, or measurable implementation contract. If the idea is still open-ended, use octocode-brainstorming first."
+description: "Load this skill first when asked to write, revise or review an RFC, design proposal or migration plan. Weigh alternatives, record each decision and trace it to tasks, checks and rollout."
 ---
 
 # Octocode RFC Generator
 
-Produce evidence-backed decisions that an implementer and reviewer can execute.
-Flow: `UNDERSTAND → RESEARCH → PREREQUISITES → COMPARE → WRITE → CLOSE QUESTIONS → KPI → VALIDATE → DELIVER`.
-For existing RFCs, run `REASSESS` (see `references/workflow.md` § Reassess existing RFCs) instead of WRITE — audit against live code, not prior checkboxes.
+Identify the decision, its owner and the requested deliverable. If the decision or owner is missing, ask; if no answer can come, mark the assumption and add a `Blocking:` question naming who settles it. For review, compare the existing RFC with current code and return findings. For a settled decision, write the requested implementation plan. For an open decision, keep the proposal and plan in one RFC; with no option to propose yet, first use `octocode-brainstorming` (web evidence) or `octocode-engineer` (codebase trade-offs). Read the [artifact structure](output.md) before drafting. Implementation requires its own authorization.
 
-## Lobby rules
-- Skip RFC mode for trivial edits. Ask one focused question when uncertainty changes shape, owner, scope, or decision criteria.
-- Compare at least two alternatives, including do-nothing, unless the user explicitly requests one implementation plan.
-- Recommendations require verifiable facts; cite exact anchors and commands/checks that actually ran.
-- `RFC.md` owns goals, scope, and decision. Other files link to its anchors rather than restating them.
-- Resolve every open question with evidence or an explicit deferral; no recommendation may rest on an uncertain claim.
-- Order implementation by dependency, not estimates; bind requirements to acceptance and verification.
-- Reviewing, rating, or cleaning up `.octocode/rfc/` (delete/implemented/fixed calls) always requires a dated `## Audit Reasoning` block written into the RFC itself, backed by fresh reads of the live code.
-- Never assert RFC status from memory or from another RFC's claims.
-- Stop when: the change is a trivial one-file edit (route to `octocode-research`); a brainstorming handoff is marked Prototype First, Narrow, Park, or not ready; uncertainty changes artifact shape, owner, scope, or tradeoff priority; two research attempts fail (state what is known and ask for direction); scope needs splitting into separate RFCs or phases; an unresolved blocker would have to be assumed satisfied; or a save, delete, or archive under `.octocode/rfc/` awaits explicit approval.
+## Work loop
 
-## Artifact route
-- Small, reversible, single-package work: produce only `RFC.md` with plan, acceptance, and inline references.
-- Otherwise, after save approval, create `<workspace>/.octocode/rfc/{name}/`: `RFC.md` (decide), `PREREQUISITES.md` (ready, existing code only), `IMPLEMENTATION.md` (build), `KPI.md` (verify), and `RESOURCES.md` (source appendix).
+1. Frame the problem, users, current behavior, goals, constraints and prerequisites. Trace the entities and current flow from source; verify deciding claims in original sources and keep their links for Sources.
+2. Decide: compare viable alternatives; for each real choice record evidence, reasoning, rejected options and what would reverse it. Try the strongest counterargument; keep unsupported likelihoods unknown.
+3. Plan features (who observes which change), the proposed flow beside the current one, and tasks (what to make, where, after what, done when), thin end-to-end slice first. Name compatibility, acceptance, rollout and rollback for each material change. For risky plans, work backward from failure: what escapes containment or affects downstream consumers? Prefer a reversible trial when it resolves uncertainty.
+4. Check real outcomes independently of success metrics, and that features, tasks, checks and sources trace: run `node <skill-folder>/scripts/rfc-trace.mjs <RFC.md>` and read it with the [trace rules](references/trace.md). Resolve decision blockers with evidence; otherwise deliver provisional direction, the gaps and the next deciding checks. Defer an execution detail only with an owner and a trigger that cannot reverse the decision.
 
-## Smart routes — load only what the current step needs
-- To understand the ask and select a mode before drafting, load `references/workflow.md` — gates, claim ledger, artifact set, traceability, validation, and delivery order.
-- When researching evidence, load `references/octocode.md` then `references/research-playbook.md` — delegate exact research and keep claims auditable.
-- When existing code has readiness work, load `references/rfc-prerequisites.md` before planning — expose baselines, blockers, owners, and setup.
-- When comparing options and writing the decision, load `references/rfc-template.md` — structure alternatives, goals/non-goals, reversibility, and pre-mortem.
-- When building the execution plan, load `references/rfc-implementation.md` — close open questions, order dependencies, and define rollout/rollback.
-- When defining acceptance and KPI targets, load `references/rfc-kpi.md` — connect user stories, metrics, decision rules, and verification in a traceability matrix.
-- When preserving sources, load `references/rfc-resources.md` — record provenance without moving decisive citations out of the RFC.
-- When you reassess, rate, or clean up an existing RFC, load `references/rfc-audit.md` — the dated `## Audit Reasoning` block, with live-code evidence, is required before any keep/fix/delete call.
-- When improving this skill, prefer `octocode-graph-eval`; otherwise load `references/improve-loop.md` — enforce measurable accept/revert.
+## Conditional detail
 
-## Related routes and verification
-- Use `octocode-brainstorming` before RFC when worth-building is unresolved; `octocode-research` to close factual questions; `octocode-graph-eval` for KPI rigor.
-- Use `octocode-skills` when changing this skill folder.
-- Before delivery validate the document contract section by section and report the real result.
+| Need | Read or run |
+|---|---|
+| Completeness, planning features and tasks; tracing them; closing blockers or declaring ready | [Checklist](references/checklist.md); [trace](references/trace.md); [questions](references/questions.md) |
+| A flow, diagram, graph or chart | [Diagrams](references/diagrams.md), then [drawing rules](references/diagram-drawing.md) |
+| Evidence gathering, auditing an existing RFC, a disagreement source review cannot settle | [Workflow](references/workflow.md), with its optional `clasify` review |
+| Locate an existing RFC or render accepted HTML | [Report commands](references/report-output.md#render-and-retrieve), [renderer](scripts/render-report.mjs) |
+
+Save an authored RFC and reply per the [saved report rules](output.md#saved-report): decision, expected effect, risks and document path. Keep `status: Proposed` until the owner accepts.

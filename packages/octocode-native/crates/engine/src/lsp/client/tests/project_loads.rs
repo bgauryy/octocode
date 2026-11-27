@@ -1,0 +1,380 @@
+//! The open settle is paid once per project, not once per file.
+
+use super::document_sync::{
+    client_with_fake_server_using, read_client_frame, send_server_frame as send,
+};
+use super::*;
+use serde_json::json;
+use tokio::io::{BufReader, DuplexStream};
+
+async fn progress(writer: &mut DuplexStream, token: &str, kind: &str) {
+    send(writer, json!({"jsonrpc":"2.0","method":"$/progress","params":{"token":token,"value":{"kind":kind}}})).await;
+}
+
+/// `tsconfig.json` projects `names` under one temp dir, each with `a.ts`
+/// and `b.ts`.
+fn projects(names: &[&str]) -> (TmpDir, Vec<PathBuf>) {
+    let tmp = TmpDir::new();
+    let dirs = names
+        .iter()
+        .map(|name| {
+            let dir = tmp.0.join(name);
+            std::fs::create_dir_all(&dir).expect("project dir");
+            std::fs::write(dir.join("tsconfig.json"), "{}").expect("tsconfig");
+            dir
+        })
+        .collect();
+    (tmp, dirs)
+}
+
+fn file(dir: &Path, name: &str) -> String {
+    dir.join(name).to_string_lossy().into_owned()
+}
+
+/// Open `path` and return how long the open waited.
+async fn open(client: &NativeLspClient, path: String) -> Duration {
+    let started = client.inner.clock.now();
+    client
+        .open_document_and_wait(path, "export {};\n", Some(400), Some(5_000))
+        .await
+        .expect("open")
+        .expect("first open");
+    client.inner.clock.elapsed(started)
+}
+
+/// A server that answers the first `didOpen` with a 400 ms project load.
+async fn load_on_first_open(
+    mut reader: BufReader<DuplexStream>,
+    mut writer: DuplexStream,
+    clock: TestClock,
+) -> (BufReader<DuplexStream>, DuplexStream) {
+    assert_eq!(
+        read_client_frame(&mut reader).await["method"],
+        "textDocument/didOpen"
+    );
+    clock.sleep(Duration::from_millis(100)).await;
+    progress(&mut writer, "load", "begin").await;
+    clock.sleep(Duration::from_millis(400)).await;
+    progress(&mut writer, "load", "end").await;
+    (reader, writer)
+}
+
+#[test]
+fn a_later_file_of_a_loaded_project_opens_without_a_settle() {
+    paused(|clock| async move {
+        let (_tmp, dirs) = projects(&["p"]);
+        let (client, reader, writer) =
+            client_with_fake_server_using(client_on(&clock, ts_config()), 64 * 1024).await;
+        let server = tokio::spawn(load_on_first_open(reader, writer, clock.clone()));
+        assert_eq!(
+            open(&client, file(&dirs[0], "a.ts")).await,
+            Duration::from_millis(700),
+            "the first open waits for the load it triggers"
+        );
+        let (_reader, _writer) = server.await.expect("mock server");
+        assert_eq!(
+            open(&client, file(&dirs[0], "b.ts")).await,
+            Duration::ZERO,
+            "the loaded project starts no new load"
+        );
+    });
+}
+
+#[test]
+fn the_first_open_of_another_project_still_waits() {
+    paused(|clock| async move {
+        let (_tmp, dirs) = projects(&["p", "q"]);
+        let (client, reader, writer) =
+            client_with_fake_server_using(client_on(&clock, ts_config()), 64 * 1024).await;
+        let server = tokio::spawn(load_on_first_open(reader, writer, clock.clone()));
+        open(&client, file(&dirs[0], "a.ts")).await;
+        let (_reader, _writer) = server.await.expect("mock server");
+        assert_eq!(
+            open(&client, file(&dirs[1], "a.ts")).await,
+            Duration::from_millis(400),
+            "a second project settles for its own load"
+        );
+    });
+}
+
+#[test]
+fn a_silent_project_is_remembered() {
+    paused(|clock| async move {
+        let (_tmp, dirs) = projects(&["p"]);
+        let (client, _reader, _writer) =
+            client_with_fake_server_using(client_on(&clock, ts_config()), 64 * 1024).await;
+        assert_eq!(
+            open(&client, file(&dirs[0], "a.ts")).await,
+            Duration::from_millis(400)
+        );
+        assert_eq!(open(&client, file(&dirs[0], "b.ts")).await, Duration::ZERO);
+    });
+}
+
+#[test]
+fn a_load_no_open_waited_for_makes_the_next_open_wait() {
+    paused(|clock| async move {
+        let (_tmp, dirs) = projects(&["p"]);
+        let (client, _reader, mut writer) =
+            client_with_fake_server_using(client_on(&clock, ts_config()), 64 * 1024).await;
+        open(&client, file(&dirs[0], "a.ts")).await;
+        // The server reloads the project on its own (a tsconfig edit).
+        let mut seen = client.inner.progress.subscribe();
+        progress(&mut writer, "reload", "begin").await;
+        progress(&mut writer, "reload", "end").await;
+        seen.wait_for(|count| *count == 0)
+            .await
+            .expect("reload ended");
+        while client.inner.progress.begins() == 0 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(
+            open(&client, file(&dirs[0], "b.ts")).await,
+            Duration::from_millis(400),
+            "the reload is not known to be finished for this file"
+        );
+    });
+}
+
+#[test]
+fn a_new_server_process_forgets_loaded_projects() {
+    paused(|clock| async move {
+        let (_tmp, dirs) = projects(&["p"]);
+        let (client, _reader, _writer) =
+            client_with_fake_server_using(client_on(&clock, ts_config()), 64 * 1024).await;
+        open(&client, file(&dirs[0], "a.ts")).await;
+        client.reset_session_state();
+        assert_eq!(
+            open(&client, file(&dirs[0], "b.ts")).await,
+            Duration::from_millis(400)
+        );
+    });
+}
+
+#[test]
+fn an_explicit_settle_is_also_owed_once_per_project() {
+    paused(|clock| async move {
+        let (_tmp, dirs) = projects(&["p"]);
+        let (client, _reader, _writer) =
+            client_with_fake_server_using(client_on(&clock, ts_config()), 64 * 1024).await;
+        open(&client, file(&dirs[0], "a.ts")).await;
+        let started = clock.now();
+        client
+            .open_document_and_wait(file(&dirs[0], "b.ts"), "export {};\n", Some(200), None)
+            .await
+            .expect("open");
+        assert_eq!(clock.elapsed(started), Duration::ZERO);
+    });
+}
+
+/// A document opened without the wait (an outline) still owes it to the
+/// first caller that waits: its project may not have loaded.
+#[test]
+fn a_document_opened_without_the_wait_owes_it_in_an_unsettled_project() {
+    paused(|clock| async move {
+        let (_tmp, dirs) = projects(&["p"]);
+        let (client, _reader, _writer) =
+            client_with_fake_server_using(client_on(&clock, ts_config()), 64 * 1024).await;
+        let path = file(&dirs[0], "a.ts");
+        client
+            .open_document(path.clone(), "export {};\n")
+            .await
+            .expect("outline open");
+        assert_eq!(
+            open(&client, path.clone()).await,
+            Duration::from_millis(400)
+        );
+        let started = clock.now();
+        assert_eq!(
+            client
+                .open_document_and_wait(path, "export {};\n", Some(400), Some(5_000))
+                .await
+                .expect("again"),
+            None,
+            "the wait is owed once per document"
+        );
+        assert_eq!(clock.elapsed(started), Duration::ZERO);
+    });
+}
+
+#[test]
+fn a_document_opened_without_the_wait_in_a_settled_project_waits_nothing() {
+    paused(|clock| async move {
+        let (_tmp, dirs) = projects(&["p"]);
+        let (client, _reader, _writer) =
+            client_with_fake_server_using(client_on(&clock, ts_config()), 64 * 1024).await;
+        open(&client, file(&dirs[0], "a.ts")).await;
+        let path = file(&dirs[0], "b.ts");
+        client
+            .open_document(path.clone(), "export {};\n")
+            .await
+            .expect("outline open");
+        assert_eq!(open(&client, path).await, Duration::ZERO);
+    });
+}
+
+/// Outline `path` (opened without the wait, holding `content`) in one
+/// response scope, answering its `documentSymbol` requests with `answers`
+/// in order. Returns the outline, the readiness of a wait it paid, what a
+/// second ask in the same scope returns, the time spent, and the number of
+/// requests the server saw.
+async fn outline(
+    clock: &TestClock,
+    content: &str,
+    answers: Vec<serde_json::Value>,
+) -> (Arc<Value>, Option<Readiness>, Arc<Value>, Duration, usize) {
+    outline_with(clock, content, answers, false).await
+}
+
+/// [`outline`], where `stalls` makes the server start a project load after
+/// its first answer and never finish it.
+async fn outline_with(
+    clock: &TestClock,
+    content: &str,
+    answers: Vec<serde_json::Value>,
+    stalls: bool,
+) -> (Arc<Value>, Option<Readiness>, Arc<Value>, Duration, usize) {
+    let (_tmp, dirs) = projects(&["p"]);
+    let (client, mut reader, mut writer) =
+        client_with_fake_server_using(client_on(clock, ts_config()), 64 * 1024).await;
+    let path = file(&dirs[0], "a.ts");
+    std::fs::write(&path, content).expect("source");
+    client
+        .open_document(path.clone(), content)
+        .await
+        .expect("outline open");
+    let expected = answers.len();
+    let server = tokio::spawn(async move {
+        assert_eq!(
+            read_client_frame(&mut reader).await["method"],
+            "textDocument/didOpen"
+        );
+        for (index, answer) in answers.into_iter().enumerate() {
+            let request = read_client_frame(&mut reader).await;
+            assert_eq!(request["method"], "textDocument/documentSymbol");
+            send(
+                &mut writer,
+                json!({"jsonrpc":"2.0","id":request["id"],"result":answer}),
+            )
+            .await;
+            if stalls && index == 0 {
+                progress(&mut writer, "stalled", "begin").await;
+            }
+        }
+        (reader, writer)
+    });
+    let started = clock.now();
+    let content = content.to_owned();
+    let (symbols, readiness, again) = RESPONSE_SCOPE
+        .scope(
+            std::cell::RefCell::new(ResponseScope {
+                call: None,
+                ..Default::default()
+            }),
+            async {
+                let (symbols, readiness) = client
+                    .get_document_symbols_settled(path.clone(), &content)
+                    .await
+                    .expect("outline");
+                let again = client.get_document_symbols(path).await.expect("again");
+                (symbols, readiness, again)
+            },
+        )
+        .await;
+    let elapsed = clock.elapsed(started);
+    let _keep_open = server.await.expect("server");
+    (symbols, readiness, again, elapsed, expected)
+}
+
+/// Issue #479: a server that answers an empty outline until its project
+/// loads gets the owed settle and one more ask; the scope records the
+/// second answer, so a later page reads the same outline.
+#[test]
+fn an_empty_outline_pays_the_owed_wait_and_asks_once_more() {
+    paused(|clock| async move {
+        let symbol = json!([{"name":"f","kind":12}]);
+        let (symbols, readiness, again, elapsed, _) = outline(
+            &clock,
+            "export function f() {}\n",
+            vec![json!([]), symbol.clone()],
+        )
+        .await;
+        assert_eq!(*symbols, symbol);
+        assert_eq!(*again, symbol, "the recorded answer is the retry's");
+        assert!(readiness.is_some(), "the paid wait reports its readiness");
+        assert_eq!(elapsed, Duration::from_millis(u64::from(OPEN_SETTLE_MS)));
+    });
+}
+
+/// The fast path stays fast: a non-empty outline, or an empty one for a
+/// blank file, is answered by one request with no wait.
+#[test]
+fn an_outline_with_symbols_or_of_a_blank_file_waits_nothing() {
+    paused(|clock| async move {
+        let symbol = json!([{"name":"f","kind":12}]);
+        let (symbols, readiness, again, elapsed, requests) =
+            outline(&clock, "export function f() {}\n", vec![symbol.clone()]).await;
+        assert_eq!((*symbols).clone(), symbol);
+        assert_eq!(*again, symbol);
+        assert_eq!((readiness, elapsed, requests), (None, Duration::ZERO, 1));
+        let (symbols, readiness, _, elapsed, _) = outline(&clock, "  \n", vec![json!([])]).await;
+        assert_eq!(*symbols, json!([]));
+        assert_eq!((readiness, elapsed), (None, Duration::ZERO));
+    });
+}
+
+/// Issue #479: when the owed wait times out, the retry still asks once more
+/// and reports `timeout`, so the row can be flagged still loading.
+#[test]
+fn a_timed_out_retry_reports_the_timeout() {
+    paused(|clock| async move {
+        let symbol = json!([{"name":"f","kind":12}]);
+        let (symbols, readiness, _, elapsed, _) = outline_with(
+            &clock,
+            "export function f() {}\n",
+            vec![json!([]), symbol.clone()],
+            true,
+        )
+        .await;
+        assert_eq!(*symbols, symbol);
+        assert_eq!(readiness, Some(Readiness::Timeout));
+        assert!(elapsed >= Duration::from_millis(u64::from(OPEN_READY_TIMEOUT_MS)));
+    });
+}
+
+/// A client whose startup wait timed out and then resumed to idle (as a
+/// pooled client does on acquire) reports that confirmed readiness, never
+/// the stale `timeout`, for a later file whose wait was owed nothing.
+#[test]
+fn a_resumed_client_does_not_report_a_stale_timeout() {
+    paused(|clock| async move {
+        let (_tmp, dirs) = projects(&["p"]);
+        let (client, _reader, mut writer) =
+            client_with_fake_server_using(client_on(&clock, ts_config()), 64 * 1024).await;
+        let mut active = client.inner.progress.subscribe();
+        progress(&mut writer, "startup", "begin").await;
+        active
+            .wait_for(|count| *count == 1)
+            .await
+            .expect("indexing began");
+        assert_eq!(
+            client.wait_for_ready(Some(2_000)).await.expect("wait"),
+            Readiness::Timeout
+        );
+        let task_clock = clock.clone();
+        let server = tokio::spawn(async move {
+            task_clock.sleep(Duration::from_millis(500)).await;
+            progress(&mut writer, "startup", "end").await;
+            writer
+        });
+        client.resume_timed_out_readiness(2_000).await;
+        assert_eq!(client.readiness(), Some(Readiness::ProgressIdle));
+        let path = file(&dirs[0], "a.ts");
+        let readiness = client
+            .open_document_and_wait(path, "export {};\n", None, None)
+            .await
+            .expect("open");
+        assert_eq!(readiness, Some(Readiness::ProgressIdle));
+        let _writer = server.await.expect("server");
+    });
+}

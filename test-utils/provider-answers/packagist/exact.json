@@ -1,0 +1,162 @@
+{
+ "case": "packagist/exact",
+ "tool": "artifactSearch",
+ "query": {
+  "operation": "resolve",
+  "ecosystem": "packagist",
+  "packageName": "psr/log",
+  "version": "1.1.4",
+  "view": "details"
+ },
+ "recordedAt": "2026-11-05",
+ "unread": [
+  "minified",
+  "packages.*[*].*.*.*"
+ ],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://repo.packagist.org/p2/psr/log.json",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "cache-control",
+     "public, max-age=900"
+    ],
+    [
+     "content-type",
+     "application/json"
+    ],
+    [
+     "etag",
+     "\"6a439ffe-1b06\""
+    ]
+   ],
+   "digest": "sha256:d4e9722b22c2d08fb65e891b5786462fea3df79665cafab308880802be09afa1",
+   "body": {
+    "minified": "composer/2.0",
+    "packages": {
+     "psr/log": [
+      {
+       "name": "psr/log",
+       "keywords": [
+        "log",
+        "psr",
+        "psr-3"
+       ],
+       "authors": [
+        {
+         "name": "PHP-FIG",
+         "homepage": "https://www.php-fig.org/"
+        }
+       ],
+       "source": {
+        "url": "https://github.com/php-fig/log.git",
+        "type": "git",
+        "reference": "f16e1d5863e37f8d8c2a01719f5b34baa2b714d3"
+       },
+       "dist": {
+        "url": "https://api.github.com/repos/php-fig/log/zipball/f16e1d5863e37f8d8c2a01719f5b34baa2b714d3",
+        "type": "zip",
+        "shasum": "",
+        "reference": "f16e1d5863e37f8d8c2a01719f5b34baa2b714d3"
+       },
+       "support": {
+        "source": "https://github.com/php-fig/log/tree/3.0.2"
+       },
+       "autoload": {
+        "psr-4": {
+         "Psr\\Log\\": "src"
+        }
+       },
+       "extra": {
+        "branch-alias": {
+         "dev-master": "3.x-dev"
+        }
+       },
+       "require": {
+        "php": ">=8.0.0"
+       }
+      },
+      {
+       "version": "1.1.4",
+       "source": {
+        "url": "https://github.com/php-fig/log.git",
+        "type": "git",
+        "reference": "d49695b909c3b7628b6289db5479a1c204601f11"
+       },
+       "dist": {
+        "url": "https://api.github.com/repos/php-fig/log/zipball/d49695b909c3b7628b6289db5479a1c204601f11",
+        "type": "zip",
+        "shasum": "",
+        "reference": "d49695b909c3b7628b6289db5479a1c204601f11"
+       },
+       "support": {
+        "source": "https://github.com/php-fig/log/tree/1.1.4"
+       },
+       "autoload": {
+        "psr-4": {
+         "Psr\\Log\\": "Psr/Log/"
+        }
+       },
+       "extra": {
+        "branch-alias": {
+         "dev-master": "1.1.x-dev"
+        }
+       },
+       "require": {
+        "php": ">=5.3.0"
+       }
+      },
+      {
+       "version": "1.1.2",
+       "source": {
+        "url": "https://github.com/php-fig/log.git",
+        "type": "git",
+        "reference": "446d54b4cb6bf489fc9d75f55843658e6f25d801"
+       },
+       "dist": {
+        "url": "https://api.github.com/repos/php-fig/log/zipball/446d54b4cb6bf489fc9d75f55843658e6f25d801",
+        "type": "zip",
+        "shasum": "",
+        "reference": "446d54b4cb6bf489fc9d75f55843658e6f25d801"
+       },
+       "support": {
+        "source": "https://github.com/php-fig/log/tree/1.1.2"
+       },
+       "funding": "__unset"
+      },
+      {
+       "homepage": "",
+       "source": {
+        "url": "https://github.com/php-fig/log.git",
+        "type": "git",
+        "reference": "fe0936ee26643249e916849d48e3a51d5f5e278b"
+       },
+       "dist": {
+        "url": "https://api.github.com/repos/php-fig/log/zipball/fe0936ee26643249e916849d48e3a51d5f5e278b",
+        "type": "zip",
+        "shasum": "",
+        "reference": "fe0936ee26643249e916849d48e3a51d5f5e278b"
+       },
+       "support": {
+        "issues": "https://github.com/php-fig/log/issues",
+        "source": "https://github.com/php-fig/log/tree/1.0.0"
+       },
+       "autoload": {
+        "psr-0": {
+         "Psr\\Log\\": ""
+        }
+       },
+       "require": "__unset"
+      }
+     ]
+    },
+    "security-advisories": []
+   }
+  }
+ ]
+}

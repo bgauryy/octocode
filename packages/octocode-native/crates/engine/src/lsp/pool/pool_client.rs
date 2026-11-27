@@ -1,0 +1,63 @@
+//! The client surface the pool manages, so the pool logic is tested against
+//! a fake client while production pools [`NativeLspClient`]s.
+
+use crate::lsp::client::NativeLspClient;
+use std::future::Future;
+use std::pin::Pin;
+
+pub(super) type ClientFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
+
+pub(super) trait PoolClient: Clone + Send + Sync + 'static {
+    fn alive(&self) -> ClientFuture<bool>;
+    /// Authoritative "in use" signal. The pool never stops a busy client: the
+    /// idle timer re-arms while it is busy and LRU eviction skips it; a drain
+    /// task stops it once idle if it keeps the pool over budget (a temporary
+    /// overflow). It MUST therefore stay `true` for the whole
+    /// of any operation holding the client — in-flight requests AND any lease
+    /// held across document syncs, readiness waits, and the gaps between the
+    /// requests of one multi-request walk — not only while a single request is
+    /// outstanding.
+    fn busy(&self) -> bool;
+    /// Memory the server tree held at its last sample; `0` when
+    /// unsampled (no memory cap configured), which counts against nothing.
+    fn resident_bytes(&self) -> u64;
+    fn stop(&self) -> ClientFuture<()>;
+    /// Same underlying client (a clone of it), not merely an equal config.
+    fn same(&self, other: &Self) -> bool;
+    /// A project config file the server reads once and never re-reads for a
+    /// document it holds changed under it (see `lsp::project_config`): the
+    /// pool replaces the server when it is idle.
+    fn project_config_changed(&self) -> ClientFuture<bool>;
+}
+
+impl PoolClient for NativeLspClient {
+    fn alive(&self) -> ClientFuture<bool> {
+        let client = self.clone();
+        Box::pin(async move { client.is_alive().await })
+    }
+
+    fn busy(&self) -> bool {
+        // Counts requests, syncs, diagnostic waits, and caller leases.
+        self.is_busy()
+    }
+
+    fn resident_bytes(&self) -> u64 {
+        self.last_resident_bytes()
+    }
+
+    fn stop(&self) -> ClientFuture<()> {
+        let client = self.clone();
+        Box::pin(async move {
+            let _ = client.stop().await;
+        })
+    }
+
+    fn same(&self, other: &Self) -> bool {
+        self.same_client(other)
+    }
+
+    fn project_config_changed(&self) -> ClientFuture<bool> {
+        let client = self.clone();
+        Box::pin(async move { client.project_config_changed().await })
+    }
+}

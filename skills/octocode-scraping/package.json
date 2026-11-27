@@ -1,0 +1,22 @@
+{
+  "name": "@octocodeai/skill-scraping",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Builds scripts/keys.mjs (the ScrapingAnt key lookup) from @octocodeai/config, so the installed octocode-scraping skill needs no packages.",
+  "files": [
+    "SKILL.md",
+    "output.md",
+    "references",
+    "scripts"
+  ],
+  "scripts": {
+    "build": "node ../common/bundle-skill.mjs",
+    "lint": "node ../common/bundle-skill.mjs --check",
+    "test": "node --test 'scripts/tests/*.test.mjs'"
+  },
+  "devDependencies": {
+    "@octocodeai/config": "workspace:*",
+    "esbuild": "^0.28.2"
+  }
+}

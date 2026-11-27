@@ -1,0 +1,88 @@
+# Host hook event contracts
+
+Nothing here changes user-level host settings; hooks live in host configuration, and the skill installs none. Installation, merge locations, trust and a delivery check: [host setup](HOST_SETUP.md#install-messaging-hooks). Native delivery and hook delivery are alternatives for one identity.
+
+## Event contracts
+
+| Host | Identity/presence events | Inbox context | Not for delivery |
+| --- | --- | --- | --- |
+| Claude Code | `SessionStart`, `UserPromptSubmit`, tool events; `SessionEnd` leaves | `PostToolUse`/`PostToolUseFailure` `hookSpecificOutput.additionalContext` | Prompt events maintain presence; session-start context carries binding only |
+| Codex | `SessionStart`, `UserPromptSubmit`, `PostToolUse`; `SessionEnd` leaves | `PostToolUse` `hookSpecificOutput.additionalContext` | No `PostToolUseFailure` event configured; session-start context carries binding only |
+| Octocode | `SessionStart`, `PostToolUse`; `SessionEnd` leaves | `PostToolUse` `hookSpecificOutput.additionalContext` | Native preset; no prompt/failure event or Pi extension; session-start context carries binding only |
+| Cursor | `sessionStart`, `beforeSubmitPrompt`, tool events; `sessionEnd` leaves | `postToolUse`/`postToolUseFailure` `additional_context` | `beforeSubmitPrompt` only validates |
+| Grok Build | `SessionStart`, `UserPromptSubmit`, tool events; `SessionEnd` leaves | `PostToolUse`/`PostToolUseFailure` `hookSpecificOutput.additionalContext` | Session-start and prompt-hook output is discarded |
+| OpenCode | Existing session ID via server/SDK | `POST /session/:id/message` with `noReply:true` | No shell hook needed when the server is reachable |
+
+**Cursor** ([hooks reference](https://cursor.com/docs/hooks)): `sessionStart` is asynchronous and injects only initial identity context, never peer messages. Skill-hook frontmatter is not assumed to run, and executable names do not identify a vendor (Grok also installs `agent`). Contract-fixture-tested, not live-model verified.
+
+**Grok** ([hook contract](https://github.com/xai-org/grok-build/blob/f0e3be1100ef5252488e3be8bb0e91cf68d8c305/crates/codegen/xai-grok-pager/docs/user-guide/10-hooks.md)) uses camelCase payload keys, PascalCase compatibility events and project hook locations.
+- Grok project hooks require a trusted Git project root. Creating `.grok/hooks/` alone does not establish one. Inspect the installed host before enabling them. Check `projectRoot`, `projectTrusted` and `hooks` first.
+- The adapter inlines Grok context up to 8,000 UTF-8 bytes and bounds output at 9,000 bytes. Larger messages retain the full record envelope with `data.contentOmitted:true` and executable `data.next` fetch instructions. It defers excess rows to a later event without trimming content or acknowledging them.
+- Delivery is post-tool: `PreToolUse` context drops when a tool is denied.
+
+**Claude/Codex** use snake-case `session_id`, `cwd`, and `hook_event_name`; parent hooks ignore `agent_id` child events. Each participating child needs a separate binding. Codex previews and emitted context share a 5,000 limit; the adapter bounds UTF-8 bytes conservatively and sends full-body DB references when needed. Batches that still exceed the limit defer remaining items to a later event. Recover bodies by returned references. See [Claude hooks](https://code.claude.com/docs/en/hooks) and [Codex hooks](https://learn.chatgpt.com/docs/hooks).
+
+## OpenCode: direct API before hooks
+
+The [server API](https://opencode.ai/docs/server/) accepts `noReply`; in [the inspected source](https://github.com/anomalyco/opencode/blob/16c56fe5ecc3305028d1f0a9cff5806e51c9d480/packages/opencode/src/session/prompt.ts) `createUserMessage` runs before the `noReply` return, so the message is stored without a model turn (passive delivery, like Codex injection). Keep DB stage/confirm/complete around it, never send peer text as a `system` override, and reply through the CLI/DB.
+
+Inspect the server's `/doc` schema first. Only literal-loopback HTTP with an explicit port is accepted; credentials and preflight: [OpenCode setup](HOST_SETUP.md#connect-an-opencode-recipient). The [OpenCode 2 plugin API](https://opencode.ai/v2/docs/build/plugins) (`Plugin.define`) differs from v1: do not copy a v1 `experimental.chat.messages.transform` example. A plugin is optional (identity, presence, usage) when the HTTP server is reachable; without either, raw CLI/SQLite works.
+
+## Failure and context policy
+
+- Identity resolves through vendor labels and native bindings. A native-bound identity keeps presence/end events but gets no hook context; a second registration for that receiver is rejected (reuse the reported identity), and raw hook init cannot replace a concurrent native attachment.
+- Deterministic (no model call), host-specific timeout (Codex shutdown: three seconds; other generated hooks: ten seconds), 1 MiB stdin bound. Invalid input or workspace mismatch logs and fails open.
+- Only supported injection events stage messages; others leave rows untouched. Hook payloads and tool results are never stored.
+- SQLite serializes concurrent identity creation and staging. Restarts reuse the identity; expiry neither deletes audit nor replays.
+- Messaging hooks change neither tool permissions nor tool results and never block completion.
+- Presence renews on events; an idle host expires unless a listener keeps it, and direct messages wait for its next event.
+- SDK acceptance and handling ACKs stay separate from stdout success; a crash after staging needs explicit recovery. A hook whose stdout reader closed before the write finished (host timeout, `| head`) records the offer `uncertain` and exits 0: the message stays pending, so inspect it and use `retry_delivery`. Hook stdin may start with a UTF-8 byte order mark.
+
+## Integrate another provider
+
+MCP accepts any nonblank vendor label. For automatic context delivery, map the host's events to `host-hook --vendor <provider>` using the same label in MCP `init`. No provider code or API key is required by the communication layer.
+
+```sh
+npx -y @octocodeai/octocode-agents-communication /cli host-hook \
+  --vendor your-provider --workspace /absolute/project \
+  --database /absolute/shared/communication.sqlite --json
+```
+
+Send one JSON object on stdin:
+
+```json
+{"hook_event_name":"PostToolUse","session_id":"exact-host-session-id","cwd":"/absolute/project","context_generation":"stable-context-id"}
+```
+
+Use `SessionStart` to register the identity and inject initial binding context; `UserPromptSubmit` to maintain presence; `PostToolUse` or `PostToolUseFailure` to receive messages; and `SessionEnd` to leave. Each independent agent, including a child, supplies its own host session ID. The configured workspace must contain `cwd`. `context_generation` is optional; change it only when the host resets or compacts context.
+
+Consume `hookSpecificOutput.additionalContext` as peer data in the host's context. `{}` means no addition. Keep the event output intact: oversized bodies become executable `data.next` references and excess messages remain pending. The adapter must honor the documented context budget or use the deferred confirmation bridge below. The hook confirms submission after writing stdout; a host that cannot equate successful stdout delivery with acceptance must use deferred confirmation instead.
+
+To share this identity with MCP, initialize with the same `vendor` and exact `vendorSession` (the hook's `session_id`), or pass the returned database session as `--session`. Hooks own presence and teardown for that binding. `host-config` remains a preset generator for known host configuration formats; another provider wires these events through its own configuration.
+
+`Stop` and unknown events do nothing. The former `completion-check` command and Pi `completionCheck` option were removed: delete their old host configuration. Pending messages never force an extra model turn or prevent stopping; agents decide when and how to answer. Every adapter uses the current database contract in [DB.md](DB.md).
+
+## Identity context generations
+
+Provider-neutral, Claude/Codex/Cursor/Octocode hooks emit binding context once at session start, Grok on the first supported post-tool event; flags are relative to host cwd, with `--database` omitted for the default DB. Later batches carry only new data. A host can supply a stable new `context_generation` after reset/compaction; repeats with no messages stay silent. No model turn starts, and elapsed time implies no reset.
+
+Without an eligible message or new generation, hooks take a read-only path and skip the writer lock; creation, renewal, delivery and teardown stay transactional.
+
+## Collaborator directory
+
+Hooks add bounded peer changes: IDs, names, declared tasks, availability. Publish a short task and `available`, `busy` or `blocked` via `join`, `heartbeat` or `set_status` (default `unknown`). These are peer data, not capabilities.
+
+- Hooks emit changes once per stored view; plain heartbeats stay silent; a new `context_generation` restores the directory too.
+- `removedFromView` may mean pagination displaced a row: check `peers` before you infer departure. Follow `next`; `refresh` means a change may lie past the cached page. Views hold at most 16 rows, 3,000-byte row budget (one complete row always fits).
+- Pi inserts directory notices without a turn; native recipients get changes with their next delivery; managed workers also get an initial directory. No roster change wakes an idle host; `peers` is the current lookup.
+
+Pi sends `strict:false` on its communication function descriptors for OpenAI Chat/Responses, which otherwise may make omitted optional routing fields required. It also projects top-level schema unions into plain object parameters for providers that reject root `oneOf`/`anyOf`/`allOf`; the canonical catalog still validates exact routing and payload rules. Other tools and schemas are unchanged. See [OpenAI function calling](https://developers.openai.com/api/docs/guides/function-calling).
+
+## Custom bridge confirmation
+
+Run `npx -y @octocodeai/octocode-agents-communication /cli hook --session ID --workspace … --database …` from a host context event. Inject its stdout; empty output means no new messages.
+For deferred confirmation, call `hook {"format":"json","deferConfirm":true}`.
+Retain every offered message ID and `dispatchToken`.
+Call `confirm_delivery` only after the host SDK accepts the context.
+Call `complete` separately after handling; acceptance is not acknowledgement.
+`host-hook` consumes lifecycle JSON on stdin and resolves or creates the host binding; the lower-level `hook` command requires an existing database identity.

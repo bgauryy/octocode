@@ -1,0 +1,27 @@
+//! Row-page planning and paging tests.
+
+use super::*;
+mod clasify_contract;
+mod collections;
+mod declaration_order;
+mod declared_families;
+mod declared_graph;
+mod nested_continuation;
+mod part_metadata;
+mod recursive_symbols;
+mod required_text;
+mod restated_evidence;
+mod scope;
+mod section_walks;
+mod selection;
+mod source_inputs;
+
+mod evidence_closure;
+
+mod evidence_siblings;
+
+mod guidance_room;
+mod heldout_pager_boundaries;
+pub(in crate::response) mod moderate_text;
+mod terminal;
+mod text_windows;

@@ -1,0 +1,370 @@
+use super::ast_search_query_symbols;
+use super::names::{NameFilter, names_equal, names_match};
+use super::rows::{compact_declarations, error_text, implemented_traits};
+use octocode_contract_types::AstSearchQuerySymbols;
+use octocode_contract_types::ErrorCode;
+use octocode_engine::graph::GraphFactDeclaration;
+use octocode_engine::graph::{GraphFactCode, GraphFactDiagnostic};
+use octocode_runtime_base::response::result::ToolError;
+use serde_json::{Value, json};
+
+/// What one parsed file contributes to a symbols query. A file contributing
+/// nothing is not held.
+pub(crate) struct OutlineFile {
+    /// The row path.
+    pub(crate) path: String,
+    /// The declaration rows its `symbolKinds` and `symbolFilter.terms` filters can keep.
+    pub(crate) rows: Vec<Value>,
+    /// The 1-based column each of `rows` was named at on its `line`
+    /// ([`compact_declarations`]).
+    pub(crate) name_columns: Vec<u32>,
+    /// Declarations of a kind `symbolKinds` leaves out whose name equals a
+    /// `symbolFilter.terms` entry: they keep that entry exact, and the answer says
+    /// when they are all the entry names.
+    pub(crate) off_kind: Vec<Value>,
+    /// Its parse notes that bear on the answer.
+    pub(crate) notes: Vec<GraphFactDiagnostic>,
+    pub(crate) source_descriptors: octocode_engine::text::analysis::SourceDescriptors,
+}
+
+/// One file's reduced rows: `(rows, their name columns, off-kind rows, notes)`.
+pub(super) type Reduced = (Vec<Value>, Vec<u32>, Vec<Value>, Vec<GraphFactDiagnostic>);
+
+/// What one file contributes to a symbols query, reduced as soon as the file
+/// is parsed so a scan holds the answer, not the repository.
+///
+/// The rows are the file's compact declarations that a `symbolKinds` entry names
+/// and whose name (or trait-impl type name) contains some `symbolFilter.terms` text:
+/// a superset of the final selection, since an entry that equals a name keeps
+/// only equal names. The off-kind rows are the other declarations whose name
+/// equals an entry. The notes are those the answer can show; a recovered
+/// parse counts where the file lists a matching declaration (the answer
+/// cites a partial inventory) or its syntax errors spell a queried name.
+fn reduce_file<'a>(
+    q: &AstSearchQuerySymbols,
+    filter: Option<&NameFilter>,
+    declarations: &[&GraphFactDeclaration],
+    (edges, provenance): (impl Iterator<Item = (&'a str, &'a str, &'a str)>, bool),
+    notes: &[GraphFactDiagnostic],
+    spans: &[[u32; 2]],
+    source: impl FnOnce() -> Option<String>,
+) -> Reduced {
+    let (mut rows, columns) =
+        compact_declarations(declarations, &implemented_traits(edges), provenance);
+    let mut off_kind = vec![];
+    // Each kept row keeps its name column beside it.
+    let mut columns = columns.into_iter();
+    let mut name_columns = Vec::new();
+    rows.retain_mut(|row| {
+        let column = columns.next().unwrap_or_default();
+        if filter.is_some_and(|filter| !names_match(filter, row)) {
+            return false;
+        }
+        let kind = row["kind"].as_str().unwrap_or("");
+        if ast_search_query_symbols::kinds(q).is_none_or(|kinds| kinds.iter().any(|k| k == kind)) {
+            name_columns.push(column);
+            return true;
+        }
+        if filter.is_some_and(|filter| names_equal(filter, row)) {
+            off_kind.push(std::mem::take(row));
+        }
+        false
+    });
+    // A recovered parse hides a declaration of a queried name only where its
+    // syntax errors spell that name; a file that lists none and spells none
+    // there leaves the note irrelevant here.
+    let unrelated = rows.is_empty()
+        && filter.is_some_and(|filter| {
+            !spans.is_empty()
+                && source().is_some_and(|source| !filter.spelled_in(&error_text(&source, spans)))
+        });
+    // The syntax-only caveat is static and already in the tool description;
+    // repeating it costs every call.
+    let notes = notes
+        .iter()
+        .filter(|note| match note.code {
+            GraphFactCode::SyntaxOnly => false,
+            GraphFactCode::RecoveredParse => !unrelated,
+            code => !code.is_linking_only(),
+        })
+        .cloned()
+        .collect();
+    (rows, name_columns, off_kind, notes)
+}
+
+/// The declarations facts of `source` at `path`, parsed with `parser`'s
+/// grammar (`None`: the file's own), owned by this outline request.
+pub(super) fn declarations(
+    source: &str,
+    path: &str,
+    parser: Option<&str>,
+) -> Option<std::sync::Arc<octocode_engine::graph::GraphFactsDocument>> {
+    #[cfg(test)]
+    PARSED_FILES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(path.to_owned());
+    octocode_tools_shared::declarations::document(source, path, parser)
+}
+
+/// Every file a directory outline parsed (absolute path), for the tests that
+/// count parses.
+#[cfg(test)]
+pub(in crate::ast_search) static PARSED_FILES: std::sync::Mutex<Vec<String>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// [`reduce_file`] over one file's declarations facts.
+/// A `testCode` scope keeps only the declarations on its side of the
+/// file at `path`.
+pub(super) fn reduce_document(
+    q: &AstSearchQuerySymbols,
+    (filter, scoped): (
+        Option<&NameFilter>,
+        Option<(&octocode_tools_shared::test_code::Scoped, &std::path::Path)>,
+    ),
+    facts: &octocode_engine::graph::GraphFactsDocument,
+    source: impl FnOnce() -> Option<String>,
+    evidence: &mut super::super::evidence::FileEvidence<'_, '_, '_>,
+) -> Result<Reduced, ToolError> {
+    let provenance = q.include_provenance.unwrap_or(false);
+    let kept: Vec<&GraphFactDeclaration> = facts
+        .declarations
+        .iter()
+        .filter(|d| scoped.is_none_or(|(scoped, path)| scoped.keeps(path, d.line)))
+        .collect();
+    let (mut rows, name_columns, mut off_kind, notes) = reduce_file(
+        q,
+        filter,
+        &kept,
+        (
+            facts
+                .edges
+                .iter()
+                .map(|edge| (edge.from.as_str(), edge.relation.as_str(), edge.to.as_str())),
+            provenance,
+        ),
+        &facts.diagnostics,
+        &facts.error_lines,
+        source,
+    );
+    if !provenance {
+        return Ok((rows, name_columns, off_kind, notes));
+    }
+    let declarations = facts
+        .declarations
+        .iter()
+        .map(|row| (row.id.as_str(), row))
+        .collect::<std::collections::HashMap<_, _>>();
+    for row in rows.iter_mut().chain(&mut off_kind) {
+        let id = row["occurrenceId"].as_str().unwrap_or("");
+        let declaration = declarations.get(id).ok_or_else(|| {
+            ToolError::new(
+                ErrorCode::ExecutionFailed,
+                "Declaration source occurrence is missing.",
+            )
+        })?;
+        if let Some(span) = declaration.source_range {
+            evidence.span(row, span, "sourceRange", "sourceOrigin", true)?;
+        }
+        if let Some(span) = declaration.selection_byte_range {
+            evidence.span(row, span, "selectionByteRange", "selectionOrigin", false)?;
+        }
+        row["occurrenceId"] = json!(octocode_runtime_base::digest::json_sha256(&json!([
+            facts.file,
+            facts.language,
+            row["sourceOrigin"]["analysisUnitId"],
+            declaration.id
+        ])));
+    }
+    Ok((rows, name_columns, off_kind, notes))
+}
+
+impl OutlineFile {
+    /// About the heap its rows hold, each with the `path` the outline adds to it.
+    pub(super) fn heap_bytes(&self) -> usize {
+        self.rows
+            .iter()
+            .chain(&self.off_kind)
+            .map(|row| {
+                super::rows::heap_bytes(row)
+                    + std::mem::size_of::<Value>()
+                    + super::rows::PATH_FIELD_BYTES
+                    + self.path.len()
+            })
+            .sum::<usize>()
+            + self.name_columns.len() * std::mem::size_of::<u32>()
+    }
+}
+
+/// Declaration rows per file, after the kind filter and a name prefilter.
+pub(crate) struct Outline {
+    pub(crate) files: Vec<OutlineFile>,
+    /// Files the scan considered, including those the name prefilter skipped.
+    pub(crate) scanned: usize,
+    pub(super) truncated: bool,
+    /// Where a scan cut by the time budget resumes (`scanOffset`).
+    pub(super) scan_resume: Option<u32>,
+    pub(super) skipped: u32,
+    pub(super) diagnostics: Vec<Value>,
+    /// What the walk left out ([`super::directory::DirectoryWalk::skipped`]).
+    pub(super) walk_skips: octocode_runtime_base::policy::discovery::WalkSkips,
+    /// Entries the walk could not read, and how many for want of
+    /// permission: absence below them is unproven.
+    pub(super) walk_errors: (u32, u32),
+    /// What a `testCode` scope left out.
+    pub(super) test_code_excluded: octocode_engine::types::TestCodeExcluded,
+    /// The files a `testCode` scope's verdict needed and could not read.
+    pub(super) test_code_unread: Vec<std::path::PathBuf>,
+}
+
+/// One file's declarations; `Err` is a terminal row (size limit, no
+/// extractor) rather than a tool error.
+pub(super) fn outline_file(
+    q: &AstSearchQuerySymbols,
+    (canonical, display_path): (&std::path::Path, &str),
+    scoped: Option<&octocode_tools_shared::test_code::Scoped>,
+    cancel: &dyn octocode_runtime_base::execution::cancel::CancellationCheck,
+) -> Result<Result<Outline, Value>, ToolError> {
+    let Some(b) = crate::ast_search::source::read_parse_source(canonical)? else {
+        let name = q
+            .symbol_filter
+            .as_ref()
+            .filter(|filter| filter.terms.len() == 1)
+            .and_then(|filter| filter.terms.first())
+            .map(|term| term.as_str());
+        return Ok(Err(crate::ast_search::source::source_limit(
+            canonical,
+            display_path,
+            name,
+        )));
+    };
+    // Parse the file as a match does: admitted by the one text rule, as a
+    // read shows it, so a declaration's lines, columns, ranges and digests
+    // count the shown text; its names are judged by their place there.
+    let cancelled = || cancel.check().is_err();
+    let mut maps = super::super::source::mapping_budget(cancel, &cancelled);
+    let (admitted, _) = super::super::source::admitted_for_match(canonical, &b, &mut maps)?;
+    let decoded = admitted.warning();
+    let source = admitted.text();
+    let source_path = canonical.to_string_lossy();
+    let parser = crate::ast_search::language::parser_override(
+        canonical,
+        ast_search_query_symbols::language(q).as_deref(),
+    );
+    let unsupported = || {
+        let mut row = json!({"status":"error","errorCode":ErrorCode::SymbolsUnsupported,"path":display_path,"error":"No native declaration extractor supports this source."});
+        if let Some(read) = super::super::output::unsupported_read(&source_path) {
+            octocode_runtime_base::response::result::attach_related(&mut row, read);
+        }
+        row
+    };
+    let document = match parser.as_deref() {
+        // An extension that selects no grammar outlines nothing: an empty
+        // outline would read as a file without declarations. A document
+        // format (Markdown, JSON, YAML, TOML) has no grammar to set: the
+        // localFetch outline reads it.
+        None if !crate::ast_search::language::registered(canonical).is_some_and(|entry| {
+            entry.admits(octocode_engine::text::analysis::AnalysisOperation::Declarations)
+        }) =>
+        {
+            return Ok(Err(
+                if octocode_runtime_base::content::DocumentFormat::of(&source_path).is_some() {
+                    no_extractor(
+                        canonical,
+                        display_path,
+                        &crate::ast_search::language::extension_label(canonical),
+                    )
+                } else {
+                    unsupported()
+                },
+            ));
+        }
+        // The cache keys the parser extension used, so every override reuses
+        // its own parse.
+        parser => declarations(source, &source_path, parser),
+    };
+    let path = canonical.to_string_lossy().into_owned();
+    let Some(document) = document else {
+        return Ok(Err(unsupported()));
+    };
+    let mut diagnostics = vec![];
+    if let Some(warning) = decoded {
+        diagnostics.push(json!({
+            "code": "structural.source.decoded", "severity": "warning", "message": warning,
+            "path": display_path
+        }));
+    }
+    if let Some(note) = crate::ast_search::language::cpp_header_note(
+        canonical,
+        ast_search_query_symbols::language(q).as_deref(),
+        source,
+    ) {
+        diagnostics
+            .push(json!({"code":crate::ast_search::language::CPP_HEADER_NOTE,"severity":"warning","message":note}));
+    }
+    let bound = document
+        .source_templates
+        .bind(&admitted, &mut maps)
+        .map_err(ToolError::source)?;
+    let mut evidence = super::super::evidence::FileEvidence::new(&bound, &mut maps, cancel);
+    let (rows, name_columns, off_kind, notes) = reduce_document(
+        q,
+        (
+            ast_search_query_symbols::name_filter(q).as_ref(),
+            scoped.map(|scoped| (scoped, canonical)),
+        ),
+        &document,
+        || Some(source.to_string()),
+        &mut evidence,
+    )?;
+    let source_descriptors = evidence.finish()?;
+    let files = vec![OutlineFile {
+        path,
+        rows,
+        name_columns,
+        off_kind,
+        notes,
+        source_descriptors,
+    }];
+    let skipped = 0;
+    Ok(Ok(Outline {
+        files,
+        scanned: 1,
+        truncated: false,
+        scan_resume: None,
+        skipped,
+        diagnostics,
+        walk_skips: Default::default(),
+        walk_errors: (0, 0),
+        test_code_excluded: scoped
+            .map(octocode_tools_shared::test_code::Scoped::excluded)
+            .unwrap_or_default(),
+        test_code_unread: scoped
+            .map(octocode_tools_shared::test_code::Scoped::unread)
+            .unwrap_or_default(),
+    }))
+}
+
+/// The row of a document (`kind`: its extension) no declaration extractor
+/// reads and no `parser` makes source: it names the file type and leads to
+/// the localFetch outline of the file (`view:"symbols"`: its headings or
+/// keys).
+fn no_extractor(canonical: &std::path::Path, display_path: &str, kind: &str) -> Value {
+    let path = canonical.to_string_lossy();
+    let mut row = json!({
+        "status": "error",
+        "errorCode": ErrorCode::SymbolsUnsupported,
+        "path": display_path,
+        "error": format!("No declaration extractor supports {kind} files."),
+    });
+    octocode_runtime_base::response::result::add_hints(
+        &mut row,
+        [format!(
+            "symbols does not outline {kind} files; the related[] localFetch request outlines this one, or search it with localSearch."
+        )],
+    );
+    if let Some(read) = super::super::output::unsupported_read(&path) {
+        row["calls"]["read"] = read;
+    }
+    row
+}

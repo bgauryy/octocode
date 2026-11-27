@@ -1,0 +1,124 @@
+import Ajv2020 from 'ajv/dist/2020.js';
+import { readFileSync } from 'node:fs';
+import { basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
+import { contractFromDeclaration } from '../scripts/config-contract/declaration/index.ts';
+import { renderConfigurationPage } from '../scripts/config-contract/documentation.ts';
+import { contractSchema } from '../scripts/config-contract/schema.ts';
+import { generateConfigContract } from '../scripts/generate-config-contract.ts';
+import {
+  CONFIG_FIELDS,
+  ENV_CREDENTIAL_VARS,
+  ENV_TOKEN_VARS,
+  PROTECTED_KEY_NAMES,
+} from '../src/config/contract.generated.js';
+
+const contractPath = fileURLToPath(
+  new URL('../config-contract.json', import.meta.url)
+);
+const schemaPath = fileURLToPath(
+  new URL('../config-contract.schema.json', import.meta.url)
+);
+
+function loadJson(path: string): unknown {
+  return JSON.parse(readFileSync(path, 'utf8')) as unknown;
+}
+
+describe('generated config contract', () => {
+  it.each(generateConfigContract().map(file => [basename(file.path), file] as const))(
+    'keeps committed %s equal to what the Zod declaration generates',
+    (_name, file) => {
+      expect(readFileSync(file.path, 'utf8')).toBe(file.content);
+    }
+  );
+
+  it('validates the declaration with the Zod schema and rejects undeclared fields', () => {
+    const contract = contractFromDeclaration();
+    expect(contractSchema.safeParse(contract).success).toBe(true);
+    expect(contractSchema.safeParse({ ...contract, removed: {} }).success).toBe(false);
+    const github = contract.sections.github;
+    expect(github).toBeDefined();
+    const tampered = {
+      ...contract,
+      sections: { ...contract.sections, github: { ...github, unknownPolicy: true } },
+    };
+    expect(contractSchema.safeParse(tampered).success).toBe(false);
+  });
+
+  it('validates the authoritative declaration with the shared meta-schema', () => {
+    const ajv = new Ajv2020({ allErrors: true, strict: false });
+    const schema = loadJson(schemaPath) as Record<string, unknown>;
+    expect(ajv.validate(schema, loadJson(contractPath))).toBe(true);
+  });
+
+  it('generates one runtime field specification for every declared field', () => {
+    const contract = loadJson(contractPath) as {
+      sections: Record<string, { fields: Record<string, unknown> }>;
+    };
+    const declaredPaths = Object.entries(contract.sections).flatMap(
+      ([section, definition]) =>
+        Object.keys(definition.fields).map(field =>
+          section.length === 0 ? field : `${section}.${field}`
+        )
+    );
+    expect(CONFIG_FIELDS.map(field => field.path)).toEqual(declaredPaths);
+  });
+
+  it('rejects undeclared contract policy instead of retaining retired-name registries', () => {
+    const ajv = new Ajv2020({ allErrors: true, strict: false });
+    const schema = loadJson(schemaPath) as Record<string, unknown>;
+    const contract = loadJson(contractPath) as Record<string, unknown>;
+    expect(ajv.validate(schema, { ...contract, removed: {} })).toBe(false);
+    expect(ajv.validate(schema, { ...contract, unknownPolicy: {} })).toBe(false);
+  });
+
+  it('keeps execution limits out of user settings', () => {
+    expect(CONFIG_FIELDS.filter(field => (field.type as string) === 'number')).toEqual([]);
+  });
+
+  it('keeps token variables out of dotenv protection', () => {
+    expect(
+      ENV_TOKEN_VARS.every(name => !new Set<string>(PROTECTED_KEY_NAMES).has(name))
+    ).toBe(true);
+  });
+
+  it('generates credential-name metadata for every contract-declared credential', () => {
+    type Names = { name?: string };
+    const contract = loadJson(contractPath) as {
+      environment: Record<string, { credential?: boolean }>;
+      sections: Record<string, { fields: Record<string, { credential?: boolean; env?: Names }> }>;
+    };
+    const declared = [
+      ...Object.entries(contract.environment)
+        .filter(([, definition]) => definition.credential === true)
+        .map(([name]) => name),
+      ...Object.values(contract.sections).flatMap(section =>
+        Object.values(section.fields).flatMap(field =>
+          field.credential === true && field.env?.name
+            ? [field.env.name]
+            : []
+        )
+      ),
+    ].toSorted();
+    expect(ENV_CREDENTIAL_VARS).toEqual(declared);
+  });
+
+  it('writes a settings description so the markdown table reads back the same text', () => {
+    const description = String.raw`a\|b C:\path \*x\* |`;
+    const contract = {
+      ...contractFromDeclaration(),
+      sections: {},
+      environment: { OCTOCODE_EXAMPLE: { type: 'string' as const, description } },
+    };
+    const markers = '<!-- settings-table:start (generated from the config contract; do not edit) -->\n<!-- settings-table:end -->';
+    const row = renderConfigurationPage(contract, markers)
+      .split('\n')
+      .find(line => line.includes('OCTOCODE_EXAMPLE'));
+    // The last column, after "Workspace may set".
+    const text = row?.split(' | yes | ')[1]?.slice(0, -' |'.length);
+    // A GFM table drops the backslash of each `\|`, then reads backslash escapes as the character escaped.
+    const read = text?.replace(/\\\|/g, '|').replace(/\\([!-/:-@[-`{-~])/g, '$1');
+    expect(read).toBe(description);
+  });
+});

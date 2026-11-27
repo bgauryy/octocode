@@ -1,0 +1,457 @@
+mod projection;
+mod scanned;
+mod settle;
+
+use super::cursor::cursor;
+use super::layout::{Layout, NamePricing, Walking};
+use super::local_search_query;
+use super::page_view::{PageView, StoredPage};
+use super::probes::Alternates;
+use super::types::LocalSearchResult;
+use super::verify::{
+    CutOutlines, Outlines, PageScope, Redacted, Redaction, check_key_scans, outline_for_cut,
+    redact_scan, validate_matched, verify_shown,
+};
+use octocode_contract_types::LocalSearchQuery;
+use octocode_engine::types::TextSearchResult;
+use octocode_runtime_base::execution::cancel::CancellationCheck;
+use octocode_runtime_base::policy::path::PathPolicy;
+use octocode_runtime_base::response::result::ToolError;
+use octocode_runtime_base::security::ContentSecurity;
+use projection::annotate_rows;
+pub(super) use projection::order_files;
+#[cfg(test)]
+pub(super) use scanned::scan;
+#[cfg(test)]
+pub(super) use scanned::scan_query;
+#[cfg(test)]
+pub(super) use scanned::search_options;
+#[cfg(test)]
+pub(super) use scanned::{JUDGED_PATHS, judge, test_held_limit};
+pub(super) use scanned::{Scanned, scan_resumed, streamed};
+pub(super) use settle::search_stats;
+use settle::{Page, settle_row};
+use std::sync::Arc;
+use streamed::{WalkCut, walk_cut};
+
+/// One localSearch row. A list `matchString` runs as the one regex query
+/// that finds the same lines.
+pub fn execute_local_search(
+    build: &'static str,
+    query: &LocalSearchQuery,
+    paths: &PathPolicy,
+    security: &ContentSecurity,
+    cancel: &impl CancellationCheck,
+    response_window: Option<usize>,
+) -> Result<LocalSearchResult, ToolError> {
+    cancel.check().map_err(ToolError::cancelled)?;
+    let (resumed, query) = super::window::resumed(query)?;
+    let query = &*query;
+    check_each_term(query)?;
+    let terms = local_search_query::term_patterns(query);
+    let joined = &*local_search_query::normalized(query)?;
+    // Every call the row offers restates the terms as the caller wrote them.
+    let written = |mut error: ToolError| {
+        if let Some(calls) = error.calls.as_deref_mut() {
+            local_search_query::as_written(calls, query, joined);
+        }
+        error
+    };
+    let mut scan = scan_resumed(
+        build,
+        joined,
+        (paths, security.limits()),
+        cancel,
+        (response_window, terms),
+        resumed,
+    )
+    .map_err(written)?;
+    if let Some(pause) = scan.paused.take() {
+        return super::window::paused_row(build, query, pause, (&scan.query_key, &scan.policy_key));
+    }
+    let alternates = Alternates::new(query, &scan);
+    let mut row =
+        page_of(build, joined, paths, security, cancel, scan, &alternates).map_err(written)?;
+    alternates.offer_regex_reading(&mut row);
+    alternates.offer_dead_terms(&mut row);
+    // Spans that are the caller's one term state only where they are.
+    row.derived_value = local_search_query::derived_value(query).map(str::to_owned);
+    if let Some(next) = row.next.as_mut() {
+        local_search_query::as_written(next, query, joined);
+    }
+    Ok(row)
+}
+
+/// A bad term of a list fails naming that term: the list runs as one joined
+/// regex, whose error would name a pattern the caller never wrote.
+fn check_each_term(query: &LocalSearchQuery) -> Result<(), ToolError> {
+    let terms = &local_search_query::patterns(query).0;
+    if terms.len() < 2
+        || local_search_query::regex_mode(query) == octocode_contract_types::RegexEngine::Literal
+    {
+        return Ok(());
+    }
+    for term in terms {
+        super::pattern::check_expression(query, term.as_str())?;
+    }
+    Ok(())
+}
+
+/// The page `query` asks for, cut from `scan` (fresh, or stored and proved
+/// unchanged when [`scan_resumed`] took it). Every file the page reads or
+/// shows is checked again here, so a file changed since then restarts the
+/// snapshot or is denied rather than shown.
+pub(super) fn page_of(
+    build: &str,
+    query: &LocalSearchQuery,
+    paths: &PathPolicy,
+    security: &ContentSecurity,
+    cancel: &impl CancellationCheck,
+    mut scan: Scanned,
+    alternates: &Alternates<'_>,
+) -> Result<LocalSearchResult, ToolError> {
+    // The bytes a stored scan's secret check must read, or `None` when the
+    // scan is fresh; a stored file whose digest is missing reads as changed.
+    let digests = scan.digests.take();
+    let expected_digest = |source: &std::path::Path| match &digests {
+        Some(digests) => super::sources::Expected::Stored(digests.get(source).copied()),
+        None => super::sources::Expected::Fresh,
+    };
+    let root = &scan.validated.canonical;
+    refuse_binary_target(root, &scan.validated.display, &scan.parsed.stats)?;
+    let output_root = if root.is_file() {
+        root.parent().unwrap_or(root)
+    } else {
+        root.as_path()
+    };
+    let scope = PageScope {
+        query,
+        paths,
+        output_root,
+        expected_digest: &expected_digest,
+        security,
+        cancel,
+        judged: &scan.learned.judged,
+    };
+    let shaped = match scan.seek.take() {
+        Some(packed) => shape_stored_page(&scope, &packed)?,
+        None => shape_page(
+            &scope,
+            &mut scan.parsed,
+            scan.page_budget,
+            (
+                scan.stored_redaction.as_deref(),
+                scan.reusable.is_some() && scan.stream.is_none(),
+                scan.stream.as_ref(),
+            ),
+            &scan.learned,
+        )?,
+    };
+    let mut view = shaped.view;
+    let reusable = scan
+        .reusable
+        .take()
+        .zip(shaped.packed)
+        .map(|(walked, value)| super::manifest::Fresh {
+            value,
+            query_key: std::mem::take(&mut scan.query_key),
+            redaction: shaped.redaction,
+            skipped: Arc::clone(&scan.skipped),
+            walked,
+            learned: Arc::clone(&scan.learned),
+        });
+    let next = if scan.stream.is_some() {
+        // A streamed page continues the walk, not a stored scan.
+        super::cursor::walk_next(
+            build,
+            query,
+            shaped.walk.as_ref(),
+            view.layout.offset + view.layout.length,
+        )?
+    } else {
+        cursor(
+            query,
+            &view,
+            &scan.identity,
+            reusable,
+            std::mem::take(&mut scan.policy_key),
+            &|| cancel.check().is_err(),
+        )?
+    };
+    cancel.check().map_err(ToolError::cancelled)?;
+    let mut rows = annotate_rows(
+        &scope,
+        &view.layout,
+        (std::mem::take(&mut view.parsed.files), &view.facts),
+        &shaped.redacted,
+        shaped.outlines,
+    );
+    // A tally shows its values in place of rows: their redaction is said
+    // as a shown row's is.
+    if let Some(tally) = &shaped.tally {
+        rows.shown_redacted = tally.redacted;
+    }
+    let page = Page {
+        root,
+        layout: &view.layout,
+        scanned: &view.parsed.stats,
+        skipped: &scan.skipped,
+        alternates,
+        total_files: view.totals.files,
+    };
+    let continuation_missing = next.is_none();
+    let mut result = settle_row(&scope, &page, rows, next, continuation_missing)?;
+    for file in &mut result.files {
+        let absolute = output_root.join(&file.path);
+        // A row of a source whose shown rows the page's check all cut from
+        // one judgment of it shows cuts of that judgment, with the line
+        // numbers and joins of its window: judged, for the gate. A source
+        // with a row no judgment cut (one withheld, or judged alone) is
+        // noted by none, and the gate judges each of its rows.
+        if security.judged_whole(&absolute) {
+            for row in file.matches.iter().flatten() {
+                security.show(&absolute, &row.value);
+            }
+        }
+        file.path = paths
+            .workspace_relative(&absolute)
+            .unwrap_or_else(|| absolute.to_string_lossy().into_owned());
+    }
+    super::leads::add_window_reads(&mut result);
+    result.warnings.extend(shaped.notes);
+    result.unique_values = shaped.tally.map(|tally| tally.values);
+    result.source_snapshot = Some(scan.identity);
+    Ok(result)
+}
+
+/// A search whose whole target is one file the scan skipped as binary from
+/// its leading bytes searched nothing: an empty row there would read as
+/// absence, so it is refused as astSearch and localFetch refuse it. A file
+/// cut at a later NUL (`binaryQuit`) was searched up to it and stays a row.
+fn refuse_binary_target(
+    root: &std::path::Path,
+    shown: &str,
+    scanned: &octocode_engine::types::TextSearchStats,
+) -> Result<(), ToolError> {
+    if root.is_file() && scanned.skipped_binary_count.unwrap_or(0) > 0 {
+        return Err(ToolError::policy(
+            octocode_runtime_base::policy::PolicyError::new(
+                octocode_runtime_base::policy::PolicyErrorCode::BinaryContent,
+                format!(
+                    "{shown} is binary content (a NUL in its leading bytes), not text; it was not searched."
+                ),
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// A cut page whose shown values are verified.
+pub(super) struct Shaped {
+    pub(super) packed: Option<super::packed::Encoded>,
+    /// The page cut, as its own small scan.
+    pub(super) view: PageView,
+    pub(super) redacted: Redacted,
+    /// What redacting the scan changed, for a stored scan's later pages.
+    pub(super) redaction: Redaction,
+    /// Outlines parsed from the verified reads (see [`verify_shown`]).
+    pub(super) outlines: Outlines,
+    /// `unique: "countAll"`: the scan's tally, shown in place of rows.
+    pub(super) tally: Option<super::tally::Tally>,
+    /// Scan-wide facts the row states (a `keyPath` scope's shared lines).
+    pub(super) notes: Vec<String>,
+    /// Where a streamed page's walk goes on; `None` when it ended.
+    pub(super) walk: Option<WalkCut>,
+}
+
+/// Redact the scan, order it, cut the page, and verify what it shows.
+/// A fresh scan (`fresh`) is encoded for its cursor: by page once its cut
+/// is made, or whole when its page judges rows before cutting
+/// (classification) or shows none (a list view); see [`super::packed`].
+///
+/// Every file the page reads or shows passes the read policy first: the
+/// key-block reads inside [`redact_scan`] and each shown file here. A file
+/// the page neither reads nor shows is checked on the page that shows it,
+/// so a path swapped for a symlink after the walk never has its bytes read
+/// or its rows shown.
+pub(super) fn shape_page(
+    scope: &PageScope<'_, impl CancellationCheck>,
+    parsed: &mut octocode_engine::types::TextSearchResult,
+    page_budget: usize,
+    (stored_redaction, fresh, stream): (
+        Option<&Redaction>,
+        bool,
+        Option<&scanned::streamed::StreamFacts>,
+    ),
+    learned: &super::manifest::Learned,
+) -> Result<Shaped, ToolError> {
+    let PageScope {
+        query,
+        paths,
+        output_root,
+        ..
+    } = *scope;
+    let cancelled = || scope.cancel.check().is_err();
+    let (mut redacted, withheld, redaction) = redact_scan(scope, parsed, stored_redaction)?;
+    // What a keyPath scope cannot separate is said once, on the first page.
+    let notes = local_search_query::key_path(query)
+        .filter(|_| local_search_query::page(query).max(1) == 1)
+        .and_then(|key_path| {
+            super::key_scope::shared_note(key_path, (paths, output_root), &parsed.files)
+        })
+        .into_iter()
+        .collect::<Vec<_>>();
+    if super::tally::counts_all(query) {
+        let mut shaped = super::tally::shape(scope, parsed, (redacted, withheld), redaction)?;
+        shaped.notes = notes;
+        return Ok(shaped);
+    }
+    let whole = super::layout::list_view(local_search_query::view(query));
+    // A whole scan is encoded before the page reorders and fills it;
+    // deflated only if the page's cursor keeps it (see
+    // `manifest::put_checked`).
+    let mut packed = (fresh && whole)
+        .then(|| super::manifest::encode_checked(parsed, &cancelled))
+        .flatten();
+    // The files with a key-block scan, by path (the frames of a seekable
+    // scan are written in page order): each page that shows one reads it
+    // again.
+    let key_scans = if fresh && !whole {
+        redaction
+            .key_files
+            .iter()
+            .map(|key| key.path.clone())
+            .collect::<std::collections::HashSet<_>>()
+    } else {
+        std::collections::HashSet::new()
+    };
+    order_files(query, &mut parsed.files);
+    let mut cut = CutOutlines::new();
+    let mut outline = |files: &[(usize, &octocode_engine::types::TextSearchFile)]| {
+        outline_for_cut(scope, files, &mut cut)
+    };
+    let mut pricing = NamePricing::new(learned.prices.by_index(&parsed.files), &mut outline);
+    let cuts = stream.is_none().then_some(&learned.cuts);
+    let walking = stream.map(|facts| Walking {
+        start_row: facts.start_row,
+        ended: facts.ended,
+    });
+    let mut layout = Layout::cut(
+        query,
+        paths,
+        output_root,
+        parsed,
+        page_budget,
+        (&mut pricing, cuts, walking.as_ref()),
+    )?;
+    // Where the walk goes on after this page, from the cut as made.
+    let mut walk = stream.and_then(|facts| {
+        let cut = walk_cut(facts, &parsed.files, &layout.shown, layout.list);
+        layout.walked(facts.listed, cut.is_some(), facts.carried);
+        cut
+    });
+    learned.prices.learn(&parsed.files, pricing.priced);
+    // A listed page reads no file, so `verify_shown` skips the policy check
+    // that every other page makes there for each shown file.
+    if layout.list {
+        for (index, _) in &layout.shown {
+            validate_matched(paths, &output_root.join(&parsed.files[*index].path))?;
+        }
+    }
+    // A seekable scan is encoded once its cut is made and before the page
+    // verifies its own rows: a stored page holds values as the scan had
+    // them, never as one page materialized them.
+    if fresh && !whole {
+        packed = super::page_view::encode_pages(
+            parsed,
+            &layout,
+            (&redacted, &key_scans),
+            octocode_engine::memory::MEMORY.limit(),
+            &cancelled,
+        );
+    }
+    let whole = TextSearchResult {
+        files: std::mem::take(&mut parsed.files),
+        stats: parsed.stats.clone(),
+    };
+    let (mut view, indexes) = PageView::dense(whole, layout);
+    // The cut's outlines, by the page file each was parsed for.
+    let mut cut = indexes
+        .iter()
+        .enumerate()
+        .filter_map(|(page, index)| Some((page, cut.remove(index)?)))
+        .collect::<CutOutlines>();
+    let mut outlines = Outlines::new();
+    verify_shown(
+        scope,
+        &mut view.parsed,
+        &view.layout,
+        (&mut redacted, &withheld),
+        (&mut cut, &mut outlines),
+    )?;
+    // The cursor carries what the walk counted up to its cut, as verified.
+    if let (Some(walk), Some(facts)) = (walk.as_mut(), stream) {
+        walk.count(facts.carried.counted, &view.parsed.stats);
+    }
+    Ok(Shaped {
+        packed,
+        view,
+        redacted,
+        redaction,
+        outlines,
+        tally: None,
+        notes,
+        walk,
+    })
+}
+
+/// The page of a seekable stored scan, read from its own frames: no row is
+/// redacted, ordered, ranked or priced again (its first page did that once
+/// for every page). Its files' key-block scans are checked against their
+/// stored bytes, and its shown values verified, as on any page.
+fn shape_stored_page(
+    scope: &PageScope<'_, impl CancellationCheck>,
+    packed: &super::packed::Packed,
+) -> Result<Shaped, ToolError> {
+    let PageScope {
+        query,
+        paths,
+        output_root,
+        cancel,
+        ..
+    } = *scope;
+    let Some(StoredPage {
+        mut view,
+        mut redacted,
+        key_scans,
+    }) = PageView::stored(packed, query, &|| cancel.check().is_err())
+    else {
+        cancel.check().map_err(ToolError::cancelled)?;
+        return Err(super::cursor::changed_since_scan(query));
+    };
+    check_key_scans(scope, &view.parsed.files, &key_scans)?;
+    // As on a fresh page: only a listed page needs the check here.
+    if view.layout.list {
+        for (index, _) in &view.layout.shown {
+            validate_matched(paths, &output_root.join(&view.parsed.files[*index].path))?;
+        }
+    }
+    let mut outlines = Outlines::new();
+    verify_shown(
+        scope,
+        &mut view.parsed,
+        &view.layout,
+        (&mut redacted, &super::verify::Withheld::new()),
+        (&mut CutOutlines::new(), &mut outlines),
+    )?;
+    Ok(Shaped {
+        packed: None,
+        view,
+        redacted,
+        redaction: Redaction::default(),
+        outlines,
+        tally: None,
+        notes: Vec::new(),
+        walk: None,
+    })
+}
