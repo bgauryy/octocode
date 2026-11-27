@@ -82,6 +82,25 @@ describe('request validation', () => {
     expect(malformed.json.error).toBe('bridge failure');
     expect(ctx.log.join('\n')).toContain('request failed');
   });
+
+  it('a bridge failure has the shape of every error reply: its message as reason, none when empty', async () => {
+    const failing = (message: string) => [
+      {
+        get uri() {
+          throw new Error(message);
+        },
+      },
+    ];
+    host.execute.mockReset().mockResolvedValue(failing('bad item'));
+    expect(await lsp(at('definition'))).toMatchObject({
+      status: 500,
+      json: { error: 'bridge failure', reason: 'bad item' },
+    });
+    host.execute.mockReset().mockResolvedValue(failing(''));
+    const silent = await lsp(at('definition'));
+    expect(silent.status).toBe(500);
+    expect(silent.json).toEqual({ error: 'bridge failure' });
+  });
 });
 
 describe('method mapping', () => {

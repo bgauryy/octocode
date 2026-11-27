@@ -16,6 +16,7 @@ import { join } from 'node:path';
 
 test('shutdown bounds an engine that ignores SIGTERM and preserves its captured evidence', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'chrome-shutdown-'));
+  // The fixture and the engine it starts both run in `directory`: their engine.pid is this file.
   const pidFile = join(directory, 'engine.pid');
   try {
     await build({
@@ -31,11 +32,11 @@ test('shutdown bounds an engine that ignores SIGTERM and preserves its captured 
     mkdirSync(join(directory, 'engine'));
     writeFileSync(
       join(directory, 'engine/cli.mjs'),
-      `import {writeFileSync} from 'node:fs';process.on('SIGTERM',()=>{});writeFileSync(${JSON.stringify(pidFile)},String(process.pid));console.log('shutdown evidence');setInterval(()=>{},1000);`
+      `import {writeFileSync} from 'node:fs';process.on('SIGTERM',()=>{});writeFileSync('engine.pid',String(process.pid));console.log('shutdown evidence');setInterval(()=>{},1000);`
     );
     writeFileSync(
       join(directory, 'fixture.mjs'),
-      `import {invoke,stopEngine} from './invocation.mjs';import {existsSync,readFileSync} from 'node:fs';import assert from 'node:assert/strict';const result=invoke('schema',{}).catch(error=>error);while(!existsSync(${JSON.stringify(pidFile)}))await new Promise(resolve=>setTimeout(resolve,10));stopEngine();stopEngine();const error=await result;const failure=JSON.parse(error.message);assert.equal(failure.ok,false);assert.ok(failure.next.query.file);const capture=JSON.parse(readFileSync(failure.next.query.file,'utf8'));assert.equal(capture.signal,'SIGKILL');assert.match(readFileSync(capture.logs.stdout,'utf8'),/shutdown evidence/);console.log('bounded shutdown verified');`
+      `import {invoke,stopEngine} from './invocation.mjs';import {existsSync,readFileSync} from 'node:fs';import assert from 'node:assert/strict';const result=invoke('schema',{}).catch(error=>error);while(!existsSync('engine.pid'))await new Promise(resolve=>setTimeout(resolve,10));stopEngine();stopEngine();const error=await result;const failure=JSON.parse(error.message);assert.equal(failure.ok,false);assert.ok(failure.next.query.file);const capture=JSON.parse(readFileSync(failure.next.query.file,'utf8'));assert.equal(capture.signal,'SIGKILL');assert.match(readFileSync(capture.logs.stdout,'utf8'),/shutdown evidence/);console.log('bounded shutdown verified');`
     );
     const result = await promisify(execFile)(
       process.execPath,

@@ -96,9 +96,19 @@ export interface DefineCommandInput {
 
 const validators = new WeakMap<object, (data: unknown) => string | undefined>();
 
+/** `token` without its leading dashes and its one trailing run of dots or of dashes, in one linear pass. */
+function trimToken(token: string): string {
+  let start = 0;
+  while (token[start] === '-') start++;
+  let end = token.length;
+  const last = token[end - 1];
+  if (last === '.' || last === '-') while (end > start && token[end - 1] === last) end--;
+  return token.slice(start, end);
+}
+
 export function commandToken(name: string): string {
   if (COMMAND_WORD.test(name) && !RESERVED_COMMANDS.has(name)) return name;
-  let token = name.replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|\.+$|-+$/g, '');
+  let token = trimToken(name.replace(/[^A-Za-z0-9_.-]+/g, '-'));
   if (!COMMAND_WORD.test(token)) token = `tool-${token || 'command'}`;
   if (RESERVED_COMMANDS.has(token)) token = `${token}-command`;
   return token;

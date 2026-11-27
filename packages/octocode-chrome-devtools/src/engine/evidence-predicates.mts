@@ -43,18 +43,32 @@ function literal(text: string): unknown {
   }
 }
 
+const COMPARISONS: Record<string, string> = {
+  '!=': 'ne',
+  '>=': 'gte',
+  '<=': 'lte',
+  '=': 'eq',
+  '~': 'contains',
+};
+const LINE_BREAK = /[\n\r\u2028\u2029]/;
+
+/** A one-line clause cut at the first operator after a non-empty path; null when there is none. */
+function splitComparison(text: string) {
+  if (LINE_BREAK.test(text)) return null;
+  for (let at = 1; at < text.length; at++) {
+    const symbol = Object.keys(COMPARISONS).find(s => text.startsWith(s, at));
+    if (symbol)
+      return [text.slice(0, at), symbol, text.slice(at + symbol.length)];
+  }
+  return null;
+}
+
 function simplePredicate(clause: string): Predicate {
   const text = clause.trim();
-  const match = /^(.+?)(!=|>=|<=|=|~)(.*)$/.exec(text);
+  const match = splitComparison(text);
   if (match) {
-    const [, path, symbol, value] = match;
-    const op = {
-      '=': 'eq',
-      '!=': 'ne',
-      '>=': 'gte',
-      '<=': 'lte',
-      '~': 'contains',
-    }[symbol]!;
+    const [path, symbol, value] = match;
+    const op = COMPARISONS[symbol];
     return {
       path: toPointer(path.trim()),
       op,

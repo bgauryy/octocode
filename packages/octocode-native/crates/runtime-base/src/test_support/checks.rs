@@ -206,23 +206,40 @@ pub fn assert_leads_valid(output: &Value) {
 }
 
 /// `needle` appears nowhere in `value`: in no string leaf and no object key.
+///
+/// Callers pass secrets, so a failure names only where the needle is (a JSON
+/// pointer, and whether a string or a key there holds it), never the needle
+/// or the text that holds it; the caller's line names the needle.
+#[track_caller]
 pub fn assert_absent(value: &Value, needle: &str) {
-    fn find<'a>(value: &'a Value, needle: &str) -> Option<&'a str> {
+    /// What holds `needle` under `value`, with `pointer` left at its JSON
+    /// pointer. No segment of the pointer holds the needle: a key that holds
+    /// it is the hit, so the pointer stops at its object.
+    fn find(value: &Value, needle: &str, pointer: &mut String) -> Option<&'static str> {
+        let depth = pointer.len();
         match value {
-            Value::String(text) => text.contains(needle).then_some(text.as_str()),
-            Value::Array(items) => items.iter().find_map(|item| find(item, needle)),
+            Value::String(text) => text.contains(needle).then_some("the string"),
+            Value::Array(items) => items.iter().enumerate().find_map(|(index, item)| {
+                pointer.truncate(depth);
+                pointer.push('/');
+                pointer.push_str(&index.to_string());
+                find(item, needle, pointer)
+            }),
             Value::Object(map) => map.iter().find_map(|(key, child)| {
+                pointer.truncate(depth);
                 if key.contains(needle) {
-                    Some(key.as_str())
-                } else {
-                    find(child, needle)
+                    return Some("a key of the object");
                 }
+                pointer.push('/');
+                pointer.push_str(&key.replace('~', "~0").replace('/', "~1"));
+                find(child, needle, pointer)
             }),
             _ => None,
         }
     }
-    if let Some(hit) = find(value, needle) {
-        panic!("`{needle}` present in `{hit}`:\n{value}");
+    let mut pointer = String::new();
+    if let Some(holder) = find(value, needle, &mut pointer) {
+        panic!("the needle is present in {holder} at JSON pointer \"{pointer}\"");
     }
 }
 

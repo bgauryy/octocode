@@ -62,3 +62,13 @@ test('value options reject missing values and following flags before writing',t=
   assert.equal(JSON.parse(valid.stdout).out,html);
   assert.match(readFileSync(html,'utf8'),/<title>Custom title<\/title>/);
 });
+
+test('--open starts the platform opener with the page as its one argument and no shell', async () => {
+  const { openCommand } = await import('../scripts/render-report.mjs');
+  const page = 'C:\\Users\\a & b\\.octocode\\x"%PATH%".html';
+  for (const platform of ['darwin', 'win32', 'linux']) {
+    const [command, args] = openCommand(platform, page);
+    assert.deepEqual(args, [page], platform);
+    assert.ok(!/^(cmd|sh|bash|powershell|pwsh)(\.exe)?$/i.test(command), `${platform} opens without a shell`);
+  }
+});

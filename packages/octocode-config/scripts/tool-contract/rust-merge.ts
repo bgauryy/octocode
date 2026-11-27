@@ -40,10 +40,7 @@ export function mergeDuplicateTypes(
   // (`impl From<X> for String`, `impl From<X> for BTreeMap<K, V>`).
   const ownerOf = (header: string): string => {
     const [trait = '', target] = header.split(/\sfor\s/);
-    const named =
-      target === undefined
-        ? undefined
-        : /^\s*(?:(?:::)?\s*\w+\s*::\s*)*(\w+)\s*$/.exec(target)?.[1];
+    const named = target === undefined ? undefined : pathTail(target);
     if (named !== undefined && isType.has(named)) return named;
     const from = [...new Set(trait.match(IDENTIFIER) ?? [])].filter(name =>
       isType.has(name)
@@ -307,6 +304,15 @@ export function mergeDuplicateTypes(
     renamed: rename,
   };
 }
+
+/**
+ * The type a plain path names, its last segment (`::std::string::String` →
+ * `String`), or undefined for anything else (`BTreeMap<K, V>`). A segment's
+ * optional leading `::` takes the spaces after it, so no run of spaces can be
+ * split two ways and the match stays linear.
+ */
+export const pathTail = (text: string): string | undefined =>
+  /^\s*(?:(?:::\s*)?\w+\s*::\s*)*(\w+)\s*$/.exec(text)?.[1];
 
 const IDENTIFIER = /[A-Za-z_][A-Za-z0-9_]*/g;
 const DOC_ATTRIBUTE = /#\[doc\s*=\s*r?#*"[^"]*"#*\]/g;

@@ -20,6 +20,13 @@ const HEADING = 'Permission and sensitivity:';
 const REFERENCE = 'https://chromedevtools.github.io/devtools-protocol/';
 // Plain words that are also tool names; they are checked in backticks only.
 const GENERIC = new Set(['run', 'open', 'query', 'check', 'schema', 'skill']);
+// Every link the text names, parsed; sentence punctuation after a link is not part of it.
+const links = text =>
+  new Set(
+    (text.match(/https?:\/\/\S*[^\s.,;:)]/g) ?? []).map(
+      link => new URL(link).href
+    )
+  );
 
 for (const [name, preset] of Object.entries(presets)) {
   const names = preset.commands.map(command => command.name);
@@ -53,7 +60,7 @@ for (const [name, preset] of Object.entries(presets)) {
   });
   test(`${name}: the CDP reference appears only with cdp and protocol`, () => {
     assert.equal(
-      text.includes(REFERENCE),
+      links(text).has(REFERENCE),
       names.includes('cdp') && names.includes('protocol')
     );
   });

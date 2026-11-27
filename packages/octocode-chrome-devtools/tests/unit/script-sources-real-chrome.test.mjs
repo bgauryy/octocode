@@ -43,14 +43,17 @@ test(
     const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'octo-scripts-')));
     const port = await freePort();
     let origin = '';
-    const files = {
-      '/app.js': `function foo(){return 1}\nfoo();\n//# sourceMappingURL=app.js.map\n`,
-      '/lib.js': `window.lib = "é✓";\n`,
-      '/data.js': `window.d = 1;\n//# sourceMappingURL=${dataMap}\n`,
-      '/foreign.js': () =>
-        `window.f = 1;\n//# sourceMappingURL=http://localhost:${new URL(origin).port}/app.js.map\n`,
-      '/app.js.map': JSON.stringify(mapWithEscape),
-    };
+    // A Map: a request path names only a file listed here, never an inherited property.
+    const files = new Map(
+      Object.entries({
+        '/app.js': `function foo(){return 1}\nfoo();\n//# sourceMappingURL=app.js.map\n`,
+        '/lib.js': `window.lib = "é✓";\n`,
+        '/data.js': `window.d = 1;\n//# sourceMappingURL=${dataMap}\n`,
+        '/foreign.js': () =>
+          `window.f = 1;\n//# sourceMappingURL=http://localhost:${new URL(origin).port}/app.js.map\n`,
+        '/app.js.map': JSON.stringify(mapWithEscape),
+      })
+    );
     const page = `<!doctype html><title>t</title>
 <script src="/app.js"></script><script src="/lib.js"></script><script src="/data.js"></script><script src="/foreign.js"></script>
 <script>window.inlineMarker = 1;</script>`;
@@ -62,7 +65,7 @@ test(
           res.end(page);
           return;
         }
-        const body = files[path];
+        const body = files.get(path);
         if (body === undefined) {
           res.statusCode = 404;
           res.end();
@@ -79,7 +82,7 @@ test(
     });
     origin = `http://127.0.0.1:${server.address().port}`;
     const served = {};
-    for (const [p, b] of Object.entries(files))
+    for (const [p, b] of files)
       if (p.endsWith('.js')) served[p] = typeof b === 'function' ? b() : b;
 
     const cli = async (command, input) => {

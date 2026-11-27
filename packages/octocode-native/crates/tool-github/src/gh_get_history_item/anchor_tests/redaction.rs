@@ -465,8 +465,8 @@ async fn head_text_widening_a_dotenv_patch_hides_credential_values() {
         "head text widened the hunk: {out}"
     );
     assert!(shown.contains("DEBUG="), "{out}");
-    for secret in ["CowSaysMoo", "Moo12"] {
-        assert!(!shown.contains(secret), "{secret} leaked: {out}");
+    for (name, secret) in [("DB_PASS", "CowSaysMoo"), ("API_TOKEN", "Moo12")] {
+        assert!(!shown.contains(secret), "the {name} value leaked: {out}");
     }
     for kept in ["DB_PASS=", "API_TOKEN="] {
         assert!(shown.contains(kept), "{kept} lost: {out}");
@@ -582,12 +582,12 @@ async fn a_yaml_patch_hides_known_secrets_and_keeps_its_lines() {
     )
     .await;
     let text = out.to_string();
-    for secret in [
-        "Ab3Cd9Ef2Gh7Jk5Lm1",
-        "Hk3Lm9Pq2Rs7Tv5Wx1",
-        "AbCdEfGhIjKlMnOpQrStUvWx",
+    for (line, secret) in [
+        ("the context line's token", "Ab3Cd9Ef2Gh7Jk5Lm1"),
+        ("the added line's token", "Hk3Lm9Pq2Rs7Tv5Wx1"),
+        ("the removed slack token", "AbCdEfGhIjKlMnOpQrStUvWx"),
     ] {
-        assert!(!text.contains(secret), "{secret}: {out}");
+        assert!(!text.contains(secret), "{line} is shown: {out}");
     }
     for kept in [
         "   token: [REDACTED-",

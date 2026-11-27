@@ -2,16 +2,17 @@
 use super::*;
 use octocode_runtime_base::policy::discovery::is_sensitive_repository_file;
 
-const SECRETS: [&str; 2] = [".env", "examples/auth0/.env.local.example"];
+/// The credential-named files [`fixture_with_secrets`] adds: no clone writes them.
+const WITHHELD: [&str; 2] = [".env", "examples/auth0/.env.local.example"];
 
 /// The fixture origin plus a second commit that adds credential-named files
 /// at the root and nested, each beside an ordinary file.
 pub(super) fn fixture_with_secrets() -> Fixture {
     let fixture = Fixture::new();
-    for secret in SECRETS {
+    for withheld in WITHHELD {
         assert!(
-            is_sensitive_repository_file(secret),
-            "{secret} not sensitive"
+            is_sensitive_repository_file(withheld),
+            "{withheld} not sensitive"
         );
     }
     fs::create_dir_all(fixture.work.join("examples/auth0")).expect("examples");
@@ -89,12 +90,12 @@ fn a_full_clone_leaves_out_credential_named_files() {
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let result = clone_pinned(&fixture, &query(), &context).expect("full clone");
     let local = Path::new(&result.location.path);
-    for secret in SECRETS {
-        assert!(!local.join(secret).exists(), "{secret} was written");
+    for withheld in WITHHELD {
+        assert!(!local.join(withheld).exists(), "{withheld} was written");
     }
     assert!(local.join("README.md").is_file());
     assert!(local.join("examples/auth0/app.js").is_file());
-    assert_eq!(skipped(&result), SECRETS);
+    assert_eq!(skipped(&result), WITHHELD);
 }
 
 #[test]
@@ -120,8 +121,8 @@ fn a_sparse_directory_clone_leaves_out_credential_named_files_in_scope() {
     // A withheld file in the scope leaves the root's other files in place,
     // as a directory scope without one keeps them.
     assert!(local.join("README.md").is_file(), "root files were dropped");
-    for secret in SECRETS {
-        assert!(!local.join(secret).exists(), "{secret} was written");
+    for withheld in WITHHELD {
+        assert!(!local.join(withheld).exists(), "{withheld} was written");
     }
     // The credential-named files inside the requested scope are listed, and
     // so are those among the root files a directory scope keeps.

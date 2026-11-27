@@ -64,7 +64,8 @@ const REQUIRED = [SECTIONS.features, SECTIONS.tasks, SECTIONS.validation, SECTIO
 const TABLE_SECTION = { P: SECTIONS.prerequisites, F: SECTIONS.features, T: SECTIONS.tasks, V: SECTIONS.validation };
 const ID_SHAPE = /^[PFDTVQ]\d+$/;
 const ID_TOKEN = /\b([PFDTVQ])(\d+)(?:(?:\s*[–—-]\s*|\s+(?:to|through)\s+)\1(\d+))?\b/g;
-const LABEL_START = /^ {0,3}(?:#{1,6}\s+|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)?(?:\*\*|__|\*|_|`)*([DQV]\d+)(?:\s*\([^)]*\))?(?:\*\*|__|\*|_|`)*\s*(?:[:.—–]|-\s|\s+(?:Blocking|Non-blocking)\b)/;
+// Emphasis and code marks around a label are one character class: each run of them matches one way only.
+const LABEL_START = /^ {0,3}(?:#{1,6}\s+|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)?[*_`]*([DQV]\d+)(?:\s*\([^)]*\))?[*_`]*\s*(?:[:.—–]|-\s|\s+(?:Blocking|Non-blocking)\b)/;
 const LIST_ITEM = /^(\s*)(?:[-*+]|\d+[.)])\s/;
 const BLOCKING_LABEL = /^ {0,3}(?:[-*+]\s+|\d+[.)]\s+)?(?:\*\*|__)?(?:Blocking|Non-blocking)\b([^:]*):/;
 const DELIMITER_ROW = /^ {0,3}\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/;

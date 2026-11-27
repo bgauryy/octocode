@@ -18,13 +18,45 @@ pub(crate) mod backed;
 use std::path::Path;
 use std::process::Command;
 
+/// Runs fixture git in `directory`; the test fails when git does. The failure
+/// names only the subcommand, never the arguments: they may carry a
+/// credential (a token in a URL, the path of a planted secret). The caller's
+/// line names the call.
+#[track_caller]
 pub fn git(directory: &Path, args: &[&str]) {
     let output = fixture_git(directory, args);
     assert!(
         output.status.success(),
-        "git {args:?}: {}",
+        "git {} failed: {}",
+        subcommand(args),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+/// The git subcommand `args` run, spelled from this list rather than copied
+/// from `args`, so no argument reaches a failure message.
+fn subcommand(args: &[&str]) -> &'static str {
+    const SUBCOMMANDS: [&str; 16] = [
+        "add",
+        "branch",
+        "checkout",
+        "clone",
+        "commit",
+        "config",
+        "fetch",
+        "hash-object",
+        "init",
+        "push",
+        "remote",
+        "rev-parse",
+        "stash",
+        "tag",
+        "update-ref",
+        "worktree",
+    ];
+    args.iter()
+        .find_map(|arg| SUBCOMMANDS.into_iter().find(|known| known == arg))
+        .unwrap_or("(a subcommand this list does not name)")
 }
 
 pub fn fixture_git(directory: &Path, args: &[&str]) -> std::process::Output {

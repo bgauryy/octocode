@@ -122,7 +122,7 @@ fn joined(pieces: &[&Piece]) -> String {
 fn assert_spans_only(pieces: &[&Piece], out: &str, what: &str) {
     let placeholders = octocode_engine::security::placeholder_regex();
     let mut at = 0;
-    for piece in pieces {
+    for (index, piece) in pieces.iter().enumerate() {
         match piece {
             Piece::Plain(text) => {
                 assert!(
@@ -131,22 +131,22 @@ fn assert_spans_only(pieces: &[&Piece], out: &str, what: &str) {
                 );
                 at += text.len();
             }
-            Piece::Secret(secret) => {
+            Piece::Secret(_) => {
                 let found = placeholders.find(&out[at..]);
                 assert!(
                     found.is_some_and(|found| found.start() == 0),
-                    "{what}: no placeholder for {secret:?} at {at}\n--- output {out}"
+                    "{what}: no placeholder for the secret of piece {index} at {at}\n--- output {out}"
                 );
                 at += found.map_or(0, |found| found.end());
             }
         }
     }
     assert_eq!(at, out.len(), "{what}: text added\n--- output {out}");
-    for piece in pieces {
+    for (index, piece) in pieces.iter().enumerate() {
         if let Piece::Secret(secret) = piece {
             assert!(
                 !out.contains(secret.as_str()),
-                "{what}: {secret:?} survived"
+                "{what}: the secret of piece {index} survived"
             );
         }
     }

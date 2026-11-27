@@ -57,6 +57,15 @@ test('CDATA and entities inside a failure do not create checks', () => {
   assert.ok(rows.every(row => !row.name.includes('not a real case')));
 });
 
+test('a comment or CDATA section ends where XML ends it, whichever opens first', () => {
+  const commentFirst = '<testsuite name="s"><!-- quotes <![CDATA[ in a comment --><testcase name="kept"/>'
+    + '<testcase name="out"><system-out><![CDATA[ done ]]></system-out></testcase></testsuite>';
+  assert.deepEqual(parseJunit(commentFirst), [{ name: 's > kept', status: 'pass' }, { name: 's > out', status: 'pass' }]);
+  const cdataFirst = '<testsuite name="s"><testcase name="a"><system-out><![CDATA[ <!-- not a comment ]]></system-out></testcase>'
+    + '<testcase name="b"><failure/></testcase><!-- end --></testsuite>';
+  assert.deepEqual(parseJunit(cdataFirst), [{ name: 's > a', status: 'pass' }, { name: 's > b', status: 'fail' }]);
+});
+
 test('TAP keeps subtest paths, drops parents their children explain and keeps a parent-only failure', () => {
   const rows = parseTap(readFileSync(join(fixtures, 'node-test.tap'), 'utf8'));
   assert.deepEqual(rows, [

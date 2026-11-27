@@ -30,7 +30,9 @@ const code = (text: string): string => `\`${text}\``;
 /** A setting's variable. */
 const variable = (env: NonNullable<FlatField['env']>): string => code(env.name);
 const yesNo = (value: unknown): string => (value ? 'yes' : 'no');
-const cell = (text: string): string => text.replace(/\|/g, '\\|');
+/** Text as one table cell: backslashes escaped first, so a `\|` in the text cannot end the cell. */
+const cell = (text: string): string =>
+  text.replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
 const withLink = (text: string, url?: string): string =>
   url ? `${text}; [get a key](${url})` : text;
 

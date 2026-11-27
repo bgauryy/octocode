@@ -1,9 +1,9 @@
 // The plan-level `dialog` option answers alert/confirm dialogs that an act step opens: accept
 // reports the dialog as accepted, and the default keeps dismissing it with the JS_DIALOG finding.
-import { DIE_WITH_PARENT } from '../fixtures/die-with-parent.mjs';
+import { spawnPageServer } from '../fixtures/page-server.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
@@ -24,15 +24,7 @@ test(
   { skip, timeout: 180000 },
   async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'octo-plan-dialog-'));
-    const web = spawn(
-      process.execPath,
-      [
-        ...DIE_WITH_PARENT,
-        '-e',
-        `require('node:http').createServer((_, r) => { r.setHeader('content-type', 'text/html'); r.end(${JSON.stringify(page)}); }).listen(0, '127.0.0.1', function () { console.log(this.address().port); });`,
-      ],
-      { stdio: ['pipe', 'pipe', 'inherit'] }
-    );
+    const web = spawnPageServer(page);
     const webPort = await new Promise(resolve =>
       web.stdout.once('data', chunk => resolve(Number(chunk)))
     );

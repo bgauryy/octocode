@@ -460,10 +460,10 @@ async fn no_view_shows_a_value_assigned_through_comments_or_line_breaks() {
                 ("compact", &compact),
                 ("symbols", &symbols),
             ] {
-                for secret in &secrets {
+                for (index, secret) in secrets.iter().enumerate() {
                     assert!(
                         !text.contains(secret.as_str()),
-                        "{name} {range:?} {view} shows {secret}: {text}"
+                        "{name} {range:?} {view} shows its secret {index}: {text}"
                     );
                 }
             }
@@ -1179,7 +1179,7 @@ async fn a_redacted_row_is_flagged_once_and_a_literal_placeholder_is_not() {
     use crate::support::{call, query_path};
     let token = "ghp_Zq7xKp2mVw9tLb4nRc8dYf3hJs6gZq7xKp2m";
     let workspace = Workspace::new();
-    let secret = workspace.write(
+    let token_file = workspace.write(
         "app.ts",
         format!("export const needle = 1;\nexport const t = \"{token}\";\n"),
     );
@@ -1207,7 +1207,7 @@ async fn a_redacted_row_is_flagged_once_and_a_literal_placeholder_is_not() {
         ),
     ];
     for (tool, extra) in queries {
-        for (path, flagged) in [(&secret, true), (&literal, false)] {
+        for (path, flagged) in [(&token_file, true), (&literal, false)] {
             let outcome = call(&runtime, tool, query_path(path, extra.clone()))
                 .await
                 .unwrap_or_else(|error| panic!("{tool} {extra}: {error:?}"));

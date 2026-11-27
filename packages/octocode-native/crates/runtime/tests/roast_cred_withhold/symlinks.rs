@@ -39,8 +39,9 @@ async fn read_file(server: &MockServer, workspace: &Workspace, name: &str) -> Va
     served
 }
 
-/// Every file under the home holding the secret's text or its base64.
-fn secret_at_rest(workspace: &Workspace) -> Vec<String> {
+/// Every file under the home holding the withheld text or its base64: the
+/// paths, which name where a copy is and hold none of its bytes.
+fn stored_copies(workspace: &Workspace) -> Vec<String> {
     let mut found = super::files_holding(&workspace.home, MARKER);
     found.extend(super::files_holding(
         &workspace.home,
@@ -95,9 +96,9 @@ async fn a_link_to_a_credential_file_is_withheld_and_never_stored() {
     );
     assert_eq!(requests_under(&server, "/contents").await, 0);
     assert!(
-        secret_at_rest(&workspace).is_empty(),
+        stored_copies(&workspace).is_empty(),
         "{:?}",
-        secret_at_rest(&workspace)
+        stored_copies(&workspace)
     );
 }
 
@@ -196,7 +197,7 @@ async fn an_unanswered_link_check_serves_and_keeps_nothing() {
         assert!(text.contains("\"unavailable\""), "{status}: {text}");
         assert!(text.contains("config.example"), "{status}: {text}");
         assert_ne!(served["results"][0]["status"], "success", "{text}");
-        assert!(secret_at_rest(&workspace).is_empty(), "{status}");
+        assert!(stored_copies(&workspace).is_empty(), "{status}");
         let downloads = server
             .received_requests()
             .await
@@ -398,9 +399,9 @@ async fn a_missing_path_below_a_link_to_a_file_recovers_without_reading_the_link
     }
     runtime.close().await;
     assert!(
-        secret_at_rest(&workspace).is_empty(),
+        stored_copies(&workspace).is_empty(),
         "{:?}",
-        secret_at_rest(&workspace)
+        stored_copies(&workspace)
     );
     let target_blobs = [".env.example", "keys/deploy.txt"].map(GitRepository::blob_sha);
     for never in [

@@ -124,7 +124,8 @@ function pickNpmVersion(document, requested) {
 }
 
 async function resolveNpm(fetchImpl, registry, spec) {
-  const url = `${registry}/${spec.name.replace('/', '%2f')}`;
+  // One path segment, as npm escapes a name: @scope%2Fname keeps its @; any other reserved character is encoded.
+  const url = `${registry}/${encodeURIComponent(spec.name).replace(/^%40/, '@')}`;
   const { missing, body } = await getJson(fetchImpl, url, { accept: 'application/vnd.npm.install-v1+json' });
   if (missing) return { error: 'not-found', message: `${spec.name} is not on the npm registry` };
   const version = pickNpmVersion(body, spec.requested);

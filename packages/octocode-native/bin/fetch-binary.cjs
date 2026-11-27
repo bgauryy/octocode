@@ -147,7 +147,7 @@ async function fetchNativeBinary({
   const destination = nodePath.join(dir, file);
   if (existsSync(destination)) return destination;
 
-  const metadataUrl = `${registryFor(name, env)}${name.replace('/', '%2f')}/${encodeURIComponent(version)}`;
+  const metadataUrl = `${registryFor(name, env)}${name.replaceAll('/', '%2f')}/${encodeURIComponent(version)}`;
   log(`octocode: ${name} is not installed; downloading ${name}@${version} from ${metadataUrl}`);
   const metadata = await (await get(fetchImpl, metadataUrl, METADATA_TIMEOUT_MS)).json();
   const tarballUrl = metadata?.dist?.tarball;

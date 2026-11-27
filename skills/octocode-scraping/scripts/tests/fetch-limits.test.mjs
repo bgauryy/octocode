@@ -52,7 +52,7 @@ test('--follow pagination crawls only rel=next/prev and pagination-class links',
   assert.equal(paged.status, 0, JSON.stringify(paged.out));
   assert.deepEqual(fetchedUrls(paged.out.sessionDir), ['https://ex.test/list', 'https://ex.test/list?page=2', 'https://ex.test/list?page=3']);
   const all = fetchIn(dir, [...direct, '--session', 'all']);
-  assert.ok(fetchedUrls(all.out.sessionDir).includes('https://ex.test/about'), 'without --follow every same-host link is crawled');
+  assert.ok(fetchedUrls(all.out.sessionDir).some((url) => url === 'https://ex.test/about'), 'without --follow every same-host link is crawled');
 
   writeFileSync(body, '<html><body><h1>One page</h1><a href="https://ex.test/about">About</a></body></html>');
   const single = fetchIn(dir, [...direct, '--follow', 'pagination', '--session', 'single']);

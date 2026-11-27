@@ -1,10 +1,10 @@
 // The agent's whole session path against a real isolated headless Chrome (temporary workspace,
 // own profiles, a loopback page server): inline snapshot refs, a login plan, a domain-confirmed
 // cookie transfer into a second browser, and the sandbox refusing a non-loopback request.
-import { DIE_WITH_PARENT } from '../fixtures/die-with-parent.mjs';
+import { spawnPageServer } from '../fixtures/page-server.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import {
   existsSync,
   mkdtempSync,
@@ -39,15 +39,7 @@ test(
   async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'octo-real-e2e-'));
     // The page server is a child process: spawnSync below blocks this process's event loop.
-    const web = spawn(
-      process.execPath,
-      [
-        ...DIE_WITH_PARENT,
-        '-e',
-        `require('node:http').createServer((_, r) => { r.setHeader('content-type', 'text/html'); r.end(${JSON.stringify(page)}); }).listen(0, '127.0.0.1', function () { console.log(this.address().port); });`,
-      ],
-      { stdio: ['pipe', 'pipe', 'inherit'] }
-    );
+    const web = spawnPageServer(page);
     const webPort = await new Promise(resolve =>
       web.stdout.once('data', chunk => resolve(Number(chunk)))
     );
@@ -185,15 +177,7 @@ test(
   { skip, timeout: 180000 },
   async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'octo-real-plan-'));
-    const web = spawn(
-      process.execPath,
-      [
-        ...DIE_WITH_PARENT,
-        '-e',
-        `require('node:http').createServer((_, r) => { r.setHeader('content-type', 'text/html'); r.end(${JSON.stringify(page)}); }).listen(0, '127.0.0.1', function () { console.log(this.address().port); });`,
-      ],
-      { stdio: ['pipe', 'pipe', 'inherit'] }
-    );
+    const web = spawnPageServer(page);
     const webPort = await new Promise(resolve =>
       web.stdout.once('data', chunk => resolve(Number(chunk)))
     );

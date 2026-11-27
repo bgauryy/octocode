@@ -211,16 +211,23 @@ fn each_environment_layer_beats_the_octocoderc_files_for_every_setting() {
 #[test]
 fn a_url_that_embeds_a_secret_is_refused_on_save_and_fails_closed_when_hand_edited() {
     let secret = "matrix-secret";
-    for raw in [
-        format!("https://user:{secret}@api.example"),
-        format!("https://{secret}@api.example"),
-        format!("https://api.example/?token={secret}"),
-        format!("https://api.example/#{secret}"),
+    // Each place a URL carries the secret, as the text before and after it:
+    // a failure names the place, never the URL.
+    for (place, before, after) in [
+        ("password", "https://user:", "@api.example"),
+        ("user name", "https://", "@api.example"),
+        ("query", "https://api.example/?token=", ""),
+        ("fragment", "https://api.example/#", ""),
     ] {
+        let raw = format!("{before}{secret}{after}");
         for field in settings().filter(|field| field.kind == ConfigFieldKind::Url) {
             let binding = field.env.expect("URL settings have a variable");
-            let error =
-                super::super::manage::validate_env_value(binding.name, &raw).expect_err(&raw);
+            let Err(error) = super::super::manage::validate_env_value(binding.name, &raw) else {
+                panic!(
+                    "{}: a URL with the secret in its {place} is accepted",
+                    binding.name
+                );
+            };
             assert!(!error.contains(secret), "{error}");
 
             let process = [(binding.name, raw.as_str())];

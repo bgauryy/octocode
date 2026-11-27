@@ -152,13 +152,21 @@ fn a_hover_withholds_what_no_judged_file_holds_escaped_or_not() {
     assert_eq!(row["redacted"], true, "{row}");
 }
 
-/// The case holds only if a read of `source` hides `value`.
+/// The case holds only if a read of `source` hides `value`. The failure
+/// shows neither: both hold the secret.
+#[track_caller]
 fn assert_read_hides(source: &str, value: &str) {
     let judged = octocode_runtime_base::security::JudgedText::judge(
         source,
         std::path::Path::new("a.c"),
         &octocode_runtime_base::security::ContentSecurity::new(),
     );
-    let read = judged.redaction().map_or(source, |(read, _)| read);
-    assert!(!read.contains(value), "a read hides {value}: {read}");
+    let redaction = judged.redaction();
+    let outcome = if redaction.is_some() {
+        "its redaction keeps the value"
+    } else {
+        "nothing in it is redacted"
+    };
+    let read = redaction.map_or(source, |(read, _)| read);
+    assert!(!read.contains(value), "a read hides the value: {outcome}");
 }

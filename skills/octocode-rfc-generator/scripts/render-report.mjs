@@ -55,9 +55,16 @@ function canOpen() {
   return process.platform === 'darwin' || process.platform === 'win32';
 }
 
+/** The command and argv that open `file` in its default app on `platform`; no shell reads the path. */
+export function openCommand(platform, file) {
+  if (platform === 'darwin') return ['open', [file]];
+  if (platform === 'win32') return ['explorer.exe', [file]];
+  return ['xdg-open', [file]];
+}
+
 function openFile(file) {
-  const cmd = process.platform === 'darwin' ? ['open', [file]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '', file]] : ['xdg-open', [file]];
-  try { spawn(cmd[0], cmd[1], { stdio: 'ignore', detached: true }).unref(); return true; } catch { return false; }
+  const [command, args] = openCommand(process.platform, file);
+  try { spawn(command, args, { stdio: 'ignore', detached: true }).unref(); return true; } catch { return false; }
 }
 
 const VALUE_OPTIONS = new Map([['--out', 'out'], ['--title', 'title'], ['--workspace', 'workspace']]);

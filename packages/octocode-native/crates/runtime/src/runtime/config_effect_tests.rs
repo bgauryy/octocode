@@ -250,8 +250,11 @@ async fn credential_files_setting_governs_github_file_reads() {
     // A dotenv file is a known credential store: every value goes, each name
     // stays.
     assert!(shown.contains("needle_line="), "{opened}");
-    for secret in [token.as_str(), "CowSaysMoo"] {
-        assert!(!shown.contains(secret), "{secret} leaked: {opened}");
+    for (what, secret) in [
+        ("the TOKEN value", token.as_str()),
+        ("the DB_PASS value", "CowSaysMoo"),
+    ] {
+        assert!(!shown.contains(secret), "{what} leaked: {opened}");
     }
     assert!(shown.contains("DB_PASS="), "{opened}");
     let still = read(true, ".ssh/id_rsa").await;

@@ -165,30 +165,34 @@ async fn a_row_none_of_whose_resources_was_read_fails_like_them() {
 async fn credential_files_a_glob_sends_carry_no_secret_to_the_provider() {
     let server = provider(1).await;
     let workspace = Workspace::new();
-    let secrets = [
-        "cm9ib3Q6czNjcjN0LXBhc3N3b3JkLTk4NzY1",
-        "Zq7xK2mPlanted9OpaqueTok",
-        "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7Zq7xK2mPlanted9",
+    // Each store's secret, with what it is: a failure names that, never the value.
+    let planted = [
+        ("the Docker auth", "cm9ib3Q6czNjcjN0LXBhc3N3b3JkLTk4NzY1"),
+        ("the kubeconfig token", "Zq7xK2mPlanted9OpaqueTok"),
+        (
+            "the service-account private key",
+            "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7Zq7xK2mPlanted9",
+        ),
     ];
     workspace.write(
         "creds/.docker/config.json",
         format!(
             "{{\n  \"auths\": {{\n    \"registry.example.com\": {{ \"auth\": \"{}\" }}\n  }}\n}}\n",
-            secrets[0]
+            planted[0].1
         ),
     );
     workspace.write(
         "creds/.kube/config",
         format!(
             "apiVersion: v1\nkind: Config\nusers:\n- name: static\n  user:\n    token: {}\n",
-            secrets[1]
+            planted[1].1
         ),
     );
     workspace.write(
         "creds/gcp/my-proj-1a2b3c4d5e6f.json",
         format!(
             "{{\n  \"type\": \"service_account\",\n  \"project_id\": \"my-proj\",\n  \"private_key\": \"-----BEGIN PRIVATE KEY-----\\n{}\\n-----END PRIVATE KEY-----\\n\",\n  \"token_uri\": \"https://oauth2.googleapis.com/token\"\n}}\n",
-            secrets[2]
+            planted[2].1
         ),
     );
     let runtime = clasify_runtime(&workspace, &server, &[]);
@@ -201,8 +205,8 @@ async fn credential_files_a_glob_sends_carry_no_secret_to_the_provider() {
     let bodies = sent(&server).await;
     let wire = serde_json::to_string(&bodies).unwrap_or_default();
     assert_eq!(bodies.len(), 1, "only the file outside the list: {out:#}");
-    for secret in secrets {
-        assert!(!wire.contains(secret), "{secret} reached the provider");
+    for (what, secret) in planted {
+        assert!(!wire.contains(secret), "{what} reached the provider");
     }
     for kept in ["my-proj", "https://oauth2.googleapis.com/token"] {
         assert!(wire.contains(kept), "{kept} did not reach the provider");

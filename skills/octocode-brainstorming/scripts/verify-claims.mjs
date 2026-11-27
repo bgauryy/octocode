@@ -52,11 +52,16 @@ export function decodeEntities(s) {
 }
 
 export function htmlToText(html) {
-  return decodeEntities(String(html || '')
+  let text = String(html || '')
     .replace(/<(script|style|noscript|svg|template)\b[\s\S]*?<\/\1>/gi, ' ')
     .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<(br|\/p|\/div|\/li|\/h[1-6]|\/tr|\/td|\/th)\b[^>]*>/gi, ' ')
-    .replace(/<[^>]+>/g, ''));
+    .replace(/<(br|\/p|\/div|\/li|\/h[1-6]|\/tr|\/td|\/th)\b[^>]*>/gi, ' ');
+  // Drop every remaining tag until none is left, so no removal can join the pieces of a new one.
+  for (let previous; text !== previous;) {
+    previous = text;
+    text = text.replace(/<[^>]+>/g, '');
+  }
+  return decodeEntities(text);
 }
 
 /** Compare text the way a reader would: same letters and words, whatever the typography. */

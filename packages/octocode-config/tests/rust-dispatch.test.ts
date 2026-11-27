@@ -81,6 +81,12 @@ impl ::std::convert::From<Other> for Unrelated { }`,
     ).toThrow(/shared by/);
   });
 
+  it('writes every key as a Rust string literal, whatever characters it holds', () => {
+    const key = 'a"b\\c\u0000\b\f\u00e9';
+    const out = renderDispatch(['localSearch'], { localSearch: { row: {}, collections: [key] } });
+    expect(out).toContain(String.raw`=> "a\"b\\c\u{0}\u{8}\u{c}\u{e9}",`);
+  });
+
   it('refuses a registry that does not match the tools', () => {
     expect(() => renderDispatch([...tools, 'newTool'], registry)).toThrow(/no entry for newTool/);
     expect(() => renderDispatch(['localSearch'], registry)).toThrow(/unknown tools/);

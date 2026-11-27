@@ -35,6 +35,13 @@ const engine = (...args) =>
   });
 
 const ALLOWED = ['https://app.example.com'];
+// The origins a message names, parsed; sentence punctuation after one is not part of it.
+const origins = text =>
+  new Set(
+    (text.match(/https?:\/\/\S*[^\s.,;:)]/g) ?? []).map(
+      link => new URL(link).origin
+    )
+  );
 
 test('validatePlan refuses a goto or after.url outside the list and names both origins', () => {
   const plan = url => ({ steps: [{ op: 'goto', url }] });
@@ -49,9 +56,10 @@ test('validatePlan refuses a goto or after.url outside the list and names both o
   assert.doesNotThrow(() => validatePlan(plan('https://evil.test/')));
   assert.throws(
     () => validatePlan(plan('https://evil.test/p'), { allowOrigins: ALLOWED }),
-    error =>
-      error.message.includes('https://evil.test') &&
-      error.message.includes(ALLOWED[0])
+    error => {
+      const named = origins(error.message);
+      return named.has('https://evil.test') && named.has(ALLOWED[0]);
+    }
   );
   assert.throws(
     () =>

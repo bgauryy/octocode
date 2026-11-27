@@ -43,6 +43,20 @@ test('GitHub slugs: punctuation dropped, code and link text kept, spaces become 
   assert.equal(githubSlug(renderHeading('kubectl delete: < v1.4.0 client vs >=v1.4.0 <em>cluster</em>')), 'kubectl-delete--v140-client-vs-v140-cluster');
 });
 
+test('heading text drops each HTML tag once, as GitHub renders it: text that only looks like a tag stays', () => {
+  for (const [heading, shown] of [
+    ['Use Vec<Option<T>> here', 'Use Vec<Option> here'],
+    ['Map<string, Array<T>>', 'Map<string, Array>'],
+    ['<b>Bold</b> and <span class="x">span</span>', 'Bold and span'],
+    ['<a href="#x">Link</a> <br/> end', 'Link  end'],
+    ['a <scr<b>ipt> b', 'a <script> b'],
+    ['a < b > c', 'a < b > c'],
+    ['x<y and <1> and </>', 'x<y and <1> and </>'],
+    ['unclosed <div', 'unclosed <div'],
+    ['<<b>>', '<>'],
+  ]) assert.equal(renderHeading(heading), shown, heading);
+});
+
 test('the prose model blanks code, comments and front matter without moving offsets', () => {
   const text = `---\ntitle: X\n---\n# Title\n\nSee \`[a](b.md)\` and <!-- [c](d.md) -->\n\n${FENCE}md\n[e](f.md)\n${FENCE}\n`;
   const doc = parseMarkdown(text);

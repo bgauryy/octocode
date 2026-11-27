@@ -4,6 +4,8 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { buildWiki, lintWiki, pageOf, promote, readPage, writeNotes } from '../src/runtime/wiki.ts';
 import { today } from '../src/runtime/wiki-store.ts';
+import { cell } from '../src/runtime/wiki-facts.ts';
+import { render } from '../src/assets/live-wiki.ts';
 import { tempDir } from './test-tmp.mjs';
 
 const SOURCES = {
@@ -195,4 +197,18 @@ test('a vanished community keeps its page as orphaned when it has notes and drop
   assert.match(readPage({ out, slug: 'index' }).markdown, /## Orphaned pages[\s\S]*\[\[src-b\]\]/);
   assert.ok(lintWiki({ out, root }).issues.some((i) => i.kind === 'orphaned' && i.slug === 'src-b'));
   rmSync(root, { recursive: true, force: true });
+});
+
+// The live viewer's page HTML for `markdown`, over a graph without nodes or pages.
+const viewerHtml = (markdown) => render({ S: { nodes: new Map(), root: '' }, W: { pages: new Map() } }, markdown);
+
+test('a table cell reads back as the text it holds, in a GFM renderer and in the live viewer', () => {
+  const text = String.raw`a\|b C:\path \*x\* |`;
+  // GFM drops the backslash of each `\|`, then reads backslash escapes as the character escaped.
+  assert.equal(cell(text).replace(/\\\|/g, '|').replace(/\\([!-/:-@[-`{-~])/g, '$1'), text);
+  assert.ok(viewerHtml(`| h |\n|---|\n| ${cell(text)} |`).includes(`<td>${text}</td>`));
+});
+
+test('the live viewer hides HTML comments, also one that removing another forms', () => {
+  assert.equal(viewerHtml('<!<!-- a -->-- b -->text'), '<p>text</p>');
 });

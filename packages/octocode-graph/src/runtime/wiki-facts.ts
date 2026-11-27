@@ -42,8 +42,10 @@ export const num = (x: number | null | undefined) =>
   typeof x === 'number' && Number.isFinite(x)
     ? String(Number(x.toPrecision(3)))
     : '–';
+// Text as one table cell: backslashes escaped first, so a `\|` in the text cannot end the cell.
 export const cell = (s: string | number | null | undefined) =>
   String(s ?? '')
+    .replace(/\\/g, '\\\\')
     .replace(/\|/g, '\\|')
     .replace(/\n/g, ' ');
 const at = (path: string | undefined, line?: number | null) =>

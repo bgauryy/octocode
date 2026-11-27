@@ -86,3 +86,11 @@ test('--project adds the declared ranges, so a scaffold pin that breaks a new pe
     assert.equal(replaced.conflicts.length, 0, 'a command-line spec replaces the declared range');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('an npm name is one registry path segment: scoped names, extra slashes and URL syntax never change the package asked for', async () => {
+  const asked = [];
+  const recording = async url => { asked.push(new URL(url)); return fakeFetch(url); };
+  await checkVersions({ specs: ['@types/node', '@types/node/extra', 'left-pad?x=1', 'left-pad#x'], node: '26.13.1', registry: 'https://registry.test' }, recording);
+  assert.deepEqual(asked.map(url => [url.pathname.split('/').length, url.search, url.hash]), asked.map(() => [2, '', '']));
+  assert.deepEqual(asked.map(url => decodeURIComponent(url.pathname.slice(1))), ['@types/node', '@types/node/extra', 'left-pad?x=1', 'left-pad#x']);
+});

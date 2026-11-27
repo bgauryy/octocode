@@ -37,7 +37,10 @@ export function client(kit, MERMAID_URL, PANZOOM_URL, views) {
 
   const setTheme = (t) => { document.documentElement.dataset.theme = t; store.set('theme', t); };
   setTheme(store.get('theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
-  let editor = store.get('editor') || 'vscode';
+  // The #editor options in page.mjs. A code link's scheme is one of these, never a stored or reported string.
+  const EDITORS = ['vscode', 'cursor', 'windsurf', 'file'];
+  const knownEditor = (value) => EDITORS.find((name) => name === value) || EDITORS[0];
+  let editor = knownEditor(store.get('editor'));
   $('#editor').value = editor;
   const editorUrl = (abs, line) => {
     const p = abs.replace(/\\/g, '/');
@@ -222,7 +225,7 @@ export function client(kit, MERMAID_URL, PANZOOM_URL, views) {
     if (act) actClick(act);
   });
   $('#editor').addEventListener('change', (e) => {
-    editor = e.target.value;
+    editor = knownEditor(e.target.value);
     store.set('editor', editor);
     $$('a.coderef').forEach((a) => { a.href = editorUrl(a.dataset.abs, a.dataset.line); });
     toast(`Code links open in ${e.target.selectedOptions[0].textContent}`);

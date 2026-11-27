@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { computeMetrics } from '../src/runtime/metrics.ts';
 import { formatResult, parseArgs, resolveNodes, runQuery, tokenize } from '../src/runtime/query.ts';
+import { rootOf } from '../src/ids.ts';
 
 const file = (id, chunk) => ({ id, label: id.split('/').pop(), chunk, language: 'javascript' });
 const imp = (source, target, line, extra = {}) => ({ source, target, line, lines: [line], confidence: 'high', test: false, ...extra });
@@ -40,6 +41,39 @@ test('tokens, depth and --tests parse anywhere after the op', () => {
   assert.equal(parseArgs(['a', '--weak']).weak, true);
   assert.equal(parseArgs(['--depth=all']).depth, Infinity);
   assert.equal(runQuery(D, 'impact b/util.mjs depth 0').ok, false);
+});
+
+test('words: double quotes take backslash escapes, single quotes keep their text, an unclosed quote stays in its word', () => {
+  const cases = [
+    [String.raw`search "say \"hi\"" --files`, ['search', 'say "hi"', '--files']],
+    [String.raw`search "a\\b" c`, ['search', 'a\\b', 'c']],
+    [String.raw`search "C:\path" x`, ['search', 'C:\\path', 'x']],
+    // A backslash before the only quote that can close the word is read alone.
+    [String.raw`search "a\" b`, ['search', 'a\\', 'b']],
+    [String.raw`search "a\\\" b`, ['search', 'a\\\\', 'b']],
+    [String.raw`"a\"b\"c`, ['a"b\\', 'c']],
+    [`about 'it''s' "" ''`, ['about', 'it', 's', '', '']],
+    ['trace "unterminated x', ['trace', '"unterminated', 'x']],
+    ["x 'open y", ['x', "'open", 'y']],
+    ['tabs\tand\nnewlines\u00a0nbsp', ['tabs', 'and', 'newlines', 'nbsp']],
+    ['"a"b"c"', ['a', 'b"c"']],
+    ['ab"c d"', ['ab"c', 'd"']],
+    ['   ', []],
+  ];
+  assert.deepEqual(cases.map(([text]) => [text, tokenize(text)]), cases);
+});
+
+test('a query named like an Object.prototype member is an unknown query, not a crash', () => {
+  for (const op of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf']) {
+    const r = runQuery(D, `${op} x`);
+    assert.equal(r.ok, false, op);
+    assert.match(r.error, /^unknown query/, op);
+  }
+});
+
+test('a saved root drops its trailing slashes', () => {
+  const cases = [['/repo', '/repo'], ['/repo///', '/repo'], ['/', ''], ['', ''], ['a//b/', 'a//b'], [7, ''], [undefined, '']];
+  assert.deepEqual(cases.map(([section]) => [section, rootOf({ section })]), cases);
 });
 
 test('file arguments: path, root-prefixed, ./, path:line, unique suffix; ambiguity lists candidates as re-runnable queries', () => {

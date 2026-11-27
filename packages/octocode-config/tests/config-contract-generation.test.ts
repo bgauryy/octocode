@@ -4,6 +4,7 @@ import { basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { contractFromDeclaration } from '../scripts/config-contract/declaration/index.ts';
+import { renderConfigurationPage } from '../scripts/config-contract/documentation.ts';
 import { contractSchema } from '../scripts/config-contract/schema.ts';
 import { generateConfigContract } from '../scripts/generate-config-contract.ts';
 import {
@@ -101,5 +102,23 @@ describe('generated config contract', () => {
       ),
     ].toSorted();
     expect(ENV_CREDENTIAL_VARS).toEqual(declared);
+  });
+
+  it('writes a settings description so the markdown table reads back the same text', () => {
+    const description = String.raw`a\|b C:\path \*x\* |`;
+    const contract = {
+      ...contractFromDeclaration(),
+      sections: {},
+      environment: { OCTOCODE_EXAMPLE: { type: 'string' as const, description } },
+    };
+    const markers = '<!-- settings-table:start (generated from the config contract; do not edit) -->\n<!-- settings-table:end -->';
+    const row = renderConfigurationPage(contract, markers)
+      .split('\n')
+      .find(line => line.includes('OCTOCODE_EXAMPLE'));
+    // The last column, after "Workspace may set".
+    const text = row?.split(' | yes | ')[1]?.slice(0, -' |'.length);
+    // A GFM table drops the backslash of each `\|`, then reads backslash escapes as the character escaped.
+    const read = text?.replace(/\\\|/g, '|').replace(/\\([!-/:-@[-`{-~])/g, '$1');
+    expect(read).toBe(description);
   });
 });

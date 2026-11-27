@@ -72,8 +72,18 @@ function attributes(text) {
 
 const joinName = parts => parts.filter(Boolean).filter((part, index, all) => part !== all[index - 1]).join(' > ');
 
+// Markup that holds no tags, matched in one left-to-right pass so whichever opens first ends where XML ends it:
+// a comment may mention "<![CDATA[" and a CDATA section "<!--".
+const NON_TAG = /<!\[CDATA\[[\s\S]*?\]\]>|<!--[\s\S]*?-->|<\?[\s\S]*?\?>/g;
+
 export function parseJunit(text) {
-  const clean = text.replaceAll(/<!\[CDATA\[[\s\S]*?\]\]>/g, '').replaceAll(/<!--[\s\S]*?-->/g, '').replaceAll(/<\?[\s\S]*?\?>/g, '').replaceAll(/<!DOCTYPE[^>]*>/gi, '');
+  // Repeated until stable, so text that a removal joins never forms a new section.
+  let clean = text;
+  for (let previous; clean !== previous;) {
+    previous = clean;
+    clean = clean.replaceAll(NON_TAG, '');
+  }
+  clean = clean.replaceAll(/<!DOCTYPE[^>]*>/gi, '');
   const tag = /<(\/?)([A-Za-z_][\w:.-]*)((?:\s+[^\s=/>]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*(\/?)>/g;
   const suites = [];
   const rows = [];

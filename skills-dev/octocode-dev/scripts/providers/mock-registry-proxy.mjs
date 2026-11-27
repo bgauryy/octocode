@@ -27,7 +27,8 @@ function certificates(tmp, hosts) {
 
 /** The credential a client put in its proxy URL (`http://caller:<credential>@host:port`), or null. */
 function callerOf(req) {
-  const basic = /^Basic\s+(.+)$/i.exec(req.headers['proxy-authorization'] ?? '')?.[1];
+  // The credential starts at the first non-space, so the scheme's spaces and the credential never overlap.
+  const basic = /^Basic\s+(\S.*)$/i.exec(req.headers['proxy-authorization'] ?? '')?.[1];
   if (!basic) return null;
   const pair = Buffer.from(basic, 'base64').toString('utf8');
   const colon = pair.indexOf(':');

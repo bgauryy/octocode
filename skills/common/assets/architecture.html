@@ -566,13 +566,15 @@ function fit(instant) { if (S.view==='3d') { fg3?.zoomToFit(600, 40); return; } 
 const hint = (s) => { $('#hint').textContent = s; };
 const empty = (html) => { const e = $('#empty'); e.style.display = 'grid'; e.innerHTML = `<div>${html}</div>`; };
 function setView(v) { S.view = v; if (v !== 'graph') S.focus = null; render(); }
+// Each view tab's renderer, looked up by view name in a Map so no name reaches an inherited property.
+const DRAW = new Map([['layers', drawLayers], ['graph', drawGraph], ['flows', drawFlows], ['matrix', drawMatrix], ['3d', draw3D]]);
 function render() {
   document.querySelectorAll('#tabs button').forEach(b=>b.setAttribute('aria-selected', b.dataset.v===S.view));
   $('#empty').style.display = 'none'; $('#three').style.display = 'none'; if (fg3 && S.view!=='3d') fg3.pauseAnimation(); if (sim && S.view!=='graph') sim.stop();
   svg.style('display', S.view==='3d' ? 'none' : null);
   sidebar(); flowBar(); syncHash();
   const keep = d3.zoomTransform(svg.node());
-  ({layers:drawLayers, graph:drawGraph, flows:drawFlows, matrix:drawMatrix, '3d':draw3D})[S.view]();
+  DRAW.get(S.view)();
   if (S.view!=='graph' && S.view!=='3d') { if (render.last === S.view + S.level + S.flow) svg.call(zoom.transform, keep); else fit(true); } render.last = S.view + S.level + S.flow;
 }
 document.addEventListener('keydown', (e) => {

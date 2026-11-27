@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { canonicalUrl } from '../search.mjs';
-import { normalize, quoteInText, pageDates, dayOf, dateInWindow, textDate } from '../verify-claims.mjs';
+import { normalize, quoteInText, pageDates, dayOf, dateInWindow, textDate, htmlToText } from '../verify-claims.mjs';
 import { findMatches } from '../read-page.mjs';
 
 const scripts = fileURLToPath(new URL('../', import.meta.url));
@@ -242,8 +242,22 @@ test('a papers search keeps the caller\'s --include-domain instead of widening i
     assert.deepEqual(bodies[0].include_domains, ['arxiv.org']);
     const defaults = await run('search.mjs', ['--query', 'q', '--kind', 'papers', '--providers', 'tavily'], env);
     assert.equal(defaults.status, 0, defaults.stdout);
-    assert.ok(bodies[1].include_domains.includes('arxiv.org') && bodies[1].include_domains.length > 1, 'papers without a domain filter use the scholarly domains');
+    assert.ok(bodies[1].include_domains.some((domain) => domain === 'arxiv.org') && bodies[1].include_domains.length > 1, 'papers without a domain filter use the scholarly domains');
   } finally { server.close(); }
+});
+
+test('page text drops scripts, comments and every tag, keeping text that only looks like markup', () => {
+  for (const [html, text] of [
+    ['<p>Hello <b>world</b></p>', 'Hello world '],
+    ['<script>x</script>keep<style>y</style>', ' keep '],
+    ['a <!-- c --> b', 'a   b'],
+    ['<<b>script>alert(1)</script>', 'script>alert(1)'],
+    ['<scr<script>x</script>ipt>z', 'z'],
+    ['1 < 2 and 3 > 2', '1  2'],
+    ['x <> y', 'x <> y'],
+    ['tag <unclosed', 'tag <unclosed'],
+    ['&lt;b&gt;text&lt;/b&gt;', '<b>text</b>'],
+  ]) assert.equal(htmlToText(html), text, html);
 });
 
 test('quote matching tolerates typography and ellipses but not invented text', () => {
@@ -471,7 +485,8 @@ test('a timestamp several pages of one site share is a build stamp, not an artic
   const { server, base } = await serve((req, res) => {
     res.setHeader('content-type', 'text/html');
     const own = req.url === '/blog' ? '2025-02-01' : stamp;
-    res.end(`<html><head><meta property="article:published_time" content="${own}"></head><body><p>Hot standby cancels conflicting queries after the configured delay on ${req.url}.</p></body></html>`);
+    const route = req.url.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+    res.end(`<html><head><meta property="article:published_time" content="${own}"></head><body><p>Hot standby cancels conflicting queries after the configured delay on ${route}.</p></body></html>`);
   });
   const dir = mkdtempSync(join(tmpdir(), 'bs-build-'));
   try {

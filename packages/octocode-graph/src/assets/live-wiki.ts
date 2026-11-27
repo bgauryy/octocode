@@ -130,12 +130,13 @@ function inline(K: Wiki, raw: string) {
     .join('');
 }
 
+// A table row's cells, split at pipes no backslash escapes; `\|` and `\\` read as `|` and `\` (wiki-facts `cell`).
 const cellsOf = (line: string) =>
   line
     .trim()
     .replace(/^\||\|$/g, '')
     .split(/(?<!\\)\|/)
-    .map(c => c.trim().replace(/\\\|/g, '|'));
+    .map(c => c.trim().replace(/\\([\\|])/g, '$1'));
 
 function table(K: Wiki, rows: string[]) {
   const [head, , ...body] = rows;
@@ -200,8 +201,15 @@ function block(K: Wiki, lines: string[], i: number): Block {
 }
 
 // Markdown to HTML; each ### section is collapsible. The page title (# line) is shown in the drawer header.
-function render(K: Wiki, markdown: string) {
-  const lines = markdown.replace(/<!--[\s\S]*?-->/g, '').split('\n');
+export function render(K: Wiki, markdown: string) {
+  // Removing a comment can join its neighbors into another (`<!<!-- -->-- -->`): remove until none is left.
+  let text = markdown;
+  let before: string;
+  do {
+    before = text;
+    text = text.replace(/<!--[\s\S]*?-->/g, '');
+  } while (text !== before);
+  const lines = text.split('\n');
   let html = '',
     open = false,
     i = 0;

@@ -163,20 +163,15 @@ export class IdeBridge implements vscode.Disposable {
     try {
       body = await this.route(req);
     } catch (error) {
-      if (error instanceof HttpError) {
-        status = error.status;
-        headers = error.headers;
-        body = {
-          error: error.message,
-          ...(error.reason ? { reason: error.reason } : {}),
-        };
-      } else {
-        status = 500;
-        body = { error: 'bridge failure', reason: errorMessage(error) };
-        this.options.output(
-          `IDE bridge request failed: ${errorMessage(error)}`
-        );
-      }
+      // Every failure answers as an HttpError: status, headers, message and reason only.
+      const failure =
+        error instanceof HttpError ? error : this.unexpected(error);
+      status = failure.status;
+      headers = failure.headers;
+      body = {
+        error: failure.message,
+        ...(failure.reason ? { reason: failure.reason } : {}),
+      };
     }
     const payload = JSON.stringify(body);
     res.writeHead(status, {
@@ -186,6 +181,12 @@ export class IdeBridge implements vscode.Disposable {
       ...headers,
     });
     res.end(payload);
+  }
+
+  /** A failure that is not an HttpError: logged, and answered as a 500 that carries its message. */
+  private unexpected(error: unknown): HttpError {
+    this.options.output(`IDE bridge request failed: ${errorMessage(error)}`);
+    return new HttpError(500, 'bridge failure', errorMessage(error));
   }
 
   /** Host, then auth, then route: nothing is read or run before both pass. */

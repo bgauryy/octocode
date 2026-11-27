@@ -13,6 +13,12 @@ import type { StealthSession } from '../stealth-session.mjs';
 const TARGET =
   process.env.AFFILIATES_CHECK_URL ?? 'https://affiliates.walmart.com/';
 
+const AFFILIATE_HOST = 'affiliates.walmart.com';
+
+/** Whether the tab ended on the affiliate site: its parsed host, not text anywhere in the URL. */
+export const onAffiliateSite = (href: string | undefined) =>
+  !!href && URL.canParse(href) && new URL(href).hostname === AFFILIATE_HOST;
+
 export async function run(cdp: StealthSession) {
   if (!cdp.stealthApplied) {
     throw new Error(
@@ -82,7 +88,7 @@ export async function run(cdp: StealthSession) {
       'affiliate landing check: title/h1 mismatch (bot wall or redirect)'
     );
   }
-  if (!info.href?.includes('affiliates.walmart.com')) {
+  if (!onAffiliateSite(info.href)) {
     throw new Error(`affiliate landing check: unexpected href ${info.href}`);
   }
 }

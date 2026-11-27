@@ -115,7 +115,7 @@ fn no_operation_shows_a_secret_the_server_returns() {
     if !require_node() {
         return;
     }
-    for (text, secret) in texts() {
+    for (case, (text, secret)) in texts().into_iter().enumerate() {
         let (_dir, root, script) = fixture();
         crate::lsp_search::tests::write_executable(&script, server(&text));
         let path = root.join("a.ts").to_string_lossy().into_owned();
@@ -145,7 +145,10 @@ fn no_operation_shows_a_secret_the_server_returns() {
             ),
         ] {
             let shown = row.to_string();
-            assert!(!shown.contains(secret), "{name} {secret}: {shown}");
+            assert!(
+                !shown.contains(secret),
+                "{name} shows case {case}'s secret: {shown}"
+            );
         }
     }
 }
@@ -247,7 +250,10 @@ fn a_location_row_hides_the_source_lines_only_the_file_can_judge() {
             let context = row.get("contextLines").is_some();
             let out = sealed(&root, &script, row);
             let shown = out.to_string();
-            assert!(!shown.contains(secret), "{secret}: {shown}");
+            assert!(
+                !shown.contains(secret),
+                "line {line}'s secret is shown: {shown}"
+            );
             assert!(shown.contains("REDACTED"), "{shown}");
             if context {
                 assert!(shown.contains("const before = 1;"), "{shown}");
@@ -268,7 +274,7 @@ fn served_rows_show_no_secret_the_server_returns() {
     if !require_node() {
         return;
     }
-    for (text, secret) in texts() {
+    for (case, (text, secret)) in texts().into_iter().enumerate() {
         let (_dir, root, script) = fixture();
         crate::lsp_search::tests::write_executable(&script, server(&text));
         std::fs::write(
@@ -314,7 +320,10 @@ fn served_rows_show_no_secret_the_server_returns() {
                 ))
                 .expect("row");
             let shown = Sanitized::sealed(row).into_value().to_string();
-            assert!(!shown.contains(secret), "{name} {secret}: {shown}");
+            assert!(
+                !shown.contains(secret),
+                "{name} shows case {case}'s secret: {shown}"
+            );
         }
     }
 }

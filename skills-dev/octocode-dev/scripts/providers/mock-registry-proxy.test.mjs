@@ -6,6 +6,7 @@ import path from 'node:path';
 import http from 'node:http';
 import tls from 'node:tls';
 import { startRegistryProxy } from './mock-registry-proxy.mjs';
+import { registryResponse } from './mock-routes-registry.mjs';
 
 function tunnel(proxy, host, credential) {
   return new Promise((resolve, reject) => {
@@ -71,5 +72,41 @@ test('callers running at once neither see nor steer each other\'s provider world
     const denied = await tunnel(proxy, 'unknown.example', 'tool-a');
     denied.socket.destroy();
     assert.deepEqual([mine.denied, proxy.denied], [['unknown.example:443'], []]);
+  } finally { await proxy.close(); fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('registry routes match a provider host or its subdomains, never a look-alike host', () => {
+  for (const host of ['api.nuget.org', 'azuresearch-usnc.nuget.org']) assert.notEqual(registryResponse(new URL(`https://${host}/v3/index.json`)), null, host);
+  for (const host of ['evilnuget.org', 'nuget.org.example']) assert.equal(registryResponse(new URL(`https://${host}/v3/index.json`)), null, host);
+});
+
+test('a caller is the password of a Basic proxy credential in any spelling, and nothing else names one', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'registry-proxy-test-'));
+  const proxy = await startRegistryProxy(tmp);
+  const basic = pair => Buffer.from(pair).toString('base64');
+  const cases = [
+    [`Basic ${basic('caller:tool-a')}`, 'tool-a'],
+    [`basic \t ${basic('caller:tool%20b')}`, 'tool b'],
+    [`BASIC ${basic('caller:')}`, ''],
+    [`Basic ${basic('no-colon')}`, null],
+    ['Basic \t ', null],
+    [`Bearer ${basic('caller:tool-c')}`, null],
+  ];
+  try {
+    for (const [authorization] of cases) {
+      const socket = await new Promise((resolve, reject) => {
+        const req = http.request(proxy.proxyUrl, { method: 'CONNECT', path: 'pypi.org:443', headers: { 'proxy-authorization': authorization } });
+        req.on('connect', (_response, connected) => resolve(connected));
+        req.on('error', reject);
+        req.end();
+      });
+      await new Promise((resolve, reject) => {
+        const secure = tls.connect({ socket, servername: 'pypi.org', ca: fs.readFileSync(proxy.caFile) }, () => secure.write('GET /pypi/proof/json HTTP/1.1\r\nHost: pypi.org\r\nConnection: close\r\n\r\n'));
+        secure.on('data', () => {});
+        secure.on('error', reject);
+        secure.on('end', resolve);
+      });
+    }
+    assert.deepEqual(proxy.requestsFrom.map(entry => entry.token), cases.map(([, token]) => token));
   } finally { await proxy.close(); fs.rmSync(tmp, { recursive: true, force: true }); }
 });

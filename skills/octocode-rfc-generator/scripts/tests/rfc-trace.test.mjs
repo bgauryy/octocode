@@ -218,3 +218,13 @@ test('idsIn expands ranges in order and keeps leading zeros', () => {
   assert.deepEqual(idsIn('F1a, XT1, T3–T1'), ['T3', 'T1']);
   assert.deepEqual(idsIn('P99 and F1', new Set(['P99'])), ['F1']);
 });
+
+test('decision labels read the same in every emphasis, and long runs of emphasis marks are read in linear time', () => {
+  const labels = ['**D1**: first.', '- __D2__ (owner) — the note must come before the closing marks.', '`D3`: third.', '1. *_D4_* - fourth.', '***D5*** Blocking: fifth.', '**D6 is only mentioned** here.'];
+  const runs = [`${'**'.repeat(40)} x`, `D1${'**'.repeat(40)} x`];
+  withRfc(rfc({ lead: 'Decisions D1, D2, D3, D4, D5 and D6 hold.\n', extra: `\n${[...labels, ...runs].join('\n\n')}\n` }), (dir) => {
+    const result = spawnSync(process.execPath, [SCRIPT, join(dir, 'RFC.md'), '--workspace', dir], { encoding: 'utf8', timeout: 20000 });
+    assert.equal(result.signal, null, 'the trace finishes');
+    assert.deepEqual(JSON.parse(result.stdout).undefinedIds.map(({ id }) => id), ['D2', 'D6']);
+  });
+});

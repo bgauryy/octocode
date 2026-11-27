@@ -24,7 +24,7 @@ const SAMPLE = [
 
 function widgetChecks(kit, check) {
   const graphInput = {title:'Graph',nodes:[{id:'a',label:'A'},{id:'b',label:'B',url:'https://example.com'}],edges:[{source:'a',target:'b'}]};
-  check('graph links appear in manifest', linksIn(`\`\`\`graph\n${JSON.stringify(graphInput)}\n\`\`\``).includes('https://example.com'));
+  check('graph links appear in manifest', JSON.stringify(linksIn(`\`\`\`graph\n${JSON.stringify(graphInput)}\n\`\`\``)) === JSON.stringify(['https://example.com']));
   check('graph data normalized', kit.widget('graph',JSON.stringify(graphInput)).edges[0].label === '');
   const chartInput = {title:'Chart',type:'bar',labels:['One'],series:[{name:'Count',values:[1]}]};
   check('chart data normalized', kit.widget('chart',JSON.stringify(chartInput)).unit === '');
@@ -80,7 +80,7 @@ function refChecks(dir, check) {
   fs.mkdirSync(path.join(dir, '.git'));
   fs.mkdirSync(path.join(dir, 'src'));
   fs.writeFileSync(path.join(dir, 'src', 'a.ts'), 'export const a = 1;\n');
-  fs.writeFileSync(path.join(dir, 'src', 'guide.md'), '# Guide\n\n## Usage\n\n```md\n## Ignored\n```\n\n## Usage\n'.replace(/\n/g, '\n'));
+  fs.writeFileSync(path.join(dir, 'src', 'guide.md'), '# Guide\n\n## Usage\n\n```md\n## Ignored\n```\n\n## Usage\n'.replace(/\n/g, '\r\n'));
   fs.writeFileSync(path.join(dir, 'src', 'setext.md'), 'Guide\n=====\n\nUsage\n-----\n');
   check('setext section links resolve', resolveRefs('[guide](../../src/setext.md#usage)', path.join(dir, '.octocode', 'octocode-research'), dir)['../../src/setext.md#usage']?.line === 4);
   const linked = resolveRefs('[guide][g]\n\n[g]: ../../src/guide.md#usage\n\n[again](../../src/guide.md#usage-1)\n[bad](../../src/guide.md#ignored)', path.join(dir, '.octocode', 'octocode-research'), dir);

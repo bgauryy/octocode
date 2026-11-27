@@ -68,18 +68,22 @@ fn every_pattern_redacts_only_its_sample() {
         for text in samples {
             let spans = secret_spans_in(&text, ValueForm::Config);
             let inner = BEFORE.len()..text.len() - AFTER.len();
-            assert!(
-                spans
-                    .windows(2)
-                    .all(|pair| pair[0].range.end <= pair[1].range.start),
-                "{}: {spans:?}",
+            // A failure names the pattern and the index of the first
+            // offending span, never the spans themselves.
+            let unordered = spans
+                .windows(2)
+                .position(|pair| pair[1].range.start < pair[0].range.end);
+            assert_eq!(
+                unordered, None,
+                "{}: the span at this index overlaps or follows the next",
                 pattern.name
             );
-            assert!(
-                spans
-                    .iter()
-                    .all(|span| inner.start <= span.range.start && span.range.end <= inner.end),
-                "{} redacts outside its sample in {text:?}: {spans:?}",
+            let outside = spans
+                .iter()
+                .position(|span| span.range.start < inner.start || inner.end < span.range.end);
+            assert_eq!(
+                outside, None,
+                "{} redacts outside its sample {inner:?} at this span index in {text:?}",
                 pattern.name
             );
             let regex = pattern_regex(idx);
@@ -300,7 +304,11 @@ fn overlapping_secrets_join_into_one_span() {
     let token = format!("ghp_{}", "b".repeat(36));
     let text = format!("Authorization: Bearer {token}\n");
     let spans = secret_spans_in(&text, ValueForm::Config);
-    assert_eq!(spans.len(), 1, "{spans:?}");
+    assert_eq!(
+        spans.len(),
+        1,
+        "the header's and the token's spans join into one"
+    );
     assert_eq!(&text[spans[0].range.clone()], token);
 }
 

@@ -215,6 +215,40 @@ describe('commands', () => {
     expect(commandToken('a b')).toBe('a-b');
   });
 
+  it('drops leading dashes and one trailing run of dots or of dashes from an illegal name', () => {
+    const cases: [string, string][] = [
+      ['-a-', 'a'],
+      ['--a..', 'a'],
+      ['-x--', 'x'],
+      ['-a.-', 'a.'],
+      ['-a-.', 'a-'],
+      ['-a..', 'a'],
+      ['-a.b-', 'a.b'],
+      ['-.a', '.a'],
+      ['--.--', '.'],
+      ['--a--..', 'a--'],
+      [' a.-. ', 'a.-.'],
+      ['a b-.', 'a-b-'],
+      ['a b.-', 'a-b.'],
+      ['a b.', 'a-b'],
+      ['a/b//', 'a-b'],
+      ['x!!!...', 'x-'],
+      ['!a.', 'a'],
+      ['${x}', 'x'],
+      ['-', 'tool-command'],
+      ['-.', 'tool-command'],
+      ['-...', 'tool-command'],
+      ['é', 'tool-command'],
+      ['---help', 'help-command'],
+      ['-help.', 'help-command'],
+      ['-version-', 'version-command'],
+    ];
+    for (const [name, token] of cases) expect(commandToken(name), name).toBe(token);
+    const dots = '.'.repeat(2_000);
+    expect(commandToken(`-${dots}a${dots}!`)).toBe(`${dots}a${dots}`);
+    expect(commandToken(`-a${dots}`)).toBe('a');
+  });
+
   it('rejects duplicate, reserved, and incomplete commands', () => {
     const command = defineCommand({
       name: 'search',

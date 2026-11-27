@@ -239,7 +239,7 @@ describe('extension command integration', () => {
     await command('installMcp');
     const server = JSON.parse(await fs.readFile(config, 'utf8')).mcpServers
       .octocode;
-    expect(server.env).toEqual({ OTHER: 'keep' });
+    expect(server.env).toEqual({ OTHER: 'keep', OCTOCODE_ENABLE_LOCAL: 'true' });
     expect(server.disabled).toBe(true);
     expect(server.args).toEqual(['-y', 'octocode-mcp@latest']);
   });

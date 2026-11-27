@@ -75,11 +75,43 @@ export const OPS: Record<string, Op> = {
 export const HINT =
   'search <text> [--files|--symbols] [--all] [--kind|--lang|--role|--path <value>] [--exported] [--param|--returns <type>] [--unsigned] [--provider] · about <file|symbol> · context <file|symbol...> [--tokens N] [--from K] · critical functions|points [n|all] · critical path [<file>] [--up] · region <entry> <outcome> · files <file...> · impact <file...> [depth N] · deps|dependents <file...> [depth N] · path <a> <b> [--hops] [--avoid <file|dir>...] · cycle [<file>] · order <file> · trace <file|file#symbol> <pattern> · community <file|id> · callers|callees <file#symbol|name> · top <metric> [n|all] · links [<file>] [--unresolved|--stale] [--rule md-link|md-path|md-cite|md-symbol|manifest|tsconfig|contract|md-contract|agent] · reach <entry...> [--eager] [--forbid <file|dir|pkg:name>...] · why <entry> <file|pkg:name> [--eager] · hubs [n|all] [<dir>] · hubs <file> · path <a> <b> --all [n] · bundle [<output>] [--diff] · hot [files|functions] [n|all] [--from <file>] [--heap] · --runtime · --eager · --count · --group dir|dir:N|chunk|package|depth · --tests · --imports · --weak';
 
-// Words, with "double" or 'single' quotes keeping spaces.
+const SPACE = /\s/;
+
+// Words, with "double" or 'single' quotes keeping spaces. Inside double quotes `\"` and `\\` read as `"` and `\`,
+// except that a backslash reads alone when only that lets a quote close the word (`"a\"` is `a\`). A quote that
+// nothing closes is part of a plain word. Linear in the text.
 export function tokenize(text: unknown): string[] {
-  return [
-    ...textOf(text).matchAll(/"((?:\\["\\]|[^"])*)"|'([^']*)'|(\S+)/g),
-  ].map(m => m[1]?.replace(/\\(["\\])/g, '$1') ?? m[2] ?? m[3]);
+  const s = textOf(text);
+  // closes[i]: the quote that ends a double-quoted word whose text starts at i, or -1. An escape is read first; its
+  // backslash reads alone only when the text after the escape has no quote to close on.
+  const closes = new Int32Array(s.length + 1).fill(-1);
+  for (let i = s.length - 1; i >= 0; i--) {
+    const escape =
+      s[i] === '\\' && (s[i + 1] === '"' || s[i + 1] === '\\')
+        ? closes[i + 2]
+        : -1;
+    closes[i] = s[i] === '"' ? i : escape >= 0 ? escape : closes[i + 1];
+  }
+  const words: string[] = [];
+  for (let i = 0; i < s.length;) {
+    if (SPACE.test(s[i])) {
+      i++;
+      continue;
+    }
+    const end =
+      s[i] === '"' ? closes[i + 1] : s[i] === "'" ? s.indexOf("'", i + 1) : -1;
+    if (end >= 0) {
+      const body = s.slice(i + 1, end);
+      words.push(s[i] === '"' ? body.replace(/\\(["\\])/g, '$1') : body);
+      i = end + 1;
+      continue;
+    }
+    let j = i + 1;
+    while (j < s.length && !SPACE.test(s[j])) j++;
+    words.push(s.slice(i, j));
+    i = j;
+  }
+  return words;
 }
 
 const DEPTH = /^(?:--)?depth(?:=(.+))?$/i;
@@ -239,7 +271,9 @@ export function runQuery(D: QueryData, text: unknown): QueryResult {
       summary: error,
     };
   }
-  if (!Object.hasOwn(OPS, op)) {
+  // The op's own function: a name only `Object.prototype` has (`constructor`, `toString`) is an unknown query.
+  const run = Object.hasOwn(OPS, op) ? OPS[op] : undefined;
+  if (typeof run !== 'function') {
     const files = tokens.filter(t => /[/.]/.test(t) && !t.startsWith('-'));
     // A file where the op belongs (`src/a.ts src/b.ts`): the queries that ask about it, not the whole grammar.
     if (files.length && files[0] === tokens[0]) {
@@ -263,7 +297,11 @@ export function runQuery(D: QueryData, text: unknown): QueryResult {
       : `empty query; try: ${HINT}`;
     return { ok: false, ...base, error, ...empty(), summary: error };
   }
-  const answer = (words: string[], notes: string[]): QueryResult => {
+  const answer = (
+    operation: Op,
+    words: string[],
+    notes: string[]
+  ): QueryResult => {
     const p = parseArgs(words.slice(1), {
       walk: WALKS.has(op),
       path: op === 'path',
@@ -275,7 +313,7 @@ export function runQuery(D: QueryData, text: unknown): QueryResult {
       weak: p.weak,
       load: p.load,
     });
-    const r = grouped(I, OPS[op](I, p), p);
+    const r = grouped(I, operation(I, p), p);
     return {
       ok: true,
       ...base,
@@ -289,7 +327,7 @@ export function runQuery(D: QueryData, text: unknown): QueryResult {
     };
   };
   try {
-    return answer(tokens, reading.notes);
+    return answer(run, tokens, reading.notes);
   } catch (error) {
     if (!(error instanceof QueryError)) throw error;
     // An unknown name nothing contains may be misspelled: one near name is read in its place, several are offered.
@@ -298,7 +336,7 @@ export function runQuery(D: QueryData, text: unknown): QueryResult {
     if (near.length === 1 && error.arg) {
       const words = tokens.map(t => (t === error.arg ? near[0] : t));
       try {
-        return answer(words, [
+        return answer(run, words, [
           ...reading.notes,
           `no name is "${error.arg}": read as ${near[0]}`,
         ]);

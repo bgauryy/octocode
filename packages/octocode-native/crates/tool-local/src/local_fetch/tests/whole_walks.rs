@@ -93,8 +93,12 @@ fn every_replayed_page_of_a_whole_walk_equals_its_cold_read() {
             .iter()
             .map(|(_, page)| page.content.as_deref().expect("content"))
             .collect();
-        for secret in [TOKEN, "earlyKeyBody", "lateKeyBody"] {
-            assert!(!text.contains(secret), "{view}: {secret} shown");
+        for (what, secret) in [
+            ("the token", TOKEN),
+            ("the early key body", "earlyKeyBody"),
+            ("the late key body", "lateKeyBody"),
+        ] {
+            assert!(!text.contains(secret), "{view}: {what} shown");
         }
         // Only the secret's bytes are replaced: the rest of its line stays.
         assert!(text.contains("token="), "{view}");

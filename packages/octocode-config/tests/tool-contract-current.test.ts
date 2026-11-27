@@ -39,8 +39,28 @@ it('pins the Rust types to the exact bundle they were generated from', () => {
 });
 
 // A row `next` key pattern as core writes it: channel names, each with an optional
-// branch (2, 3, …) or numbered (0, 1, …) suffix.
-const NEXT_KEY_PATTERN = /^\^\(\?:(?:[A-Za-z]+(?:\(\?:\[2-9\]\|\[1-9\]\[0-9\]\+\)\?|\(\?:0\|\[1-9\]\[0-9\]\*\))?\|?)+\)\$$/;
+// branch (2, 3, …) or numbered (0, 1, …) suffix. A name runs until a suffix or `|`,
+// so each one is read one way only.
+const NEXT_KEY_PATTERN = /^\^\(\?:(?=[A-Za-z])(?:[A-Za-z]+(?:(?:\(\?:\[2-9\]\|\[1-9\]\[0-9\]\+\)\?|\(\?:0\|\[1-9\]\[0-9\]\*\))\|?|\|))*[A-Za-z]*\)\$$/;
+
+it('reads a next key pattern as channel names with optional suffixes', () => {
+  const branch = '(?:[2-9]|[1-9][0-9]+)?';
+  const numbered = '(?:0|[1-9][0-9]*)';
+  const cases: Array<[string, boolean]> = [
+    [`^(?:nextPage|retry${branch}|cycle${numbered})$`, true],
+    [`^(?:nextPage|)$`, true],
+    [`^(?:retry${branch}restart)$`, true],
+    ['^(?:nextPage)$', true],
+    ['^(?:)$', false],
+    ['^(?:|nextPage)$', false],
+    ['^(?:next||page)$', false],
+    [`^(?:${branch})$`, false],
+    [`^(?:retry${branch}${numbered})$`, false],
+    ['^(?:next_page)$', false],
+    ['^(?:nextPage)', false],
+  ];
+  expect(cases.map(([pattern]) => [pattern, NEXT_KEY_PATTERN.test(pattern)])).toEqual(cases);
+});
 
 it('declares every next key an output schema admits, error-row channels included', () => {
   const contract = JSON.parse(read('contract/tool-contract.json'));

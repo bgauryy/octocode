@@ -1,4 +1,5 @@
 import { readTargetSnapshot } from './snapshot-resource.mjs';
+import { scriptLiteral } from './script-literal.mjs';
 import { writeFileSync } from 'fs';
 import { isAbsolute, join, relative, resolve } from 'path';
 import type { CheckSession } from '../cdp-runner-session.mjs';
@@ -133,7 +134,7 @@ export async function run(cdp: CheckSession, env: Env = process.env) {
   let clip;
   if (selector) {
     const box =
-      await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return null;
+      await evaluate(`(() => { const el = document.querySelector(${scriptLiteral(selector)}); if (!el) return null;
       el.scrollIntoView({ block: 'center' }); const r = el.getBoundingClientRect();
       return { x: r.x + scrollX, y: r.y + scrollY, width: r.width, height: r.height }; })()`);
     if (!box || !box.width || !box.height) {

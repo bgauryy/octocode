@@ -8,8 +8,12 @@ export const fileOf = (id: string) => id.split('#')[0];
 export const prefixOf = (path: string) => (path === '.' ? '' : `${path}/`);
 
 /** The directory a saved graph's ids are relative to: its `section` (absolute), or '' for a graph without one. */
-export const rootOf = (D: { section?: unknown }) =>
-  typeof D.section === 'string' ? D.section.replace(/\/+$/, '') : '';
+export function rootOf(D: { section?: unknown }) {
+  if (typeof D.section !== 'string') return '';
+  let end = D.section.length;
+  while (end > 0 && D.section[end - 1] === '/') end--;
+  return D.section.slice(0, end);
+}
 
 /** The absolute path of a root-relative path: the saved graph stores each path once, relative to its root. */
 export const absOf = (root: string, path: string) =>

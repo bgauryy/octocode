@@ -486,14 +486,14 @@ async fn dotenv_patch_rows_are_withheld_and_keep_their_path() {
     // A credential-named file's patch is withheld whole by default, its
     // path kept: the row says nothing of its text.
     let served = out.to_string();
-    for secret in [
-        "CowSaysMoo",
-        "OldMoo",
-        "NewMoo",
-        "shepherdKeystore.p12",
-        "DB_HOST=db",
+    for (what, secret) in [
+        ("the TLS_KEYSTORE_PASS value", "CowSaysMoo"),
+        ("the removed DB_PASS value", "OldMoo"),
+        ("the added DB_PASS value", "NewMoo"),
+        ("the TLS_KEYSTORE_FILE value", "shepherdKeystore.p12"),
+        ("the DB_HOST line", "DB_HOST=db"),
     ] {
-        assert!(!served.contains(secret), "{secret} leaked: {out}");
+        assert!(!served.contains(secret), "{what} leaked: {out}");
     }
     for (at, name) in [".env", "config/prod.env"].iter().enumerate() {
         assert_eq!(out["files"][at]["path"], *name, "{out}");

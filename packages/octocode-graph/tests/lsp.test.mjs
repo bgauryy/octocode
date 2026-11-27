@@ -8,24 +8,34 @@ import { tempDir } from './test-tmp.mjs';
 async function probe(t, { mode, category, resolvedSymbol, roles = [], declarations = [], partial = '', partialIndex, sameIndex = false, calls = [], symbols = [], batchSize = 2 } = {}) {
   const root = tempDir('graph-lsp-pages-');
   const script = join(root, 'fake.mjs');
-  writeFileSync(script, `const [tool,,json] = process.argv.slice(2);
+  // The fake CLI and the runner are fixed code; what each probe varies reaches them as data (a file, argv).
+  writeFileSync(join(root, 'probe.json'), JSON.stringify({ partial, partialIndex, resolvedSymbol, target: join(root, 'target.ts'), category: category ?? '', all: mode === 'all', sameIndex }));
+  writeFileSync(script, `import { readFileSync } from 'node:fs';
+const P = JSON.parse(readFileSync(new URL('./probe.json', import.meta.url), 'utf8'));
+const [tool,,json] = process.argv.slice(2);
 if (tool === 'config') { console.log(JSON.stringify({key:'WORKSPACE_ROOT',value:null})); process.exit(0); }
 const input = JSON.parse(json ?? '{}');
-const reason = ${JSON.stringify(partial)};
-const partialIndex = ${JSON.stringify(partialIndex)};
-const row = (index, name = 'target') => ({index, data: {kind: 'matches', resolvedSymbol: ${JSON.stringify(resolvedSymbol)}, ...(reason && (partialIndex === undefined || index === partialIndex) ? {isPartial: true, partialReasons: [reason]} : {}), files: [{path: ${JSON.stringify(join(root, 'target.ts'))}, matches: [{symbolName: name, line: 1, sites: [{line: 3}]}]}]}});
+const reason = P.partial;
+const partialIndex = P.partialIndex;
+const row = (index, name = 'target') => ({index, data: {kind: 'matches', resolvedSymbol: P.resolvedSymbol, ...(reason && (partialIndex === undefined || index === partialIndex) ? {isPartial: true, partialReasons: [reason]} : {}), files: [{path: P.target, matches: [{symbolName: name, line: 1, sites: [{line: 3}]}]}]}});
 if(tool==='schema') console.log(JSON.stringify({queries:{maxItems:2}}));
 else if(input.queries?.[0]?.operation === 'documentSymbols') { console.error('outline unavailable'); process.exit(5); }
-else if (${JSON.stringify(category ?? '')}) console.log(JSON.stringify({results:input.queries.map((_,index)=>({index,status:'empty',data:{category:${JSON.stringify(category ?? '')},reason:'definition outside scope'}}))}));
-else if (${JSON.stringify(mode === 'all')}) console.log(JSON.stringify({results:input.queries.map((_, index)=>row(index))}));
-else if(input.cursor) console.log(JSON.stringify({results:[row(${sameIndex ? "0, 'other'" : '1'})]}));
+else if (P.category) console.log(JSON.stringify({results:input.queries.map((_,index)=>({index,status:'empty',data:{category:P.category,reason:'definition outside scope'}}))}));
+else if (P.all) console.log(JSON.stringify({results:input.queries.map((_, index)=>row(index))}));
+else if(input.cursor) console.log(JSON.stringify({results:[P.sameIndex ? row(0, 'other') : row(1)]}));
 else console.log(JSON.stringify({results:[row(0)], next:{kind:'continue',tool:'lspSearch',input:{cursor:'tail'}}}));
 `);
   const D = { files: [{id:'source.ts', roles}, {id:'target.ts', roles:['test']}], symbols: [{id:'source.ts#first',file:'source.ts',name:'first',kind:'function',line:1},{id:'source.ts#second',file:'source.ts',name:'second',kind:'function',line:4},{id:'target.ts#target',file:'target.ts',name:'target',kind:'function',line:1}], calls, hubFiles:['source.ts'], coverage:{} };
   D.symbols.push(...symbols);
   if (sameIndex) D.symbols.splice(1, 1);
-  const source = `import { lspPhase } from ${JSON.stringify(new URL('../src/runtime/lsp.ts', import.meta.url).href)}; const D = ${JSON.stringify(D)}; const events = []; const result = await lspPhase(D, {root:${JSON.stringify(root)},emit:e=>events.push(e),mode:${JSON.stringify(mode)},declarations:${JSON.stringify(declarations)},jobs:2,batchSize:${batchSize}}); console.log(JSON.stringify({D,result,events}));`;
-  const child = spawnSync(process.execPath, ['--input-type=module', '-e', source], { encoding: 'utf8', env: {...process.env, OCTOCODE_CLI: `${process.execPath} ${script}`} });
+  const source = `const [url, input] = process.argv.slice(1);
+const { lspPhase } = await import(url);
+const { D, options } = JSON.parse(input);
+const events = [];
+const result = await lspPhase(D, { ...options, emit: e => events.push(e) });
+console.log(JSON.stringify({ D, result, events }));`;
+  const options = { root, mode, declarations, jobs: 2, batchSize };
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', source, new URL('../src/runtime/lsp.ts', import.meta.url).href, JSON.stringify({ D, options })], { encoding: 'utf8', env: {...process.env, OCTOCODE_CLI: `${process.execPath} ${script}`} });
   assert.equal(child.status, 0, child.stderr);
   return JSON.parse(child.stdout);
 }

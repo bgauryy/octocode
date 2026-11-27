@@ -70,7 +70,15 @@ export function queryBranches(
 
 const variant = (key: string): string =>
   typeName(key.replace(/([a-z0-9])([A-Z])/g, '$1-$2'));
-const str = (value: string): string => JSON.stringify(value);
+/** One character of a Rust string literal: printable ASCII as itself (`"` and `\` escaped), anything else as `\u{…}`. */
+const rustChar = (char: string): string => {
+  if (char === '"' || char === '\\') return `\\${char}`;
+  if (char >= ' ' && char <= '~') return char;
+  return `\\u{${(char.codePointAt(0) ?? 0).toString(16)}}`;
+};
+/** `value` as a Rust string literal, whatever characters it holds. */
+const str = (value: string): string =>
+  `"${Array.from(value, rustChar).join('')}"`;
 
 /**
  * One channel enum over `row`'s keys. `ownersOf` gives the tools whose query

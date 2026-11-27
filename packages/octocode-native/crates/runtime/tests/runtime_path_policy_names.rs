@@ -331,11 +331,14 @@ async fn credential_directories_are_valid_walk_roots_for_every_discovery_tool() 
 async fn secret_content_is_redacted_in_any_directory() {
     let workspace = Workspace::new();
     let body = format!("export const awsAccessKeyId = \"{AWS_KEY}\";\nexport const marker = 1;\n");
-    let secret = workspace.write("src/secrets/aws.ts", &body);
-    let plain = workspace.write("src/private/aws.ts", &body);
-    let credentials = workspace.write("src/credentials/aws.ts", &body);
+    let paths = [
+        "src/secrets/aws.ts",
+        "src/private/aws.ts",
+        "src/credentials/aws.ts",
+    ]
+    .map(|relative| workspace.write(relative, &body));
     let runtime = runtime(&workspace);
-    for path in [&secret, &plain, &credentials] {
+    for path in &paths {
         let fetched = call(&runtime, "localFetch", json!({"path": path}))
             .await
             .expect("localFetch");

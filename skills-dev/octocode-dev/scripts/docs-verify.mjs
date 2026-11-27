@@ -14,6 +14,7 @@ import { DEFAULT_CONFIG } from '@octocodeai/config';
 import { ROOT } from './lib/workspaces.mjs';
 import { checkVocabulary } from './check-vocabulary.mjs';
 import { gitHasPath, pinnedLinkFailures } from './docs-pinned-links.mjs';
+import { headingSlug } from './lib/heading-slug.mjs';
 
 const REPO_BLOB_PREFIXES = ['octocode', 'octocode-mcp'].map(
   repo => `https://github.com/bgauryy/${repo}/blob/main/`
@@ -111,23 +112,10 @@ function readMarkdownLinks(content) {
   return links;
 }
 
-// GitHub heading anchors: the rendered heading text, lowercased, with
-// everything but letters, marks, numbers, `_`, `-` and spaces removed and
-// spaces turned into `-`; a repeated slug gets `-1`, `-2`, ... HTML
-// `<a id|name>` anchors count too. Fenced code is not a heading.
+// GitHub heading anchors: each heading's slug (lib/heading-slug.mjs); a
+// repeated slug gets `-1`, `-2`, ... HTML `<a id|name>` anchors count too.
+// Fenced code is not a heading.
 const anchorsByFile = new Map();
-
-function headingSlug(heading) {
-  return heading
-    .replace(/\s+#+\s*$/, '')
-    .replace(/!?\[([^\]]*)]\([^)]*\)/g, '$1')
-    .replace(/<[^>]+>/g, '')
-    .replace(/`|\*\*|__/g, '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^\p{L}\p{M}\p{N}\p{Pc} -]/gu, '')
-    .replace(/ /g, '-');
-}
 
 function readAnchors(filePath) {
   if (anchorsByFile.has(filePath)) return anchorsByFile.get(filePath);

@@ -76,7 +76,7 @@ describe('McpInstaller.install', () => {
     expect(info).toHaveBeenLastCalledWith(
       'Octocode MCP server is already configured for Cline.'
     );
-    expect((await readServer(target.path)).env).toEqual({ GH_TOKEN: 'token' });
+    expect((await readServer(target.path)).env).toEqual({ GH_TOKEN: 'token', OCTOCODE_ENABLE_LOCAL: 'true' });
     expect(lines).toContain(`MCP config installed: ${target.path}`);
   });
 
@@ -111,7 +111,7 @@ describe('McpInstaller.syncToken', () => {
     await expect(subject.syncToken('fresh')).rejects.toThrow(
       'Could not update MCP configs for: Lost, Broken'
     );
-    expect((await readServer(shared)).env).toEqual({ GH_TOKEN: 'fresh' });
+    expect((await readServer(shared)).env).toEqual({ GH_TOKEN: 'fresh', OCTOCODE_ENABLE_LOCAL: 'true' });
     expect(lines.filter(line => line.startsWith('Updated token'))).toEqual([
       `Updated token in Cursor config: ${shared}`,
     ]);
@@ -123,7 +123,7 @@ describe('McpInstaller.syncToken', () => {
     const subject = installer({ cline: client('Cline') });
     await subject.install({ name: 'Cline', path: file('Cline'), configKey: 'mcpServers' }, false);
     await subject.syncToken(undefined);
-    expect(await readServer(file('Cline'))).not.toHaveProperty('env');
+    expect((await readServer(file('Cline'))).env).toEqual({ OCTOCODE_ENABLE_LOCAL: 'true' });
   });
 });
 

@@ -94,7 +94,9 @@ test('specialized script results retain every field through bounded source pages
   try {
     mkdirSync(join(dir,'extracts'));writeFileSync(join(dir,'extracts/one.json'),'{}');
     const expected={ok:true,extra:'🧠'.repeat(10000),findings:[{text:'complete'}]};
-    const script=join(dir,'custom.mjs');writeFileSync(script,`export async function run(){return ${JSON.stringify(expected)};}`);
+    // The script reads its result from a data file beside it, so no value is spliced into its code.
+    writeFileSync(join(dir,'expected.json'),JSON.stringify(expected));
+    const script=join(dir,'custom.mjs');writeFileSync(script,"import {readFileSync} from 'node:fs';export async function run(){return JSON.parse(readFileSync(new URL('./expected.json',import.meta.url),'utf8'));}");
     const result=invoke(process.execPath,[join(scripts,'corpus-run.mjs'),'--session-dir',dir,'--script',script]);
     assert(Buffer.byteLength(JSON.stringify(result))<22000);
     assert.deepEqual(JSON.parse(readSource(result.script.result.next.continue).bytes),expected);

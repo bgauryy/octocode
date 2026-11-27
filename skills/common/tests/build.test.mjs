@@ -99,6 +99,14 @@ test('a nested reference selects only its shared guide and its transitive depend
   assert.deepEqual(build({ root, check: true }).stale, ['skills-dev/example/references/protocol-catalog.md']);
 });
 
+test('every architecture view tab has a renderer in the view Map', () => {
+  const html = readFileSync(new URL('../assets/architecture.html', import.meta.url), 'utf8');
+  const tabs = [...html.match(/^const VIEWS = (\[.*\]);$/m)[1].matchAll(/\['([^']+)',/g)].map(match => match[1]);
+  const renderers = [...html.match(/^const DRAW = new Map\((\[.*\])\);$/m)[1].matchAll(/\['([^']+)', draw\w+\]/g)].map(match => match[1]);
+  assert.ok(tabs.length > 1);
+  assert.deepEqual(renderers, tabs);
+});
+
 test('architecture consumers get the canonical graph template without receiving an unused report renderer', t => {
   const root = mkdtempSync(join(tmpdir(), 'skills-graph-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));

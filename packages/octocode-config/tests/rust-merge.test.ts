@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { NATIVE_CRATES, withDispatchRoots } from '../scripts/tool-contract/rust.ts';
 import { queryBranches, toolNames } from '../scripts/tool-contract/rust-dispatch.ts';
-import { mergeDuplicateTypes } from '../scripts/tool-contract/rust-merge.ts';
+import { mergeDuplicateTypes, pathTail } from '../scripts/tool-contract/rust-merge.ts';
 import { nativeIdentifiers } from '../scripts/tool-contract/rust-reach.ts';
 import { contractIr } from './contract-ir.ts';
 
@@ -162,5 +162,22 @@ impl ::std::convert::From<BetaKind> for Either {
     const named = withDispatchRoots(nativeIdentifiers(NATIVE_CRATES), tools);
     const kept = new Set([...named, ...queryBranches(rust, tools).map(({ type }) => type)]);
     expect(mergeDuplicateTypes(rust, kept).rust).toBe(rust);
+  });
+});
+
+describe('the type an impl target names', () => {
+  it('is the last segment of a plain path and nothing for any other target', () => {
+    const cases: Array<[string, string | undefined]> = [
+      ['X', 'X'],
+      [' ToolQuery ', 'ToolQuery'],
+      ['::std::string::String', 'String'],
+      ['a::::b::c', 'c'],
+      ['::X', undefined],
+      ['a::', undefined],
+      ['', undefined],
+      ['std::collections::BTreeMap<K, V>', undefined],
+      [' ::std :: fmt :: Display {', undefined],
+    ];
+    expect(cases.map(([target]) => [target, pathTail(target)])).toEqual(cases);
   });
 });

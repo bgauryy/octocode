@@ -104,6 +104,30 @@ const REFERENCE = /(!?)\[((?:[^[\]\\\n]|\\.)*)\]\[((?:[^[\]\\\n]|\\.)*)\]/g;
 const HTML_LINK = /<(?:a|img|source|link|iframe)\b[^>]*?\s(?:href|src)\s*=\s*(["'])([^"'\n]*)\1/gi;
 const labelKey = (label) => label.trim().replace(/\s+/g, ' ').toLowerCase();
 
+/**
+ * Text with each HTML tag (`<name ...>` or `</name>`, no `<` or `>` inside) removed in one left-to-right pass.
+ * Text that a removal joins into tag-like text stays: `Vec<Option<T>>` reads `Vec<Option>`.
+ */
+function dropTags(text) {
+  let out = '';
+  let kept = 0;
+  let open = text.indexOf('<');
+  while (open !== -1) {
+    let at = text[open + 1] === '/' ? open + 2 : open + 1;
+    if (/[A-Za-z]/.test(text[at] ?? '')) {
+      do at++; while (at < text.length && text[at] !== '<' && text[at] !== '>');
+      if (text[at] === '>') {
+        out += text.slice(kept, open);
+        kept = at + 1;
+        open = text.indexOf('<', kept);
+        continue;
+      }
+    }
+    open = text.indexOf('<', open + 1);
+  }
+  return out + text.slice(kept);
+}
+
 /** Rendered heading text: code spans, links, emphasis, tags and escapes reduced to what a reader sees. */
 export function renderHeading(raw, { code = true } = {}) {
   const spans = [];
@@ -111,11 +135,10 @@ export function renderHeading(raw, { code = true } = {}) {
     spans.push(code ? body.replace(/^ ([\s\S]*) $/, '$1') : '');
     return `${MARK}${spans.length - 1}${MARK}`;
   });
-  text = text
+  text = dropTags(text
     .replace(/!\[((?:[^\]\\]|\\.)*)\]\([^)]*\)/g, '$1')
     .replace(/\[((?:[^\]\\]|\\.)*)\]\([^)]*\)/g, '$1')
-    .replace(/\[((?:[^\]\\]|\\.)*)\]\[[^\]]*\]/g, '$1')
-    .replace(/<\/?[A-Za-z][^<>]*>/g, '');
+    .replace(/\[((?:[^\]\\]|\\.)*)\]\[[^\]]*\]/g, '$1'));
   for (let pass = 0; pass < 2; pass++) text = text.replace(/(^|[^\p{L}\p{N}_])(_{1,3}|\*{1,3})(?=\S)(.*?\S)\2(?![\p{L}\p{N}_])/gu, '$1$3');
   text = text
     .replace(/~~(.*?)~~/g, '$1')

@@ -93,7 +93,7 @@ export function registryResponse(url) {
   if (host === 'pypi.org') return pypi(url);
   if (host === 'crates.io') return crates(url);
   if (host.includes('maven') || host === 'central.sonatype.com') return maven(url);
-  if (host.endsWith('nuget.org')) return nugetRoute(url);
+  if (host === 'nuget.org' || host.endsWith('.nuget.org')) return nugetRoute(url);
   if (host === 'pkg.go.dev' || host === 'proxy.golang.org') return go(url);
   if (host.includes('packagist')) return packagist(url);
   if (host === 'rubygems.org') return rubygems(url);

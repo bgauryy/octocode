@@ -134,7 +134,7 @@ export function readQuery(input: string[], ops: readonly string[]): Reading {
     }
   }
   if (!ops.includes(op)) {
-    const synonym = SYNONYMS[op];
+    const synonym = Object.hasOwn(SYNONYMS, op) ? SYNONYMS[op] : undefined;
     const typo = synonym ? null : nearest(op, ops);
     const as = synonym ?? (typo?.best.length === 1 ? typo.best[0] : null);
     if (as) {
