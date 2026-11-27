@@ -95,10 +95,7 @@ fn classification_key_falls_back_to_config_file_without_leaking() {
     assert_eq!(get_config_value(&out.resolved, "classification.api"), None);
     assert!(!format!("{out:?}").contains("jev-secret-from-file"));
     // Real env still wins over the file fallback.
-    let env = BTreeMap::from([(
-        "OCTOCODE_TYPESAFE_KEY".into(),
-        "jev-secret-from-env".into(),
-    )]);
+    let env = BTreeMap::from([("OCTOCODE_TYPESAFE_KEY".into(), "jev-secret-from-env".into())]);
     let mixed = resolve_config(&input(env, Some(file)));
     assert_eq!(
         mixed.env_value("OCTOCODE_TYPESAFE_KEY"),

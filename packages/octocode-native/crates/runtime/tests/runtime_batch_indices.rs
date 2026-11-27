@@ -87,10 +87,7 @@ async fn clasify_isolates_invalid_rows_before_capturing_admitted_sources() {
     let runtime = workspace.runtime(&[
         ("OCTOCODE_BETA", "true".into()),
         ("OCTOCODE_TYPESAFE_KEY", "test-key".into()),
-        (
-            "OCTOCODE_TYPESAFE_HOST",
-            "http://127.0.0.1:1".into(),
-        ),
+        ("OCTOCODE_TYPESAFE_HOST", "http://127.0.0.1:1".into()),
     ]);
     let output = runtime
         .run(

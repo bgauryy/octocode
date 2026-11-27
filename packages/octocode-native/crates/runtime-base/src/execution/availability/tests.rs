@@ -34,10 +34,7 @@ fn cli_catalog_ignores_mcp_settings_and_follows_only_the_classification_key() {
         assert_eq!(clasify.env_vars(), ["OCTOCODE_TYPESAFE_KEY"]);
     }
     let keyed = availability(
-        &[
-            ("OCTOCODE_TYPESAFE_KEY", "k"),
-            ("DISABLE_TOOLS", "clasify"),
-        ],
+        &[("OCTOCODE_TYPESAFE_KEY", "k"), ("DISABLE_TOOLS", "clasify")],
         RuntimeSurface::Cli,
     );
     for id in ToolId::ALL {
@@ -205,18 +202,12 @@ fn clone_is_unavailable_under_memory_storage_on_every_surface() {
 #[test]
 fn a_blank_classification_key_opts_out() {
     let blank = availability(
-        &[
-            ("OCTOCODE_BETA", "true"),
-            ("OCTOCODE_TYPESAFE_KEY", "  "),
-        ],
+        &[("OCTOCODE_BETA", "true"), ("OCTOCODE_TYPESAFE_KEY", "  ")],
         RuntimeSurface::Mcp,
     );
     assert!(!blank.is_available("clasify"));
     let set = availability(
-        &[
-            ("OCTOCODE_BETA", "false"),
-            ("OCTOCODE_TYPESAFE_KEY", "k"),
-        ],
+        &[("OCTOCODE_BETA", "false"), ("OCTOCODE_TYPESAFE_KEY", "k")],
         RuntimeSurface::Mcp,
     );
     assert!(set.is_available("clasify"));

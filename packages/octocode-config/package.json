@@ -6,7 +6,7 @@
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
-    "@octocodeai/octocode-core": "21.3.0"
+    "@octocodeai/octocode-core": "21.4.1"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
